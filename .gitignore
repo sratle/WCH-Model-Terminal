@@ -50,6 +50,10 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+docs/CH32H417EVT/
+docs/CH32V103EVT/
+docs/CH32V307EVT/
+docs/CH585EVT/
 
 # debug information files
 *.dwo
