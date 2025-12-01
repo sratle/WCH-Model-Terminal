@@ -62,7 +62,7 @@
 ## 技术栈
 
 - **主控**: CH32V307VCT6 (RISC-V, 128K RAM, 192K Flash)
-- **显示**: CH32H417 (LTDC) + LVGL 8.x
+- **显示**: CH32H417 (LTDC) + LVGL 9.x
 - **配件**: CH32V103 (裸机)
 - **OS**: FreeRTOS (核心/显示模块)
 - **通信**: UART (115200/460800bps, CRC16校验)
