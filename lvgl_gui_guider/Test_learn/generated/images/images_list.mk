@@ -1,0 +1,1 @@
+GEN_CSRCS += _logo_RGB888_120x30_RLE.c _folder_RGB888_64x64_RLE.c _edit_RGB888_64x64_RLE.c _music_RGB888_64x64_RLE.c _backend_RGB888_64x64_RLE.c _palette_RGB888_64x64_RLE.c _end_RGB888_64x64_RLE.c _wlan_RGB888_64x64_RLE.c _image_RGB888_64x64_RLE.c
