@@ -906,8 +906,7 @@
 							"shadow_ofs_x": 0,
 							"shadow_ofs_y": 0
 						}
-					],
-					"layerName": "Game2048"
+					]
 				},
 				{
 					"name": "label_best",

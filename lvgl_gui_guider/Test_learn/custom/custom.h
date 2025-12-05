@@ -26,7 +26,9 @@ typedef enum
 
 void custom_init(lv_ui *ui);
 
-void new_game(lv_ui *ui);
+void init_game2048(lv_ui *ui);
+
+void new_game2048(lv_ui *ui);
 
 void movement_check(lv_ui *ui, gg_2048_move_direction direction);
 

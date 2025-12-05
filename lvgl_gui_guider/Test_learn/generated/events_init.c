@@ -17,7 +17,7 @@
 
 #include "custom.h"
 
-static void main_btn_1_event_handler (lv_event_t *e)
+static void main_btn_music_event_handler (lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
     switch (code) {
@@ -31,9 +31,25 @@ static void main_btn_1_event_handler (lv_event_t *e)
     }
 }
 
+static void main_btn_play_event_handler (lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    switch (code) {
+    case LV_EVENT_CLICKED:
+    {
+        ui_load_scr_animation(&guider_ui, &guider_ui.game2048, guider_ui.game2048_del, &guider_ui.main_del, setup_scr_game2048, LV_SCR_LOAD_ANIM_OVER_LEFT, 200, 200, true, true);
+        init_game2048(&guider_ui);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 void events_init_main (lv_ui *ui)
 {
-    lv_obj_add_event_cb(ui->main_btn_1, main_btn_1_event_handler, LV_EVENT_ALL, ui);
+    lv_obj_add_event_cb(ui->main_btn_music, main_btn_music_event_handler, LV_EVENT_ALL, ui);
+    lv_obj_add_event_cb(ui->main_btn_play, main_btn_play_event_handler, LV_EVENT_ALL, ui);
 }
 
 static void game2048_event_handler (lv_event_t *e)
@@ -98,7 +114,7 @@ static void game2048_btn_new_game_event_handler (lv_event_t *e)
     switch (code) {
     case LV_EVENT_CLICKED:
     {
-        new_game(&guider_ui);
+        new_game2048(&guider_ui);
         break;
     }
     default:
@@ -148,6 +164,20 @@ static void game2048_btn_right_event_handler (lv_event_t *e)
     }
 }
 
+static void game2048_btn_back_event_handler (lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    switch (code) {
+    case LV_EVENT_CLICKED:
+    {
+        ui_load_scr_animation(&guider_ui, &guider_ui.main, guider_ui.main_del, &guider_ui.game2048_del, setup_scr_main, LV_SCR_LOAD_ANIM_OVER_RIGHT, 200, 200, true, true);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 static void game2048_btn_again_event_handler (lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
@@ -155,7 +185,7 @@ static void game2048_btn_again_event_handler (lv_event_t *e)
     case LV_EVENT_CLICKED:
     {
         lv_obj_add_flag(guider_ui.game2048_cont_msgbox, LV_OBJ_FLAG_HIDDEN);
-        new_game(&guider_ui);
+        new_game2048(&guider_ui);
         break;
     }
     default:
@@ -171,6 +201,7 @@ void events_init_game2048 (lv_ui *ui)
     lv_obj_add_event_cb(ui->game2048_btn_left, game2048_btn_left_event_handler, LV_EVENT_ALL, ui);
     lv_obj_add_event_cb(ui->game2048_btn_down, game2048_btn_down_event_handler, LV_EVENT_ALL, ui);
     lv_obj_add_event_cb(ui->game2048_btn_right, game2048_btn_right_event_handler, LV_EVENT_ALL, ui);
+    lv_obj_add_event_cb(ui->game2048_btn_back, game2048_btn_back_event_handler, LV_EVENT_ALL, ui);
     lv_obj_add_event_cb(ui->game2048_btn_again, game2048_btn_again_event_handler, LV_EVENT_ALL, ui);
 }
 

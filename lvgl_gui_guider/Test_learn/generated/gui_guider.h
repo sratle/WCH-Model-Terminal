@@ -39,24 +39,26 @@ typedef struct
 	lv_obj_t *main_digital_clock_1;
 	lv_obj_t *main_img_1;
 	lv_obj_t *main_qrcode_1;
-	lv_obj_t *main_imgbtn_1;
-	lv_obj_t *main_imgbtn_1_label;
-	lv_obj_t *main_imgbtn_2;
-	lv_obj_t *main_imgbtn_2_label;
-	lv_obj_t *main_imgbtn_3;
-	lv_obj_t *main_imgbtn_3_label;
-	lv_obj_t *main_btn_backend;
-	lv_obj_t *main_btn_backend_label;
-	lv_obj_t *main_imgbtn_5;
-	lv_obj_t *main_imgbtn_5_label;
-	lv_obj_t *main_imgbtn_6;
-	lv_obj_t *main_imgbtn_6_label;
-	lv_obj_t *main_imgbtn_8;
-	lv_obj_t *main_imgbtn_8_label;
-	lv_obj_t *main_imgbtn_7;
-	lv_obj_t *main_imgbtn_7_label;
-	lv_obj_t *main_btn_1;
-	lv_obj_t *main_btn_1_label;
+	lv_obj_t *main_btn_music;
+	lv_obj_t *main_btn_music_label;
+	lv_obj_t *main_btn_dic;
+	lv_obj_t *main_btn_dic_label;
+	lv_obj_t *main_btn_wifi;
+	lv_obj_t *main_btn_wifi_label;
+	lv_obj_t *main_btn_charge;
+	lv_obj_t *main_btn_charge_label;
+	lv_obj_t *main_btn_img;
+	lv_obj_t *main_btn_img_label;
+	lv_obj_t *main_btn_ble;
+	lv_obj_t *main_btn_ble_label;
+	lv_obj_t *main_btn_power;
+	lv_obj_t *main_btn_power_label;
+	lv_obj_t *main_btn_usb;
+	lv_obj_t *main_btn_usb_label;
+	lv_obj_t *main_btn_edit;
+	lv_obj_t *main_btn_edit_label;
+	lv_obj_t *main_btn_play;
+	lv_obj_t *main_btn_play_label;
 	lv_obj_t *main_tabview_1;
 	lv_obj_t *main_tabview_1_tab_1;
 	lv_obj_t *main_tabview_1_tab_2;
@@ -73,9 +75,9 @@ typedef struct
 	lv_obj_t *main_label_5;
 	lv_obj_t *game2048;
 	bool game2048_del;
-	lv_obj_t *game2048_label_2049;
+	lv_obj_t *game2048_label_score_title;
 	lv_obj_t *game2048_label_best_title;
-	lv_obj_t *game2048_label_2;
+	lv_obj_t *game2048_label_score;
 	lv_obj_t *game2048_label_best;
 	lv_obj_t *game2048_label_2048;
 	lv_obj_t *game2048_btnm_2048;
@@ -89,12 +91,14 @@ typedef struct
 	lv_obj_t *game2048_btn_down_label;
 	lv_obj_t *game2048_btn_right;
 	lv_obj_t *game2048_btn_right_label;
+	lv_obj_t *game2048_btn_back;
+	lv_obj_t *game2048_btn_back_label;
 	lv_obj_t *game2048_cont_msgbox;
 	lv_obj_t *game2048_btn_again;
 	lv_obj_t *game2048_btn_again_label;
-	lv_obj_t *game2048_label_2052;
-	lv_obj_t *game2048_label_2050;
-	lv_obj_t *game2048_label_2051;
+	lv_obj_t *game2048_label_results_title;
+	lv_obj_t *game2048_label_results;
+	lv_obj_t *game2048_label_warning;
 }lv_ui;
 
 typedef void (*ui_setup_scr_t)(lv_ui * ui);
@@ -124,25 +128,19 @@ extern lv_ui guider_ui;
 
 void setup_scr_main(lv_ui *ui);
 void setup_scr_game2048(lv_ui *ui);
-LV_IMAGE_DECLARE(_logo_RGB888_120x30_RLE);
-LV_IMAGE_DECLARE(_folder_RGB888_64x64_RLE);
-LV_IMAGE_DECLARE(_edit_RGB888_64x64_RLE);
-LV_IMAGE_DECLARE(_music_RGB888_64x64_RLE);
-LV_IMAGE_DECLARE(_backend_RGB888_64x64_RLE);
-LV_IMAGE_DECLARE(_palette_RGB888_64x64_RLE);
-LV_IMAGE_DECLARE(_end_RGB888_64x64_RLE);
-LV_IMAGE_DECLARE(_wlan_RGB888_64x64_RLE);
-LV_IMAGE_DECLARE(_image_RGB888_64x64_RLE);
+LV_IMAGE_DECLARE(_logo_RGB565A8_120x30_RLE);
 
-LV_FONT_DECLARE(lv_font_Alatsi_Regular_12)
-LV_FONT_DECLARE(lv_font_montserratMedium_12)
-LV_FONT_DECLARE(lv_font_Alatsi_Regular_14)
-LV_FONT_DECLARE(lv_font_Alatsi_Regular_20)
-LV_FONT_DECLARE(lv_font_montserratMedium_58)
-LV_FONT_DECLARE(lv_font_montserratMedium_16)
+LV_FONT_DECLARE(lv_font_Alatsi_Regular_24)
+LV_FONT_DECLARE(lv_font_montserratMedium_26)
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_33)
+LV_FONT_DECLARE(lv_font_Alatsi_Regular_20)
+LV_FONT_DECLARE(lv_font_montserratMedium_32)
+LV_FONT_DECLARE(lv_font_montserratMedium_12)
+LV_FONT_DECLARE(lv_font_montserratMedium_16)
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_36)
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_100)
+LV_FONT_DECLARE(lv_font_montserratMedium_58)
+LV_FONT_DECLARE(lv_font_montserratMedium_33)
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_43)
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_66)
 
