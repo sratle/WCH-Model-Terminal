@@ -59,10 +59,23 @@ typedef struct
 	lv_obj_t *main_btn_edit_label;
 	lv_obj_t *main_btn_play;
 	lv_obj_t *main_btn_play_label;
-	lv_obj_t *main_tabview_1;
-	lv_obj_t *main_tabview_1_tab_1;
-	lv_obj_t *main_tabview_1_tab_2;
-	lv_obj_t *main_tabview_1_tab_3;
+	lv_obj_t *main_label_music;
+	lv_obj_t *main_label_images;
+	lv_obj_t *main_label_poweroff;
+	lv_obj_t *main_label_wifi;
+	lv_obj_t *main_label_bt;
+	lv_obj_t *main_label_power;
+	lv_obj_t *main_label_2048;
+	lv_obj_t *main_label_usb;
+	lv_obj_t *main_label_editor;
+	lv_obj_t *main_label_file;
+	lv_obj_t *main_btn_tetris;
+	lv_obj_t *main_btn_tetris_label;
+	lv_obj_t *main_label_tetris;
+	lv_obj_t *main_tabview_models;
+	lv_obj_t *main_tabview_models_tab_1;
+	lv_obj_t *main_tabview_models_tab_2;
+	lv_obj_t *main_tabview_models_tab_3;
 	lv_obj_t *main_sw_1;
 	lv_obj_t *main_sw_2;
 	lv_obj_t *main_slider_1;
@@ -99,6 +112,37 @@ typedef struct
 	lv_obj_t *game2048_label_results_title;
 	lv_obj_t *game2048_label_results;
 	lv_obj_t *game2048_label_warning;
+	lv_obj_t *gameTetris;
+	bool gameTetris_del;
+	lv_obj_t *gameTetris_btnm_tetris;
+	lv_obj_t *gameTetris_btnm_next;
+	lv_obj_t *gameTetris_label_title;
+	lv_obj_t *gameTetris_label_next;
+	lv_obj_t *gameTetris_label_score_title;
+	lv_obj_t *gameTetris_label_best_title;
+	lv_obj_t *gameTetris_label_score;
+	lv_obj_t *gameTetris_label_best_score;
+	lv_obj_t *gameTetris_btn_right;
+	lv_obj_t *gameTetris_btn_right_label;
+	lv_obj_t *gameTetris_btn_left;
+	lv_obj_t *gameTetris_btn_left_label;
+	lv_obj_t *gameTetris_btn_down;
+	lv_obj_t *gameTetris_btn_down_label;
+	lv_obj_t *gameTetris_btn_up;
+	lv_obj_t *gameTetris_btn_up_label;
+	lv_obj_t *gameTetris_label_stage_title;
+	lv_obj_t *gameTetris_bar_stage;
+	lv_obj_t *gameTetris_label_stage;
+	lv_obj_t *gameTetris_btn_start;
+	lv_obj_t *gameTetris_btn_start_label;
+	lv_obj_t *gameTetris_btn_back;
+	lv_obj_t *gameTetris_btn_back_label;
+	lv_obj_t *gameTetris_cont_msgbox;
+	lv_obj_t *gameTetris_btn_again;
+	lv_obj_t *gameTetris_btn_again_label;
+	lv_obj_t *gameTetris_label_result_text;
+	lv_obj_t *gameTetris_label_result_score;
+	lv_obj_t *gameTetris_label_result_title;
 }lv_ui;
 
 typedef void (*ui_setup_scr_t)(lv_ui * ui);
@@ -128,6 +172,7 @@ extern lv_ui guider_ui;
 
 void setup_scr_main(lv_ui *ui);
 void setup_scr_game2048(lv_ui *ui);
+void setup_scr_gameTetris(lv_ui *ui);
 LV_IMAGE_DECLARE(_logo_RGB565A8_120x30_RLE);
 
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_24)
@@ -135,14 +180,18 @@ LV_FONT_DECLARE(lv_font_montserratMedium_26)
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_33)
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_20)
 LV_FONT_DECLARE(lv_font_montserratMedium_32)
-LV_FONT_DECLARE(lv_font_montserratMedium_12)
 LV_FONT_DECLARE(lv_font_montserratMedium_16)
+LV_FONT_DECLARE(lv_font_montserratMedium_12)
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_36)
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_100)
 LV_FONT_DECLARE(lv_font_montserratMedium_58)
 LV_FONT_DECLARE(lv_font_montserratMedium_33)
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_43)
 LV_FONT_DECLARE(lv_font_Alatsi_Regular_66)
+LV_FONT_DECLARE(lv_font_Alatsi_Regular_64)
+LV_FONT_DECLARE(lv_font_Alatsi_Regular_32)
+LV_FONT_DECLARE(lv_font_Alatsi_Regular_44)
+LV_FONT_DECLARE(lv_font_Alatsi_Regular_30)
 
 
 #ifdef __cplusplus

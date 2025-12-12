@@ -74,6 +74,7 @@ void init_scr_del_flag(lv_ui *ui)
 
     ui->main_del = true;
     ui->game2048_del = true;
+    ui->gameTetris_del = true;
 }
 
 void setup_bottom_layer(void)

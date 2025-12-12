@@ -46,10 +46,26 @@ static void main_btn_play_event_handler (lv_event_t *e)
     }
 }
 
+static void main_btn_tetris_event_handler (lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    switch (code) {
+    case LV_EVENT_CLICKED:
+    {
+        ui_load_scr_animation(&guider_ui, &guider_ui.gameTetris, guider_ui.gameTetris_del, &guider_ui.main_del, setup_scr_gameTetris, LV_SCR_LOAD_ANIM_OVER_LEFT, 200, 200, false, true);
+        init_gameTetris(&guider_ui);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 void events_init_main (lv_ui *ui)
 {
     lv_obj_add_event_cb(ui->main_btn_music, main_btn_music_event_handler, LV_EVENT_ALL, ui);
     lv_obj_add_event_cb(ui->main_btn_play, main_btn_play_event_handler, LV_EVENT_ALL, ui);
+    lv_obj_add_event_cb(ui->main_btn_tetris, main_btn_tetris_event_handler, LV_EVENT_ALL, ui);
 }
 
 static void game2048_event_handler (lv_event_t *e)
@@ -63,25 +79,25 @@ static void game2048_event_handler (lv_event_t *e)
         case LV_DIR_LEFT:
         {
             lv_indev_wait_release(lv_indev_active());
-            movement_check(&guider_ui,GG_2048_MOVE_LEFT);
+            check_game2048(&guider_ui,GG_2048_MOVE_LEFT);
             break;
         }
         case LV_DIR_RIGHT:
         {
             lv_indev_wait_release(lv_indev_active());
-            movement_check(&guider_ui, GG_2048_MOVE_RIGHT);
+            check_game2048(&guider_ui, GG_2048_MOVE_RIGHT);
             break;
         }
         case LV_DIR_TOP:
         {
             lv_indev_wait_release(lv_indev_active());
-            movement_check(&guider_ui,GG_2048_MOVE_UP);
+            check_game2048(&guider_ui,GG_2048_MOVE_UP);
             break;
         }
         case LV_DIR_BOTTOM:
         {
             lv_indev_wait_release(lv_indev_active());
-            movement_check(&guider_ui,GG_2048_MOVE_DOWN);
+            check_game2048(&guider_ui,GG_2048_MOVE_DOWN);
             break;
         }
         default:
@@ -100,7 +116,7 @@ static void game2048_btn_up_event_handler (lv_event_t *e)
     switch (code) {
     case LV_EVENT_CLICKED:
     {
-        movement_check(&guider_ui, GG_2048_MOVE_UP);
+        check_game2048(&guider_ui, GG_2048_MOVE_UP);
         break;
     }
     default:
@@ -128,7 +144,7 @@ static void game2048_btn_left_event_handler (lv_event_t *e)
     switch (code) {
     case LV_EVENT_CLICKED:
     {
-        movement_check(&guider_ui, GG_2048_MOVE_LEFT);
+        check_game2048(&guider_ui, GG_2048_MOVE_LEFT);
         break;
     }
     default:
@@ -142,7 +158,7 @@ static void game2048_btn_down_event_handler (lv_event_t *e)
     switch (code) {
     case LV_EVENT_CLICKED:
     {
-        movement_check(&guider_ui, GG_2048_MOVE_DOWN);
+        check_game2048(&guider_ui, GG_2048_MOVE_DOWN);
         break;
     }
     default:
@@ -156,7 +172,7 @@ static void game2048_btn_right_event_handler (lv_event_t *e)
     switch (code) {
     case LV_EVENT_CLICKED:
     {
-        movement_check(&guider_ui, GG_2048_MOVE_RIGHT);
+        check_game2048(&guider_ui, GG_2048_MOVE_RIGHT);
         break;
     }
     default:
@@ -203,6 +219,116 @@ void events_init_game2048 (lv_ui *ui)
     lv_obj_add_event_cb(ui->game2048_btn_right, game2048_btn_right_event_handler, LV_EVENT_ALL, ui);
     lv_obj_add_event_cb(ui->game2048_btn_back, game2048_btn_back_event_handler, LV_EVENT_ALL, ui);
     lv_obj_add_event_cb(ui->game2048_btn_again, game2048_btn_again_event_handler, LV_EVENT_ALL, ui);
+}
+
+static void gameTetris_btn_right_event_handler (lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    switch (code) {
+    case LV_EVENT_CLICKED:
+    {
+        check_gameTetris(&guider_ui,TETRIS_MOVE_RIGHT);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static void gameTetris_btn_left_event_handler (lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    switch (code) {
+    case LV_EVENT_CLICKED:
+    {
+        check_gameTetris(&guider_ui,TETRIS_MOVE_LEFT);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static void gameTetris_btn_down_event_handler (lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    switch (code) {
+    case LV_EVENT_CLICKED:
+    {
+        check_gameTetris(&guider_ui,TETRIS_MOVE_DOWN);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static void gameTetris_btn_up_event_handler (lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    switch (code) {
+    case LV_EVENT_CLICKED:
+    {
+        check_gameTetris(&guider_ui,TETRIS_MOVE_UP);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static void gameTetris_btn_start_event_handler (lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    switch (code) {
+    case LV_EVENT_CLICKED:
+    {
+        new_gameTetris(&guider_ui);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static void gameTetris_btn_back_event_handler (lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    switch (code) {
+    case LV_EVENT_CLICKED:
+    {
+        ui_load_scr_animation(&guider_ui, &guider_ui.main, guider_ui.main_del, &guider_ui.gameTetris_del, setup_scr_main, LV_SCR_LOAD_ANIM_OVER_RIGHT, 200, 200, false, true);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static void gameTetris_btn_again_event_handler (lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    switch (code) {
+    case LV_EVENT_CLICKED:
+    {
+        new_gameTetris(&guider_ui);
+        lv_obj_add_flag(guider_ui.gameTetris_cont_msgbox, LV_OBJ_FLAG_HIDDEN);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void events_init_gameTetris (lv_ui *ui)
+{
+    lv_obj_add_event_cb(ui->gameTetris_btn_right, gameTetris_btn_right_event_handler, LV_EVENT_ALL, ui);
+    lv_obj_add_event_cb(ui->gameTetris_btn_left, gameTetris_btn_left_event_handler, LV_EVENT_ALL, ui);
+    lv_obj_add_event_cb(ui->gameTetris_btn_down, gameTetris_btn_down_event_handler, LV_EVENT_ALL, ui);
+    lv_obj_add_event_cb(ui->gameTetris_btn_up, gameTetris_btn_up_event_handler, LV_EVENT_ALL, ui);
+    lv_obj_add_event_cb(ui->gameTetris_btn_start, gameTetris_btn_start_event_handler, LV_EVENT_ALL, ui);
+    lv_obj_add_event_cb(ui->gameTetris_btn_back, gameTetris_btn_back_event_handler, LV_EVENT_ALL, ui);
+    lv_obj_add_event_cb(ui->gameTetris_btn_again, gameTetris_btn_again_event_handler, LV_EVENT_ALL, ui);
 }
 
 

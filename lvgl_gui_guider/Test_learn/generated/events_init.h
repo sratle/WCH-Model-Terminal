@@ -20,6 +20,7 @@ void events_init(lv_ui *ui);
 
 void events_init_main(lv_ui *ui);
 void events_init_game2048(lv_ui *ui);
+void events_init_gameTetris(lv_ui *ui);
 
 #ifdef __cplusplus
 }
