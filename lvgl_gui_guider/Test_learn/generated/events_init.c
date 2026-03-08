@@ -311,7 +311,6 @@ static void gameTetris_btn_again_event_handler (lv_event_t *e)
     switch (code) {
     case LV_EVENT_CLICKED:
     {
-        new_gameTetris(&guider_ui);
         lv_obj_add_flag(guider_ui.gameTetris_cont_msgbox, LV_OBJ_FLAG_HIDDEN);
         break;
     }

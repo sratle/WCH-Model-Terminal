@@ -16,6 +16,8 @@
 
 #include "lvgl.h"
 #include "custom.h"
+#include "game2048.h"
+#include "gameTetris.h"
 
 /**********************
  *  FUNCTIONS
