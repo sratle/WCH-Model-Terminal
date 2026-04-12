@@ -1,1 +1,0 @@
-GEN_CSRCS += _logo_RGB565A8_120x30_RLE.c
