@@ -21,7 +21,7 @@
 
 ```
 ┌─────────────────────────────────────────────────┐
-│          核心底板 (CH32V307 + FreeRTOS)          │
+│          核心底板 (CH32H417)                     │
 │  ├─ CommHub: UART总线仲裁                        │
 │  ├─ DisplayProxy: UI指令打包                     │
 │  ├─ AccessoryMgr: 配件枚举                       │
@@ -37,19 +37,23 @@
 ## 模块组成
 
 ### [main-model](main-model/) - 核心底板
-- **core-model**: CH32V307主控，FreeRTOS操作系统
+
+- **core-model**: CH32H417主控
 - **wireless-model**: CH585蓝牙/WiFi模块
 
 ### [display-models](display-models/) - 显示模块
+
 - **lcd-model**: 7寸TFT屏（800×480，CH32H417 + LTDC）
 - **epd-model**: 7寸墨水屏（低功耗，SPI驱动）
 
 ### [keyboard-models](keyboard-models/) - 键盘模块
+
 - **keyboard-model**: 40%标准配列键盘
 - **joycon-model**: 游戏手柄布局
 - **piano-model**: 电子琴布局
 
 ### [extension-models](extension-models/) - 配件模块
+
 - **fingerprint-model**: 指纹识别（本地匹配）
 - **knob-model**: 旋钮模块（音量/参数调节）
 - **health-model**: 健康监测（心率/血氧/温湿度）
@@ -61,12 +65,11 @@
 
 ## 技术栈
 
-- **主控**: CH32V307VCT6 (RISC-V, 128K RAM, 192K Flash)
-- **显示**: CH32H417 (LTDC) + LVGL 9.x
-- **配件**: CH32V103 (裸机)
-- **OS**: FreeRTOS (核心/显示模块)
+- **主控**: CH32H417QEU6
+- **显示**: CH32H417+SSD1963 + LVGL 9.x
+- **配件**: CH32V103
 - **通信**: UART (115200/460800bps, CRC16校验)
-- **文件**: CH378 (FAT32/exFAT)
+- **文件**: CH378 (FAT32)
 - **音频**: CS43131 DAC
 
 ## 快速开始
