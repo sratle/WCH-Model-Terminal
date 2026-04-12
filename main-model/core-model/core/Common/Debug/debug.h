@@ -24,18 +24,11 @@
 #define DEBUG_UART1    1
 #define DEBUG_UART8    2
 #define DEBUG_UART6    3
+#define DEBUG_UART2    4
 
 /* DEBUG UATR Definition */
 #ifndef DEBUG
-
-#ifdef Core_V3F
-#define DEBUG   DEBUG_UART1
-
-#elif defined(Core_V5F)
-#define DEBUG   DEBUG_UART8
-
-#endif
-
+#define DEBUG   DEBUG_UART2
 #endif
 
 /* Run Core Definition */

@@ -57,7 +57,8 @@ docs/CH32V103EVT/
 docs/CH32V307EVT/
 docs/CH585EVT/
 
-lvgl_gui_guider/
+**/ld/
+**/obj/
 
 # debug information files
 *.dwo

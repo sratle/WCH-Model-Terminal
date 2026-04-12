@@ -150,6 +150,16 @@ void USART_Printf_Init(uint32_t baudrate)
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
     GPIO_Init(GPIOB, &GPIO_InitStructure);
 
+#elif(DEBUG == DEBUG_UART2)
+    RCC_HB2PeriphClockCmd(RCC_HB2Periph_AFIO | RCC_HB2Periph_GPIOA, ENABLE);
+    RCC_HB1PeriphClockCmd(RCC_HB1Periph_USART2, ENABLE);
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource2, GPIO_AF7);
+
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_Init(GPIOA, &GPIO_InitStructure);
+
 #endif
 
     USART_InitStructure.USART_BaudRate = baudrate;
@@ -170,6 +180,10 @@ void USART_Printf_Init(uint32_t baudrate)
 #elif(DEBUG == DEBUG_UART6)
     USART_Init(USART6, &USART_InitStructure);
     USART_Cmd(USART6, ENABLE);
+
+#elif(DEBUG == DEBUG_UART2)
+    USART_Init(USART2, &USART_InitStructure);
+    USART_Cmd(USART2, ENABLE);
 
 #endif
 }
@@ -199,6 +213,9 @@ __attribute__((used)) int _write(int fd, char *buf, int size)
 #elif(DEBUG == DEBUG_UART6)
         while(USART_GetFlagStatus(USART6, USART_FLAG_TC) == RESET);
         USART_SendData(USART6, *buf++);
+#elif(DEBUG == DEBUG_UART2)
+        while(USART_GetFlagStatus(USART2, USART_FLAG_TC) == RESET);
+        USART_SendData(USART2, *buf++);
 #endif
     }
 
