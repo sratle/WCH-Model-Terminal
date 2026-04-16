@@ -10,7 +10,15 @@
  * microcontroller manufactured by Nanjing Qinheng Microelectronics.
  *******************************************************************************/
 #include "hardware.h"
+
 #include "CS43131/cs43131.h"
+#include "SubModels/submodels.h"
+#include "Power/power.h"
+#include "Keyboard/keyboard.h"
+#include "Display/display.h"
+#include "CH9329/ch9329.h"
+#include "CH378/ch378.h"
+#include "CH585F/ch585f.h"
 #include "Key/key.h"
 
 /*********************************************************************

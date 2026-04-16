@@ -1,6 +1,7 @@
 #ifndef __KEY_H__
 #define __KEY_H__
 
+#include "ch32h417.h"
 #include "debug.h"
 
 #define KEY_PLUS    1

@@ -27,7 +27,7 @@
 #define CS43131_OE_GPIO_PORT    GPIOB
 #define CS43131_OE_PIN          GPIO_Pin_4
 
-/* I2S GPIO definitions */
+/* I2S GPIO definitions I2S1 */
 #define I2S_WS_GPIO_PORT        GPIOB
 #define I2S_WS_PIN              GPIO_Pin_12
 #define I2S_WS_AF               GPIO_AF5
