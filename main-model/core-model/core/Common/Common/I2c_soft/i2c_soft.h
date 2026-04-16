@@ -7,8 +7,8 @@
  *********************************************************************************
  * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
  *******************************************************************************/
-#ifndef __I2C_SOFT_H
-#define __I2C_SOFT_H
+#ifndef __I2C_SOFT_H__
+#define __I2C_SOFT_H__
 
 #ifdef __cplusplus
  extern "C" {
@@ -18,10 +18,10 @@
 #include "ch32h417_gpio.h"
 
 /* Software I2C port configuration */
-#define SOFT_I2C_SCL_PORT   GPIOB
-#define SOFT_I2C_SCL_PIN    GPIO_Pin_6
-#define SOFT_I2C_SDA_PORT   GPIOB
-#define SOFT_I2C_SDA_PIN    GPIO_Pin_7
+#define SOFT_I2C_SCL_PORT   GPIOC
+#define SOFT_I2C_SCL_PIN    GPIO_Pin_0
+#define SOFT_I2C_SDA_PORT   GPIOC
+#define SOFT_I2C_SDA_PIN    GPIO_Pin_1
 
 void SoftI2C_Init(void);
 void SoftI2C_Start(void);

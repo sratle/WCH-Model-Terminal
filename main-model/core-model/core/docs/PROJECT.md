@@ -53,7 +53,7 @@ core/
 │   │   └── hardware.h              # 全局调度头文件
 │   ├── Core/                       # RISC-V 内核相关文件
 │   ├── Debug/                      # 调试支持文件
-│   ├── Peripheral/                 # 芯片外设库（标准库 / HAL）
+│   ├── Peripheral/                 # 芯片外设库
 │   └── Startup/                    # 启动文件
 │
 ├── V3F/                            # V3F 核心工程

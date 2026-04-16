@@ -12,6 +12,7 @@
 #include "ch32h417_dma.h"
 #include "ch32h417_spi.h"
 #include "ch32h417_rcc.h"
+#include "debug.h"
 
 static uint16_t audio_buffer_A[AUDIO_BUFFER_SIZE];
 static uint16_t audio_buffer_B[AUDIO_BUFFER_SIZE];
@@ -57,9 +58,9 @@ void CS43131_I2C_Config(void)
     printf("CS43131_I2C_Config\r\n");
 
     /* RST low -> high, delay 10ms */
-    GPIO_ResetBits(GPIOB, GPIO_Pin_8);
+    GPIO_ResetBits(CS43131_RST_GPIO_PORT, CS43131_RST_PIN);
     Delay_Ms(1);
-    GPIO_SetBits(GPIOB, GPIO_Pin_8);
+    GPIO_SetBits(CS43131_RST_GPIO_PORT, CS43131_RST_PIN);
     Delay_Ms(50);
 
     printf("CS43131_I2C_Config: RST low -> high, delay 10ms\r\n");
@@ -180,9 +181,10 @@ void CS43131_I2C_Config(void)
 }
 
 /**
- * warn!!!验证板使用I2S2,I2C1，正式板使用I2S1,I2C2
- * 验证板PB3-CK,PA15-WS,PB5-SDO,PB9-OE,PB8-RST,PB6-SCL,PB7-SDA
- * 正式板PB12-WS,PB13-CK,PB15-SDO,PB9-OE,PB8-RST,PC0-SCL,PC1-SDA
+ * 正式板使用I2S1,I2C2
+ * 正式板PB12-WS,PB13-CK,PB15-SDO
+ * PB4-OE,PB3-RST
+ * PC0-SCL,PC1-SDA
  * CS43131 I2S
  */
 void CS43131_init(void)
@@ -196,35 +198,35 @@ void CS43131_init(void)
     RCC_HB2PeriphClockCmd(RCC_HB2Periph_GPIOA | RCC_HB2Periph_GPIOB | RCC_HB2Periph_AFIO, ENABLE);
     RCC_HB1PeriphClockCmd(RCC_HB1Periph_SPI2, ENABLE);
 
-    /* I2S2 GPIO: PB3-CK(AF6), PA15-WS(AF6), PB5-SDO(AF7) */
-    GPIO_PinAFConfig(GPIOB, GPIO_PinSource3, GPIO_AF6);
-    GPIO_PinAFConfig(GPIOA, GPIO_PinSource15, GPIO_AF6);
-    GPIO_PinAFConfig(GPIOB, GPIO_PinSource5, GPIO_AF7);
+    /* I2S1 GPIO: PB12-WS(AF5), PB13-CK(AF5), PB15-SDO(AF5) */
+    GPIO_PinAFConfig(I2S_WS_GPIO_PORT, GPIO_PinSource12, I2S_WS_AF);
+    GPIO_PinAFConfig(I2S_CK_GPIO_PORT, GPIO_PinSource13, I2S_CK_AF);
+    GPIO_PinAFConfig(I2S_SDO_GPIO_PORT, GPIO_PinSource15, I2S_SDO_AF);
 
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_3;
+    GPIO_InitStructure.GPIO_Pin = I2S_WS_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
-    GPIO_Init(GPIOB, &GPIO_InitStructure);
+    GPIO_Init(I2S_WS_GPIO_PORT, &GPIO_InitStructure);
 
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_15;
+    GPIO_InitStructure.GPIO_Pin = I2S_CK_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
+    GPIO_Init(I2S_CK_GPIO_PORT, &GPIO_InitStructure);
 
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5;
+    GPIO_InitStructure.GPIO_Pin = I2S_SDO_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_Init(GPIOB, &GPIO_InitStructure);
+    GPIO_Init(I2S_SDO_GPIO_PORT, &GPIO_InitStructure);
 
-    /* OE(PB9) & RST(PB8) as output */
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8 | GPIO_Pin_9;
+    /* OE & RST as output */
+    GPIO_InitStructure.GPIO_Pin = CS43131_OE_PIN | CS43131_RST_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
-    GPIO_Init(GPIOB, &GPIO_InitStructure);
+    GPIO_Init(CS43131_OE_GPIO_PORT, &GPIO_InitStructure);
 
     /* OE pull up, RST pull down (initial low) */
-    GPIO_SetBits(GPIOB, GPIO_Pin_9);
-    GPIO_ResetBits(GPIOB, GPIO_Pin_8);
+    GPIO_SetBits(CS43131_OE_GPIO_PORT, CS43131_OE_PIN);
+    GPIO_ResetBits(CS43131_RST_GPIO_PORT, CS43131_RST_PIN);
 
     /* Software I2C init */
     SoftI2C_Init();
@@ -232,7 +234,7 @@ void CS43131_init(void)
     /* CS43131 I2C configuration */
     CS43131_I2C_Config();
 
-    /* I2S2 init: slave tx, Philips, 16b, 44.1kHz, CPOL low, MCLK disable */
+    /* I2S1 init: slave tx, Philips, 16b, 44.1kHz, CPOL low, MCLK disable */
     I2S_StructInit (&I2S_InitStructure);
     I2S_InitStructure.I2S_Mode = I2S_Mode_SlaveTx;
     I2S_InitStructure.I2S_Standard = I2S_Standard_Phillips;
@@ -240,15 +242,15 @@ void CS43131_init(void)
     I2S_InitStructure.I2S_MCLKOutput = I2S_MCLKOutput_Disable;
     I2S_InitStructure.I2S_AudioFreq = I2S_AudioFreq_44k;
     I2S_InitStructure.I2S_CPOL = I2S_CPOL_Low;
-    I2S_Init (SPI2, &I2S_InitStructure);
+    I2S_Init (SPI1, &I2S_InitStructure);
 
     /* I2S2 DMA double buffer init */
-    I2S2_DMA_DoubleBufferInit();
+    I2S1_DMA_DoubleBufferInit();
 
-    I2S_Cmd (SPI2, ENABLE);
+    I2S_Cmd (SPI1, ENABLE);
 }
 
-void I2S2_DMA_DoubleBufferInit(void)
+void I2S1_DMA_DoubleBufferInit(void)
 {
     DMA_InitTypeDef DMA_InitStructure = {0};
 
@@ -256,7 +258,7 @@ void I2S2_DMA_DoubleBufferInit(void)
     DMA_DeInit(DMA1_Channel1);
 
     DMA_StructInit(&DMA_InitStructure);
-    DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&SPI2->DATAR;
+    DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&SPI1->DATAR;
     DMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)audio_buffer_A;
     DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralDST;
     DMA_InitStructure.DMA_BufferSize = AUDIO_BUFFER_SIZE;
@@ -272,12 +274,12 @@ void I2S2_DMA_DoubleBufferInit(void)
     DMA_InitStructure.DMA_DoubleBuffer_StartMemory = DMA_DoubleBufferMode_Memory_0;
 
     DMA_Init(DMA1_Channel1, &DMA_InitStructure);
-    DMA_MuxChannelConfig(DMA_MuxChannel1, SPI2_TX_DMA_REQUEST);
+    DMA_MuxChannelConfig(DMA_MuxChannel1, SPI1_TX_DMA_REQUEST);
 
     DMA_ITConfig(DMA1_Channel1, DMA_IT_HT | DMA_IT_TC, ENABLE);
     NVIC_EnableIRQ(DMA1_Channel1_IRQn);
 
-    SPI_I2S_DMACmd(SPI2, SPI_I2S_DMAReq_Tx, ENABLE);
+    SPI_I2S_DMACmd(SPI1, SPI_I2S_DMAReq_Tx, ENABLE);
     DMA_Cmd(DMA1_Channel1, ENABLE);
 }
 
@@ -292,20 +294,7 @@ void I2S2_DMA_DoubleBufferInit(void)
  *********************************************************************/
 void Audio_FillBuffer(uint16_t *buffer)
 {
-    uint32_t i;
 
-    for (i = 0; i < AUDIO_BUFFER_SIZE; i++)
-    {
-        if (audio_data_offset >= song_data_length)
-        {
-            buffer[i] = 0;
-        }
-        else
-        {
-            buffer[i] = song_data[audio_data_offset];
-            audio_data_offset++;
-        }
-    }
 }
 
 /*********************************************************************
@@ -320,12 +309,7 @@ void Audio_FillBuffer(uint16_t *buffer)
  *********************************************************************/
 void Audio_PlayStart(const uint16_t *data, uint32_t length)
 {
-    song_data = data;
-    song_data_length = length;
-    audio_data_offset = 0;
 
-    Audio_FillBuffer(audio_buffer_A);
-    Audio_FillBuffer(audio_buffer_B);
 }
 
 /*********************************************************************
@@ -342,27 +326,7 @@ void Audio_PlayStart(const uint16_t *data, uint32_t length)
  *********************************************************************/
 void Audio_GenerateTriangleWave(uint16_t *buffer, uint32_t length, int16_t amplitude, uint32_t period)
 {
-    uint32_t i;
-    int16_t sample;
-    int32_t slope;
 
-    slope = (2 * amplitude) / (period / 2);
-
-    for (i = 0; i < length; i++)
-    {
-        uint32_t pos = i % period;
-
-        if (pos < (period / 2))
-        {
-            sample = -amplitude + (int16_t)(slope * pos);
-        }
-        else
-        {
-            sample = amplitude - (int16_t)(slope * (pos - period / 2));
-        }
-
-        buffer[i] = (uint16_t)sample;
-    }
 }
 
 /*********************************************************************
@@ -377,12 +341,7 @@ void Audio_GenerateTriangleWave(uint16_t *buffer, uint32_t length, int16_t ampli
  *********************************************************************/
 void Audio_PlayTriangleWave(int16_t amplitude, uint32_t period)
 {
-    Audio_GenerateTriangleWave(audio_buffer_A, AUDIO_BUFFER_SIZE, amplitude, period);
-    Audio_GenerateTriangleWave(audio_buffer_B, AUDIO_BUFFER_SIZE, amplitude, period);
 
-    song_data = NULL;
-    song_data_length = 0;
-    audio_data_offset = 0;
 }
 
 /*********************************************************************
