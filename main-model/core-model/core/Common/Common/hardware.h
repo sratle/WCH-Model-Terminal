@@ -21,18 +21,8 @@
 #include "ch32h417_gpio.h"
 #include "debug.h"
 
-	 
 void Hardware_init(void);
-void CS43131_init(void);
 void Key_init(void);
-
-void CS43131_I2C_Config(void);
-void I2S2_DMA_DoubleBufferInit(void);
-void Audio_FillBuffer(uint16_t *buffer);
-void Audio_PlayStart(const uint16_t *data, uint32_t length);
-void Audio_GenerateTriangleWave(uint16_t *buffer, uint32_t length, int16_t amplitude, uint32_t period);
-void Audio_PlayTriangleWave(int16_t amplitude, uint32_t period);
-void DMA1_Channel1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 
 #ifdef __cplusplus
 }
