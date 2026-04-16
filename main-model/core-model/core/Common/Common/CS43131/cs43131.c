@@ -8,7 +8,7 @@
  * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
  *******************************************************************************/
 #include "cs43131.h"
-#include "i2c_soft.h"
+#include "./I2c_soft/i2c_soft.h"
 #include "ch32h417_dma.h"
 #include "ch32h417_spi.h"
 #include "ch32h417_rcc.h"

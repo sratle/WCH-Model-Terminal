@@ -64,7 +64,7 @@ int main(void)
 	printf("V3F wake up\r\n");
 #endif
 
-	
+	Hardware_V3F_init();
 	while(1)
 	{
 		Delay_Ms(1000);

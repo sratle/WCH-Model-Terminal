@@ -25,7 +25,7 @@
 
 #include "debug.h"
 #include "hardware.h"
-#include "cs43131.h"
+#include "CS43131/cs43131.h"
 
 /*********************************************************************
  * @fn      main
@@ -54,7 +54,7 @@ int main(void)
 #endif
 
 	printf("V5F Wake Up\r\n");
-	Hardware_init();
+	Hardware_V5F_init();
 
 	Audio_PlayTriangleWave(10000,44);
 	while(1)

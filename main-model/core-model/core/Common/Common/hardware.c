@@ -10,8 +10,8 @@
  * microcontroller manufactured by Nanjing Qinheng Microelectronics.
  *******************************************************************************/
 #include "hardware.h"
-#include "cs43131.h"
-#include "key.h"
+#include "CS43131/cs43131.h"
+#include "Key/key.h"
 
 /*********************************************************************
  * @fn      Hardware_init
@@ -24,7 +24,6 @@ void Hardware_V3F_init(void)
 {
     Key_init();
 }
-
 
 void Hardware_V5F_init(void)
 {

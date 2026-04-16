@@ -21,8 +21,8 @@
 #include "ch32h417_gpio.h"
 #include "debug.h"
 
-void Hardware_init(void);
-void Key_init(void);
+void Hardware_V5F_init(void);
+void Hardware_V3F_init(void);
 
 #ifdef __cplusplus
 }
