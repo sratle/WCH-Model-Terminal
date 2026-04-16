@@ -52,10 +52,15 @@ int main(void)
 	Hardware();
 #endif
 
+	printf("V5F Wake Up\r\n");
+	Hardware_init();
 
+	Audio_PlayTriangleWave(10000,44);
 	while(1)
 	{
-		printf("V5F running...\r\n");
+		printf("V5F is running\r\n");
+		printf("SPI2_STATR=0x%04X, SPI2_I2SCFGR=0x%04X\r\n", SPI2->STATR, SPI2->I2SCFGR);
+		printf("DMA_CNTR=%d, DMA_CFG=0x%08X\r\n", DMA1_Channel1->CNTR, DMA1_Channel1->CFGR);
 		Delay_Ms(1000);
 	}
 }
