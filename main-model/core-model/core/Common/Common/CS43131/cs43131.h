@@ -38,7 +38,12 @@
 #define I2S_SDO_PIN             GPIO_Pin_15
 #define I2S_SDO_AF              GPIO_AF5
 
-void CS43131_init(void);
+typedef struct {
+    uint8_t enable; // cs43131 enable
+}cs43131_t;
+
+
+void CS43131_init(cs43131_t *cs43131);
 void CS43131_I2C_Config(void);
 
 void I2S1_DMA_DoubleBufferInit(void);

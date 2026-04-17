@@ -16,10 +16,15 @@
 #ifdef __cplusplus
  extern "C" {
 #endif
-
 #include "ch32h417.h"
 #include "ch32h417_gpio.h"
 #include "debug.h"
+
+typedef struct
+{
+    uint8_t hardware_state; // Hardware state
+    uint8_t hardware_init_flag; // Hardware init flag
+} hardware_t;
 
 void Hardware_V5F_init(void);
 void Hardware_V3F_init(void);

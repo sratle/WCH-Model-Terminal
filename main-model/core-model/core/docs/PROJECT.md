@@ -43,7 +43,10 @@ core/
 ├── Common/                         # 公共代码与系统文件
 │   ├── Common/                     # 自定义公共模块
 │   │   ├── CH378/                  # CH378 文件管理芯片驱动
+│   │   ├── CH585F/                 # CH575F 蓝牙无线芯片交互
+│   │   ├── CH9350/                 # CH9350 HID转串口驱动外接HID设备
 │   │   ├── CS43131/                # CS43131 音频 DAC 驱动
+│   │   ├── Display/                # 屏幕模块驱动
 │   │   ├── I2c_soft/               # 软件 I2C 基础驱动
 │   │   ├── Key/                    # 按键基础驱动
 │   │   ├── Keyboard/               # 键盘模块驱动
@@ -101,3 +104,18 @@ core/
 2. 公共模块（`Common/Common/`）与具体核心解耦。
 3. 同步原语（标志位 / 共享内存）定义明确。
 4. 屏幕模块与两核的通信接口统一。
+
+## 通信定义
+编号
+仅核心和CH585F之间使用SPI
+别的模块和核心交互使用串口
+核心：  00     core
+CH585F 01     wireless
+屏幕模块10-12  display
+键盘模块20-22  keyboard
+供电模块30-31  power
+配件模块40-49  submodels
+
+以下定义HOST为发送机，GUEST为接收机，比如
+[HOST]core[GUEST]submodels[GET]type
+意思是核心向submodels发送获取type的请求，然后submodels收到请求之后返回type信息并触发核心的UART中断

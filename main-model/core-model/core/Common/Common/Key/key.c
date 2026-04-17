@@ -6,7 +6,7 @@
  * @retval None
  * @note   Initialize the key.PF10-KEY_PLUS,PF9-KEY_SUB,PF8-KEY_ENTER
  */
-void Key_init(void)
+void Key_Init(void)
 {
     GPIO_InitTypeDef GPIO_InitStructure = {0};
 
@@ -18,7 +18,7 @@ void Key_init(void)
     GPIO_ResetBits(KEY_GPIO_PORT, KEY_ALL_PINS);
 }
 
-uint8_t Key_scan(void)
+uint8_t Key_Scan(void)
 {
     uint8_t key = 0;
 

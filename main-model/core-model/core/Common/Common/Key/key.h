@@ -2,6 +2,7 @@
 #define __KEY_H__
 
 #include "ch32h417.h"
+#include "ch32h417_gpio.h"
 #include "debug.h"
 
 #define KEY_PLUS    1
@@ -14,8 +15,8 @@
 #define KEY_ENTER_PIN       GPIO_Pin_8
 #define KEY_ALL_PINS        (KEY_PLUS_PIN | KEY_SUB_PIN | KEY_ENTER_PIN)
 
-void Key_init(void);
+void Key_Init(void);
 
-uint8_t Key_scan(void);
+uint8_t Key_Scan(void);
 
 #endif

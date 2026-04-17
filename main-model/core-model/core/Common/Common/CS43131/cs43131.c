@@ -187,7 +187,7 @@ void CS43131_I2C_Config(void)
  * PC0-SCL,PC1-SDA
  * CS43131 I2S
  */
-void CS43131_init(void)
+void CS43131_init(cs43131_t *cs43131)
 {
     GPIO_PinRemapConfig(GPIO_Remap_SWJ_Disable, ENABLE);
 
@@ -248,6 +248,8 @@ void CS43131_init(void)
     I2S1_DMA_DoubleBufferInit();
 
     I2S_Cmd (SPI1, ENABLE);
+
+    cs43131->enable = 1;
 }
 
 void I2S1_DMA_DoubleBufferInit(void)

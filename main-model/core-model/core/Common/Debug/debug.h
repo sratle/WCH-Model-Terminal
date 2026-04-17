@@ -18,6 +18,8 @@
 #endif
 
 #include "stdio.h"
+#include "stdint.h"
+#include "string.h"
 #include "ch32h417.h"
 
 /* UART Printf Definition */
