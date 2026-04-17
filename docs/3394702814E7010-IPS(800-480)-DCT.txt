@@ -1,0 +1,1892 @@
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+
+液晶显示模组规格书
+LCD MODULE SPECFICATION
+MODEL NO(模组型号):
+E7010-IPS(800-480)-DCT
+客户名称：
+拟制
+DESIGNED
+
+审核
+CHECKED
+
+批准
+APPROVED
+
+拟制
+DESIGNED
+
+审核
+CHECKED
+
+批准
+APPROVED
+
+吴兴洪
+2016.11.23
+
+修改记录 Records of Revision
+日期
+DATE
+
+版本
+VERSION
+
+修改摘要
+SUMMARY
+
+拟制
+DESIGNED
+
+备注
+REMARK
+
+___________________________________________________________________________________
+1 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+2016-11-11
+
+00
+
+初版发行
+
+WXH
+
+___________________________________________________________________________________
+2 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+
+目录 Contents
+1
+
+1. 产品特征 Product Features-------------------------------------------------------------------
+
+4
+
+2
+
+2. 物理规格 Physical Specifications -----------------------------------------------------------
+
+4
+
+3
+
+3. 产品图纸 Product Drawings -----------------------------------------------------------------
+
+4
+
+4
+
+4. 接口定义 The Interface Definition----------------------------------------------------------
+
+6
+
+5
+
+5. 极限参数 Absolute Maximum Ratings -----------------------------------------------------
+
+7
+
+6
+
+6. 电气参数 Electrical Characteristics ---------------------------------------------------------
+
+7
+
+7
+
+7. 光学参数 Optical Characteristics -----------------------------------------------------------
+
+8
+
+8
+
+8. 电性连接图框 Block Diagram --------------------------------------------------------------
+
+10
+
+9
+
+9. 品质检验标准 LCM Quality Criteria -------------------------------------------------------
+
+11
+
+10
+
+9.1 外观及功能检验标准 Visual & Function Inspection Standard------------------------
+
+11
+
+11
+
+9.1.1 检验条件 Inspection conditions----------------------------------------------------------
+
+11
+
+12
+
+9.1.2 定义 Definition-----------------------------------------------------------------------------
+
+11
+
+13
+
+9.1.3 抽样计划 Sampling Plan------------------------------------------------------------------
+
+12
+
+14
+
+9.1.4 目测检验标准 Criteria (Visual)---------------------------------------------------------
+
+13
+
+15
+
+9.1.5 功能性标准 Criteria ( functional items)------------------------------------------------
+
+15
+
+16
+
+9.2 可靠性实验 Reliability Test----------------------------------------------------------------
+
+16
+
+17
+
+9.3 安全说明 Safety instructions---------------------------------------------------------------
+
+17
+
+18
+
+9.4 模组使用注意事项 Handling Precautions-----------------------------------------------
+
+17
+
+19
+
+9.5 使用说明 Operation instructions----------------------------------------------------------
+
+17
+
+20
+
+9.6 存储方法 Storage instructions-------------------------------------------------------------
+
+18
+
+21
+
+9.7 保修期限 Limited Warranty----------------------------------------------------------------
+
+18
+
+22
+
+10.包装方法 Packing method-------------------------------------------------------------------
+
+19
+
+___________________________________________________________________________________
+3 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+1. 产品特征 Product Features
+项目（Item）
+
+描述(Description)
+
+(1)产品型号（Model）
+
+E7010-IPS(800-480)-DCT
+
+(2) 显示类型（Display Type）
+
+7.0 inch TFT Normally Black
+
+(3) 分辨率（Resolution）
+
+800*RGB*480
+
+(4) 显示色彩（color）
+
+16.7M
+
+(5) 视角（View Angle）
+
+Full view 全视角
+
+(6) 驱动IC（Driver IC）
+
+--
+
+(7) 接口类型（Interface Types）
+
+RGB24BIT/18BIT/16BIT
+
+(8) 连接方式（Connection mode）
+
+0.5mm插接50Pin
+
+(9) 背光模式（Backlight）
+
+3串9并27颗灯
+
+(10) 产品功耗（power
+consumption）
+
+背光:180mA@9V;LCD:50mA@3.3V
+
+(11)产品亮度（Brightness）
+
+500cd/㎡
+
+(12) 触摸屏（Touch Panel）
+
+CTP
+
+2. 物理规格 Physical Specifications
+项目（Item）
+
+规格（Specification）
+
+单位（Units）
+
+(1) 外形尺寸(Outline Dimension)
+
+165*100*4.7(P+G)
+
+mm
+
+(2) 显示区尺寸(Active Area Dimension)
+
+153.84*85.63
+
+mm
+
+(3) 解析度(Resolution Dimension)
+
+800*3RGB*480
+
+/
+
+(4) 像素点尺寸(Pixel Pitch Dimension)
+
+0.0641(H) × 0.1784(V)
+
+mm
+
+(5) 结构类型(Structure Type)
+COG+FPC+BL (note)
+Note: COG: Chip On Glass (LCD+IC); BL: Backlight; TP: Touch Panel
+
+/
+
+产品图纸 Product Drawings
+___________________________________________________________________________________
+4 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+
+___________________________________________________________________________________
+5 / 19
+
+E
+
+F
+
+撕手
+
+F
+
+1
+
+G
+
+H
+
+History
+
+背视图
+
+Unit
+
+毫米 mm
+
+Edition: APPROVED
+V1
+Date 2023-07-19
+
+H
+
+I
+
+Name
+
+PIN assignment
+RST
+1
+2
+VCC
+GND
+3
+4
+INT
+SDA
+5
+SCL
+6
+
+I
+
+Scale
+Sheet
+1/1
+PRO(3)
+1:1
+DRAWN
+CHECKED
+
+CTP70225型号改为CTP70266
+
+双面带胶泡棉T=0.5MM
+
+6 1
+
+G
+
+XXJ CTP70266 V1
+
+CUSTOMER NUMBER:
+
+P+G工程图
+
+Description
+
+钢片补强接地
+T=0.2
+
+163.73±0.2(SENSOR OD)
+TP总厚度 1.13±0.1（不含背胶）
+Sensor 0.7 Cover Lens
+T=0.25
+
+D
+
+侧视图
+
+E
+
+OCA 0.18
+
+D
+
+MAX:1.4
+
+C
+
+58.66
+
+155.08±0.2(LENS VA)
+
+163.93±0.1(LENS OD)
+
+B
+
+C
+
+FPC+PI:0.3±0.05
+
+A
+
+2.94
+
+1 CUSTOMER APPROVAL:
+
+B
+
+98.77±0.2(SENSOR OD)
+
+正视图
+
+正反面印黑油
+
+1 6
+
+63.05
+
+2
+
+黑色面板
+
+元件表面贴高温胶
+
+PI:5
+
+86.92±0.2(LENS VA)
+8.27
+
+3
+
+4
+
+5
+
+6
+
+7
+
+98.97±0.1(LENS OD)
+
+技术参数:
+1.结构： Lens PET 0.25mm+G(ITO SENSOR:0.55mm)
+引 线:FPC (PINCH=0.5mm) IC:GT911
+总厚度：1.13±0.1mm
+2.工作电压：2.8V-3.3 V
+3.透光率:≥83±2%
+4.表面硬度：3H
+5.工作环境：-10℃~+60℃，≤90%RH
+6.储存环境：-20℃~+70℃，≤90%RH
+7.未标注公差：±0.2
+
+A
+
+3
+
+3.5
+P:0.5*5=2.5±0.1
+6-W:0.3±0.05
+2-0.35±0.1
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+___________________________________________________________________________________
+
+6 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+4. 接口定义 The Interface Definition
+编号(PIN NO.)
+
+符号(SYMBOL)
+
+1
+
+LEDA
+
+背光正极（Back light anode）
+
+Power supply
+
+2
+
+LEDA
+
+背光正极（Back light anode）
+
+Power supply
+
+3
+
+LEDK
+
+背光负极（Back light cathode）
+
+Power supply
+
+4
+
+LEDK
+
+背光负极（Back light cathode）
+
+Power supply
+
+5
+
+GND
+
+电源地（Power Ground）
+
+Power supply
+
+6
+
+VCOM
+
+公共极电压(Common voltage)
+
+Power supply
+
+7
+
+DVDD
+
+数字电源（Power supply 3.3V）
+
+Power supply
+
+8
+
+MODE
+
+默认拉高 DE/SYNC MODE SELECT NORMALLY PULL
+HIGT
+
+I
+
+9
+
+DEN
+
+数据允许（Data enable signal for RGB interface）
+
+I
+
+10
+
+VSYNC
+
+11
+
+HSYNC
+
+12-19
+
+B7-B0
+
+数据线（Data bus）
+
+I
+
+20-27
+
+G7-G0
+
+数据线（Data bus）
+
+I
+
+28-35
+
+R7-R0
+
+数据线（Data bus）
+
+I
+
+36
+
+GND
+
+电源地（Power Ground）
+
+37
+
+DCLK
+
+时钟（Dot clock for RGB interface）
+
+38
+
+GND
+
+电源地（Power Ground）
+
+39
+
+L/R
+
+左右显示控制（Left or Right Display
+Control）
+
+I
+
+40
+
+U/D
+
+上下显示控制）Up/Down Display Control）
+
+I
+
+41
+
+VGH
+
+VGH 电压(Positive Power for TFT)（见参考资料）
+
+Power supply
+
+42
+
+VGL
+
+VGL 电压 (Negative Power for TFT)（见参考资
+料）
+
+Power supply
+
+43
+
+AVDD
+
+模拟电压(Analog Power)（见参考资料）
+
+Power supply
+
+44
+
+Reset
+
+复位信号(Reset signal (low active))
+
+I
+
+45.49.50
+
+NC
+
+NC
+
+--
+
+46
+
+VCOM
+
+公共极电压(Common voltage)
+
+47
+
+DITH
+
+GND
+
+--
+
+48
+
+GND
+
+GND
+
+Power supply
+
+描述(Description)
+
+帧同步信号（Vertical (Frame) synchronizing input
+signal for RGB interface）
+行同步信号（Horizontal (Line) synchronizing input
+signal for RGB interface）
+
+输入/输出(I/O)
+
+I
+I
+
+Power supply
+I
+Power supply
+
+Power supply
+
+___________________________________________________________________________________
+7 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+1
+
+CTP-RST
+
+电容触摸复位脚。可接 RC 或者 IO
+
+I
+
+2
+
+CTP-VCC
+
+电容触摸 VCC(2.8-3.3V)
+
+Power supply
+
+3
+
+CTP-GND
+
+电容触摸 GND
+
+Power supply
+
+4
+
+CTP-INT
+
+电容触摸中断输出脚
+
+O
+
+5
+
+CTP-SDA
+
+电容触摸 IIC-SDA
+
+I/O
+
+6
+
+CTP-SCL
+
+电容触摸 IIC-SCL
+
+I
+
+参考电路
+按典型值设计
+
+参考电路请联系销售经理索取！
+5. 极限参数 Absolute Maximum Ratings
+参数(Parameter)
+
+符号(Symbol)
+
+最小值(Min)
+
+最大值(Max)
+
+单位(Unit)
+
+逻辑电压(Supply voltage for logic)
+
+Vcc
+
+-0.3
+
+3.3
+
+V
+
+输入逻辑电压(Input voltage for logic)
+
+VIN
+
+-0.5
+
+Vcc +0.3
+
+V
+
+LED 电流 (Supply current(One LED))
+
+ILED
+
+15
+
+20
+
+mA
+
+工作温度(Operating temperature)
+
+TOP
+
+-20
+
++70
+
+C
+
+存储温度(Storage temperature)
+
+TST
+
+-30
+
++80
+
+C
+
+6. 电气参数 Electrical Characteristics
+项目
+Item
+逻辑电压(Supply voltage for logic)
+
+符号
+Symbol
+
+最小值
+Min
+
+典型值
+Typ
+
+最大值
+Max
+
+单位
+Unit
+
+应用终端
+Applicable
+terminal
+
+Vcc
+
+2.5
+
+2.8
+
+3.3
+
+V
+
+VDD
+
+IOVCC
+
+--
+
+--
+
+--
+
+V
+
+I/O Voltage
+
+___________________________________________________________________________________
+8 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+输入电压(Input voltage)
+
+VIL
+
+-0.3
+
+-
+
+0.2 VDD
+
+VIH
+
+0.8 Vcc
+
+-
+
+Vcc
+
+V
+
+输入漏电流(Input leakage current)
+
+ILKG
+
+LED 正向电压(LED Forward voltage)
+
+Vf
+
+--
+
+9.6
+
+9.8
+
+V
+
+输入背光电流(Input backlight current)
+
+ILED
+
+-
+
+180
+
+--
+
+mA
+
+μA
+--
+
+___________________________________________________________________________________
+9 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+
+___________________________________________________________________________________
+10 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+7. 光学参数 Optical Characteristics
+项目
+ITEM
+
+符号
+条件
+SYMBOL CONDITIONS
+
+亮度 Brightness
+对比度 Contrast Ratio
+响应时间 ResponsTime
+
+颜色坐标
+CIE
+Color
+coordinate
+
+观察角度
+Viewing
+Angle
+均匀性
+Uniformity
+
+红色
+Red
+绿色
+Green
+蓝色
+Blue
+白色
+White
+水平
+Hor.
+垂直
+Ver.
+Un
+
+B
+CR
+Tr
+Tf
+XR
+YR
+XG
+YG
+XB
+YB
+XW
+YW
+X
+
+X
+Y 
+Y 
+
+正常观察
+角度
+Viewing
+normal angle
+
+规格(SPECIFICATIONS)
+最小值
+MIN
+
+典型值
+TYP
+
+最大值
+MAX
+
+-400
+---
+
+--60
+60
+
+--
+
+450
+500
+30
+30
+0.655
+0.332
+0.314
+0.574
+0.137
+0.135
+0.305
+0.341
+65
+
+--
+
+65
+
+--
+
+--
+
+65
+
+--
+
+---
+
+45
+80
+
+---
+
+-0.02
+
+Center
+CR>=10
+
+单位
+UNIT
+
+注意
+NOTE
+
+2
+
+Cd.cm
+
+-Msec
+
++0.02
+
+-Deg.
+
+%
+
+Note 1: 可视角度的定义 Definition of Viewing Angle:
+
+___________________________________________________________________________________
+11 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+Note 2: 对比度定义 Definition of contrast ratio CR:
+
+Note 3: 响应时间的定义 Definition of response time (TR, TF)
+
+Note 4: 光学测量装置的定义 Definition of optical measurement setup
+
+___________________________________________________________________________________
+12 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+8.电性连接图框 Block Diagram
+
+DOTCLK
+
+Timing Controller
+with Memory
+Gate
+Driver
+
+DEN
+VS
+HS
+
+Driver IC: HX8264-D+HX8264B or Compatible
+
+DB[0:23]
+
+Y1
+7.0
+TFT LCD Panel
+
+Source
+Driver
+
+DC/DC
+Converter
+
+Y480
+Gate
+Driver
+
+Connection with Host
+
+VCC
+
+GND
+
+G800
+
+G1
+LEDA
+LEDK
+
+BL Circuit (21*LED Parallel)
+
+___________________________________________________________________________________
+13 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+9.品质检验标准 LCM Quality Criteria
+9.1 外观及功能的检验标准 Visual & Function Inspection Standard
+9.1.1 检验条件 Inspection conditions
+建议在下列条件下进行检验 Inspection performed under the following conditions is recommended.
+温度 Temperature :
+25±5℃
+湿度 Humidity :
+65%±10%RH
+视角 Viewing Angle :
+正常的视角 Normal viewing Angle.
+照明 Illumination:
+单颗荧光灯 Single fluorescent lamp (300 to 700Lux)
+观察距离 Viewing distance: 30-50 cm
+
+Upper
+Polarizer
+
+Upper Glass
+
+Bottom glass
+Light Source
+
+Bottom Polarizer
+
+9.1.2 定义 Definition
+Zone B
+
+Zone A
+Zone C
+
+Zone A : 有效显示区域（显示图像的区域）Effective Viewing Area(Character or Digit can be seen)
+Zone B : 观察区 Zone A 除外 Viewing Area except Zone A
+Zone C : 外形边框 Outside (Zone A+Zone B) which can not be seen after assembly by customer .)
+Note:
+一般情况下，在不影响客户产品装配后的功能或外观，Zone C 的缺损可忽略不计；
+As a general rule ,visual defects in Zone C can be ignored when it doesn’t effect product function or appearance
+after assembly by customer.
+
+___________________________________________________________________________________
+14 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+
+9.1.3 抽样计划 Sampling Plan
+
+根据 GB／T 2828-2003 Ⅱ类标准正常检验；
+According to GB/T 2828-2003 ; , normal inspection, Class Ⅱ
+可接受的质量标准 AQL:
+主要缺陷 Major defect
+次要缺陷 Minor defect
+0.65
+1.5
+LCD: Liquid Crystal Display , TP: Touch Panel , LCM: Liquid Crystal Module
+
+编号
+No
+
+1
+
+需要检查的项目
+Items to be
+inspected
+
+功能缺陷
+Functional defects
+
+标准
+Criteria
+
+缺陷分类
+Classification of defects
+
+1．无显 No display
+2．显示异常 Display abnormally
+3．缺画 Missing vertical，horizontal segment
+4．短路 Short circuit
+5．背光不亮、闪烁或者异常 Back-light no
+lighting,lickering and abnormal lighting
+6．信号交叉串扰 Cross-Talk
+7．噪声 Noise
+8．色彩对比度不一致 Color contrast
+
+2
+
+缺少
+Missing
+
+3
+
+外形尺寸
+Outline dimension
+
+整体外形尺寸超出图纸是不允许的范围；Overall
+outline dimension beyond the drawing is not allowed
+
+4
+
+色调
+Color tone
+
+指与样品的色调有差异；Color unevenness, refer
+to limited sample
+
+5
+
+焊接外观
+Soldering
+appearance
+
+良好的焊接，不允许虚焊；Good soldering ,
+Peeling off is not allowed.
+
+6
+
+玻璃/偏光片
+LCD/Polarizer
+
+黑白点/线，划痕，裂纹等。
+Black/White spot/line, scratch, crack, etc.
+
+主要缺陷
+Major
+
+缺少的组件 Missing component
+
+次要缺陷
+Minor
+
+___________________________________________________________________________________
+15 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+
+9.1.4 目测检验标准 Criteria (Visual)
+编号
+Number
+
+项目
+Items
+
+(1) 玻璃边缘破裂
+The edge of LCD broken
+
+标准
+Criteria(mm)
+
+X
+
+Y
+
+Z
+
+≤1.5mm
+
+<Inner border line
+of the seal
+
+≤T
+
+1.0
+LCD
+Crack/Broken
+裂痕/破裂
+NOTE:
+X: Length
+Y: Width
+Z: Height
+L: Length of
+ITO,
+T: Height of
+LCD
+
+(2) 玻璃蹦角
+LCD corner broken
+X
+≤1.5mm
+
+(3) 玻璃裂纹
+LCD crack
+
+Y
+≤1.0mm
+
+Z
+≤T
+
+Crack
+不允许；Not allowed
+
+___________________________________________________________________________________
+16 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+编号
+Number
+
+项目
+Items
+
+标准
+Criteria (mm)
+光点（LCD/ TP /偏光片 黑/白点，轻点，针孔，凹陷，彩点）
+light dot（LCD/TP/Polarizer black/white spot , light dot, pinhole, dent, stain）
+1
+
+Zone
+Size (mm)
+
+点缺陷
+Spot defect
+
+Y
+X
+Φ=(X+Y)/2
+
+2.0
+
+允许数量 Acceptable Qty
+A
+
+B
+
+Φ≤0.10
+
+忽略 Ignore
+
+0.10<Φ≤0.15
+
+2
+
+0.15<Φ≤0.2
+
+1
+
+0.2<Φ
+
+0
+
+C
+
+忽略
+Ignore
+
+②暗点（LCD/ TP /偏光片 漏光昏暗的点、黑点）Dim spot（LCD/TP/Polarizer dim
+dot, light leakage、dark spot）
+Zone
+Size (mm)
+
+允许数量 Acceptable Qty
+A
+
+B
+
+Φ≤0.1
+
+忽略 Ignore
+
+0.1<Φ≤0.2
+
+2
+
+0.2<Φ≤0.3
+
+1
+
+Φ＞0.3
+
+0
+
+C
+
+忽略
+Ignore
+
+线缺陷
+LCD/偏光片 黑
+/白线、划痕、
+彩色
+Line defect (LCD
+/Polarizer
+black/white
+line, scratch,
+stain)
+
+偏光片划伤
+
+3.0
+
+Polarizer
+scratch
+
+Width(mm)
+
+Length(mm)
+
+允许数量 Acceptable Qty
+
+Φ≤0.03
+
+忽略 Ignore
+
+忽略 Ignore
+
+0.03<W≤0.05
+
+L≤2.0
+
+1
+
+0.05<W
+
+0
+
+Width(mm)
+
+Length(mm)
+
+允许数量 Acceptable Qty
+
+W≤0.03
+
+忽略 Ignore
+
+忽略 Ignore
+
+0.03<W≤0.05
+
+L≤2
+
+2
+
+0.05< W≤0.10
+
+L≤1
+
+1
+
+W>0.10mm or L>2mm
+
+0
+
+___________________________________________________________________________________
+17 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+Zone
+Size (mm)
+
+偏光片气泡
+Polarizer
+Bubble
+
+4.0
+
+贴片电子元器
+件
+SMT
+
+Φ≤0.1
+
+忽略 Ignore
+
+0.1<Φ≤0.2
+0.2<Φ≤0.3
+0.3<Φ
+
+2
+1
+0
+
+根据<电子组件接受 IPC-A-610C 2 级标准>。组件丢失或功能缺陷是主要的缺陷，其
+他是次要缺陷。According to the <Acceptability of electronic assemblies>
+IPC-A-610C class 2 standard. Component missing or function
+defect are Major defect, the others are Minor defect.
+区分
+distinguish
+
+5.0
+
+TFT
+
+允许数量 Acceptable Qty
+
+类型
+type
+
+允许数量
+Acceptable
+Qty
+
+任何颜色
+0
+Any color window
+相邻的亮点
+0
+Adjacent Bright dot
+黑点
+1
+Dark dot
+黑点
+Dark dot
+相邻黑点
+0
+Adjacent Dark dot
+Note: the red (R), green, blue (G), (B) 3 points
+constitute a pixel
+亮点
+Bright dot
+
+R
+
+G
+
+B
+
+Dot
+
+9.1.5 功能性标准 Criteria ( functional items)
+项目 Items
+
+标准 Criteria
+
+无显 No display
+显示异常 Display abnormally
+缺画 Missing vertical，horizontal
+组件分离 Segment
+短路 Short circuit
+背光不亮 Back-light no lighting,
+背光闪烁或异常 Flickering and abnormal lighting
+信号交叉串扰 Cross-Talk
+噪声 Noise
+色彩对比度不一致 Color contrast
+
+不允许；Not allowed
+不允许；Not allowed
+不允许；Not allowed
+不允许；Not allowed
+不允许；Not allowed
+不允许；Not allowed
+不允许；Not allowed
+不允许；Not allowed
+不允许；Not allowed
+不允许；Not allowed
+如果客户不能自行擦除干净，也是不可接受的；
+If you cannot use smudgy surface air clean and clear,
+coco is not acceptable
+不允许；Not allowed
+不允许；Not allowed
+不允许；Not allowed
+
+玻璃表面污垢 The LCD surface dirt
+缺少元器件 Components off
+FPC&PCB 不良 FPC&PCB undesirable
+铁框支架变形 Iron frame deformation
+
+___________________________________________________________________________________
+18 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+9.2 可靠性实验 Reliability Test
+项目
+ITEM
+
+条件
+Condition
+
+样品数量
+Sample size
+
+高温储存
+High Temp. Storage
+
++80℃±2℃, 120 小时 hrs
+
+5pcs
+
+低温储存
+Low Temp. Storage
+
+-30℃±2℃, 120 小时 hrs
+
+5pcs
+
+高温运行
+High Temp. Operation
+
++70℃±2℃,72 小时 hrs
+
+5pcs
+
+1. 液晶显示器无气泡；
+
+低温运行
+Low Temp. Operation
+
+-20℃±2℃, 72 小时 hrs
+
+5pcs
+
+3. 显示正常；
+
+湿度运行
+Humidity operation
+
+40℃,90%RH ,72 小时 hrs
+
+5pcs
+
+5. 表面应无损伤；
+
+湿度储存
+Humidity storage
+
+70℃,90%RH ,72 小时 hrs
+
+5pcs
+
+不超过10%。
+
+温湿度循环
+Temp humidity cycles
+
+检查后2 ~ 4小时存储在室温
+下，该样品应无缺陷：
+
+25℃
+Calefaction/3hrs
+60℃/9hrs
+Descend temp/3hrs
+90%RH
+
+25℃/9hrs
+
+-30℃/30min
+
+冷热冲击循环
+Thermal shock
+
+80℃/30mins
+
+5pcs
+
+5pcs
+
+Total:10 cycles
+
+震动
+Vibration
+
+Amplitude between 10 and
+2
+150Hz:3G(100m/s )/2hrs for each direction(X,Y,Z)
+
+1Carton-box
+
+跌落测试
+Drop test
+
+1.5m,10times
+
+1Carton-box
+
+1.Contact discharge method±6KV,150pF/330Ω
+10times
+
+2.Air discharge method±8KV,150pF/330Ω
+10times
+
+2. 液晶无漏液；
+4. 不缺少部件；
+6. 线性度测试仪检测对比度必须
+7. 线性度测试仪检测电源不超过
+10%。
+
+Total:10 cycles
+
+静电测试
+ESD
+
+标准
+Criterion
+
+5pcs
+
+5pcs
+
+Inspection after
+2~4hours storage at
+room temperature, the
+sample shall be free from
+defects:
+1.Air bubble in the LCD;
+2.Sealleak;
+3.Non-display;
+4.Missing segments;
+5. The surface shall be
+free from damage.
+6. Contrast must be no
+more than 10% by the
+linearity tester.
+经过测试，没有任何有缺陷的表
+现或电气性能。After testing, there
+are no any defective appearances or
+electrical properties.
+
+1. 经过测试，没有任何有缺陷的
+表现或电气性能。
+2. 在可以接受时，所有有缺陷的
+现象在ESD复位后消失。
+1. After testing, there are no any
+defective appearances or electrical
+properties.
+2. It can be acceptable when all
+defective ESD disappears in the
+RESET.
+
+___________________________________________________________________________________
+19 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+9.3 安全说明 Safety instructions
+9.3.1 如果液晶面板断裂，小心不要让任何液晶物质进入到口中；
+If the LCD panel breaks, be careful not to get any liquid crystal substance in your mouth.
+9.3.2 如果液晶物质触及你的皮肤或衣物，请立即用肥皂和水清洗干净；
+If the liquid crystal substance touches your skin or clothes, please wash it off immediately by using soap and
+water.
+
+9.4 模组使用注意事项 Handling Precautions
+9.4.1 客户在做结构设计时，请保证机壳开窗尺寸比触摸屏 V.A 单边少 0.3mm，泡棉开窗尺寸比触摸屏 V.A 单
+边大 0.2mm；
+Customers do structural design, please ensure the cabinet window size smaller than the touch screen VA
+unilateral 0.3mm. Foam window size larger than 0.2mm unilateral touchscreen V.A
+9.4.2 防止静电损坏集成电路
+Avoid static electricity damaging the LSI.
+9.4.3 不要从模块中拆下玻璃面板或铁框支架
+Do not remove the panel or frame from the module .
+9.4.4 显示屏的偏光片是很脆弱的。所以请注意要非常小心，避免损坏；
+The polarizing plate of the display is very fragile . So, please handle it very carefully.
+9.4.5 不要用干布擦拭偏光片，因为很容易刮伤到它的表面；
+Do not wipe the polarizing plate with a dry cloth, as it may easily scratch the surface of the plate.
+9.4.6 显示颜色和背景色调有可能随着储存温度范围的变化而发生改变；
+The color tone of display and background of LCM has the possibility to be changed in the storage temperature
+range.
+9.4.7 注意工作使用环境，产品可能会被静电所损坏；
+Pay attention to the working environment, as the element may be destroyed by static electricity.
+--确保使用作业人员身体可靠的接地；
+Be sure to ground human body and electric appliance during work.
+--避免在干燥的环境中作业，减少静电的损害；
+Avoid working in a dry environment to minimize the generations of static electricity.
+--在作业过程中，快速剥离保护膜时可能会引起静电；
+Static electricity may be generated when the protective film is fast peeled off.
+9.4.8 当焊接 LCM 端子时，确保使用交流电源的烙铁不漏电；
+When soldering the terminal of LCM, make certain the AC power source of soldering iron does not leak.
+9.4.9 潮湿的坏境可能引起玻璃 ITO 的腐蚀，在使用中，请确保湿度在 50%以下。
+Humid environment may cause a bad ITO glass corrosion, in use, make sure the humidity is below 50%.
+9.4.10 如果液晶显示模组的表面被污染，可以使用柔软的无尘布在表面上轻轻的擦拭。如果是严重的污染，可
+以用无尘布蘸上酒精轻轻擦拭。特别是不可使用可能损坏偏光片的溶剂（例如：水/酮） If the display
+surface becomes contaminated ,breathe on the surface and gently wipe it with a soft-dry- clean cloth .If it is
+heavily contaminated ,moisten cloth with the following solvent(ex:Ethyl alcohol).Solvents other than those
+above-mentioned may damage the polarizer(Especially ,do not use them .ex: Warter / Ketone)
+
+9.5 使用说明 Operation instructions
+9.5.1 推荐使用 在规定的电压范围内驱动液晶显示面板，尝试调整工作电压为达到最佳的对比度，在不同的温
+度液晶显示面板的颜色和对比度会有所不同；
+It is recommended to drive the LCD within the specified voltage limits, try to adjust the operating voltage for the
+optimal contrast, the color and contrast of LCD panel will varies at different temperature.
+9.5.2 在较低的工作温度范围液晶的响应时间会大大延迟。但这并不意味着液晶会失灵，使它返回到指定的温
+度范围他将会恢复到正常的状态；
+
+___________________________________________________________________________________
+20 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+
+Response time is greatly delayed at low operating temperature range. However, this does not mean the LCD will
+be out of the order, It will recover when it returns to the specified temperature range.
+9.5.3 液晶显示模块在工作时如果显示区遭到硬物压力，液晶显示模块将会变得显示异常；
+If the display area is pushed hard during operation, the display will become abnormal.
+9.5.4 不在特定条件下的环境中使用 LCD，可能会导致液晶的损伤和寿命的缩短；
+Do not operate the LCD at the environments over the specified conditions, this may cause damage on the LCD
+and shorten the lifetime.
+
+9.6 存储方法 Storage instructions:
+9.6.1 将液晶显示模组存储在密封的聚乙烯袋中；
+Store LCDs in a sealed polyethylene bag.
+9.6.2 将液晶显示模组放置在黑暗的地方，不要暴露在阳光或者日光灯下，保持 0℃到 35℃之间的温度；Store
+LCDs in a dark place, Do not expose to sunlight or fluorescent light. Keep the temperature between 0℃and 35℃.
+9.6.3 避免接触任何其他震动的物体，建议将他们存储在固定的容器中，便于搬运；
+Avoid the polarizer touch any other object, ( It is recommended to store them in the container in which they
+were shipped.)
+
+9.7 保修期限 Limited Warranty
+9.7.1 按照检查验收标准(或商定好的要求)，发现产品有缺陷的，从产品喷墨打印的生产日期起，我司提供 12
+个月的产品维修保障服务；
+will replace or repair any of its LCD modules, which are found to be defective, when inspected in accordance
+with LCM acceptance standards ( copies available upon request ) for a period of 12 months from ink- print date
+on product
+9.7.2 任何有缺陷的产品必须从收到货后 60 天内退回，以送货单据做为计算日期的依据；品质责任区分依据
+(9.1,9.2)；
+Any defects must be returned to within 60 days since ship-out. Confirmation of such date shall be based on
+freight documents. The warranty liability of was am limited to repair and/or replacement on defects above
+(7.1,7.2)
+9.7.3 如果是因为保护预防措施不当，造成下述的问题，将不提供保修：
+No warranty can be granted if the precautions stated above have been disregarded. The typical samples are as
+below:
+--液晶显示屏破裂/裂纹 LCD glass crack/break
+-- PCB 插座损坏或修改 PCB outlet is damaged or modified.
+--损坏的 PCB 导体 PCB conductors damaged.
+--电路经过人为的研磨、雕刻或绘画漆修饰 Circuit modified with by grinding, engraving or painting varnish.
+-- FPC 有断裂纹 FPC crack
+9.7.4 必须将有缺陷的模块标识清楚问题现象，必须将安装的任何连接物体彻底分离清除，而不损坏 PCB 插
+座、电路和端子，液晶显示屏必须用专用的包装盒包装运输；
+Modules must be returned with sufficient description of the failures of defects. Any connectors or cable installed
+by the customer must be removed completely without damaging the PCB outlet, conductors and terminals.
+Modules must be packed with the container in which they were shipped.
+
+___________________________________________________________________________________
+21 / 19
+
+亦亞徽科技有限公司（广东）
+EYA Technology Co., Ltd.(GUANGDONG)
+10. 包装方法 Packing method
+包装示意图 Package picture:
+
+详细信息请咨询我们的技术部门
+Please consult our technical department for detail information.
+
+___________________________________________________________________________________
+22 / 19
+
+
