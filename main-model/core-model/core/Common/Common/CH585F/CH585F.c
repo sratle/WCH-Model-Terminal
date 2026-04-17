@@ -40,7 +40,7 @@ void CH585F_Init(ch585f_t *ch585f)
     SPI_InitStructure.SPI_CPOL = SPI_CPOL_Low;
     SPI_InitStructure.SPI_CPHA = SPI_CPHA_1Edge;
     SPI_InitStructure.SPI_NSS = SPI_NSS_Soft;
-    SPI_InitStructure.SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_Mode7;
+    SPI_InitStructure.SPI_BaudRatePrescaler = CH585F_SPI_CLOCK;
     SPI_InitStructure.SPI_FirstBit = SPI_FirstBit_MSB;
     SPI_InitStructure.SPI_CRCPolynomial = 7;
     SPI_Init(CH585F_SPI, &SPI_InitStructure);
