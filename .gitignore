@@ -59,6 +59,7 @@ docs/CH585EVT/
 
 **/ld/
 **/obj/
+**/LVGL/
 
 # debug information files
 *.dwo
