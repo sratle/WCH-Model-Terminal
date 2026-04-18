@@ -196,7 +196,7 @@ void CS43131_init(cs43131_t *cs43131)
 
     /* Enable clocks */
     RCC_HB2PeriphClockCmd(RCC_HB2Periph_GPIOA | RCC_HB2Periph_GPIOB | RCC_HB2Periph_AFIO, ENABLE);
-    RCC_HB1PeriphClockCmd(RCC_HB1Periph_SPI1, ENABLE);
+    RCC_HB1PeriphClockCmd(RCC_HB1Periph_SPI2, ENABLE);
 
     /* I2S1 GPIO: PB12-WS(AF5), PB13-CK(AF5), PB15-SDO(AF5) */
     GPIO_PinAFConfig(I2S_WS_GPIO_PORT, GPIO_PinSource12, I2S_WS_AF);
@@ -242,12 +242,12 @@ void CS43131_init(cs43131_t *cs43131)
     I2S_InitStructure.I2S_MCLKOutput = I2S_MCLKOutput_Disable;
     I2S_InitStructure.I2S_AudioFreq = I2S_AudioFreq_44k;
     I2S_InitStructure.I2S_CPOL = I2S_CPOL_Low;
-    I2S_Init (SPI1, &I2S_InitStructure);
+    I2S_Init (SPI2, &I2S_InitStructure);
 
     /* I2S1 DMA double buffer init */
     I2S1_DMA_DoubleBufferInit();
 
-    I2S_Cmd (SPI1, ENABLE);
+    I2S_Cmd (SPI2, ENABLE);
 
     cs43131->enable = 1;
 }
@@ -260,7 +260,7 @@ void I2S1_DMA_DoubleBufferInit(void)
     DMA_DeInit(DMA1_Channel1);
 
     DMA_StructInit(&DMA_InitStructure);
-    DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&SPI1->DATAR;
+    DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&SPI2->DATAR;
     DMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)audio_buffer_A;
     DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralDST;
     DMA_InitStructure.DMA_BufferSize = AUDIO_BUFFER_SIZE;
@@ -276,12 +276,12 @@ void I2S1_DMA_DoubleBufferInit(void)
     DMA_InitStructure.DMA_DoubleBuffer_StartMemory = DMA_DoubleBufferMode_Memory_0;
 
     DMA_Init(DMA1_Channel1, &DMA_InitStructure);
-    DMA_MuxChannelConfig(DMA_MuxChannel1, SPI1_TX_DMA_REQUEST);
+    DMA_MuxChannelConfig(DMA_MuxChannel1, SPI2_TX_DMA_REQUEST);
 
     DMA_ITConfig(DMA1_Channel1, DMA_IT_HT | DMA_IT_TC, ENABLE);
     NVIC_EnableIRQ(DMA1_Channel1_IRQn);
 
-    SPI_I2S_DMACmd(SPI1, SPI_I2S_DMAReq_Tx, ENABLE);
+    SPI_I2S_DMACmd(SPI2, SPI_I2S_DMAReq_Tx, ENABLE);
     DMA_Cmd(DMA1_Channel1, ENABLE);
 }
 

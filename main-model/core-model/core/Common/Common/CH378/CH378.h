@@ -47,7 +47,7 @@ void CH378_SCS_HIGH(void);
 void CH378_SCS_LOW(void);
 
 void CH378_Init(ch378_t *ch378);
-void CH378_Send_Cmd(ch378_t *ch378, uint8_t cmd, uint8_t *wbuf, uint8_t wlen)
+void CH378_Send_Cmd(ch378_t *ch378, uint8_t cmd, uint8_t *wbuf, uint8_t wlen);
 
 uint8_t CH378_Send_Byte(ch378_t *ch378, uint8_t data);
 uint8_t CH378_Read_Byte(ch378_t *ch378);

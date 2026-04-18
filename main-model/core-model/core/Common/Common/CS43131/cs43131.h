@@ -18,10 +18,10 @@
 #include "ch32h417_gpio.h"
 
 #define AUDIO_BUFFER_SIZE   256
-#define SPI1_TX_DMA_REQUEST 63
+#define SPI2_TX_DMA_REQUEST 65
 #define CS43131_I2C_ADDR    0x30
 
-/* CS43131 GPIO definitions */
+/* CS43131 GPIO definitions NOTE: SPI2==I2S1*/
 #define CS43131_RST_GPIO_PORT   GPIOB
 #define CS43131_RST_PIN         GPIO_Pin_3
 #define CS43131_OE_GPIO_PORT    GPIOB

@@ -90,8 +90,7 @@ void CH378_Init(ch378_t *ch378)
     SPI_InitTypeDef SPI_InitStructure = {0};
 
     /* 使能外设时钟 */
-    RCC_HB2PeriphClockCmd(RCC_HB2Periph_AFIO | RCC_HB2Periph_GPIOA | RCC_HB2Periph_GPIOC, ENABLE);
-    RCC_HB1PeriphClockCmd(RCC_HB1Periph_SPI1, ENABLE); // 修正SPI时钟使能，匹配头文件SPI1定义
+    RCC_HB2PeriphClockCmd(RCC_HB2Periph_AFIO | RCC_HB2Periph_GPIOA | RCC_HB2Periph_GPIOC | RCC_HB2Periph_SPI1, ENABLE);
 
     /* SPI引脚配置 */
     // MOSI - 复用推挽输出
