@@ -60,6 +60,8 @@ docs/CH585EVT/
 **/ld/
 **/obj/
 **/LVGL/
+**/.vscode/
+**/.mrs/
 
 # debug information files
 *.dwo
