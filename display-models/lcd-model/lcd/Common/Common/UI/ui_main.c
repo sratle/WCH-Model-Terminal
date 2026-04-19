@@ -1,7 +1,7 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : ui_main.c
 * Author             : LCD Model Team
-* Version            : V1.0.0
+* Version            : V2.0.0
 * Date               : 2025/04/19
 * Description        : Main UI framework implementation.
 *                      Sidebar navigation and page container.
@@ -17,7 +17,8 @@ static const char *s_menu_labels[SIDEBAR_ITEM_COUNT] = {
     "Main",
     "Software",
     "Models",
-    "Options"
+    "Options",
+    "Games"
 };
 
 static menu_item_t s_active_menu = MENU_HOME;
@@ -30,6 +31,7 @@ ui_page_t page_home;
 ui_page_t page_software;
 ui_page_t page_models;
 ui_page_t page_settings;
+ui_page_t page_games;
 
 /*=============================================================================
  *  Sidebar Drawing
@@ -38,15 +40,12 @@ ui_page_t page_settings;
 void ui_main_draw_sidebar(ui_rect_t *dirty)
 {
     ui_rect_t sidebar = {0, 0, SIDEBAR_WIDTH, UI_SCREEN_HEIGHT};
-    
-    /* Draw sidebar background */
+
     ui_draw_fill_rect(&sidebar, UI_COLOR_BG_SIDEBAR);
-    
-    /* Draw project title */
+
     ui_rect_t title_rect = {0, 20, SIDEBAR_WIDTH, 40};
     ui_draw_text_in_rect(&title_rect, "ELAB", &font_montserrat_16, UI_COLOR_PRIMARY, 1);
-    
-    /* Draw menu items */
+
     for (int i = 0; i < SIDEBAR_ITEM_COUNT; i++) {
         ui_rect_t item_rect = {
             0,
@@ -54,19 +53,15 @@ void ui_main_draw_sidebar(ui_rect_t *dirty)
             SIDEBAR_WIDTH,
             SIDEBAR_ITEM_HEIGHT
         };
-        
+
         if (i == (int)s_active_menu) {
-            /* Selected item background */
             ui_draw_fill_rect(&item_rect, UI_COLOR_SECONDARY);
-            
-            /* Left indicator bar */
+
             ui_rect_t indicator = {0, item_rect.y, 4, SIDEBAR_ITEM_HEIGHT};
             ui_draw_fill_rect(&indicator, UI_COLOR_PRIMARY);
-            
-            /* Text in primary color */
+
             ui_draw_text_in_rect(&item_rect, s_menu_labels[i], &font_montserrat_12, UI_COLOR_TEXT_PRIMARY, 1);
         } else {
-            /* Unselected item - transparent background */
             ui_draw_text_in_rect(&item_rect, s_menu_labels[i], &font_montserrat_12, UI_COLOR_TEXT_SECONDARY, 1);
         }
     }
@@ -78,19 +73,18 @@ void ui_main_draw_sidebar(ui_rect_t *dirty)
 
 void ui_main_init(void)
 {
-    /* Initialize page structures */
     ui_page_struct_init(&page_home, "Home", 0);
     ui_page_struct_init(&page_software, "Software", 1);
     ui_page_struct_init(&page_models, "Models", 2);
     ui_page_struct_init(&page_settings, "Settings", 3);
-    
-    /* Register pages */
+    ui_page_struct_init(&page_games, "Games", 4);
+
     ui_page_register(&page_home);
     ui_page_register(&page_software);
     ui_page_register(&page_models);
     ui_page_register(&page_settings);
-    
-    /* Set default menu */
+    ui_page_register(&page_games);
+
     s_active_menu = MENU_HOME;
 }
 
@@ -98,10 +92,9 @@ void ui_main_set_menu(menu_item_t item)
 {
     if (item >= SIDEBAR_ITEM_COUNT) return;
     if (item == s_active_menu) return;
-    
+
     s_active_menu = item;
-    
-    /* Switch to corresponding page */
+
     switch (item) {
         case MENU_HOME:
             ui_page_switch(&page_home);
@@ -115,9 +108,11 @@ void ui_main_set_menu(menu_item_t item)
         case MENU_SETTINGS:
             ui_page_switch(&page_settings);
             break;
+        case MENU_GAMES:
+            ui_page_switch(&page_games);
+            break;
     }
-    
-    /* Invalidate sidebar to redraw selection */
+
     ui_rect_t sidebar = {0, 0, SIDEBAR_WIDTH, UI_SCREEN_HEIGHT};
     ui_page_invalidate(&sidebar);
 }
@@ -127,20 +122,21 @@ menu_item_t ui_main_get_menu(void)
     return s_active_menu;
 }
 
-void ui_main_handle_event(ui_event_t *e)
+bool ui_main_handle_event(ui_event_t *e)
 {
-    if (!e) return;
-    
-    /* Handle touch events on sidebar */
+    if (!e) return false;
+
     if (e->type == UI_EVENT_PRESS || e->type == UI_EVENT_RELEASE) {
         if (e->pos.x < SIDEBAR_WIDTH) {
-            /* Click on sidebar */
             int item_idx = (e->pos.y - 80) / SIDEBAR_ITEM_HEIGHT;
             if (item_idx >= 0 && item_idx < SIDEBAR_ITEM_COUNT) {
                 if (e->type == UI_EVENT_RELEASE) {
                     ui_main_set_menu((menu_item_t)item_idx);
                 }
             }
+            return true;
         }
     }
+
+    return false;
 }

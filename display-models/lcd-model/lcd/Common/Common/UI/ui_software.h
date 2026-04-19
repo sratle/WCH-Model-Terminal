@@ -1,13 +1,13 @@
 /********************************** (C) COPYRIGHT *******************************
-* File Name          : ui_home.h
+* File Name          : ui_software.h
 * Author             : LCD Model Team
 * Version            : V2.0.0
 * Date               : 2025/04/19
-* Description        : Home page header.
-*                      Date/time display and module status cards.
+* Description        : Software page header.
+*                      App grid with icon buttons.
 ********************************************************************************/
-#ifndef __UI_HOME_H
-#define __UI_HOME_H
+#ifndef __UI_SOFTWARE_H
+#define __UI_SOFTWARE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,12 +15,12 @@ extern "C" {
 
 #include "../MiniUI/miniui.h"
 
-void ui_home_init(void);
-void ui_home_enter(ui_page_t *page);
-void ui_home_draw(ui_page_t *page, ui_rect_t *dirty);
+void ui_software_init(void);
+void ui_software_enter(ui_page_t *page);
+void ui_software_draw(ui_page_t *page, ui_rect_t *dirty);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __UI_HOME_H */
+#endif /* __UI_SOFTWARE_H */

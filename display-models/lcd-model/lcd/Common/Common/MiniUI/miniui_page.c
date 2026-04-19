@@ -1,55 +1,53 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : miniui_page.c
 * Author             : LCD Model Team
-* Version            : V1.0.0
+* Version            : V2.0.0
 * Date               : 2025/04/19
 * Description        : MiniUI page manager implementation.
 *                      Page stack, navigation, and dirty region tracking.
 ********************************************************************************/
 #include "miniui_page.h"
+#include "../SSD1963/ssd1963.h"
 #include <string.h>
 
 /*=============================================================================
  *  Internal State
  *=============================================================================*/
 
-/* Registered pages pool */
 static ui_page_t *s_registered_pages[32];
 static uint8_t s_registered_count = 0;
 
-/* Page stack */
 static ui_page_t *s_page_stack[UI_PAGE_STACK_DEPTH];
 static int8_t s_stack_top = -1;
 
-/* Dirty regions */
 static ui_dirty_list_t s_dirty_list;
+
+static ui_sidebar_draw_cb_t s_sidebar_draw = NULL;
+static ui_sidebar_event_cb_t s_sidebar_event = NULL;
 
 /*=============================================================================
  *  Helper Functions
  *=============================================================================*/
 
-/* Check if two rectangles overlap */
 static bool rects_overlap(const ui_rect_t *a, const ui_rect_t *b)
 {
     return (a->x < b->x + b->w && a->x + a->w > b->x &&
             a->y < b->y + b->h && a->y + a->h > b->y);
 }
 
-/* Merge two rectangles into one that covers both */
 static void rect_merge(const ui_rect_t *a, const ui_rect_t *b, ui_rect_t *out)
 {
     int16_t x1 = (a->x < b->x) ? a->x : b->x;
     int16_t y1 = (a->y < b->y) ? a->y : b->y;
     int16_t x2 = (a->x + a->w > b->x + b->w) ? a->x + a->w : b->x + b->w;
     int16_t y2 = (a->y + a->h > b->y + b->h) ? a->y + a->h : b->y + b->h;
-    
+
     out->x = x1;
     out->y = y1;
     out->w = x2 - x1;
     out->h = y2 - y1;
 }
 
-/* Clamp rectangle to screen bounds */
 static void rect_clamp_screen(ui_rect_t *r)
 {
     if (r->x < 0) r->x = 0;
@@ -67,6 +65,8 @@ void ui_page_init(void)
     s_registered_count = 0;
     s_stack_top = -1;
     s_dirty_list.count = 0;
+    s_sidebar_draw = NULL;
+    s_sidebar_event = NULL;
     memset(s_registered_pages, 0, sizeof(s_registered_pages));
     memset(s_page_stack, 0, sizeof(s_page_stack));
 }
@@ -80,75 +80,50 @@ void ui_page_register(ui_page_t *page)
 void ui_page_switch(ui_page_t *page)
 {
     if (!page) return;
-    
-    /* Exit current page */
+
     if (s_stack_top >= 0 && s_page_stack[s_stack_top]) {
         ui_page_t *current = s_page_stack[s_stack_top];
-        if (current->on_exit) {
-            current->on_exit(current);
-        }
+        if (current->on_exit) current->on_exit(current);
     }
-    
-    /* Clear stack */
+
     s_stack_top = -1;
     s_dirty_list.count = 0;
-    
-    /* Push new page as root */
+
     s_page_stack[++s_stack_top] = page;
-    
-    /* Enter new page */
-    if (page->on_enter) {
-        page->on_enter(page);
-    }
-    
-    /* Full screen invalidate */
+
+    if (page->on_enter) page->on_enter(page);
+
     ui_page_invalidate_all();
 }
 
 void ui_page_push(ui_page_t *page)
 {
     if (!page || s_stack_top >= UI_PAGE_STACK_DEPTH - 1) return;
-    
-    /* Exit current page */
+
     if (s_stack_top >= 0 && s_page_stack[s_stack_top]) {
         ui_page_t *current = s_page_stack[s_stack_top];
-        if (current->on_exit) {
-            current->on_exit(current);
-        }
+        if (current->on_exit) current->on_exit(current);
     }
-    
-    /* Push new page */
+
     s_page_stack[++s_stack_top] = page;
-    
-    /* Enter new page */
-    if (page->on_enter) {
-        page->on_enter(page);
-    }
-    
-    /* Full screen invalidate */
+
+    if (page->on_enter) page->on_enter(page);
+
     ui_page_invalidate_all();
 }
 
 void ui_page_pop(void)
 {
-    if (s_stack_top <= 0) return; /* Don't pop root page */
-    
-    /* Exit current page */
+    if (s_stack_top <= 0) return;
+
     ui_page_t *current = s_page_stack[s_stack_top];
-    if (current && current->on_exit) {
-        current->on_exit(current);
-    }
-    
-    /* Pop */
+    if (current && current->on_exit) current->on_exit(current);
+
     s_page_stack[s_stack_top--] = NULL;
-    
-    /* Enter previous page */
+
     ui_page_t *prev = s_page_stack[s_stack_top];
-    if (prev && prev->on_enter) {
-        prev->on_enter(prev);
-    }
-    
-    /* Full screen invalidate */
+    if (prev && prev->on_enter) prev->on_enter(prev);
+
     ui_page_invalidate_all();
 }
 
@@ -164,19 +139,33 @@ ui_page_t* ui_page_current(void)
 }
 
 /*=============================================================================
+ *  Sidebar Integration
+ *=============================================================================*/
+
+void ui_page_set_sidebar_callbacks(ui_sidebar_draw_cb_t draw, ui_sidebar_event_cb_t event)
+{
+    s_sidebar_draw = draw;
+    s_sidebar_event = event;
+}
+
+ui_sidebar_event_cb_t ui_page_get_sidebar_event_cb(void)
+{
+    return s_sidebar_event;
+}
+
+/*=============================================================================
  *  Dirty Region Tracking
  *=============================================================================*/
 
 void ui_page_invalidate(const ui_rect_t *rect)
 {
     if (!rect) return;
-    
+
     ui_rect_t r = *rect;
     rect_clamp_screen(&r);
-    
+
     if (r.w <= 0 || r.h <= 0) return;
-    
-    /* Try to merge with existing dirty regions */
+
     for (uint8_t i = 0; i < s_dirty_list.count; i++) {
         if (rects_overlap(&r, &s_dirty_list.regions[i])) {
             rect_merge(&r, &s_dirty_list.regions[i], &s_dirty_list.regions[i]);
@@ -184,12 +173,10 @@ void ui_page_invalidate(const ui_rect_t *rect)
             return;
         }
     }
-    
-    /* Add new dirty region if space available */
+
     if (s_dirty_list.count < UI_MAX_DIRTY_REGIONS) {
         s_dirty_list.regions[s_dirty_list.count++] = r;
     } else {
-        /* Overflow: merge all into one full-screen region */
         s_dirty_list.regions[0].x = 0;
         s_dirty_list.regions[0].y = 0;
         s_dirty_list.regions[0].w = UI_SCREEN_WIDTH;
@@ -214,42 +201,36 @@ void ui_page_invalidate_all(void)
 void ui_page_draw(void)
 {
     if (s_dirty_list.count == 0) return;
-    
+
     ui_page_t *page = ui_page_current();
     if (!page) return;
-    
-    /* Process each dirty region */
+
     for (uint8_t i = 0; i < s_dirty_list.count; i++) {
         ui_rect_t *dirty = &s_dirty_list.regions[i];
-        
-        /* Set clip region */
+
         ui_render_set_clip(dirty);
-        
-        /* Set SSD1963 window */
         SSD1963_SetWindow((uint16_t)dirty->x, (uint16_t)dirty->y,
                           (uint16_t)(dirty->x + dirty->w - 1),
                           (uint16_t)(dirty->y + dirty->h - 1));
-        
-        /* Page custom draw */
+
+        if (s_sidebar_draw) {
+            s_sidebar_draw(dirty);
+        }
+
         if (page->on_draw) {
             page->on_draw(page, dirty);
         }
-        
-        /* Draw page widgets */
+
         for (uint16_t j = 0; j < page->widget_count; j++) {
             if (page->widgets[j]) {
-                /* Only draw widgets that intersect with dirty region */
                 if (rects_overlap(&page->widgets[j]->rect, dirty)) {
                     ui_widget_draw(page->widgets[j], dirty);
                 }
             }
         }
     }
-    
-    /* Clear dirty list */
+
     s_dirty_list.count = 0;
-    
-    /* Reset clip */
     ui_render_reset_clip();
 }
 
@@ -263,10 +244,23 @@ void ui_page_struct_init(ui_page_t *page, const char *name, uint32_t id)
     memset(page, 0, sizeof(ui_page_t));
     page->name = name;
     page->id = id;
-    page->content_rect.x = 200; /* Sidebar width */
+    page->content_rect.x = 200;
     page->content_rect.y = 0;
     page->content_rect.w = UI_SCREEN_WIDTH - 200;
     page->content_rect.h = UI_SCREEN_HEIGHT;
+}
+
+void ui_page_struct_init_fullscreen(ui_page_t *page, const char *name, uint32_t id)
+{
+    if (!page) return;
+    memset(page, 0, sizeof(ui_page_t));
+    page->name = name;
+    page->id = id;
+    page->content_rect.x = 0;
+    page->content_rect.y = 0;
+    page->content_rect.w = UI_SCREEN_WIDTH;
+    page->content_rect.h = UI_SCREEN_HEIGHT;
+    page->flags = UI_PAGE_FLAG_FULLSCREEN;
 }
 
 void ui_page_set_widgets(ui_page_t *page, ui_widget_t **widgets, uint16_t count)

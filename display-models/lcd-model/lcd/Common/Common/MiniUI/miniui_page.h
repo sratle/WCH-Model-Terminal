@@ -1,7 +1,7 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : miniui_page.h
 * Author             : LCD Model Team
-* Version            : V1.0.0
+* Version            : V2.0.0
 * Date               : 2025/04/19
 * Description        : MiniUI page manager API.
 *                      Page stack, navigation, and dirty region tracking.
@@ -54,47 +54,34 @@ typedef struct {
  *  Page Manager API
  *=============================================================================*/
 
-/* Initialize page manager */
 void ui_page_init(void);
-
-/* Register a page */
 void ui_page_register(ui_page_t *page);
-
-/* Switch to a page (clears stack, pushes new page as root) */
 void ui_page_switch(ui_page_t *page);
-
-/* Push a page onto stack */
 void ui_page_push(ui_page_t *page);
-
-/* Pop current page from stack (go back) */
 void ui_page_pop(void);
-
-/* Check if we can go back */
 bool ui_page_can_go_back(void);
-
-/* Get current page */
 ui_page_t* ui_page_current(void);
-
-/* Mark a region as dirty */
 void ui_page_invalidate(const ui_rect_t *rect);
-
-/* Mark entire page as dirty */
 void ui_page_invalidate_all(void);
-
-/* Draw current page (process dirty regions) */
 void ui_page_draw(void);
+
+/*=============================================================================
+ *  Sidebar Integration
+ *=============================================================================*/
+
+typedef void (*ui_sidebar_draw_cb_t)(ui_rect_t *dirty);
+typedef bool (*ui_sidebar_event_cb_t)(ui_event_t *e);
+
+void ui_page_set_sidebar_callbacks(ui_sidebar_draw_cb_t draw, ui_sidebar_event_cb_t event);
+ui_sidebar_event_cb_t ui_page_get_sidebar_event_cb(void);
 
 /*=============================================================================
  *  Page Helpers
  *=============================================================================*/
 
-/* Initialize a page structure */
 void ui_page_struct_init(ui_page_t *page, const char *name, uint32_t id);
-
-/* Set page widgets */
+void ui_page_struct_init_fullscreen(ui_page_t *page, const char *name, uint32_t id);
 void ui_page_set_widgets(ui_page_t *page, ui_widget_t **widgets, uint16_t count);
-
-/* Set page callbacks */
 void ui_page_set_callbacks(ui_page_t *page, ui_page_enter_cb_t enter, ui_page_exit_cb_t exit,
                            ui_page_draw_cb_t draw, ui_page_back_cb_t back);
 

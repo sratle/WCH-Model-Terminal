@@ -41,6 +41,7 @@ extern "C" {
 #define UI_COLOR_GRAY        UI_RGB(0x80, 0x80, 0x80)
 #define UI_COLOR_DARK_GRAY   UI_RGB(0x40, 0x40, 0x40)
 #define UI_COLOR_LIGHT_GRAY  UI_RGB(0xC0, 0xC0, 0xC0)
+#define UI_COLOR_TRANSPARENT 0x0001
 
 /*=============================================================================
  *  Macaron Palette (Soft Pastel Colors)

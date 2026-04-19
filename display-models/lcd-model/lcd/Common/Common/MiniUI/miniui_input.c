@@ -1,7 +1,7 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : miniui_input.c
 * Author             : LCD Model Team
-* Version            : V1.0.0
+* Version            : V2.0.0
 * Date               : 2025/04/19
 * Description        : MiniUI input system implementation.
 *                      Touch/mouse/keyboard event abstraction and mapping.
@@ -27,7 +27,7 @@ static uint8_t s_queue_count = 0;
 static bool queue_push(ui_event_t *e)
 {
     if (s_queue_count >= UI_INPUT_QUEUE_SIZE) return false;
-    
+
     s_event_queue[s_queue_tail] = *e;
     s_queue_tail = (s_queue_tail + 1) % UI_INPUT_QUEUE_SIZE;
     s_queue_count++;
@@ -37,7 +37,7 @@ static bool queue_push(ui_event_t *e)
 static bool queue_pop(ui_event_t *e)
 {
     if (s_queue_count == 0) return false;
-    
+
     *e = s_event_queue[s_queue_head];
     s_queue_head = (s_queue_head + 1) % UI_INPUT_QUEUE_SIZE;
     s_queue_count--;
@@ -55,8 +55,6 @@ void ui_input_init(void)
     s_queue_head = 0;
     s_queue_tail = 0;
     s_queue_count = 0;
-    
-    /* Initialize mouse position to center of screen */
     s_input_state.mouse_pos.x = UI_SCREEN_WIDTH / 2;
     s_input_state.mouse_pos.y = UI_SCREEN_HEIGHT / 2;
 }
@@ -69,16 +67,15 @@ void ui_input_touch_raw(bool pressed, int16_t x, int16_t y)
 {
     ui_event_t e;
     e.source = UI_INPUT_TOUCH;
-    
+
     if (pressed) {
         if (!s_input_state.touch_pressed) {
-            /* Touch start */
             s_input_state.touch_pressed = true;
             s_input_state.touch_pos.x = x;
             s_input_state.touch_pos.y = y;
             s_input_state.touch_start.x = x;
             s_input_state.touch_start.y = y;
-            
+
             e.type = UI_EVENT_PRESS;
             e.pos.x = x;
             e.pos.y = y;
@@ -86,13 +83,12 @@ void ui_input_touch_raw(bool pressed, int16_t x, int16_t y)
             e.delta.y = 0;
             queue_push(&e);
         } else {
-            /* Touch drag */
             int16_t dx = x - s_input_state.touch_pos.x;
             int16_t dy = y - s_input_state.touch_pos.y;
-            
+
             s_input_state.touch_pos.x = x;
             s_input_state.touch_pos.y = y;
-            
+
             e.type = UI_EVENT_DRAG;
             e.pos.x = x;
             e.pos.y = y;
@@ -102,16 +98,14 @@ void ui_input_touch_raw(bool pressed, int16_t x, int16_t y)
         }
     } else {
         if (s_input_state.touch_pressed) {
-            /* Touch end - check for swipe */
             int16_t dx = s_input_state.touch_pos.x - s_input_state.touch_start.x;
             int16_t dy = s_input_state.touch_pos.y - s_input_state.touch_start.y;
             int16_t abs_dx = (dx < 0) ? -dx : dx;
             int16_t abs_dy = (dy < 0) ? -dy : dy;
-            
+
             s_input_state.touch_pressed = false;
-            
+
             if (abs_dx > UI_SWIPE_THRESHOLD || abs_dy > UI_SWIPE_THRESHOLD) {
-                /* Swipe detected */
                 if (abs_dx > abs_dy) {
                     e.type = (dx > 0) ? UI_EVENT_SWIPE_RIGHT : UI_EVENT_SWIPE_LEFT;
                 } else {
@@ -122,8 +116,7 @@ void ui_input_touch_raw(bool pressed, int16_t x, int16_t y)
                 e.delta.y = dy;
                 queue_push(&e);
             }
-            
-            /* Always send release */
+
             e.type = UI_EVENT_RELEASE;
             e.pos = s_input_state.touch_pos;
             e.delta.x = 0;
@@ -141,22 +134,18 @@ void ui_input_mouse_raw(int16_t dx, int16_t dy, bool left_pressed)
 {
     ui_event_t e;
     e.source = UI_INPUT_MOUSE;
-    
-    /* Update mouse position */
+
     s_input_state.mouse_pos.x += dx;
     s_input_state.mouse_pos.y += dy;
-    
-    /* Clamp to screen */
+
     if (s_input_state.mouse_pos.x < 0) s_input_state.mouse_pos.x = 0;
     if (s_input_state.mouse_pos.x >= UI_SCREEN_WIDTH) s_input_state.mouse_pos.x = UI_SCREEN_WIDTH - 1;
     if (s_input_state.mouse_pos.y < 0) s_input_state.mouse_pos.y = 0;
     if (s_input_state.mouse_pos.y >= UI_SCREEN_HEIGHT) s_input_state.mouse_pos.y = UI_SCREEN_HEIGHT - 1;
-    
+
     s_input_state.mouse_present = true;
-    
-    /* Handle button state */
+
     if (left_pressed && !s_input_state.mouse_pressed) {
-        /* Mouse down */
         s_input_state.mouse_pressed = true;
         e.type = UI_EVENT_PRESS;
         e.pos = s_input_state.mouse_pos;
@@ -164,7 +153,6 @@ void ui_input_mouse_raw(int16_t dx, int16_t dy, bool left_pressed)
         e.delta.y = dy;
         queue_push(&e);
     } else if (!left_pressed && s_input_state.mouse_pressed) {
-        /* Mouse up */
         s_input_state.mouse_pressed = false;
         e.type = UI_EVENT_RELEASE;
         e.pos = s_input_state.mouse_pos;
@@ -172,7 +160,6 @@ void ui_input_mouse_raw(int16_t dx, int16_t dy, bool left_pressed)
         e.delta.y = dy;
         queue_push(&e);
     } else if (dx != 0 || dy != 0) {
-        /* Mouse move (drag) */
         e.type = UI_EVENT_DRAG;
         e.pos = s_input_state.mouse_pos;
         e.delta.x = dx;
@@ -193,30 +180,17 @@ void ui_input_keyboard_raw(uint8_t key_code)
     e.pos.y = 0;
     e.delta.x = 0;
     e.delta.y = 0;
-    
+
     switch (key_code) {
-        case UI_KEY_UP:
-            e.type = UI_EVENT_KEY_UP;
-            break;
-        case UI_KEY_DOWN:
-            e.type = UI_EVENT_KEY_DOWN;
-            break;
-        case UI_KEY_LEFT:
-            e.type = UI_EVENT_KEY_LEFT;
-            break;
-        case UI_KEY_RIGHT:
-            e.type = UI_EVENT_KEY_RIGHT;
-            break;
-        case UI_KEY_OK:
-            e.type = UI_EVENT_KEY_OK;
-            break;
-        case UI_KEY_BACK:
-            e.type = UI_EVENT_KEY_BACK;
-            break;
-        default:
-            return; /* Unknown key */
+        case UI_KEY_UP:    e.type = UI_EVENT_KEY_UP; break;
+        case UI_KEY_DOWN:  e.type = UI_EVENT_KEY_DOWN; break;
+        case UI_KEY_LEFT:  e.type = UI_EVENT_KEY_LEFT; break;
+        case UI_KEY_RIGHT: e.type = UI_EVENT_KEY_RIGHT; break;
+        case UI_KEY_OK:    e.type = UI_EVENT_KEY_OK; break;
+        case UI_KEY_BACK:  e.type = UI_EVENT_KEY_BACK; break;
+        default: return;
     }
-    
+
     queue_push(&e);
 }
 
@@ -227,11 +201,7 @@ void ui_input_keyboard_raw(uint8_t key_code)
 ui_event_t* ui_input_poll(void)
 {
     static ui_event_t e;
-    
-    if (queue_pop(&e)) {
-        return &e;
-    }
-    
+    if (queue_pop(&e)) return &e;
     return NULL;
 }
 
@@ -247,4 +217,14 @@ const ui_input_state_t* ui_input_get_state(void)
 void ui_input_set_focus(ui_widget_t *widget)
 {
     s_input_state.focused_widget = widget;
+}
+
+void ui_input_set_capture(ui_widget_t *widget)
+{
+    s_input_state.capture_widget = widget;
+}
+
+ui_widget_t* ui_input_get_capture(void)
+{
+    return s_input_state.capture_widget;
 }

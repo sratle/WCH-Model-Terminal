@@ -1,7 +1,7 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : miniui_input.h
 * Author             : LCD Model Team
-* Version            : V1.0.0
+* Version            : V2.0.0
 * Date               : 2025/04/19
 * Description        : MiniUI input system API.
 *                      Touch/mouse/keyboard event abstraction and mapping.
@@ -19,55 +19,40 @@ extern "C" {
  *  Input System Configuration
  *=============================================================================*/
 
-#define UI_SWIPE_THRESHOLD      30      /* Minimum pixels for swipe detection */
-#define UI_INPUT_QUEUE_SIZE     8       /* Event queue size */
+#define UI_SWIPE_THRESHOLD      30
+#define UI_INPUT_QUEUE_SIZE     8
 
 /*=============================================================================
  *  Input State
  *=============================================================================*/
 
 typedef struct {
-    /* Touch state */
     bool touch_pressed;
     ui_point_t touch_pos;
     ui_point_t touch_start;
-    
-    /* Mouse state */
     bool mouse_present;
     ui_point_t mouse_pos;
     bool mouse_pressed;
-    
-    /* Keyboard focus */
     ui_widget_t *focused_widget;
+    ui_widget_t *capture_widget;
 } ui_input_state_t;
 
 /*=============================================================================
  *  Input System API
  *=============================================================================*/
 
-/* Initialize input system */
 void ui_input_init(void);
-
-/* Process raw touch input (called from touch driver) */
 void ui_input_touch_raw(bool pressed, int16_t x, int16_t y);
-
-/* Process raw mouse input (called from UART handler) */
 void ui_input_mouse_raw(int16_t dx, int16_t dy, bool left_pressed);
-
-/* Process raw keyboard input (called from UART handler) */
 void ui_input_keyboard_raw(uint8_t key_code);
-
-/* Poll for input events - returns next event or NULL if none */
 ui_event_t* ui_input_poll(void);
-
-/* Get current input state */
 const ui_input_state_t* ui_input_get_state(void);
-
-/* Set focused widget for keyboard navigation */
 void ui_input_set_focus(ui_widget_t *widget);
+void ui_input_set_capture(ui_widget_t *widget);
+ui_widget_t* ui_input_get_capture(void);
 
 /*=============================================================================
- *  Key Codes (for UART keyboard input)
+ *  Key Codes
  *=============================================================================*/
 
 #define UI_KEY_UP       0x01
