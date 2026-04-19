@@ -23,7 +23,7 @@ void Submodels_Init (submodels_t *submodels) {
 
     GPIO_InitStructure.GPIO_Pin = SUBMODELS1_UART_RX_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     GPIO_Init (SUBMODELS1_UART_RX_PORT, &GPIO_InitStructure);
 
     GPIO_InitStructure.GPIO_Pin = SUBMODELS2_UART_TX_PIN;
@@ -33,7 +33,7 @@ void Submodels_Init (submodels_t *submodels) {
 
     GPIO_InitStructure.GPIO_Pin = SUBMODELS2_UART_RX_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     GPIO_Init (SUBMODELS2_UART_RX_PORT, &GPIO_InitStructure);
 
     GPIO_InitStructure.GPIO_Pin = SUBMODELS3_UART_TX_PIN;
@@ -43,7 +43,7 @@ void Submodels_Init (submodels_t *submodels) {
 
     GPIO_InitStructure.GPIO_Pin = SUBMODELS3_UART_RX_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     GPIO_Init (SUBMODELS3_UART_RX_PORT, &GPIO_InitStructure);
 
     USART_InitStructure.USART_BaudRate = SUBMODELS_UART_BAUDRATE;

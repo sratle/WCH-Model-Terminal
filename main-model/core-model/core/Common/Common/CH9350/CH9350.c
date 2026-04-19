@@ -13,7 +13,6 @@ void CH9350_Init(ch9350_t *ch9350)
 {
     GPIO_InitTypeDef GPIO_InitStructure = {0};
     USART_InitTypeDef USART_InitStructure = {0};
-    NVIC_InitTypeDef NVIC_InitStructure = {0};
 
     // 校验结构体指针
     if (ch9350 == NULL)
@@ -27,17 +26,17 @@ void CH9350_Init(ch9350_t *ch9350)
     RCC_HB2PeriphClockCmd(RCC_HB2Periph_AFIO | RCC_HB2Periph_GPIOA, ENABLE);
     RCC_HB2PeriphClockCmd(RCC_HB2Periph_USART1, ENABLE);
 
-    // TX引脚复用配置
+    // TX引脚复用配置（推挽输出）
     GPIO_PinAFConfig(CH9350_UART_TX_PORT, GPIO_PinSource9, CH9350_UART_TX_AF);
     GPIO_InitStructure.GPIO_Pin = CH9350_UART_TX_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
     GPIO_Init(CH9350_UART_TX_PORT, &GPIO_InitStructure);
 
-    // RX引脚复用配置
+    // RX引脚复用配置（浮空输入）
     GPIO_PinAFConfig(CH9350_UART_RX_PORT, GPIO_PinSource10, CH9350_UART_RX_AF);
     GPIO_InitStructure.GPIO_Pin = CH9350_UART_RX_PIN;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     GPIO_Init(CH9350_UART_RX_PORT, &GPIO_InitStructure);
 
     // USART核心参数配置（必须与CH9350硬件配置一致）
@@ -52,12 +51,9 @@ void CH9350_Init(ch9350_t *ch9350)
     // 开启串口接收中断（RXNE：接收数据非空中断）
     USART_ITConfig(CH9350_UART, USART_IT_RXNE, ENABLE);
 
-    // NVIC中断优先级配置
-    NVIC_InitStructure.NVIC_IRQChannel = CH9350_UART_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 2; // 可根据系统调整
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
+    // CH32H417 NVIC配置：使用PFIC内联函数，无NVIC_InitTypeDef结构体
+    NVIC_SetPriority(CH9350_UART_IRQn, 2 << 4); // 优先级2（根据系统调整）
+    NVIC_EnableIRQ(CH9350_UART_IRQn);
 
     // 使能串口
     USART_Cmd(CH9350_UART, ENABLE);
@@ -107,8 +103,29 @@ void CH9350_UART_IRQ_Handler(ch9350_t *ch9350)
     // 检测接收中断标志
     if (USART_GetITStatus(CH9350_UART, USART_IT_RXNE) != RESET)
     {
-        // 读取接收到的字节
-        rx_data = USART_ReceiveData(CH9350_UART);
+        // 检查溢出错误（ORE）：必须先处理，否则会导致中断循环触发
+        if (USART_GetFlagStatus(CH9350_UART, USART_FLAG_ORE) != RESET)
+        {
+            // ORE清除序列：读STATR -> 读DATAR
+            // USART_GetFlagStatus已读STATR，再读一次DATAR即可清除
+            (void)USART_ReceiveData(CH9350_UART);
+            ch9350->frame_error = 1;
+            ch9350->rx_len = 0;
+            return;
+        }
+
+        // 读取接收到的字节（此操作自动清除RXNE标志）
+        rx_data = (uint8_t)USART_ReceiveData(CH9350_UART);
+
+        // 检查帧错误和噪声错误
+        if ((USART_GetFlagStatus(CH9350_UART, USART_FLAG_FE) != RESET) ||
+            (USART_GetFlagStatus(CH9350_UART, USART_FLAG_NE) != RESET))
+        {
+            // FE/NE通过读DATAR已清除
+            ch9350->frame_error = 1;
+            ch9350->rx_len = 0;
+            return;
+        }
 
         // 缓冲区溢出保护
         if (ch9350->rx_len >= CH9350_RX_BUF_MAX_LEN)
@@ -116,6 +133,7 @@ void CH9350_UART_IRQ_Handler(ch9350_t *ch9350)
             ch9350->rx_len = 0;
             ch9350->frame_error = 1;
             memset(ch9350->rx_buffer, 0, CH9350_RX_BUF_MAX_LEN);
+            return;
         }
 
         // 帧头检测：第1个字节必须是0x57，否则丢弃
@@ -171,8 +189,7 @@ void CH9350_UART_IRQ_Handler(ch9350_t *ch9350)
             }
         }
 
-        // 清除中断标志
-        USART_ClearITPendingBit(CH9350_UART, USART_IT_RXNE);
+        // 注意：RXNE标志已由USART_ReceiveData()自动清除，无需手动调用USART_ClearITPendingBit
     }
 }
 

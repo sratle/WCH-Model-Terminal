@@ -18,7 +18,7 @@ void Power_Init(power_t *power)
 
     GPIO_InitStructure.GPIO_Pin = POWER_UART_RX_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     GPIO_Init(POWER_UART_RX_PORT, &GPIO_InitStructure);
 
     USART_InitStructure.USART_BaudRate = POWER_UART_BAUDRATE;
