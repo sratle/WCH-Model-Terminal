@@ -20,8 +20,11 @@
 #include "ch32h417.h"
 #include "debug.h"
 
-	 
-void Hardware(void);
+/* MiniUI display port */
+#include "MiniUI/miniui.h"
+
+void Hardware_V3F_Init(void);
+void Hardware_V5F_Init(void);
 
 #ifdef __cplusplus
 }

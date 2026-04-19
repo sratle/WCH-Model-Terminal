@@ -54,7 +54,7 @@ int main(void)
 	HSEM_ClearFlag(HSEM_ID0);
 	printf("V3F wake up\r\n");
 
-	Hardware();
+	Hardware_V3F_Init();
 
 #elif (Run_Core == Run_Core_V3F)
 	Hardware();

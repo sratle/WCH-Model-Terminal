@@ -42,16 +42,10 @@ int main(void)
 
 	Delay_Ms(500);
 
-#if (Run_Core == Run_Core_V3FandV5F)
 	HSEM_FastTake(HSEM_ID0);
 	HSEM_ReleaseOneSem(HSEM_ID0, 0);
 
-#elif (Run_Core == Run_Core_V3F)
-
-#elif (Run_Core == Run_Core_V5F)
-	Hardware();
-#endif
-
+	Hardware_V5F_Init();
 
 	while(1)
 	{

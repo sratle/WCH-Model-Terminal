@@ -3,6 +3,7 @@
 ## 概述
 
 这是一个基于 **CH32H417** 的双核项目：
+
 - **V5F**：主执行核心，负责主要业务逻辑与复杂外设交互。
 - **V3F**：辅助核心，负责唤醒 V5F 以及串口数据转发。
 
@@ -13,6 +14,7 @@
 ## 双核职责
 
 ### V3F 核心
+
 - 初始化八个串口。
 - 扫描当前模块组成情况。
 - 更新 `hardware.c` 中的全局配件状态。
@@ -20,14 +22,17 @@
 - 后续任务：处理屏幕模块与配件、供电、键盘之间的交互。
 
 ### V5F 核心
+
 - 作为主力执行核心，运行板上系统的主要初始化逻辑。
 - 初始化 **CH378** 和 **CS43131**。
 - 从 **CH378** 中读取用户自定义持久化配置，更新全局配置状态。
 - 设置**系统初始化标志位 1**。
 - 后续任务：处理屏幕模块与 **CH378**、**CS43131**、**CH585F** 的交互（文件读取显示、音频播放与状态同步、蓝牙信号传输 / OTA）。
+  
   > 注：CH585F 为独立 MCU，V5F 仅负责与其通信，无需执行硬件初始化。
 
 ### 同步机制
+
 - 两核各自独立完成初始化，但系统初始化状态标志位会进行同步。
 - 标志位定义在 `hardware.c` 中作为全局变量，两核共享内存访问；为避免编译器优化导致可见性问题，需将其声明为 `volatile`。
 - 两核均等待系统初始化标志位全部设置完毕后，才继续执行后续任务。
@@ -100,12 +105,14 @@ core/
 ## 架构规划
 
 需要进行 **core model** 的整体架构设计，确保：
+
 1. 双核初始化流程清晰、可维护。
 2. 公共模块（`Common/Common/`）与具体核心解耦。
 3. 同步原语（标志位 / 共享内存）定义明确。
 4. 屏幕模块与两核的通信接口统一。
 
 ## 通信定义
+
 编号
 仅核心和CH585F之间使用SPI
 别的模块和核心交互使用串口
@@ -138,14 +145,14 @@ CH585F 01     wireless
 +--------+--------+--------+--------+--------+-------------+
 ```
 
-| 字段 | 长度 | 说明 |
-|------|------|------|
-| **HEAD** | 1 byte | 帧头，固定值 `0xAA`。仅在接收状态机处于 `WAIT_HEAD` 状态时识别为新帧起始，数据域中出现 `0xAA` 不触发帧重解析。 |
-| **SRC** | 1 byte | 源模块ID，标识发送方。 |
-| **DST** | 1 byte | 目标模块ID，标识接收方。 |
-| **LEN** | 1 byte | 有效载荷长度，即 `CMD + DATA` 的总字节数。`DATA` 长度 = `LEN - 1`，最大 255 字节，故最大帧长度为 260 字节。 |
-| **CMD** | 1 byte | 操作码。高 4 位标识模块类型，低 4 位标识操作类型，或由各模块独立定义。 |
-| **DATA** | N bytes | 数据域，长度由 `LEN` 推导，允许为 0 字节（此时 `LEN = 1`）。 |
+| 字段       | 长度      | 说明                                                                          |
+| -------- | ------- | --------------------------------------------------------------------------- |
+| **HEAD** | 1 byte  | 帧头，固定值 `0xAA`。仅在接收状态机处于 `WAIT_HEAD` 状态时识别为新帧起始，数据域中出现 `0xAA` 不触发帧重解析。       |
+| **SRC**  | 1 byte  | 源模块ID，标识发送方。                                                                |
+| **DST**  | 1 byte  | 目标模块ID，标识接收方。                                                               |
+| **LEN**  | 1 byte  | 有效载荷长度，即 `CMD + DATA` 的总字节数。`DATA` 长度 = `LEN - 1`，最大 255 字节，故最大帧长度为 260 字节。 |
+| **CMD**  | 1 byte  | 操作码。高 4 位标识模块类型，低 4 位标识操作类型，或由各模块独立定义。                                      |
+| **DATA** | N bytes | 数据域，长度由 `LEN` 推导，允许为 0 字节（此时 `LEN = 1`）。                                    |
 
 **最大帧传输时间**（115200 波特率）：约 22.6 ms。
 
@@ -153,35 +160,35 @@ CH585F 01     wireless
 
 模块 ID 与硬件编号一一对应，全系统统一：
 
-| ID | 模块 | 物理接口 | 主要交互核心 | 说明 |
-|----|------|----------|-------------|------|
-| `0x00` | Core（核心） | — | V3F / V5F | 两核共享同一 ID，通过 SRC 区分来源 |
-| `0x01` | CH585F（无线/蓝牙） | SPI4 | V5F | 独立 MCU，V5F 通过 SPI 通信 |
-| `0x10` | Display（屏幕模块） | UART4 | V5F / V3F | V5F 主导，V3F 可直接访问（双核不并发操作） |
-| `0x20` | Keyboard（键盘模块） | UART3 | V3F | V3F 直接管理 |
-| `0x30` | Power（供电模块） | UART5 | V3F | V3F 直接管理 |
-| `0x40` | Submodel-1（配件槽1） | UART6 | V3F | V3F 直接管理 |
-| `0x41` | Submodel-2（配件槽2） | UART7 | V3F | V3F 直接管理 |
-| `0x42` | Submodel-3（配件槽3） | UART8 | V3F | V3F 直接管理 |
+| ID     | 模块               | 物理接口  | 主要交互核心    | 说明                        |
+| ------ | ---------------- | ----- | --------- | ------------------------- |
+| `0x00` | Core（核心）         | —     | V3F / V5F | 两核共享同一 ID，通过 SRC 区分来源     |
+| `0x01` | CH585F（无线/蓝牙）    | SPI4  | V5F       | 独立 MCU，V5F 通过 SPI 通信      |
+| `0x10` | Display（屏幕模块）    | UART4 | V5F / V3F | V5F 主导，V3F 可直接访问（双核不并发操作） |
+| `0x20` | Keyboard（键盘模块）   | UART3 | V3F       | V3F 直接管理                  |
+| `0x30` | Power（供电模块）      | UART5 | V3F       | V3F 直接管理                  |
+| `0x40` | Submodel-1（配件槽1） | UART6 | V3F       | V3F 直接管理                  |
+| `0x41` | Submodel-2（配件槽2） | UART7 | V3F       | V3F 直接管理                  |
+| `0x42` | Submodel-3（配件槽3） | UART8 | V3F       | V3F 直接管理                  |
 
 > 预留范围：Display `0x10-0x12`、Keyboard `0x20-0x22`、Power `0x30-0x31`、Submodels `0x40-0x49`。
->
+> 
 > **Display 双核访问说明**：V3F 和 V5F 均可直接向 Display 发送命令，但两核不会在同一时间操作 UART4，因此无需额外的并发仲裁机制。Display 模块通过帧中的 SRC 字段（0x00）无法区分来自 V3F 还是 V5F，如需区分可在 DATA 中增加核心标识字段。
 
 ### 4. 通用操作码（0x00 ~ 0x0F）
 
 以下操作码为所有模块共享，用于基础握手、查询和状态同步：
 
-| 操作码 | 宏名 | 方向 | 说明 |
-|--------|------|------|------|
-| `0x00` | `CMD_NOP` | 双向 | 心跳/空操作，可用于保活检测。 |
-| `0x01` | `CMD_GET_TYPE` | Core -> Module | 查询模块类型。Module 回复自身类型编号。 |
-| `0x02` | `CMD_GET_STATUS` | Core -> Module | 查询模块当前状态。 |
-| `0x03` | `CMD_SET_CONFIG` | Core -> Module | 向模块下发配置参数。 |
-| `0x04` | `CMD_ACK` | 双向 | 肯定确认。DATA 可选携带响应数据。 |
-| `0x05` | `CMD_NACK` | 双向 | 否定确认。DATA[0] 建议携带错误码。 |
-| `0x06` | `CMD_EVT_NOTIFY` | Module -> Core | 事件主动上报，如电量变化、按键按下、蓝牙连接等。 |
-| `0x07` | `CMD_DATA_STREAM` | 双向 | 纯数据流传输，用于大数据量场景（如音频、文件）。 |
+| 操作码    | 宏名                | 方向             | 说明                       |
+| ------ | ----------------- | -------------- | ------------------------ |
+| `0x00` | `CMD_NOP`         | 双向             | 心跳/空操作，可用于保活检测。          |
+| `0x01` | `CMD_GET_TYPE`    | Core -> Module | 查询模块类型。Module 回复自身类型编号。  |
+| `0x02` | `CMD_GET_STATUS`  | Core -> Module | 查询模块当前状态。                |
+| `0x03` | `CMD_SET_CONFIG`  | Core -> Module | 向模块下发配置参数。               |
+| `0x04` | `CMD_ACK`         | 双向             | 肯定确认。DATA 可选携带响应数据。      |
+| `0x05` | `CMD_NACK`        | 双向             | 否定确认。DATA[0] 建议携带错误码。    |
+| `0x06` | `CMD_EVT_NOTIFY`  | Module -> Core | 事件主动上报，如电量变化、按键按下、蓝牙连接等。 |
+| `0x07` | `CMD_DATA_STREAM` | 双向             | 纯数据流传输，用于大数据量场景（如音频、文件）。 |
 
 ### 5. 模块专用操作码
 
@@ -189,54 +196,54 @@ CH585F 01     wireless
 
 #### 5.1 Display（屏幕模块）
 
-| 操作码 | 宏名 | 方向 | 说明 |
-|--------|------|------|------|
-| `0x11` | `CMD_DISP_SET_BRIGHTNESS` | Core -> Display | 设置背光亮度。DATA[0] = 亮度值（0-100）。 |
+| 操作码    | 宏名                        | 方向              | 说明                             |
+| ------ | ------------------------- | --------------- | ------------------------------ |
+| `0x11` | `CMD_DISP_SET_BRIGHTNESS` | Core -> Display | 设置背光亮度。DATA[0] = 亮度值（0-100）。   |
 | `0x12` | `CMD_DISP_GET_BRIGHTNESS` | Core -> Display | 获取当前背光亮度。Display 回复 ACK + 亮度值。 |
-| `0x13` | `CMD_DISP_SHOW_PAGE` | Core -> Display | 切换显示页面。DATA[0] = 页面编号。 |
-| `0x14` | `CMD_DISP_UPDATE_STATUS` | Core -> Display | 更新状态栏信息（电量、蓝牙、时间等）。 |
-| `0x15` | `CMD_DISP_TOUCH_EVT` | Display -> Core | 触摸屏事件上报。DATA 包含坐标与事件类型。 |
+| `0x13` | `CMD_DISP_SHOW_PAGE`      | Core -> Display | 切换显示页面。DATA[0] = 页面编号。         |
+| `0x14` | `CMD_DISP_UPDATE_STATUS`  | Core -> Display | 更新状态栏信息（电量、蓝牙、时间等）。            |
+| `0x15` | `CMD_DISP_TOUCH_EVT`      | Display -> Core | 触摸屏事件上报。DATA 包含坐标与事件类型。        |
 
 #### 5.2 Keyboard（键盘模块）
 
-| 操作码 | 宏名 | 方向 | 说明 |
-|--------|------|------|------|
-| `0x21` | `CMD_KBD_GET_LAYOUT` | Core -> Keyboard | 查询当前键位布局。 |
-| `0x22` | `CMD_KBD_SET_BACKLIGHT` | Core -> Keyboard | 设置键盘背光。DATA[0] = 模式/亮度。 |
-| `0x23` | `CMD_KBD_KEY_DOWN` | Keyboard -> Core | 按键按下事件。DATA[0..5] = 键码数组。 |
-| `0x24` | `CMD_KBD_KEY_UP` | Keyboard -> Core | 按键释放事件。 |
-| `0x25` | `CMD_KBD_FN_COMBO` | Keyboard -> Core | Fn 组合键事件上报。 |
+| 操作码    | 宏名                      | 方向               | 说明                        |
+| ------ | ----------------------- | ---------------- | ------------------------- |
+| `0x21` | `CMD_KBD_GET_LAYOUT`    | Core -> Keyboard | 查询当前键位布局。                 |
+| `0x22` | `CMD_KBD_SET_BACKLIGHT` | Core -> Keyboard | 设置键盘背光。DATA[0] = 模式/亮度。   |
+| `0x23` | `CMD_KBD_KEY_DOWN`      | Keyboard -> Core | 按键按下事件。DATA[0..5] = 键码数组。 |
+| `0x24` | `CMD_KBD_KEY_UP`        | Keyboard -> Core | 按键释放事件。                   |
+| `0x25` | `CMD_KBD_FN_COMBO`      | Keyboard -> Core | Fn 组合键事件上报。               |
 
 #### 5.3 Power（供电模块）
 
-| 操作码 | 宏名 | 方向 | 说明 |
-|--------|------|------|------|
-| `0x31` | `CMD_PWR_GET_BATTERY` | Core -> Power | 查询电池电量百分比。 |
-| `0x32` | `CMD_PWR_GET_VOLTAGE` | Core -> Power | 查询电池电压（mV）。 |
-| `0x33` | `CMD_PWR_SET_CHARGE` | Core -> Power | 设置充电策略。DATA[0] = 开关/电流档位。 |
-| `0x34` | `CMD_PWR_BAT_LOW_EVT` | Power -> Core | 低电量告警事件。DATA[0] = 当前电量。 |
-| `0x35` | `CMD_PWR_CHARGE_EVT` | Power -> Core | 充电状态变化事件（插入/拔出/充满）。 |
+| 操作码    | 宏名                    | 方向            | 说明                        |
+| ------ | --------------------- | ------------- | ------------------------- |
+| `0x31` | `CMD_PWR_GET_BATTERY` | Core -> Power | 查询电池电量百分比。                |
+| `0x32` | `CMD_PWR_GET_VOLTAGE` | Core -> Power | 查询电池电压（mV）。               |
+| `0x33` | `CMD_PWR_SET_CHARGE`  | Core -> Power | 设置充电策略。DATA[0] = 开关/电流档位。 |
+| `0x34` | `CMD_PWR_BAT_LOW_EVT` | Power -> Core | 低电量告警事件。DATA[0] = 当前电量。   |
+| `0x35` | `CMD_PWR_CHARGE_EVT`  | Power -> Core | 充电状态变化事件（插入/拔出/充满）。       |
 
 #### 5.4 Submodels（配件模块）
 
-| 操作码 | 宏名 | 方向 | 说明 |
-|--------|------|------|------|
+| 操作码    | 宏名                 | 方向               | 说明                                   |
+| ------ | ------------------ | ---------------- | ------------------------------------ |
 | `0x41` | `CMD_SUB_GET_TYPE` | Core -> Submodel | 查询配件类型（与通用 `CMD_GET_TYPE` 语义相同，可复用）。 |
-| `0x42` | `CMD_SUB_GET_DATA` | Core -> Submodel | 读取配件传感器/状态数据。 |
-| `0x43` | `CMD_SUB_SET_DATA` | Core -> Submodel | 向配件写入控制数据。 |
-| `0x44` | `CMD_SUB_EVT_DATA` | Submodel -> Core | 配件数据主动上报。 |
+| `0x42` | `CMD_SUB_GET_DATA` | Core -> Submodel | 读取配件传感器/状态数据。                        |
+| `0x43` | `CMD_SUB_SET_DATA` | Core -> Submodel | 向配件写入控制数据。                           |
+| `0x44` | `CMD_SUB_EVT_DATA` | Submodel -> Core | 配件数据主动上报。                            |
 
 #### 5.5 CH585F（无线模块，SPI 接口）
 
 CH585F 使用 SPI 进行物理通信，但在应用层数据包中嵌入相同的协议帧格式：
 
-| 操作码 | 宏名 | 方向 | 说明 |
-|--------|------|------|------|
-| `0x51` | `CMD_BT_GET_STATUS` | Core -> CH585F | 查询蓝牙连接状态。 |
-| `0x52` | `CMD_BT_SEND_DATA` | Core -> CH585F | 通过蓝牙发送数据。 |
-| `0x53` | `CMD_BT_START_OTA` | Core -> CH585F | 启动蓝牙 OTA 升级流程。 |
-| `0x54` | `CMD_BT_CONN_EVT` | CH585F -> Core | 蓝牙连接/断开事件。 |
-| `0x55` | `CMD_BT_RECV_DATA` | CH585F -> Core | 蓝牙接收到数据上报。 |
+| 操作码    | 宏名                  | 方向             | 说明             |
+| ------ | ------------------- | -------------- | -------------- |
+| `0x51` | `CMD_BT_GET_STATUS` | Core -> CH585F | 查询蓝牙连接状态。      |
+| `0x52` | `CMD_BT_SEND_DATA`  | Core -> CH585F | 通过蓝牙发送数据。      |
+| `0x53` | `CMD_BT_START_OTA`  | Core -> CH585F | 启动蓝牙 OTA 升级流程。 |
+| `0x54` | `CMD_BT_CONN_EVT`   | CH585F -> Core | 蓝牙连接/断开事件。     |
+| `0x55` | `CMD_BT_RECV_DATA`  | CH585F -> Core | 蓝牙接收到数据上报。     |
 
 ### 6. 异步通信规则
 
@@ -264,17 +271,18 @@ WAIT_HEAD -> WAIT_SRC -> WAIT_DST -> WAIT_LEN -> WAIT_CMD -> WAIT_DATA -> FRAME_
 
 ### 8. 消息缓冲区建议
 
-| 模块 | 建议接收缓冲区大小 | 说明 |
-|------|-------------------|------|
-| Display | 512 bytes | 可能涉及图像/字体数据传输 |
-| Keyboard | 64 bytes | 键码数据量小 |
-| Power | 64 bytes | 状态数据量小 |
-| Submodels | 256 bytes x3 | 每路 UART 独立缓冲 |
-| CH585F | 512 bytes | 蓝牙数据包可能较大 |
+| 模块        | 建议接收缓冲区大小    | 说明            |
+| --------- | ------------ | ------------- |
+| Display   | 512 bytes    | 可能涉及图像/字体数据传输 |
+| Keyboard  | 64 bytes     | 键码数据量小        |
+| Power     | 64 bytes     | 状态数据量小        |
+| Submodels | 256 bytes x3 | 每路 UART 独立缓冲  |
+| CH585F    | 512 bytes    | 蓝牙数据包可能较大     |
 
 ### 9. 通信示例
 
 #### 示例 1：Core 查询 Display 类型
+
 ```
 Host:  [AA][00][10][01][01]
        HEAD=AA SRC=00(Core) DST=10(Display) LEN=01 CMD=01(GET_TYPE)
@@ -284,12 +292,14 @@ Guest: [AA][10][00][02][04][01]
 ```
 
 #### 示例 2：Power 主动上报低电量
+
 ```
 Guest -> Host: [AA][30][00][02][06][15]
                HEAD=AA SRC=30(Power) DST=00(Core) LEN=02 CMD=06(EVT_NOTIFY) DATA[0]=21(电量21%)
 ```
 
 #### 示例 3：Core 设置 Display 背光为 80%
+
 ```
 Host:  [AA][00][10][02][11][50]
        HEAD=AA SRC=00(Core) DST=10(Display) LEN=02 CMD=11(SET_BRIGHTNESS) DATA[0]=0x50(80)
