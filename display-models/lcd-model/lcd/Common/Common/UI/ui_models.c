@@ -1,8 +1,8 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : ui_models.c
 * Author             : LCD Model Team
-* Version            : V2.0.0
-* Date               : 2025/04/19
+* Version            : V3.0.0
+* Date               : 2025/04/20
 * Description        : Models page implementation.
 *                      Tab view with module status cards.
 ********************************************************************************/
@@ -11,7 +11,7 @@
 
 /*=============================================================================
  *  Module Status Data
- *=============================================================================*/
+*=============================================================================*/
 
 typedef struct {
     const char *name;
@@ -43,7 +43,7 @@ static const module_info_t s_storage_modules[] = {
 
 /*=============================================================================
  *  Models Page Widgets
- *=============================================================================*/
+*=============================================================================*/
 
 static ui_label_t lbl_title;
 static ui_tabview_t tabview;
@@ -66,9 +66,11 @@ static ui_label_t lbl_stor_ver[3];
 
 static ui_widget_t *s_models_widgets[2];
 
+static bool s_models_inited = false;
+
 /*=============================================================================
  *  Tab Change Handler
- *=============================================================================*/
+*=============================================================================*/
 
 static void models_tab_change(ui_widget_t *w, uint8_t tab)
 {
@@ -78,37 +80,19 @@ static void models_tab_change(ui_widget_t *w, uint8_t tab)
 }
 
 /*=============================================================================
- *  Models Page Drawing
- *=============================================================================*/
+ *  Internal: Initialize card widgets for a tab
+*=============================================================================*/
 
-void ui_models_draw(ui_page_t *page, ui_rect_t *dirty)
+static void init_tab_cards(const module_info_t *mods, ui_card_t *cards,
+                           ui_label_t *names, ui_status_dot_t *dots,
+                           ui_label_t *vers, int count,
+                           int16_t cx, int16_t cy_start)
 {
-    ui_rect_t content = {SIDEBAR_WIDTH, 0, UI_SCREEN_WIDTH - SIDEBAR_WIDTH, UI_SCREEN_HEIGHT};
-    ui_draw_fill_rect(&content, UI_COLOR_BG_MAIN);
-
-    ui_tabview_t *tv = &tabview;
-    uint8_t tab = ui_tabview_get_active(tv);
-
-    int16_t cx = SIDEBAR_WIDTH + 20;
-    int16_t cy = tv->content_rect.y + 10;
     int16_t card_w = 160;
     int16_t card_h = 70;
     int16_t card_gap = 12;
     int16_t col = 0;
-
-    const module_info_t *mods = NULL;
-    ui_card_t *cards = NULL;
-    ui_label_t *names = NULL;
-    ui_status_dot_t *dots = NULL;
-    ui_label_t *vers = NULL;
-    int count = 0;
-
-    switch (tab) {
-    case 0: mods = s_comm_modules; cards = card_comm; names = lbl_comm_name; dots = dot_comm; vers = lbl_comm_ver; count = 4; break;
-    case 1: mods = s_display_modules; cards = card_disp; names = lbl_disp_name; dots = dot_disp; vers = lbl_disp_ver; count = 3; break;
-    case 2: mods = s_storage_modules; cards = card_stor; names = lbl_stor_name; dots = dot_stor; vers = lbl_stor_ver; count = 3; break;
-    default: return;
-    }
+    int16_t cy = cy_start;
 
     for (int i = 0; i < count; i++) {
         ui_rect_t card_rect = {cx + col * (card_w + card_gap), cy, card_w, card_h};
@@ -133,16 +117,42 @@ void ui_models_draw(ui_page_t *page, ui_rect_t *dirty)
         ui_card_add_child(&cards[i], (ui_widget_t *)&dots[i]);
         ui_card_add_child(&cards[i], (ui_widget_t *)&vers[i]);
 
-        ui_widget_draw((ui_widget_t *)&cards[i], dirty);
-
         col++;
         if (col >= 3) { col = 0; cy += card_h + card_gap; }
     }
 }
 
 /*=============================================================================
+ *  Models Page Drawing
+*=============================================================================*/
+
+void ui_models_draw(ui_page_t *page, ui_rect_t *dirty)
+{
+    ui_rect_t content = {SIDEBAR_WIDTH, 0, UI_SCREEN_WIDTH - SIDEBAR_WIDTH, UI_SCREEN_HEIGHT};
+    ui_draw_fill_rect(&content, UI_COLOR_BG_MAIN);
+
+    ui_tabview_t *tv = &tabview;
+    uint8_t tab = ui_tabview_get_active(tv);
+
+    const module_info_t *mods = NULL;
+    ui_card_t *cards = NULL;
+    int count = 0;
+
+    switch (tab) {
+    case 0: mods = s_comm_modules; cards = card_comm; count = 4; break;
+    case 1: mods = s_display_modules; cards = card_disp; count = 3; break;
+    case 2: mods = s_storage_modules; cards = card_stor; count = 3; break;
+    default: return;
+    }
+
+    for (int i = 0; i < count; i++) {
+        ui_widget_draw((ui_widget_t *)&cards[i], dirty);
+    }
+}
+
+/*=============================================================================
  *  Models Page Initialization
- *=============================================================================*/
+*=============================================================================*/
 
 void ui_models_init(void)
 {
@@ -164,9 +174,22 @@ void ui_models_init(void)
 
     ui_page_set_widgets(&page_models, s_models_widgets, 2);
     ui_page_set_callbacks(&page_models, ui_models_enter, NULL, ui_models_draw, NULL);
+
+    s_models_inited = false;
 }
 
 void ui_models_enter(ui_page_t *page)
 {
     (void)page;
+
+    if (!s_models_inited) {
+        int16_t cx = SIDEBAR_WIDTH + 20;
+        int16_t cy = tabview.content_rect.y + 10;
+
+        init_tab_cards(s_comm_modules, card_comm, lbl_comm_name, dot_comm, lbl_comm_ver, 4, cx, cy);
+        init_tab_cards(s_display_modules, card_disp, lbl_disp_name, dot_disp, lbl_disp_ver, 3, cx, cy);
+        init_tab_cards(s_storage_modules, card_stor, lbl_stor_name, dot_stor, lbl_stor_ver, 3, cx, cy);
+
+        s_models_inited = true;
+    }
 }

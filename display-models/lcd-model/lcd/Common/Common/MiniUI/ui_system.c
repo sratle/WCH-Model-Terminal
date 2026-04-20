@@ -1,17 +1,19 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : ui_system.c
 * Author             : LCD Model Team
-* Version            : V2.0.0
-* Date               : 2025/04/19
+* Version            : V3.0.0
+* Date               : 2025/04/20
 * Description        : MiniUI system initialization and main loop.
 ********************************************************************************/
 #include "miniui.h"
 #include "../UI/ui_main.h"
 #include "../UI/ui_home.h"
-#include "../UI/ui_software.h"
+#include "../UI/ui_apps.h"
 #include "../UI/ui_models.h"
 #include "../UI/ui_settings.h"
 #include "../UI/ui_games.h"
+#include "../Apps/apps.h"
+#include "../Games/games.h"
 #include "../SSD1963/ssd1963.h"
 #include "../SSD1963/lcd_config.h"
 
@@ -33,10 +35,13 @@ void UI_Init(void)
 
     ui_main_init();
     ui_home_init();
-    ui_software_init();
+    ui_apps_init();
     ui_models_init();
     ui_settings_init();
     ui_games_init();
+
+    apps_init_all();
+    games_init_all();
 
     ui_page_switch(&page_home);
 
@@ -67,9 +72,14 @@ void UI_Tick(void)
             }
 
             if (!handled) {
-                ui_sidebar_event_cb_t sidebar_event = ui_page_get_sidebar_event_cb();
-                if (sidebar_event) {
-                    handled = sidebar_event(e);
+                ui_page_t *page = ui_page_current();
+                bool is_fullscreen = page && (page->flags & UI_PAGE_FLAG_FULLSCREEN);
+
+                if (!is_fullscreen) {
+                    ui_sidebar_event_cb_t sidebar_event = ui_page_get_sidebar_event_cb();
+                    if (sidebar_event) {
+                        handled = sidebar_event(e);
+                    }
                 }
             }
 
@@ -124,8 +134,13 @@ void UI_FullRefresh(void)
 {
     ui_screen_clear(UI_COLOR_BG_MAIN);
 
-    ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-    ui_main_draw_sidebar(&full);
+    ui_page_t *page = ui_page_current();
+    bool is_fullscreen = page && (page->flags & UI_PAGE_FLAG_FULLSCREEN);
+
+    if (!is_fullscreen) {
+        ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
+        ui_main_draw_sidebar(&full);
+    }
 
     ui_page_invalidate_all();
     ui_page_draw();

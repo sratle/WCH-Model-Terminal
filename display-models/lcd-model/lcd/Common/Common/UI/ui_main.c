@@ -1,8 +1,8 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : ui_main.c
 * Author             : LCD Model Team
-* Version            : V2.0.0
-* Date               : 2025/04/19
+* Version            : V3.0.0
+* Date               : 2025/04/20
 * Description        : Main UI framework implementation.
 *                      Sidebar navigation and page container.
 ********************************************************************************/
@@ -14,11 +14,11 @@
  *=============================================================================*/
 
 static const char *s_menu_labels[SIDEBAR_ITEM_COUNT] = {
-    "Main",
-    "Software",
+    "Home",
+    "Apps",
+    "Games",
     "Models",
-    "Options",
-    "Games"
+    "Settings"
 };
 
 static menu_item_t s_active_menu = MENU_HOME;
@@ -28,10 +28,10 @@ static menu_item_t s_active_menu = MENU_HOME;
  *=============================================================================*/
 
 ui_page_t page_home;
-ui_page_t page_software;
+ui_page_t page_apps;
+ui_page_t page_games;
 ui_page_t page_models;
 ui_page_t page_settings;
-ui_page_t page_games;
 
 /*=============================================================================
  *  Sidebar Drawing
@@ -74,16 +74,16 @@ void ui_main_draw_sidebar(ui_rect_t *dirty)
 void ui_main_init(void)
 {
     ui_page_struct_init(&page_home, "Home", 0);
-    ui_page_struct_init(&page_software, "Software", 1);
-    ui_page_struct_init(&page_models, "Models", 2);
-    ui_page_struct_init(&page_settings, "Settings", 3);
-    ui_page_struct_init(&page_games, "Games", 4);
+    ui_page_struct_init(&page_apps, "Apps", 1);
+    ui_page_struct_init(&page_games, "Games", 2);
+    ui_page_struct_init(&page_models, "Models", 3);
+    ui_page_struct_init(&page_settings, "Settings", 4);
 
     ui_page_register(&page_home);
-    ui_page_register(&page_software);
+    ui_page_register(&page_apps);
+    ui_page_register(&page_games);
     ui_page_register(&page_models);
     ui_page_register(&page_settings);
-    ui_page_register(&page_games);
 
     s_active_menu = MENU_HOME;
 }
@@ -99,17 +99,17 @@ void ui_main_set_menu(menu_item_t item)
         case MENU_HOME:
             ui_page_switch(&page_home);
             break;
-        case MENU_SOFTWARE:
-            ui_page_switch(&page_software);
+        case MENU_APPS:
+            ui_page_switch(&page_apps);
+            break;
+        case MENU_GAMES:
+            ui_page_switch(&page_games);
             break;
         case MENU_MODELS:
             ui_page_switch(&page_models);
             break;
         case MENU_SETTINGS:
             ui_page_switch(&page_settings);
-            break;
-        case MENU_GAMES:
-            ui_page_switch(&page_games);
             break;
     }
 

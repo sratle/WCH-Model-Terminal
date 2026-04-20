@@ -7,7 +7,6 @@
 *                      Page stack, navigation, and dirty region tracking.
 ********************************************************************************/
 #include "miniui_page.h"
-#include "../SSD1963/ssd1963.h"
 #include <string.h>
 
 /*=============================================================================
@@ -209,11 +208,10 @@ void ui_page_draw(void)
         ui_rect_t *dirty = &s_dirty_list.regions[i];
 
         ui_render_set_clip(dirty);
-        SSD1963_SetWindow((uint16_t)dirty->x, (uint16_t)dirty->y,
-                          (uint16_t)(dirty->x + dirty->w - 1),
-                          (uint16_t)(dirty->y + dirty->h - 1));
 
-        if (s_sidebar_draw) {
+        bool is_fullscreen = (page->flags & UI_PAGE_FLAG_FULLSCREEN) != 0;
+
+        if (s_sidebar_draw && !is_fullscreen) {
             s_sidebar_draw(dirty);
         }
 

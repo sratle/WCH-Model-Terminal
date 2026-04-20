@@ -30,8 +30,18 @@ extern "C" {
 void ui_render_init(void);
 
 /*=============================================================================
+ *  Line Buffer API (for efficient dirty-rect row-by-row rendering)
+*=============================================================================*/
+
+ui_color_t* ui_render_get_line_buf(void);
+void ui_render_flush_line(int16_t y, int16_t x_start, int16_t width);
+void ui_render_fill_line_buf(int16_t x_start, int16_t width, ui_color_t color);
+void ui_render_set_line_pixel(int16_t x, ui_color_t color);
+ui_color_t ui_render_get_line_pixel(int16_t x);
+
+/*=============================================================================
  *  Clipping
- *=============================================================================*/
+*=============================================================================*/
 
 void ui_render_set_clip(const ui_rect_t *rect);
 void ui_render_get_clip(ui_rect_t *rect);

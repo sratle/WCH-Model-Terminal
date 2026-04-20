@@ -1,25 +1,34 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : miniui_render.c
 * Author             : LCD Model Team
-* Version            : V2.0.0
-* Date               : 2025/04/19
+* Version            : V3.0.0
+* Date               : 2025/04/20
 * Description        : MiniUI rendering engine implementation.
 *                      Drawing primitives using SSD1963 GRAM via FMC.
 *                      Optimized for 800x480 RGB565 with dirty-rect partial refresh.
+*                      Uses line buffer for efficient row-by-row rendering.
 ********************************************************************************/
 #include "miniui_render.h"
 #include "../SSD1963/ssd1963.h"
 #include <string.h>
 
 /*=============================================================================
+ *  Line Buffer
+*  One full screen row = 800 * 2 = 1600 bytes.
+*  Used for efficient dirty-rect rendering: fill bg, composite widgets, flush.
+*=============================================================================*/
+
+static ui_color_t g_line_buf[UI_SCREEN_WIDTH];
+
+/*=============================================================================
  *  Internal State
- *=============================================================================*/
+*=============================================================================*/
 
 static ui_rect_t g_clip_rect = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
 
 /*=============================================================================
  *  Helper Functions
- *=============================================================================*/
+*=============================================================================*/
 
 static inline int16_t ui_max(int16_t a, int16_t b) { return a > b ? a : b; }
 static inline int16_t ui_min(int16_t a, int16_t b) { return a < b ? a : b; }
@@ -46,9 +55,14 @@ static bool rect_intersect(const ui_rect_t *a, const ui_rect_t *b, ui_rect_t *ou
     return true;
 }
 
+static inline bool rect_contains(const ui_rect_t *r, int16_t x, int16_t y)
+{
+    return (x >= r->x && x < r->x + r->w && y >= r->y && y < r->y + r->h);
+}
+
 /*=============================================================================
  *  Initialization
- *=============================================================================*/
+*=============================================================================*/
 
 void ui_render_init(void)
 {
@@ -59,8 +73,53 @@ void ui_render_init(void)
 }
 
 /*=============================================================================
+ *  Line Buffer API
+*=============================================================================*/
+
+ui_color_t* ui_render_get_line_buf(void)
+{
+    return g_line_buf;
+}
+
+void ui_render_flush_line(int16_t y, int16_t x_start, int16_t width)
+{
+    if (width <= 0 || y < 0 || y >= UI_SCREEN_HEIGHT) return;
+    if (x_start < 0) { width += x_start; x_start = 0; }
+    if (x_start + width > UI_SCREEN_WIDTH) width = UI_SCREEN_WIDTH - x_start;
+    if (width <= 0) return;
+
+    SSD1963_SetWindow((uint16_t)x_start, (uint16_t)y,
+                      (uint16_t)(x_start + width - 1), (uint16_t)y);
+    SSD1963_WriteBuffer(&g_line_buf[x_start], (uint32_t)width);
+}
+
+void ui_render_fill_line_buf(int16_t x_start, int16_t width, ui_color_t color)
+{
+    if (width <= 0 || x_start < 0 || x_start >= UI_SCREEN_WIDTH) return;
+    if (x_start + width > UI_SCREEN_WIDTH) width = UI_SCREEN_WIDTH - x_start;
+    for (int16_t i = 0; i < width; i++) {
+        g_line_buf[x_start + i] = color;
+    }
+}
+
+void ui_render_set_line_pixel(int16_t x, ui_color_t color)
+{
+    if (x >= 0 && x < UI_SCREEN_WIDTH) {
+        g_line_buf[x] = color;
+    }
+}
+
+ui_color_t ui_render_get_line_pixel(int16_t x)
+{
+    if (x >= 0 && x < UI_SCREEN_WIDTH) {
+        return g_line_buf[x];
+    }
+    return 0;
+}
+
+/*=============================================================================
  *  Clipping
- *=============================================================================*/
+*=============================================================================*/
 
 void ui_render_set_clip(const ui_rect_t *rect)
 {
@@ -89,8 +148,8 @@ bool ui_render_clip_test(const ui_rect_t *rect)
 }
 
 /*=============================================================================
- *  Pixel & Line Drawing
- *=============================================================================*/
+ *  Pixel & Line Drawing (direct GRAM)
+*=============================================================================*/
 
 void ui_draw_pixel(int16_t x, int16_t y, ui_color_t color)
 {
@@ -98,7 +157,8 @@ void ui_draw_pixel(int16_t x, int16_t y, ui_color_t color)
         y < g_clip_rect.y || y >= g_clip_rect.y + g_clip_rect.h) {
         return;
     }
-    SSD1963_DrawPixel((uint16_t)x, (uint16_t)y, color);
+    SSD1963_SetWindow((uint16_t)x, (uint16_t)y, (uint16_t)x, (uint16_t)y);
+    SSD1963_WriteData16(color);
 }
 
 void ui_draw_hline(int16_t x, int16_t y, int16_t w, ui_color_t color)
@@ -152,7 +212,7 @@ void ui_draw_line(int16_t x1, int16_t y1, int16_t x2, int16_t y2, ui_color_t col
 
 /*=============================================================================
  *  Rectangle Drawing
- *=============================================================================*/
+*=============================================================================*/
 
 void ui_draw_fill_rect(const ui_rect_t *rect, ui_color_t color)
 {
@@ -196,7 +256,10 @@ void ui_draw_rect(const ui_rect_t *rect, ui_color_t fill, ui_color_t border, int
 
 /*=============================================================================
  *  Rounded Rectangle Drawing
- *=============================================================================*/
+*
+*  Fixed fill_circle_quadrant: each hline now spans from the circle edge
+*  to the center, correctly filling the quadrant corner area.
+*=============================================================================*/
 
 static void fill_circle_quadrant(int16_t cx, int16_t cy, int16_t r, ui_color_t color, uint8_t q)
 {
@@ -206,20 +269,20 @@ static void fill_circle_quadrant(int16_t cx, int16_t cy, int16_t r, ui_color_t c
     while (x <= y) {
         switch (q) {
         case 0:
-            ui_draw_hline(cx - y, cy - x, y, color);
-            ui_draw_hline(cx - x, cy - y, x, color);
+            ui_draw_hline(cx - y, cy - x, y + 1, color);
+            ui_draw_hline(cx - x, cy - y, x + 1, color);
             break;
         case 1:
-            ui_draw_hline(cx, cy - x, y, color);
-            ui_draw_hline(cx, cy - y, x, color);
+            ui_draw_hline(cx, cy - x, y + 1, color);
+            ui_draw_hline(cx, cy - y, x + 1, color);
             break;
         case 2:
-            ui_draw_hline(cx - y, cy + x, y, color);
-            ui_draw_hline(cx - x, cy + y, x, color);
+            ui_draw_hline(cx - y, cy + x, y + 1, color);
+            ui_draw_hline(cx - x, cy + y, x + 1, color);
             break;
         case 3:
-            ui_draw_hline(cx, cy + x, y, color);
-            ui_draw_hline(cx, cy + y, x, color);
+            ui_draw_hline(cx, cy + x, y + 1, color);
+            ui_draw_hline(cx, cy + y, x + 1, color);
             break;
         }
         if (d < 0) {
@@ -318,7 +381,7 @@ void ui_draw_round_rect(const ui_rect_t *rect, int16_t radius, ui_color_t fill, 
 
 /*=============================================================================
  *  Circle Drawing
- *=============================================================================*/
+*=============================================================================*/
 
 void ui_draw_fill_circle(int16_t cx, int16_t cy, int16_t r, ui_color_t color)
 {
@@ -362,7 +425,7 @@ void ui_draw_circle_border(int16_t cx, int16_t cy, int16_t r, ui_color_t color, 
 
 /*=============================================================================
  *  Icon Drawing (1bpp bitmap)
- *=============================================================================*/
+*=============================================================================*/
 
 void ui_draw_icon(int16_t x, int16_t y, const uint8_t *bitmap,
                   int16_t w, int16_t h, ui_color_t color)
@@ -390,7 +453,7 @@ void ui_draw_icon_in_rect(const ui_rect_t *rect, const uint8_t *bitmap,
 
 /*=============================================================================
  *  Text Drawing
- *=============================================================================*/
+*=============================================================================*/
 
 static const ui_glyph_t* find_glyph(const ui_font_t *font, uint16_t unicode)
 {
@@ -522,7 +585,7 @@ int16_t ui_text_width(const char *text, const ui_font_t *font)
 
 /*=============================================================================
  *  Screen Operations
- *=============================================================================*/
+*=============================================================================*/
 
 void ui_screen_clear(ui_color_t color)
 {

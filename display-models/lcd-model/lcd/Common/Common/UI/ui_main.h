@@ -1,8 +1,8 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : ui_main.h
 * Author             : LCD Model Team
-* Version            : V2.0.0
-* Date               : 2025/04/19
+* Version            : V3.0.0
+* Date               : 2025/04/20
 * Description        : Main UI framework header.
 *                      Sidebar navigation and page container.
 ********************************************************************************/
@@ -29,10 +29,10 @@ extern "C" {
 
 typedef enum {
     MENU_HOME = 0,
-    MENU_SOFTWARE,
+    MENU_APPS,
+    MENU_GAMES,
     MENU_MODELS,
     MENU_SETTINGS,
-    MENU_GAMES,
 } menu_item_t;
 
 /*=============================================================================
@@ -50,10 +50,10 @@ bool ui_main_handle_event(ui_event_t *e);
  *=============================================================================*/
 
 extern ui_page_t page_home;
-extern ui_page_t page_software;
+extern ui_page_t page_apps;
+extern ui_page_t page_games;
 extern ui_page_t page_models;
 extern ui_page_t page_settings;
-extern ui_page_t page_games;
 
 #ifdef __cplusplus
 }
