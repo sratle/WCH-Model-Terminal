@@ -57,7 +57,6 @@ docs/CH32V103EVT/
 docs/CH32V307EVT/
 docs/CH585EVT/
 
-**/ld/
 **/obj/
 **/LVGL/
 **/.vscode/
