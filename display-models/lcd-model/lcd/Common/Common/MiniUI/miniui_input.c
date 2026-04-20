@@ -115,13 +115,13 @@ void ui_input_touch_raw(bool pressed, int16_t x, int16_t y)
                 e.delta.x = dx;
                 e.delta.y = dy;
                 queue_push(&e);
+            } else {
+                e.type = UI_EVENT_RELEASE;
+                e.pos = s_input_state.touch_pos;
+                e.delta.x = 0;
+                e.delta.y = 0;
+                queue_push(&e);
             }
-
-            e.type = UI_EVENT_RELEASE;
-            e.pos = s_input_state.touch_pos;
-            e.delta.x = 0;
-            e.delta.y = 0;
-            queue_push(&e);
         }
     }
 }

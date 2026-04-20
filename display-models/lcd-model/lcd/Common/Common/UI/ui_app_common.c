@@ -6,6 +6,7 @@
 * Description        : Common fullscreen app/game page template implementation.
 ********************************************************************************/
 #include "ui_app_common.h"
+#include "../MiniUI/miniui_page.h"
 #include <string.h>
 
 /*=============================================================================
@@ -15,7 +16,9 @@
 static void app_back_click(ui_widget_t *w)
 {
     (void)w;
-    ui_page_pop();
+    if (ui_page_can_go_back()) {
+        ui_page_pop();
+    }
 }
 
 /*=============================================================================

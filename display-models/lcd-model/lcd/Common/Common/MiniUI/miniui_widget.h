@@ -13,7 +13,9 @@
 extern "C" {
 #endif
 
-#include "miniui.h"
+#include "miniui_types.h"
+#include "miniui_color.h"
+#include "miniui_render.h"
 
 /*=============================================================================
  *  Widget Base Structure

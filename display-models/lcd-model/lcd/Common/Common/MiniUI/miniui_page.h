@@ -73,6 +73,7 @@ typedef void (*ui_sidebar_draw_cb_t)(ui_rect_t *dirty);
 typedef bool (*ui_sidebar_event_cb_t)(ui_event_t *e);
 
 void ui_page_set_sidebar_callbacks(ui_sidebar_draw_cb_t draw, ui_sidebar_event_cb_t event);
+void ui_page_set_sidebar_width(int16_t width);
 ui_sidebar_event_cb_t ui_page_get_sidebar_event_cb(void);
 
 /*=============================================================================

@@ -9,6 +9,8 @@
 #include "miniui_page.h"
 #include <string.h>
 
+static int16_t s_sidebar_width = 200;
+
 /*=============================================================================
  *  Internal State
  *=============================================================================*/
@@ -147,6 +149,11 @@ void ui_page_set_sidebar_callbacks(ui_sidebar_draw_cb_t draw, ui_sidebar_event_c
     s_sidebar_event = event;
 }
 
+void ui_page_set_sidebar_width(int16_t width)
+{
+    if (width >= 0) s_sidebar_width = width;
+}
+
 ui_sidebar_event_cb_t ui_page_get_sidebar_event_cb(void)
 {
     return s_sidebar_event;
@@ -204,16 +211,27 @@ void ui_page_draw(void)
     ui_page_t *page = ui_page_current();
     if (!page) return;
 
+    bool is_fullscreen = (page->flags & UI_PAGE_FLAG_FULLSCREEN) != 0;
+
+    if (s_sidebar_draw && !is_fullscreen) {
+        ui_rect_t sidebar_rect = {0, 0, s_sidebar_width, UI_SCREEN_HEIGHT};
+        bool sidebar_dirty = false;
+        for (uint8_t i = 0; i < s_dirty_list.count; i++) {
+            if (rects_overlap(&s_dirty_list.regions[i], &sidebar_rect)) {
+                sidebar_dirty = true;
+                break;
+            }
+        }
+        if (sidebar_dirty) {
+            ui_rect_t full_sidebar = {0, 0, s_sidebar_width, UI_SCREEN_HEIGHT};
+            s_sidebar_draw(&full_sidebar);
+        }
+    }
+
     for (uint8_t i = 0; i < s_dirty_list.count; i++) {
         ui_rect_t *dirty = &s_dirty_list.regions[i];
 
         ui_render_set_clip(dirty);
-
-        bool is_fullscreen = (page->flags & UI_PAGE_FLAG_FULLSCREEN) != 0;
-
-        if (s_sidebar_draw && !is_fullscreen) {
-            s_sidebar_draw(dirty);
-        }
 
         if (page->on_draw) {
             page->on_draw(page, dirty);
@@ -242,9 +260,9 @@ void ui_page_struct_init(ui_page_t *page, const char *name, uint32_t id)
     memset(page, 0, sizeof(ui_page_t));
     page->name = name;
     page->id = id;
-    page->content_rect.x = 200;
+    page->content_rect.x = s_sidebar_width;
     page->content_rect.y = 0;
-    page->content_rect.w = UI_SCREEN_WIDTH - 200;
+    page->content_rect.w = UI_SCREEN_WIDTH - s_sidebar_width;
     page->content_rect.h = UI_SCREEN_HEIGHT;
 }
 

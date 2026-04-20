@@ -30,6 +30,19 @@ extern "C" {
 void ui_render_init(void);
 
 /*=============================================================================
+ *  Display Driver Interface (portable)
+ *=============================================================================*/
+
+typedef struct {
+    void (*set_window)(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
+    void (*write_data16)(uint16_t data);
+    void (*write_buffer)(const uint16_t *buf, uint32_t len);
+    void (*clear)(uint16_t color);
+} ui_display_driver_t;
+
+void ui_render_set_driver(const ui_display_driver_t *driver);
+
+/*=============================================================================
  *  Line Buffer API (for efficient dirty-rect row-by-row rendering)
 *=============================================================================*/
 

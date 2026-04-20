@@ -1,507 +1,927 @@
-# 自主轻量UI库（MiniUI）替代LVGL方案
+# MiniUI 实现文档
 
-## 背景与决策
+> 自主轻量UI库，面向嵌入式RGB565彩色屏与单色屏的通用GUI框架
 
-LVGL v9.5 移植过程中遇到大量源码裁剪、头文件依赖、汇编兼容性等问题，且项目实际UI需求相对固定，不需要LVGL的通用widget系统。自主实现专用UI库可以：
-- 完全掌控代码，无外部依赖
-- 编译秒过，无配置噩梦
-- 内存占用精确可控
-- 渲染性能针对本项目优化
-
-## 一、整体架构
+## 一、架构总览
 
 ### 1.1 分层设计
 
 ```
-App Layer (ui_main.c, ui_home.c, ui_apps.c, ui_games.c, ui_models.c, ui_settings.c, ui_app_common.c, app_*.c, game_*.c)
-    |
-Page Manager (ui_page.c)  -- 页面栈、生命周期、切换动画、回退导航、脏区域管理
-    |
-Widget Kit (ui_widget.c)  -- 按钮、标签、滑块、开关、进度条、卡片、Tab、列表项
-    |
-Render Engine (ui_render.c) -- 抗锯齿字体、矩形、圆角、线条、像素、图片位块传输
-    |
-Display Driver (ssd1963.c + fmc_driver.c) -- 已有的FMC+SSD1963驱动
+┌─────────────────────────────────────────────────────────────────┐
+│  App Layer                                                      │
+│  ui_main.c  ui_home.c  ui_apps.c  ui_models.c  ui_settings.c  │
+│  ui_games.c  ui_app_common.c  app_*.c  game_*.c                │
+├─────────────────────────────────────────────────────────────────┤
+│  Page Manager (miniui_page.c)                                   │
+│  页面栈(16层) · 生命周期回调 · 脏区域管理 · 侧边栏调度          │
+├─────────────────────────────────────────────────────────────────┤
+│  Widget Kit (miniui_widget.c)                                   │
+│  Label · Button · Slider · Switch · Progress · Card · ListItem │
+├─────────────────────────────────────────────────────────────────┤
+│  Render Engine (miniui_render.c)                                │
+│  像素 · 线条 · 矩形 · 圆角矩形 · 圆形 · 文本 · 位图           │
+├─────────────────────────────────────────────────────────────────┤
+│  Display Driver (ssd1963.c / 自定义驱动)                        │
+│  SSD1963 GRAM · FMC 8080并口 · 或任意屏驱动                    │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+辅助模块：
+- **miniui_input.c** — 统一输入抽象（触摸/鼠标/键盘 → `ui_event_t`）
+- **miniui_anim.c** — 动画系统（线性/ease-in/ease-out 插值）
+- **miniui_color.c** — RGB565 颜色工具（混合/变暗/变亮）
+- **miniui_font.c** — 字体引擎（1bpp/2bpp/4bpp 位图字体）
 
 ### 1.2 显存策略
 
-- **屏幕分辨率**：800x480，RGB565
-- **帧缓冲**：1个全屏帧缓冲 = 800*480*2 = 768KB（放在SRAM中，512KB不够）
-- **解决方案**：不使用全屏帧缓冲，改用**脏矩形局部刷新**
-  - 维护一个"脏区域列表"（最多8个矩形）
-  - Widget标记自身区域为dirty
-  - Render Engine只重绘dirty区域，直接写入SSD1963 GRAM
-  - 这样无需768KB帧缓冲，只需widget自身的临时缓冲（如字体光栅化缓冲几KB）
+- **屏幕分辨率**：800×480，RGB565（可配置）
+- **无全屏帧缓冲**：800×480×2 = 768KB 超出大多数MCU SRAM
+- **脏矩形局部刷新**：维护最多 8 个 dirty region，每帧只重绘变化区域
+- **行缓冲区**：渲染引擎使用一行宽度的缓冲区（800×2 = 1.6KB），批量写入显示驱动
 
-### 1.3 刷新机制
+### 1.3 刷新流程
 
-- **主循环**：`while(1)` 中每33ms（~30fps）调用一次 `UI_Tick()`
-- `UI_Tick()` 逻辑：
-  1. 处理输入（触摸/串口）
-  2. 更新动画状态（页面切换淡入淡出、按钮按压缩放）
-  3. 收集所有dirty区域，合并重叠矩形
-  4. 对每个dirty区域：设置SSD1963窗口 → 渲染该区域内所有widget → 写入GRAM
-  5. 清空dirty列表
+```
+UI_Tick() 每33ms调用一次（~30fps）
+    │
+    ├─ 1. ui_input_poll() 处理输入事件
+    │     └─ 事件分发：capture widget → 侧边栏 → 页面widget
+    │
+    ├─ 2. ui_anim_tick(33) 更新动画
+    │     └─ 动画回调中标记脏区域
+    │
+    └─ 3. ui_page_draw() 渲染脏区域
+          ├─ 合并重叠脏区域
+          ├─ 侧边栏脏区域 → 调用 sidebar_draw()
+          └─ 逐个脏区域：设置裁剪 → 遍历widget → draw
+```
 
-## 二、目录结构与文件规划
-
-在 `Common/Common/` 下新建 `MiniUI/` 目录，替换原有的 `LVGL_LCD/`：
+## 二、目录结构
 
 ```
 Common/Common/
-├── MiniUI/
-│   ├── miniui.h              -- 总头文件，包含所有模块
-│   ├── miniui_types.h        -- 基础类型：颜色、点、矩形、字体句柄
-│   ├── miniui_color.h        -- RGB565颜色定义、马卡龙配色常量
-│   ├── miniui_font.h         -- 字体引擎接口（位图字体、抗锯齿）
-│   ├── miniui_render.h/c     -- 渲染引擎：draw_rect, draw_text, draw_line, draw_round_rect
-│   ├── miniui_widget.h/c     -- Widget基类与具体widget（label, button, slider, switch, progress, card, tab, list_item）
-│   ├── miniui_page.h/c       -- 页面管理器：页面栈、切换动画、回退导航、脏区域追踪
-│   ├── miniui_input.h/c      -- 输入抽象：触摸/鼠标/键盘→统一输入事件映射
-│   ├── miniui_anim.h/c       -- 动画系统：简单的线性/缓动插值
+├── MiniUI/                     # UI库核心
+│   ├── miniui.h                # 总头文件
+│   ├── miniui_types.h          # 基础类型定义
+│   ├── miniui_color.h/c        # RGB565颜色工具
+│   ├── miniui_font.h/c         # 字体引擎
+│   ├── miniui_render.h/c       # 渲染引擎
+│   ├── miniui_widget.h/c       # Widget系统
+│   ├── miniui_page.h/c         # 页面管理器
+│   ├── miniui_input.h/c        # 输入系统
+│   ├── miniui_anim.h/c         # 动画系统
+│   ├── ui_system.c             # 系统入口(UI_Init/UI_Tick/UI_FullRefresh)
 │   └── font/
-│       ├── font_montserrat_12.c  -- Montserrat 12号抗锯齿位图字体
-│       ├── font_montserrat_16.c  -- Montserrat 16号抗锯齿位图字体
-│       └── font_symbols.c        -- 图标字体（首页/应用/模块/设置等图标）
-├── UI/                       -- 业务UI页面
-│   ├── ui_main.c/h           -- 主框架：侧边栏(Home/Apps/Games/Models/Settings)+内容区
-│   ├── ui_home.c/h           -- 首页
-│   ├── ui_apps.c/h           -- 应用网格（15个应用，3x4翻页）
-│   ├── ui_models.c/h         -- 模块状态
-│   ├── ui_settings.c/h       -- 设置列表
-│   ├── ui_games.c/h          -- 游戏网格（4个游戏，单页无翻页）
-│   └── ui_app_common.c/h     -- 全屏应用/游戏通用模板（返回按钮+标题栏+ESC退出）
-├── Apps/                     -- 系统应用页面（每个应用独立页面，通过UART与核心模块交互）
-│   ├── app_music.c/h
-│   ├── app_file.c/h
-│   ├── app_editor.c/h
-│   ├── app_images.c/h
-│   ├── app_usb.c/h
-│   ├── app_power.c/h
-│   ├── app_bt.c/h
-│   ├── app_nfc.c/h
-│   ├── app_fingerprint.c/h
-│   ├── app_health.c/h
-│   ├── app_subdisplay.c/h
-│   ├── app_lights.c/h
-│   ├── app_irrange.c/h
-│   ├── app_ebook.c/h
-│   └── app_emusic.c/h
-├── Games/                    -- 本地游戏页面（每个游戏独立页面，纯本地运行）
-│   ├── game_tetris.c/h
-│   ├── game_2048.c/h
-│   ├── game_snake.c/h
-│   └── game_breakout.c/h
-├── SSD1963/                  -- 已有驱动，无需修改
-├── FMC/                      -- 已有驱动，无需修改
-└── hardware.c/h              -- 修改：Hardware_V5F_Init()调用UI_Init()
+│       ├── font_montserrat_12.c/h
+│       ├── font_montserrat_16.c/h
+│       └── font_symbols.c/h
+├── UI/                         # 业务UI页面
+│   ├── ui_main.c/h             # 主框架(侧边栏+内容区)
+│   ├── ui_home.c/h             # 首页
+│   ├── ui_apps.c/h             # 应用网格
+│   ├── ui_models.c/h           # 模块状态
+│   ├── ui_settings.c/h         # 设置列表
+│   ├── ui_games.c/h            # 游戏网格
+│   └── ui_app_common.c/h       # 全屏应用通用模板
+├── Apps/                       # 系统应用(app_music.c等)
+├── Games/                      # 本地游戏(game_tetris.c等)
+├── SSD1963/                    # SSD1963驱动
+└── FMC/                        # FMC底层驱动
 ```
 
-## 三、核心模块设计
+## 三、核心类型
 
 ### 3.1 基础类型（miniui_types.h）
 
 ```c
-typedef uint16_t ui_color_t;  /* RGB565 */
+typedef uint16_t ui_color_t;    /* RGB565 */
+
+typedef struct { int16_t x, y; } ui_point_t;
+
+typedef struct { int16_t x, y, w, h; } ui_rect_t;
 
 typedef struct {
-    int16_t x;
-    int16_t y;
-} ui_point_t;
-
-typedef struct {
-    int16_t x;
-    int16_t y;
-    int16_t w;
-    int16_t h;
-} ui_rect_t;
-
-typedef struct {
-    const uint8_t *bitmap;    /* 抗锯齿灰度位图数据 */
-    const uint16_t *unicode_list; /* 支持的unicode码点列表 */
+    const uint8_t *bitmap;       /* 灰度位图数据 */
+    const uint16_t *unicode_list;/* 码点列表 */
     uint16_t unicode_count;
-    uint8_t height;           /* 字体高度 */
-    int8_t baseline;          /* 基线偏移 */
+    uint8_t height;              /* 字体高度 */
+    int8_t baseline;             /* 基线偏移 */
+    uint8_t bpp;                 /* 每像素位数: 1/2/4 */
 } ui_font_t;
 ```
 
-### 3.2 渲染引擎（miniui_render.c）
-
-核心函数：
-- `void ui_draw_fill_rect(ui_rect_t *r, ui_color_t color)` -- 填充矩形
-- `void ui_draw_round_rect(ui_rect_t *r, uint8_t radius, ui_color_t fill, ui_color_t border)` -- 圆角矩形
-- `void ui_draw_text(ui_rect_t *r, const char *text, const ui_font_t *font, ui_color_t color)` -- 抗锯齿文本
-- `void ui_draw_line(ui_point_t *p1, ui_point_t *p2, ui_color_t color, uint8_t width)` -- 线条
-- `void ui_draw_pixel(int16_t x, int16_t y, ui_color_t color)` -- 单像素
-
-**抗锯齿字体渲染**：
-- 字体数据存储为灰度位图（每个像素1字节alpha值）
-- 渲染时根据alpha混合前景色和背景色：`color = bg + (fg - bg) * alpha / 255`
-- 背景色从当前渲染位置"读取"（因为无帧缓冲，需要widget自己知道背景色，或限制文本只画在纯色背景上）
-- **简化方案**：文本widget只能放在纯色背景上，渲染时直接用bg_color参数混合
-
-### 3.3 Widget系统（miniui_widget.c）
-
-所有widget继承自基类：
+### 3.2 事件类型（miniui_types.h）
 
 ```c
-typedef struct ui_widget {
-    ui_rect_t rect;           /* 位置和尺寸 */
-    uint16_t flags;           /* 可见、使能、脏标记等 */
-    ui_color_t bg_color;      /* 背景色 */
-    void (*draw_cb)(struct ui_widget *w, ui_rect_t *dirty); /* 绘制回调 */
-    void (*event_cb)(struct ui_widget *w, ui_event_t *e);   /* 事件回调 */
-} ui_widget_t;
-```
-
-具体widget：
-- **ui_label_t**：文本标签，支持12/16号字体，左/中/右对齐
-- **ui_button_t**：按钮，圆角矩形，按压时缩放0.95，支持图标+文字
-- **ui_slider_t**：滑块，进度条+可拖动滑块（用于背光、音量）
-- **ui_switch_t**：开关，圆形滑块在轨道左右滑动
-- **ui_progress_t**：进度条，显示百分比或不确定进度（水平条+可选文字）
-- **ui_card_t**：卡片容器，圆角+阴影，可包含子widget
-- **ui_tabview_t**：Tab视图，顶部Tab按钮+内容区切换
-- **ui_list_item_t**：列表项，左侧文字+右侧控件，底部分割线
-
-### 3.4 页面管理器（miniui_page.c）
-
-**页面栈设计**：
-- 支持页面压栈（`ui_page_push`）和弹栈（`ui_page_pop`）
-- 最大栈深度：16层（足够覆盖：首页→应用列表→某个应用→应用内子页面→返回）
-- 首页永远在栈底，不可弹出
-- 页面切换时保存/恢复页面状态（滚动位置、选中项等）
-
-```c
-typedef struct ui_page {
-    const char *name;
-    uint32_t id;              /* 页面唯一标识 */
-    ui_rect_t content_rect;   /* 内容区矩形（排除侧边栏） */
-    ui_widget_t **widgets;    /* 页面内所有widget数组 */
-    uint16_t widget_count;
-    void (*on_enter)(void);   /* 页面进入回调 */
-    void (*on_exit)(void);    /* 页面退出回调 */
-    void (*on_draw)(ui_rect_t *dirty); /* 自定义绘制（如游戏画面） */
-    void (*on_back)(void);    /* 回退键/返回手势回调 */
-    int16_t scroll_y;         /* 页面滚动位置（用于恢复） */
-    uint8_t flags;            /* 全屏模式、有返回按钮等 */
-} ui_page_t;
-
-/* 页面栈操作 */
-void ui_page_push(ui_page_t *page);   /* 进入新页面，压栈 */
-void ui_page_pop(void);               /* 返回上一页面，弹栈 */
-void ui_page_switch(ui_page_t *page); /* 切换到新页面，清空栈 */
-bool ui_page_can_go_back(void);       /* 是否可以返回 */
-```
-
-**页面类型**：
-- **主框架页面**：带侧边栏（首页、应用列表、模块、设置）
-- **全屏页面**：隐藏侧边栏，占满800x480（游戏、部分应用）
-- **子页面**：从应用内部进入的子界面，带顶部返回按钮
-
-**页面切换动画**：
-- 200ms淡入淡出：通过alpha混合实现（但RGB565无alpha通道，改用"滑动"或"直接切换"）
-- **简化方案**：直接切换，不加动画。或做简单的"内容区向左/右滑动"（widget坐标偏移）
-
-### 3.5 输入系统（miniui_input.c）
-
-**统一输入抽象**：
-
-```c
-/* 输入源类型 */
-typedef enum {
-    UI_INPUT_TOUCH,   /* 本地电容触摸屏 */
-    UI_INPUT_MOUSE,   /* 核心模块通过UART发送的鼠标数据 */
-    UI_INPUT_KEYBOARD,/* 核心模块通过UART发送的键盘数据 */
-} ui_input_source_t;
-
-/* 统一输入事件类型 */
 typedef enum {
     UI_EVENT_NONE,
-    UI_EVENT_PRESS,       /* 按下/点击 */
-    UI_EVENT_RELEASE,     /* 释放 */
-    UI_EVENT_DRAG,        /* 拖动（触摸滑动） */
-    UI_EVENT_SWIPE_UP,    /* 向上滑动 */
-    UI_EVENT_SWIPE_DOWN,  /* 向下滑动 */
-    UI_EVENT_SWIPE_LEFT,  /* 向左滑动 */
-    UI_EVENT_SWIPE_RIGHT, /* 向右滑动 */
-    UI_EVENT_KEY_UP,      /* 键盘方向键上 */
-    UI_EVENT_KEY_DOWN,    /* 键盘方向键下 */
-    UI_EVENT_KEY_LEFT,    /* 键盘方向键左 */
-    UI_EVENT_KEY_RIGHT,   /* 键盘方向键右 */
-    UI_EVENT_KEY_OK,      /* 键盘确认/回车 */
-    UI_EVENT_KEY_BACK,    /* 键盘返回/ESC */
+    UI_EVENT_PRESS,          /* 按下 */
+    UI_EVENT_RELEASE,        /* 释放 */
+    UI_EVENT_DRAG,           /* 拖动 */
+    UI_EVENT_SWIPE_UP,       /* 上滑 */
+    UI_EVENT_SWIPE_DOWN,     /* 下滑 */
+    UI_EVENT_SWIPE_LEFT,     /* 左滑 */
+    UI_EVENT_SWIPE_RIGHT,    /* 右滑 */
+    UI_EVENT_KEY_UP,         /* 键盘↑ */
+    UI_EVENT_KEY_DOWN,       /* 键盘↓ */
+    UI_EVENT_KEY_LEFT,       /* 键盘← */
+    UI_EVENT_KEY_RIGHT,      /* 键盘→ */
+    UI_EVENT_KEY_OK,         /* 确认/回车 */
+    UI_EVENT_KEY_BACK,       /* 返回/ESC */
 } ui_event_type_t;
 
 typedef struct {
     ui_event_type_t type;
-    ui_input_source_t source;
-    ui_point_t pos;       /* 触摸/鼠标坐标（键盘事件此字段无效） */
-    ui_point_t delta;     /* 拖动偏移 */
+    ui_point_t pos;          /* 触摸/鼠标坐标 */
+    ui_point_t delta;        /* 拖动偏移 */
 } ui_event_t;
 ```
 
-**输入映射与分发**：
+### 3.3 页面标志
 
-1. **触摸输入**（本地I2C2读取）：
-   - 原始数据：触摸坐标(x,y) + 按下/释放状态
-   - 手势识别：记录press位置和release位置，计算delta
-     - |delta.x| > |delta.y| 且 |delta.x| > 30px → SWIPE_LEFT/RIGHT
-     - |delta.y| > |delta.x| 且 |delta.y| > 30px → SWIPE_UP/DOWN
-     - 否则 → PRESS/RELEASE（点击）
+```c
+#define UI_PAGE_FLAG_FULLSCREEN  0x01  /* 全屏模式，隐藏侧边栏 */
+```
 
-2. **鼠标输入**（UART接收）：
-   - 核心模块发送鼠标相对位移(dx,dy)和按键状态
-   - 维护一个虚拟鼠标光标位置，根据dx/dy更新
-   - 鼠标移动 → 更新光标位置，触发hover效果
-   - 鼠标左键按下/释放 → 映射为PRESS/RELEASE（位置为光标位置）
+## 四、渲染引擎 API
 
-3. **键盘输入**（UART接收）：
-   - 核心模块发送按键码（方向键、回车、ESC等）
-   - 直接映射为对应的UI_EVENT_KEY_*事件
-   - 键盘事件不依赖坐标，由当前焦点widget处理
+### 4.1 初始化与裁剪
 
-4. **事件分发**：
-   - 触摸/鼠标事件：遍历当前页面的widget，找到包含pos的最上层widget，调用其event_cb
-   - 键盘事件：发送给当前获得焦点的widget（或页面级别的on_key回调）
-   - 滑动事件：先发送给当前页面，如果页面不处理（如应用列表滚动），再发送给widget
+```c
+void ui_render_init(void);                        /* 初始化渲染引擎 */
+void ui_render_set_clip(const ui_rect_t *rect);   /* 设置裁剪区域 */
+void ui_render_reset_clip(void);                   /* 重置裁剪为全屏 */
+```
 
-### 3.6 动画系统（miniui_anim.c）
+### 4.2 绘图原语
 
-极简动画：
+```c
+void ui_draw_pixel(int16_t x, int16_t y, ui_color_t color);
+void ui_draw_hline(int16_t x, int16_t y, int16_t w, ui_color_t color);
+void ui_draw_vline(int16_t x, int16_t y, int16_t h, ui_color_t color);
+void ui_draw_fill_rect(const ui_rect_t *rect, ui_color_t color);
+void ui_draw_round_rect(const ui_rect_t *rect, uint8_t radius,
+                        ui_color_t fill, ui_color_t border);
+void ui_draw_circle(int16_t cx, int16_t cy, int16_t r, ui_color_t color);
+void ui_draw_bitmap(int16_t x, int16_t y, const uint8_t *data,
+                    int16_t w, int16_t h, ui_color_t fg, ui_color_t bg);
+```
+
+### 4.3 文本渲染
+
+```c
+void ui_draw_text(int16_t x, int16_t y, const char *text,
+                  const ui_font_t *font, ui_color_t color);
+void ui_draw_text_bg(int16_t x, int16_t y, const char *text,
+                     const ui_font_t *font, ui_color_t color, ui_color_t bg);
+void ui_draw_text_in_rect(const ui_rect_t *rect, const char *text,
+                          const ui_font_t *font, ui_color_t color, uint8_t align);
+void ui_draw_text_in_rect_bg(const ui_rect_t *rect, const char *text,
+                             const ui_font_t *font, ui_color_t color,
+                             ui_color_t bg, uint8_t align);
+int16_t ui_text_width(const char *text, const ui_font_t *font);
+```
+
+**align 参数**：0=左对齐，1=居中，2=右对齐
+
+**抗锯齿渲染**：
+- 1bpp 字体：alpha=0或1，直接绘制前景色或背景色
+- 2bpp/4bpp 字体：根据 alpha 值混合前景色和背景色
+- 当 `bg == UI_COLOR_TRANSPARENT` 时，抗锯齿像素直接绘制前景色（无混合）
+
+### 4.4 全局刷新
+
+```c
+void ui_full_refresh(void);       /* 全屏清屏并重绘 */
+void ui_screen_clear(ui_color_t color);  /* 用纯色清屏 */
+```
+
+## 五、Widget 系统
+
+### 5.1 基类
+
+```c
+typedef struct ui_widget {
+    ui_rect_t rect;            /* 位置和尺寸 */
+    uint16_t flags;            /* 可见/使能/脏标记 */
+    ui_color_t bg_color;       /* 背景色 */
+    void (*draw_cb)(struct ui_widget *w, const ui_rect_t *dirty);
+    void (*event_cb)(struct ui_widget *w, const ui_event_t *e);
+    void *user_data;           /* 用户数据 */
+} ui_widget_t;
+```
+
+**标志位**：
+```c
+#define UI_WIDGET_FLAG_VISIBLE   0x0001
+#define UI_WIDGET_FLAG_ENABLED   0x0002
+#define UI_WIDGET_FLAG_DIRTY     0x0004
+```
+
+**通用操作**：
+```c
+void ui_widget_init(ui_widget_t *w, const ui_rect_t *rect);
+void ui_widget_draw(ui_widget_t *w, const ui_rect_t *dirty);
+void ui_widget_event(ui_widget_t *w, const ui_event_t *e);
+void ui_widget_set_visible(ui_widget_t *w, bool visible);
+void ui_widget_invalidate(ui_widget_t *w);
+bool ui_widget_hit_test(const ui_widget_t *w, int16_t x, int16_t y);
+```
+
+### 5.2 Label
+
 ```c
 typedef struct {
-    int32_t start;
-    int32_t end;
-    int32_t current;
-    uint16_t duration_ms;
-    uint16_t elapsed_ms;
-    void (*update_cb)(int32_t value, void *user_data);
+    ui_widget_t base;
+    const char *text;
+    const ui_font_t *font;
+    ui_color_t text_color;
+    uint8_t align;             /* 0=左 1=中 2=右 */
+} ui_label_t;
+
+void ui_label_init(ui_label_t *lbl, const ui_rect_t *rect,
+                   const char *text, const ui_font_t *font, ui_color_t color);
+void ui_label_set_text(ui_label_t *lbl, const char *text);
+```
+
+> **注意**：`ui_label_set_text` 存储的是指针，不复制字符串。传入的字符串必须是静态字符串或长期有效的缓冲区，不能使用局部变量。
+
+### 5.3 Button
+
+```c
+typedef struct {
+    ui_widget_t base;
+    const char *text;
+    const ui_font_t *font;
+    ui_color_t text_color;
+    ui_color_t fill_color;
+    ui_color_t press_color;
+    uint8_t radius;
+    bool pressed;
+    const uint8_t *icon_bitmap;
+    int16_t icon_w, icon_h;
+} ui_button_t;
+
+void ui_button_init(ui_button_t *btn, const ui_rect_t *rect,
+                    const char *text, const ui_font_t *font,
+                    ui_color_t fill, ui_color_t text_color);
+```
+
+按钮点击通过 `base.event_cb` 回调处理，在回调中检查 `e->type == UI_EVENT_RELEASE`。
+
+### 5.4 Slider
+
+```c
+typedef struct {
+    ui_widget_t base;
+    int32_t min_val, max_val, value;
+    ui_color_t track_color;
+    ui_color_t fill_color;
+    ui_color_t knob_color;
+    bool dragging;
+} ui_slider_t;
+
+void ui_slider_init(ui_slider_t *s, const ui_rect_t *rect,
+                    int32_t min, int32_t max, int32_t value);
+```
+
+### 5.5 Switch
+
+```c
+typedef struct {
+    ui_widget_t base;
+    bool is_on;
+    ui_color_t track_on_color;
+    ui_color_t track_off_color;
+    ui_color_t knob_color;
+} ui_switch_t;
+
+void ui_switch_init(ui_switch_t *sw, const ui_rect_t *rect, bool on);
+```
+
+### 5.6 Progress
+
+```c
+typedef struct {
+    ui_widget_t base;
+    int32_t min_val, max_val, value;
+    ui_color_t track_color;
+    ui_color_t fill_color;
+    uint8_t radius;
+} ui_progress_t;
+
+void ui_progress_init(ui_progress_t *p, const ui_rect_t *rect,
+                      int32_t min, int32_t max, int32_t value);
+```
+
+### 5.7 Card
+
+```c
+typedef struct {
+    ui_widget_t base;
+    ui_color_t border_color;
+    uint8_t radius;
+    uint8_t shadow_offset;
+} ui_card_t;
+
+void ui_card_init(ui_card_t *card, const ui_rect_t *rect,
+                  ui_color_t fill, ui_color_t border);
+```
+
+### 5.8 ListItem
+
+```c
+typedef struct {
+    ui_widget_t base;
+    const char *text;
+    const ui_font_t *font;
+    ui_color_t text_color;
+    ui_widget_t *right_widget;  /* 右侧控件(如Slider/Switch) */
+    bool show_divider;
+} ui_list_item_t;
+
+void ui_list_item_init(ui_list_item_t *item, const ui_rect_t *rect,
+                       const char *text, const ui_font_t *font, ui_color_t color);
+```
+
+## 六、页面管理器
+
+### 6.1 页面结构
+
+```c
+typedef struct ui_page {
+    const char *name;
+    uint32_t id;
+    ui_rect_t content_rect;     /* 内容区矩形(排除侧边栏) */
+    ui_widget_t **widgets;      /* widget数组 */
+    uint16_t widget_count;
+    void (*on_enter)(void);     /* 进入回调 */
+    void (*on_exit)(void);      /* 退出回调 */
+    void (*on_draw)(struct ui_page *page, const ui_rect_t *dirty); /* 自定义绘制 */
+    void (*on_back)(void);      /* 返回键回调 */
+    int16_t scroll_y;
+    uint8_t flags;              /* UI_PAGE_FLAG_FULLSCREEN 等 */
+} ui_page_t;
+```
+
+### 6.2 页面栈操作
+
+```c
+void ui_page_init(void);
+void ui_page_push(ui_page_t *page);     /* 压栈进入新页面 */
+void ui_page_pop(void);                 /* 弹栈返回上一页 */
+void ui_page_switch(ui_page_t *page);   /* 切换页面(清空栈) */
+ui_page_t* ui_page_current(void);       /* 获取当前页面 */
+bool ui_page_can_go_back(void);         /* 是否可以返回 */
+```
+
+**栈深度**：最大 16 层。
+
+### 6.3 脏区域管理
+
+```c
+void ui_page_invalidate(const ui_rect_t *rect);  /* 标记脏区域 */
+void ui_page_invalidate_all(void);                /* 标记全屏脏 */
+void ui_page_draw(void);                          /* 渲染所有脏区域 */
+```
+
+**脏区域合并**：最多 8 个 dirty region。当超过 8 个时，合并为全屏刷新。
+
+### 6.4 侧边栏
+
+```c
+typedef void (*ui_sidebar_draw_cb_t)(const ui_rect_t *dirty);
+typedef bool (*ui_sidebar_event_cb_t)(const ui_event_t *e);
+
+void ui_page_set_sidebar_callbacks(ui_sidebar_draw_cb_t draw,
+                                   ui_sidebar_event_cb_t event);
+void ui_page_set_sidebar_width(int16_t width);
+ui_sidebar_event_cb_t ui_page_get_sidebar_event_cb(void);
+```
+
+侧边栏在脏区域与侧边栏区域重叠时自动重绘，且每帧只绘制一次。
+
+### 6.5 页面结构体初始化
+
+```c
+void ui_page_struct_init(ui_page_t *page, const char *name, uint32_t id);
+```
+
+此函数自动设置 `content_rect`，根据侧边栏宽度计算内容区位置。
+
+## 七、输入系统
+
+### 7.1 初始化与轮询
+
+```c
+void ui_input_init(void);
+ui_event_t* ui_input_poll(void);  /* 从事件队列取出一个事件 */
+```
+
+### 7.2 触摸输入
+
+```c
+void ui_input_touch_raw(int16_t x, int16_t y, bool pressed);
+```
+
+触摸手势识别：
+- **点击**：按下和释放位置距离 < 20px → `UI_EVENT_PRESS` + `UI_EVENT_RELEASE`
+- **滑动**：距离 > 20px → `UI_EVENT_SWIPE_*`（不再发送 RELEASE）
+- **拖动**：按下后移动 → `UI_EVENT_DRAG`
+
+### 7.3 键盘输入
+
+```c
+void ui_input_key(ui_event_type_t key_event);
+```
+
+直接映射为 `UI_EVENT_KEY_*` 事件。
+
+### 7.4 事件捕获
+
+```c
+void ui_input_set_capture(ui_widget_t *w);  /* 设置捕获widget */
+ui_widget_t* ui_input_get_capture(void);     /* 获取捕获widget */
+```
+
+按下时自动设置捕获，释放时自动清除。捕获期间所有事件发送给捕获widget。
+
+### 7.5 事件分发顺序
+
+1. **捕获widget**：如果存在，事件直接发给捕获widget
+2. **KEY_BACK**：如果可返回，执行 `ui_page_pop()`
+3. **侧边栏**：非全屏页面，侧边栏事件回调优先
+4. **页面widget**：从后往前遍历，第一个命中测试通过的widget处理事件
+5. **广播**：键盘等非坐标事件广播给所有widget
+
+## 八、动画系统
+
+### 8.1 缓动类型
+
+```c
+typedef enum {
+    UI_EASE_LINEAR,    /* 线性 */
+    UI_EASE_OUT,       /* 减速 */
+    UI_EASE_IN,        /* 加速 */
+} ui_ease_type_t;
+```
+
+### 8.2 动画结构
+
+```c
+typedef struct {
+    int32_t start, end, current;
+    uint16_t duration_ms, elapsed_ms;
+    ui_ease_type_t ease_type;
+    bool active;
+    ui_anim_update_cb_t update_cb;  /* void (*)(int32_t value, void *user_data) */
+    void *user_data;
 } ui_anim_t;
 ```
 
-- 线性插值：`current = start + (end - start) * elapsed / duration`
-- 缓动插值（ease_out）：`t = 1 - (1 - t)^2`
-- 每帧在UI_Tick中更新所有活跃动画
-
-## 四、业务UI实现
-
-### 4.1 主框架（ui_main.c）
-
-- **侧边栏**：宽200px，高480px，背景色 `#F5F5F5`
-  - 顶部：项目名称 "ELAB"（Montserrat 16，主色 `#7EC8C8`）
-  - 5个菜单项：Home/Apps/Games/Models/Settings
-  - 选中项：背景 `#B8E0D2`，左侧4px竖条 `#7EC8C8`
-- **内容区**：x=200, y=0, w=600, h=480
-  - 根据当前页面显示不同内容
-
-### 4.2 首页（ui_home.c）
-
-- 日期标签（Montserrat 16，深灰 `#4A4A4A`）
-- 时间标签（Montserrat 16，主色 `#7EC8C8`）-- 注意不用24号了
-- 模块状态卡片：3~4个横向排列的ui_card_t
-- 系统状态栏：内存、FPS、CPU
-
-### 4.3 应用界面（ui_apps.c）
-
-- 3x4图标网格（每页12个应用），共15个应用需要翻页（2页）
-- 图标按钮：150x90px，圆角16px，图标+文字
-- 翻页导航："<" ">" 按钮和页码指示器（如 "1/2"）
-- 点击应用图标 → `ui_page_push(&app_xxx_page)` 进入应用全屏页面
-- 不使用中文，使用图标和ASCII字符
-
-### 4.4 游戏界面（ui_games.c）
-
-- 3x4图标网格（与Apps页风格统一），4个游戏单页显示，无需翻页
-- 点击游戏图标 → `ui_page_push(&game_xxx_page)` 进入游戏全屏页面
-- 不使用中文，使用图标和ASCII字符
-
-### 4.5 全屏应用/游戏通用模板（ui_app_common.c）
-
-- 所有应用和游戏页面使用统一的全屏模板：
-  - 页面flags标记 `UI_PAGE_FLAG_FULLSCREEN`，隐藏侧边栏，内容区扩展为800x480
-  - 顶部标题栏（40px高）：左侧返回按钮 "<" + 应用名称
-  - 返回按钮点击或键盘ESC → `ui_page_pop()` 回到上一页
-  - 中间内容区：应用/游戏特定UI
-  - 不使用中文，使用图标和ASCII字符
-
-### 4.6 模块界面（ui_models.c）
-
-- Tab视图：Display/Keyboard/Power/Core/BT-WiFi
-- 每个Tab页：卡片式布局，显示模块名称、状态圆点、关键参数
-
-### 4.7 设置界面（ui_settings.c）
-
-- 垂直列表，每项50px高
-- 背光：ui_slider_t
-- 自动息屏：ui_switch_t
-- 屏幕旋转：ui_button_t（点击循环切换0/90/180/270）
-- 恢复出厂：ui_button_t（红色，点击确认）
-
-### 4.8 系统应用页面（app_*.c）
-
-- 每个应用一个独立页面，使用 `ui_app_common.c` 统一全屏模板
-- 页面flags标记 `UI_PAGE_FLAG_FULLSCREEN`，隐藏侧边栏
-- 顶部标题栏（应用名称 + 返回按钮 "<"）
-- 返回按钮或键盘ESC → `ui_page_pop()` 回到应用列表
-- 通过UART与核心模块通信
-
-### 4.9 游戏页面（game_*.c）
-
-- 游戏全屏模式：使用 `ui_app_common.c` 统一模板，页面flags标记 `UI_PAGE_FLAG_FULLSCREEN`，隐藏侧边栏，内容区扩展为800x480
-- 顶部标题栏（游戏名称 + 返回按钮 "<"）
-- 游戏逻辑在game_*.c中，每帧通过`ui_page->on_draw()`回调渲染
-- 俄罗斯方块：10x20网格，每个格子30x30px
-- 2048：4x4网格，每个格子120x120px，圆角12px
-- 游戏内返回：点击左上角返回按钮 "<" 或按键盘ESC → `ui_page_pop()`
-
-## 五、字体与资源
-
-### 5.1 字体生成
-
-Montserrat 12和16号字体：
-- 使用LVGL的字体转换工具（`lv_font_conv`）或在线工具生成C数组
-- 只包含常用字符：ASCII 32~126 + 少量中文（如果不需要中文，只包含ASCII）
-- 抗锯齿：2bpp或4bpp灰度位图
-- 存储在 `MiniUI/font/` 下，作为静态const数组编译进CodeFlash
-
-### 5.2 图标
-
-- 使用简单的位图图标（16x16或24x24）
-- 或从Montserrat字体中选择符号字符（如箭头、方块等）
-- 存储在 `font_symbols.c` 中
-
-## 六、初始化与主循环
-
-### 6.1 初始化（Hardware_V5F_Init）
+### 8.3 动画 API
 
 ```c
-void Hardware_V5F_Init(void)
-{
-    FMC_Driver_Init();
-    LCD_Init(LCD_ORIENTATION_NORMAL);
-    SSD1963_Init();
-    UI_Init();  /* 替代原来的LVGL_Init() */
-}
+void ui_anim_init(void);
+ui_anim_t* ui_anim_start(int32_t start, int32_t end, uint16_t duration_ms,
+                         ui_ease_type_t ease, ui_anim_update_cb_t cb, void *user_data);
+void ui_anim_stop(ui_anim_t *anim);
+void ui_anim_tick(uint16_t delta_ms);
+bool ui_anim_is_active(void);
 ```
 
-### 6.2 UI_Init
+**最大同时动画数**：8 个（`UI_MAX_ANIMATIONS`）。
+
+### 8.4 缓动函数
+
+```c
+int32_t ui_ease_linear(int32_t start, int32_t end, float t);
+int32_t ui_ease_out(int32_t start, int32_t end, float t);   /* t' = 1-(1-t)^2 */
+int32_t ui_ease_in(int32_t start, int32_t end, float t);    /* t' = t^2 */
+```
+
+## 九、颜色系统
+
+### 9.1 RGB565 宏
+
+```c
+#define UI_RGB565(r, g, b)  (((r)&0xF8)<<8 | ((g)&0xFC)<<3 | ((b)&0xF8)>>3)
+```
+
+### 9.2 预定义颜色
+
+```c
+#define UI_COLOR_TRANSPARENT  0x0000
+#define UI_COLOR_BLACK        0x0000
+#define UI_COLOR_WHITE        0xFFFF
+#define UI_COLOR_BG_MAIN      UI_RGB565(0xF5, 0xF5, 0xF5)  /* 主背景 #F5F5F5 */
+#define UI_COLOR_PRIMARY      UI_RGB565(0x7E, 0xC8, 0xC8)  /* 主色 #7EC8C8 */
+#define UI_COLOR_SIDEBAR_BG   UI_RGB565(0xF5, 0xF5, 0xF5)  /* 侧边栏背景 */
+#define UI_COLOR_SIDEBAR_SEL  UI_RGB565(0xB8, 0xE0, 0xD2)  /* 侧边栏选中 */
+#define UI_COLOR_TEXT_DARK    UI_RGB565(0x4A, 0x4A, 0x4A)  /* 深色文字 */
+#define UI_COLOR_TEXT_LIGHT   UI_RGB565(0x9E, 0x9E, 0x9E)  /* 浅色文字 */
+```
+
+### 9.3 颜色工具
+
+```c
+ui_color_t ui_color_blend(ui_color_t fg, ui_color_t bg, uint8_t alpha);
+ui_color_t ui_color_darken(ui_color_t color, uint8_t amount);
+ui_color_t ui_color_lighten(ui_color_t color, uint8_t amount);
+```
+
+## 十、字体系统
+
+### 10.1 字体数据格式
+
+字体以位图数组形式编译进 CodeFlash：
+
+```c
+const ui_font_t font_montserrat_16 = {
+    .bitmap = font_montserrat_16_bitmap,
+    .unicode_list = font_montserrat_16_unicode_list,
+    .unicode_count = 95,
+    .height = 16,
+    .baseline = 12,
+    .bpp = 1,    /* 1bpp = 无抗锯齿, 2/4bpp = 抗锯齿 */
+};
+```
+
+### 10.2 字体渲染
+
+- **1bpp**：每个像素1位，0=背景色，1=前景色
+- **2bpp**：每个像素2位，4级灰度alpha混合
+- **4bpp**：每个像素4位，16级灰度alpha混合
+
+### 10.3 字符查找
+
+使用线性搜索 `unicode_list`，找到码点后计算位图偏移。ASCII字符连续排列，查找效率为 O(n)，对95个ASCII字符足够快。
+
+## 十一、系统入口
+
+### 11.1 UI_Init()
 
 ```c
 void UI_Init(void)
 {
-    /* 初始化渲染引擎 */
+    LCD_Init(LCD_ORIENTATION_NORMAL);
+    SSD1963_Init();
+
     ui_render_init();
-    
-    /* 初始化页面管理器 */
     ui_page_init();
-    
-    /* 注册所有页面 */
-    ui_page_register(&page_home);
-    ui_page_register(&page_software);
-    ui_page_register(&page_models);
-    ui_page_register(&page_settings);
-    /* 注册应用页面 */
-    ui_page_register(&app_music_page);
-    ui_page_register(&app_file_page);
-    /* ... 更多应用页面 ... */
-    /* 注册游戏页面 */
-    ui_page_register(&game_tetris_page);
-    ui_page_register(&game_2048_page);
-    /* ... 更多游戏页面 ... */
-    
-    /* 显示首页 */
+    ui_input_init();
+    ui_anim_init();
+
+    ui_page_set_sidebar_callbacks(ui_main_draw_sidebar, ui_main_handle_event);
+    ui_page_set_sidebar_width(SIDEBAR_WIDTH);
+
+    ui_main_init();
+    ui_home_init();
+    ui_apps_init();
+    ui_models_init();
+    ui_settings_init();
+    ui_games_init();
+
+    apps_init_all();
+    games_init_all();
+
     ui_page_switch(&page_home);
-    
-    /* 首次全屏刷新 */
-    ui_full_refresh();
+    UI_FullRefresh();
 }
 ```
 
-### 6.3 主循环（main.c）
+### 11.2 UI_Tick()
 
 ```c
-while(1)
+void UI_Tick(void)
 {
-    UI_Tick();           /* 处理输入、更新动画、渲染dirty区域 */
-    
-    /* 其他任务：UART通信、触摸读取等 */
-    UART_Process();
-    Touch_Process();
-    
-    /* 帧率控制：目标30fps，约33ms每帧 */
-    uint32_t elapsed = get_tick_ms() - last_tick;
-    if(elapsed < 33) Delay_Ms(33 - elapsed);
-    last_tick = get_tick_ms();
+    /* 1. 处理输入事件 */
+    ui_event_t *e = ui_input_poll();
+    while (e) {
+        /* 事件分发... */
+        e = ui_input_poll();
+    }
+
+    /* 2. 更新动画 */
+    ui_anim_tick(UI_TICK_MS);  /* UI_TICK_MS = 33 */
+
+    /* 3. 渲染脏区域 */
+    ui_page_draw();
 }
 ```
 
-## 七、与现有驱动的衔接
+### 11.3 主循环
 
-### 7.1 保留的驱动
+```c
+while (1) {
+    UI_Tick();
+    UART_Module_Poll();
+    Delay_Ms(33);  /* ~30fps */
+}
+```
 
-- `FMC/fmc_driver.c/h` -- 完全保留
-- `SSD1963/ssd1963.c/h` -- 完全保留
-- `lcd_config.c/h` -- 完全保留
+## 十二、业务UI实现
 
-### 7.2 删除/替换的文件
+### 12.1 主框架（ui_main.c）
 
-- `LVGL_LCD/lvgl_port.c/h` -- 删除，替换为 `MiniUI/miniui_*.c/h`
-- `LVGL/` 整个目录 -- 删除
-- `Common/Common/lv_conf.h` -- 删除
+- **侧边栏**：宽200px，背景 `#F5F5F5`
+  - 顶部：项目名 "ELAB"（主色 `#7EC8C8`）
+  - 5个菜单项：Home / Apps / Games / Models / Settings
+  - 选中项：背景 `#B8E0D2`，左侧4px竖条 `#7EC8C8`
+- **内容区**：x=200, y=0, w=600, h=480
 
-### 7.3 wvproj工程更新
+### 12.2 首页（ui_home.c）
 
-- 删除所有 `LVGL/` 相关的源文件和include path
-- 添加 `MiniUI/` 和 `MiniUI/font/` 到include paths
-- 添加 `UI/`、`Games/`、`Apps/` 到include paths
+- 日期标签（Montserrat 16，深灰 `#4A4A4A`）
+- 时间标签（Montserrat 16，主色 `#7EC8C8`）
+- 模块状态卡片：3~4个横向排列
+- 系统状态栏
 
-## 八、开发顺序建议
+### 12.3 应用界面（ui_apps.c）
 
-1. **Phase 1：渲染引擎**（miniui_render.c + miniui_font.c）
-   - 实现 draw_rect, draw_text（先不支持抗锯齿，用1bpp位图）
-   - 验证能正确写入SSD1963 GRAM并显示
-   
-2. **Phase 2：Widget基类**（miniui_widget.c）
-   - 实现ui_label_t和ui_button_t
-   - 验证事件分发
-   
-3. **Phase 3：页面管理器**（miniui_page.c）
-   - 实现页面栈、压栈/弹栈、回退导航
-   - 实现脏区域追踪和局部刷新
-   
-4. **Phase 4：输入系统**（miniui_input.c）
-   - 实现触摸手势识别（点击、滑动）
-   - 实现鼠标/键盘事件映射
-   
-5. **Phase 5：主框架**（ui_main.c）
-   - 侧边栏+内容区
-   - 4个主页面骨架
-   
-6. **Phase 6：具体页面**（ui_home.c, ui_software.c, ui_models.c, ui_settings.c）
-   
-7. **Phase 7：应用与游戏页面**（app_*.c, game_*.c）
-   
-8. **Phase 8：抗锯齿字体+动画优化**
-   - 替换1bpp字体为2bpp/4bpp抗锯齿
-   - 添加页面切换动画
+- 3×4图标网格，每页12个应用，2页翻页
+- 图标按钮：150×90px，圆角16px
+- 翻页导航："<" ">" 按钮和页码指示器
 
-## 九、风险评估
+### 12.4 游戏界面（ui_games.c）
 
-| 风险 | 影响 | 缓解措施 |
-|------|------|----------|
-| 抗锯齿字体渲染性能不足 | 30fps达不到 | 先使用1bpp位图字体，后续优化或降低刷新率到20fps |
-| 脏区域合并算法复杂 | 开发时间延长 | 简化：每帧最多支持1个dirty区域（全屏刷新 fallback） |
-| 游戏渲染性能 | 俄罗斯方块卡顿 | 游戏页面直接操作GRAM，不经过widget系统 |
-| 触摸输入精度 | 点击不准 | 预留触摸校准接口，后期可添加 |
-| 代码体积失控 | 自主库反而比LVGL大 | 严格控制widget数量，不实现通用布局系统 |
-| 页面栈深度不足 | 深层导航崩溃 | 栈深度16层，超过时强制弹栈并打印警告 |
-| 多输入源冲突 | 触摸+鼠标同时操作混乱 | 输入系统优先级：触摸 > 鼠标 > 键盘，互斥处理 |
+- 3×4图标网格，4个游戏单页
+- 点击图标 → `ui_page_push(&game_xxx_page)`
 
-## 十、预期成果
+### 12.5 全屏应用模板（ui_app_common.c）
 
-- **CodeFlash占用**：MiniUI库约30~50KB + 字体约20~40KB + 业务UI约30~50KB = 总计约80~140KB
-- **SRAM占用**：无全屏帧缓冲，仅widget状态和临时缓冲 = 约10~30KB
-- **编译时间**：秒级（<5秒）
-- **可控性**：100%，每行代码都理解其用途
+- 页面flags：`UI_PAGE_FLAG_FULLSCREEN`
+- 顶部标题栏（40px）：返回按钮 "<" + 应用名称
+- 返回按钮点击或ESC → `ui_page_pop()`（带安全检查）
+
+### 12.6 模块界面（ui_models.c）
+
+- Tab视图：Display / Keyboard / Power / Core / BT-WiFi
+- 每个Tab：卡片式布局，模块名称+状态圆点+参数
+
+### 12.7 设置界面（ui_settings.c）
+
+- 垂直列表，每项50px
+- 背光：Slider
+- 自动息屏：Switch
+- 屏幕旋转：Button
+- 恢复出厂：Button（红色）
+
+## 十三、显示驱动接口
+
+MiniUI 渲染引擎通过以下函数与显示驱动交互：
+
+```c
+void SSD1963_SetWindow(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
+void SSD1963_WriteData16(uint16_t data);
+void SSD1963_WriteBuffer(const uint16_t *buf, uint32_t len);
+void SSD1963_Clear(uint16_t color);
+```
+
+移植到其他屏幕时，只需实现这4个函数的等效接口。
+
+## 十四、资源占用
+
+| 项目 | 占用 |
+|------|------|
+| CodeFlash (MiniUI库) | ~30~50KB |
+| CodeFlash (字体数据) | ~20~40KB |
+| CodeFlash (业务UI) | ~30~50KB |
+| SRAM (widget状态+临时缓冲) | ~10~30KB |
+| SRAM (行缓冲区) | ~1.6KB (800×2) |
+| SRAM (全屏帧缓冲) | **0** (无需) |
+
+## 十五、移植到墨水屏/单色屏
+
+### 15.1 概述
+
+墨水屏（E-Ink）和单色LCD（如OLED、ST7920）与彩色TFT的核心区别：
+
+| 特性 | 彩色TFT (SSD1963) | 墨水屏/单色屏 |
+|------|-------------------|---------------|
+| 颜色深度 | RGB565 (65536色) | 1bpp (黑白) 或 4级灰度 |
+| 刷新速度 | 30fps+ | 0.5~5fps (墨水屏) / 30fps (OLED) |
+| 局部刷新 | 支持 | 部分墨水屏支持，OLED支持 |
+| 全刷需求 | 无 | 墨水屏需要定期全刷防残影 |
+| 功耗 | 持续背光 | 墨水屏静态零功耗 |
+
+### 15.2 移植步骤
+
+#### 步骤1：实现显示驱动接口
+
+在 `MiniUI/` 下新建驱动文件（如 `miniui_driver_epd.c`），实现4个核心函数：
+
+```c
+/* 以SPI接口墨水屏为例 */
+static int16_t s_epd_width = 800;
+static int16_t s_epd_height = 480;
+
+void EPD_SetWindow(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
+{
+    epd_set_partial_window(x1, y1, x2 - x1 + 1, y2 - y1 + 1);
+}
+
+void EPD_WriteData16(uint16_t data)
+{
+    /* 单色屏：RGB565 → 黑白阈值 */
+    uint8_t gray = ((data >> 11) & 0x1F) * 77 +
+                   ((data >> 5) & 0x3F) * 150 +
+                   (data & 0x1F) * 29;
+    uint8_t bw = (gray > 128) ? 1 : 0;
+    epd_write_byte(bw ? 0xFF : 0x00);
+}
+
+void EPD_WriteBuffer(const uint16_t *buf, uint32_t len)
+{
+    for (uint32_t i = 0; i < len; i++) {
+        EPD_WriteData16(buf[i]);
+    }
+}
+
+void EPD_Clear(uint16_t color)
+{
+    uint8_t bw = (color == UI_COLOR_WHITE) ? 0xFF : 0x00;
+    epd_clear(bw);
+}
+```
+
+#### 步骤2：修改渲染引擎的驱动调用
+
+在 `miniui_render.c` 中，将所有 `SSD1963_*` 调用替换为可配置的函数指针：
+
+```c
+/* miniui_render.c 顶部添加 */
+static void (*s_drv_set_window)(uint16_t, uint16_t, uint16_t, uint16_t) = SSD1963_SetWindow;
+static void (*s_drv_write_data16)(uint16_t) = SSD1963_WriteData16;
+static void (*s_drv_write_buffer)(const uint16_t *, uint32_t) = SSD1963_WriteBuffer;
+static void (*s_drv_clear)(uint16_t) = SSD1963_Clear;
+
+void ui_render_set_driver(
+    void (*set_window)(uint16_t, uint16_t, uint16_t, uint16_t),
+    void (*write_data16)(uint16_t),
+    void (*write_buffer)(const uint16_t *, uint32_t),
+    void (*clear)(uint16_t))
+{
+    s_drv_set_window = set_window;
+    s_drv_write_data16 = write_data16;
+    s_drv_write_buffer = write_buffer;
+    s_drv_clear = clear;
+}
+```
+
+然后在 `UI_Init()` 中调用：
+
+```c
+ui_render_init();
+ui_render_set_driver(EPD_SetWindow, EPD_WriteData16, EPD_WriteBuffer, EPD_Clear);
+```
+
+#### 步骤3：调整颜色方案
+
+墨水屏只有黑白两色，需要调整所有UI颜色：
+
+```c
+/* 墨水屏配色 */
+#undef  UI_COLOR_BG_MAIN
+#define UI_COLOR_BG_MAIN      UI_COLOR_WHITE
+
+#undef  UI_COLOR_PRIMARY
+#define UI_COLOR_PRIMARY      UI_COLOR_BLACK
+
+#undef  UI_COLOR_SIDEBAR_BG
+#define UI_COLOR_SIDEBAR_BG   UI_COLOR_WHITE
+
+#undef  UI_COLOR_SIDEBAR_SEL
+#define UI_COLOR_SIDEBAR_SEL  UI_COLOR_BLACK
+
+#undef  UI_COLOR_TEXT_DARK
+#define UI_COLOR_TEXT_DARK    UI_COLOR_BLACK
+
+#undef  UI_COLOR_TEXT_LIGHT
+#define UI_COLOR_TEXT_LIGHT   UI_COLOR_BLACK
+```
+
+建议在 `miniui_color.h` 中使用条件编译：
+
+```c
+#ifdef MINIUI_MONOCHROME
+#define UI_COLOR_BG_MAIN      UI_COLOR_WHITE
+#define UI_COLOR_PRIMARY      UI_COLOR_BLACK
+#define UI_COLOR_TEXT_DARK    UI_COLOR_BLACK
+#define UI_COLOR_SIDEBAR_BG   UI_COLOR_WHITE
+#define UI_COLOR_SIDEBAR_SEL  UI_COLOR_BLACK
+#else
+#define UI_COLOR_BG_MAIN      UI_RGB565(0xF5, 0xF5, 0xF5)
+#define UI_COLOR_PRIMARY      UI_RGB565(0x7E, 0xC8, 0xC8)
+#define UI_COLOR_TEXT_DARK    UI_RGB565(0x4A, 0x4A, 0x4A)
+#define UI_COLOR_SIDEBAR_BG   UI_RGB565(0xF5, 0xF5, 0xF5)
+#define UI_COLOR_SIDEBAR_SEL  UI_RGB565(0xB8, 0xE0, 0xD2)
+#endif
+```
+
+#### 步骤4：禁用动画和抗锯齿
+
+墨水屏刷新慢，动画和抗锯齿无意义：
+
+```c
+#ifdef MINIUI_MONOCHROME
+/* 禁用动画：ui_anim_tick() 直接返回 */
+void ui_anim_tick(uint16_t delta_ms) { (void)delta_ms; }
+
+/* 使用1bpp字体，禁用抗锯齿 */
+#define UI_FONT_BPP  1
+#endif
+```
+
+#### 步骤5：调整刷新策略
+
+墨水屏需要特殊刷新策略：
+
+```c
+#ifdef MINIUI_MONOCHROME
+/* 降低刷新频率 */
+#define UI_TICK_MS  200  /* 5fps，墨水屏够用 */
+
+/* 定期全刷防残影 */
+static uint16_t s_refresh_counter = 0;
+#define EPD_FULL_REFRESH_INTERVAL  50  /* 每50次局部刷新后全刷一次 */
+
+void ui_page_draw(void)
+{
+    /* ... 正常脏区域渲染 ... */
+
+    s_refresh_counter++;
+    if (s_refresh_counter >= EPD_FULL_REFRESH_INTERVAL) {
+        s_refresh_counter = 0;
+        EPD_FullRefresh();  /* 墨水屏全刷 */
+    }
+}
+#endif
+```
+
+#### 步骤6：优化侧边栏为图标模式
+
+墨水屏上文字渲染效果差，建议侧边栏改为纯图标模式：
+
+```c
+#ifdef MINIUI_MONOCHROME
+#define SIDEBAR_WIDTH  60   /* 缩窄侧边栏 */
+/* 侧边栏只显示图标，不显示文字 */
+#endif
+```
+
+### 15.3 4级灰度墨水屏优化
+
+如果目标墨水屏支持4级灰度（如某些电子书阅读器），可以进一步优化：
+
+```c
+/* RGB565 → 4级灰度 (0=黑, 3=白) */
+static uint8_t rgb565_to_gray4(uint16_t color)
+{
+    uint8_t r = (color >> 11) & 0x1F;
+    uint8_t g = (color >> 5) & 0x3F;
+    uint8_t b = color & 0x1F;
+    uint8_t gray = (r * 77 + g * 150 + b * 29) >> 8;
+    if (gray < 64) return 0;
+    if (gray < 128) return 1;
+    if (gray < 192) return 2;
+    return 3;
+}
+```
+
+4级灰度可以实现简单的阴影效果和文字抗锯齿。
+
+### 15.4 完整移植检查清单
+
+| 序号 | 项目 | 说明 |
+|------|------|------|
+| 1 | 实现4个驱动函数 | SetWindow / WriteData16 / WriteBuffer / Clear |
+| 2 | 注册驱动 | 调用 `ui_render_set_driver()` |
+| 3 | 调整颜色方案 | 使用 `MINIUI_MONOCHROME` 条件编译 |
+| 4 | 禁用动画 | `ui_anim_tick()` 空实现 |
+| 5 | 使用1bpp字体 | 禁用抗锯齿 |
+| 6 | 降低刷新率 | `UI_TICK_MS` 改为 200~500 |
+| 7 | 添加全刷逻辑 | 定期全刷防残影 |
+| 8 | 缩窄侧边栏 | 纯图标模式，宽度60px |
+| 9 | 调整widget尺寸 | 墨水屏上控件需要更大更清晰 |
+| 10 | 测试触摸输入 | 确保触摸坐标映射正确 |
+
+### 15.5 常见墨水屏驱动IC参考
+
+| 驱动IC | 分辨率 | 灰度 | 接口 | 备注 |
+|--------|--------|------|------|------|
+| SSD1680 | 200×200 | 4级 | SPI | 小尺寸，常见于价格标签 |
+| SSD1681 | 200×200 | 1bpp | SPI | SSD1680的1bpp版本 |
+| UC8176 | 800×480 | 4级 | SPI | 大尺寸，适合本项目 |
+| IL3897 | 128×296 | 1bpp | SPI | 常见于电子墨水徽章 |
+| ED060SC4 | 800×600 | 16级 | 并口 | 高端电子书阅读器 |
+
+## 十六、已知限制与注意事项
+
+1. **Label文本指针**：`ui_label_set_text()` 不复制字符串，传入的指针必须在Label使用期间有效
+2. **页面栈溢出**：超过16层时，最底层页面被覆盖，不会崩溃但会丢失状态
+3. **脏区域数量**：超过8个dirty region时退化为全屏刷新
+4. **抗锯齿背景**：抗锯齿文本需要已知背景色才能正确混合，透明背景时直接绘制前景色
+5. **动画浮点运算**：缓动函数使用 `float`，无FPU的MCU上可能较慢
+6. **线程安全**：MiniUI非线程安全，所有UI操作必须在同一线程/主循环中执行
+7. **字体字符集**：当前仅支持ASCII 32~126，不支持中文（可扩展unicode_list）

@@ -72,6 +72,8 @@ static ui_widget_t *s_apps_widgets[4 + APPS_PER_PAGE];
  *  Page Navigation
  *=============================================================================*/
 
+static char s_page_text[8];
+
 static void apps_update_grid(void)
 {
     int16_t cx = SIDEBAR_WIDTH + 30;
@@ -105,12 +107,11 @@ static void apps_update_grid(void)
         }
     }
 
-    char page_text[8];
-    page_text[0] = '1' + s_current_page;
-    page_text[1] = '/';
-    page_text[2] = '0' + APPS_PAGE_COUNT;
-    page_text[3] = '\0';
-    ui_label_set_text(&lbl_page, page_text);
+    s_page_text[0] = '1' + s_current_page;
+    s_page_text[1] = '/';
+    s_page_text[2] = '0' + APPS_PAGE_COUNT;
+    s_page_text[3] = '\0';
+    ui_label_set_text(&lbl_page, s_page_text);
 
     ui_widget_set_visible((ui_widget_t *)&btn_prev, s_current_page > 0);
     ui_widget_set_visible((ui_widget_t *)&btn_next, s_current_page < APPS_PAGE_COUNT - 1);

@@ -17,6 +17,8 @@
 #include "../SSD1963/ssd1963.h"
 #include "../SSD1963/lcd_config.h"
 
+#define UI_TICK_MS  33
+
 /*=============================================================================
  *  UI System Initialization
  *=============================================================================*/
@@ -32,6 +34,7 @@ void UI_Init(void)
     ui_anim_init();
 
     ui_page_set_sidebar_callbacks(ui_main_draw_sidebar, ui_main_handle_event);
+    ui_page_set_sidebar_width(SIDEBAR_WIDTH);
 
     ui_main_init();
     ui_home_init();
@@ -98,12 +101,16 @@ void UI_Tick(void)
                                 break;
                             }
                         }
-                    } else if (e->type == UI_EVENT_DRAG) {
+                    } else if (e->type == UI_EVENT_DRAG || e->type == UI_EVENT_SWIPE_UP ||
+                               e->type == UI_EVENT_SWIPE_DOWN || e->type == UI_EVENT_SWIPE_LEFT ||
+                               e->type == UI_EVENT_SWIPE_RIGHT) {
                         for (int16_t i = page->widget_count - 1; i >= 0; i--) {
                             if (page->widgets[i] &&
                                 ui_widget_hit_test(page->widgets[i], e->pos.x, e->pos.y)) {
                                 ui_widget_event(page->widgets[i], e);
-                                ui_input_set_capture(page->widgets[i]);
+                                if (e->type == UI_EVENT_DRAG) {
+                                    ui_input_set_capture(page->widgets[i]);
+                                }
                                 handled = true;
                                 break;
                             }
@@ -122,7 +129,7 @@ void UI_Tick(void)
         e = ui_input_poll();
     }
 
-    ui_anim_tick(33);
+    ui_anim_tick(UI_TICK_MS);
     ui_page_draw();
 }
 

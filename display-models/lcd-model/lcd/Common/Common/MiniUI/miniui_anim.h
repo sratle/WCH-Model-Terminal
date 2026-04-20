@@ -22,6 +22,16 @@ extern "C" {
 #define UI_MAX_ANIMATIONS   8
 
 /*=============================================================================
+ *  Easing Type
+ *=============================================================================*/
+
+typedef enum {
+    UI_EASE_LINEAR,
+    UI_EASE_OUT,
+    UI_EASE_IN,
+} ui_ease_type_t;
+
+/*=============================================================================
  *  Animation Structure
  *=============================================================================*/
 
@@ -31,6 +41,7 @@ struct ui_anim {
     int32_t current;
     uint16_t duration_ms;
     uint16_t elapsed_ms;
+    ui_ease_type_t ease_type;
     bool active;
     ui_anim_update_cb_t update_cb;
     void *user_data;
@@ -43,9 +54,9 @@ struct ui_anim {
 /* Initialize animation system */
 void ui_anim_init(void);
 
-/* Start a new animation */
+/* Start a new animation with specified easing */
 ui_anim_t* ui_anim_start(int32_t start, int32_t end, uint16_t duration_ms,
-                         ui_anim_update_cb_t update_cb, void *user_data);
+                         ui_ease_type_t ease, ui_anim_update_cb_t update_cb, void *user_data);
 
 /* Stop an animation */
 void ui_anim_stop(ui_anim_t *anim);

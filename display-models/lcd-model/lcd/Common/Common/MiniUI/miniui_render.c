@@ -12,6 +12,20 @@
 #include "../SSD1963/ssd1963.h"
 #include <string.h>
 
+static ui_display_driver_t s_driver = {
+    SSD1963_SetWindow,
+    SSD1963_WriteData16,
+    SSD1963_WriteBuffer,
+    SSD1963_Clear,
+};
+
+void ui_render_set_driver(const ui_display_driver_t *driver)
+{
+    if (driver) {
+        s_driver = *driver;
+    }
+}
+
 /*=============================================================================
  *  Line Buffer
 *  One full screen row = 800 * 2 = 1600 bytes.
@@ -88,9 +102,9 @@ void ui_render_flush_line(int16_t y, int16_t x_start, int16_t width)
     if (x_start + width > UI_SCREEN_WIDTH) width = UI_SCREEN_WIDTH - x_start;
     if (width <= 0) return;
 
-    SSD1963_SetWindow((uint16_t)x_start, (uint16_t)y,
+    s_driver.set_window((uint16_t)x_start, (uint16_t)y,
                       (uint16_t)(x_start + width - 1), (uint16_t)y);
-    SSD1963_WriteBuffer(&g_line_buf[x_start], (uint32_t)width);
+    s_driver.write_buffer(&g_line_buf[x_start], (uint32_t)width);
 }
 
 void ui_render_fill_line_buf(int16_t x_start, int16_t width, ui_color_t color)
@@ -157,8 +171,8 @@ void ui_draw_pixel(int16_t x, int16_t y, ui_color_t color)
         y < g_clip_rect.y || y >= g_clip_rect.y + g_clip_rect.h) {
         return;
     }
-    SSD1963_SetWindow((uint16_t)x, (uint16_t)y, (uint16_t)x, (uint16_t)y);
-    SSD1963_WriteData16(color);
+    s_driver.set_window((uint16_t)x, (uint16_t)y, (uint16_t)x, (uint16_t)y);
+    s_driver.write_data16(color);
 }
 
 void ui_draw_hline(int16_t x, int16_t y, int16_t w, ui_color_t color)
@@ -171,10 +185,12 @@ void ui_draw_hline(int16_t x, int16_t y, int16_t w, ui_color_t color)
     int16_t len = x2 - x1;
     if (len <= 0) return;
 
-    SSD1963_SetWindow((uint16_t)x1, (uint16_t)y, (uint16_t)(x2 - 1), (uint16_t)y);
-    while (len--) {
-        SSD1963_WriteData16(color);
+    s_driver.set_window((uint16_t)x1, (uint16_t)y, (uint16_t)(x2 - 1), (uint16_t)y);
+
+    for (int16_t i = 0; i < len; i++) {
+        g_line_buf[i] = color;
     }
+    s_driver.write_buffer(g_line_buf, (uint32_t)len);
 }
 
 void ui_draw_vline(int16_t x, int16_t y, int16_t h, ui_color_t color)
@@ -187,9 +203,9 @@ void ui_draw_vline(int16_t x, int16_t y, int16_t h, ui_color_t color)
     int16_t len = y2 - y1;
     if (len <= 0) return;
 
-    SSD1963_SetWindow((uint16_t)x, (uint16_t)y1, (uint16_t)x, (uint16_t)(y2 - 1));
+    s_driver.set_window((uint16_t)x, (uint16_t)y1, (uint16_t)x, (uint16_t)(y2 - 1));
     while (len--) {
-        SSD1963_WriteData16(color);
+        s_driver.write_data16(color);
     }
 }
 
@@ -220,12 +236,16 @@ void ui_draw_fill_rect(const ui_rect_t *rect, ui_color_t color)
     if (!rect_intersect(rect, &g_clip_rect, &r)) return;
     if (r.w <= 0 || r.h <= 0) return;
 
-    SSD1963_SetWindow((uint16_t)r.x, (uint16_t)r.y,
+    for (int16_t i = 0; i < r.w; i++) {
+        g_line_buf[i] = color;
+    }
+
+    s_driver.set_window((uint16_t)r.x, (uint16_t)r.y,
                       (uint16_t)(r.x + r.w - 1), (uint16_t)(r.y + r.h - 1));
 
-    uint32_t pixel_count = (uint32_t)r.w * r.h;
-    while (pixel_count--) {
-        SSD1963_WriteData16(color);
+    uint32_t row_count = (uint32_t)r.h;
+    while (row_count--) {
+        s_driver.write_buffer(g_line_buf, (uint32_t)r.w);
     }
 }
 
@@ -490,9 +510,13 @@ static void draw_glyph(int16_t x, int16_t y, const ui_glyph_t *glyph,
                 }
             } else {
                 if (alpha > 0) {
-                    uint8_t a8 = (uint16_t)alpha * 255 / mask;
-                    ui_color_t blended = ui_color_blend(color, bg, a8);
-                    ui_draw_pixel(gx + col, gy + row, blended);
+                    if (bg == UI_COLOR_TRANSPARENT) {
+                        ui_draw_pixel(gx + col, gy + row, color);
+                    } else {
+                        uint8_t a8 = (uint16_t)alpha * 255 / mask;
+                        ui_color_t blended = ui_color_blend(color, bg, a8);
+                        ui_draw_pixel(gx + col, gy + row, blended);
+                    }
                 } else if (bg != UI_COLOR_TRANSPARENT) {
                     ui_draw_pixel(gx + col, gy + row, bg);
                 }
@@ -589,23 +613,15 @@ int16_t ui_text_width(const char *text, const ui_font_t *font)
 
 void ui_screen_clear(ui_color_t color)
 {
-    SSD1963_Clear(color);
+    s_driver.clear(color);
 }
 
 void ui_full_refresh(void)
 {
-    ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-    ui_render_reset_clip();
-    ui_draw_fill_rect(&full, UI_COLOR_BG_MAIN);
+    s_driver.clear(UI_COLOR_BG_MAIN);
 }
 
 void ui_flush_region(const ui_rect_t *rect)
 {
-    if (rect) {
-        ui_rect_t r;
-        if (rect_intersect(rect, &g_clip_rect, &r)) {
-            SSD1963_SetWindow((uint16_t)r.x, (uint16_t)r.y,
-                              (uint16_t)(r.x + r.w - 1), (uint16_t)(r.y + r.h - 1));
-        }
-    }
+    (void)rect;
 }
