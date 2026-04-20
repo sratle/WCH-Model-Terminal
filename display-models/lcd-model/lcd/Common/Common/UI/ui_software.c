@@ -33,18 +33,18 @@ typedef struct {
 } app_entry_t;
 
 static const app_entry_t s_apps[APP_GRID_COLS * APP_GRID_ROWS] = {
-    {"Audio",    icon_audio_bitmap,    ICON_AUDIO_WIDTH,    ICON_AUDIO_HEIGHT},
-    {"Video",    icon_video_bitmap,    ICON_VIDEO_WIDTH,    ICON_VIDEO_HEIGHT},
-    {"Image",    icon_image_bitmap,    ICON_IMAGE_WIDTH,    ICON_IMAGE_HEIGHT},
-    {"Files",    icon_directory_bitmap,ICON_DIRECTORY_WIDTH,ICON_DIRECTORY_HEIGHT},
-    {"Settings", icon_settings_bitmap, ICON_SETTINGS_WIDTH, ICON_SETTINGS_HEIGHT},
-    {"Download", icon_download_bitmap, ICON_DOWNLOAD_WIDTH, ICON_DOWNLOAD_HEIGHT},
-    {"Upload",   icon_upload_bitmap,   ICON_UPLOAD_WIDTH,   ICON_UPLOAD_HEIGHT},
-    {"Edit",     icon_edit_bitmap,     ICON_EDIT_WIDTH,     ICON_EDIT_HEIGHT},
-    {"USB",      icon_usb_bitmap,      ICON_USB_WIDTH,      ICON_USB_HEIGHT},
-    {"BT",       icon_bluetooth_bitmap,ICON_BLUETOOTH_WIDTH,ICON_BLUETOOTH_HEIGHT},
-    {"WiFi",     icon_wifi_bitmap,     ICON_WIFI_WIDTH,     ICON_WIFI_HEIGHT},
-    {"GPS",      icon_gps_bitmap,      ICON_GPS_WIDTH,      ICON_GPS_HEIGHT},
+    {"Audio",    icon_audio_16_bitmap,    ICON_AUDIO_16_WIDTH,    ICON_AUDIO_16_HEIGHT},
+    {"Video",    icon_video_16_bitmap,    ICON_VIDEO_16_WIDTH,    ICON_VIDEO_16_HEIGHT},
+    {"Image",    icon_image_16_bitmap,    ICON_IMAGE_16_WIDTH,    ICON_IMAGE_16_HEIGHT},
+    {"Files",    icon_directory_16_bitmap,ICON_DIRECTORY_16_WIDTH,ICON_DIRECTORY_16_HEIGHT},
+    {"Settings", icon_settings_16_bitmap, ICON_SETTINGS_16_WIDTH, ICON_SETTINGS_16_HEIGHT},
+    {"Download", icon_download_16_bitmap, ICON_DOWNLOAD_16_WIDTH, ICON_DOWNLOAD_16_HEIGHT},
+    {"Upload",   icon_upload_16_bitmap,   ICON_UPLOAD_16_WIDTH,   ICON_UPLOAD_16_HEIGHT},
+    {"Edit",     icon_edit_16_bitmap,     ICON_EDIT_16_WIDTH,     ICON_EDIT_16_HEIGHT},
+    {"USB",      icon_usb_16_bitmap,      ICON_USB_16_WIDTH,      ICON_USB_16_HEIGHT},
+    {"BT",       icon_bluetooth_16_bitmap,ICON_BLUETOOTH_16_WIDTH,ICON_BLUETOOTH_16_HEIGHT},
+    {"WiFi",     icon_wifi_16_bitmap,     ICON_WIFI_16_WIDTH,     ICON_WIFI_16_HEIGHT},
+    {"GPS",      icon_gps_16_bitmap,      ICON_GPS_16_WIDTH,      ICON_GPS_16_HEIGHT},
 };
 
 /*=============================================================================

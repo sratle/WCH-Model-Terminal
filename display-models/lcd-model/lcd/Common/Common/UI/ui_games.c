@@ -21,10 +21,10 @@ typedef struct {
 } game_entry_t;
 
 static const game_entry_t s_games[] = {
-    {"Snake",    icon_play_bitmap,     ICON_PLAY_WIDTH,     ICON_PLAY_HEIGHT},
-    {"Pong",     icon_refresh_bitmap,  ICON_REFRESH_WIDTH,  ICON_REFRESH_HEIGHT},
-    {"Tetris",   icon_shuffle_bitmap,  ICON_SHUFFLE_WIDTH,  ICON_SHUFFLE_HEIGHT},
-    {"Maze",     icon_loop_bitmap,     ICON_LOOP_WIDTH,     ICON_LOOP_HEIGHT},
+    {"Snake",    icon_play_16_bitmap,     ICON_PLAY_16_WIDTH,     ICON_PLAY_16_HEIGHT},
+    {"Pong",     icon_refresh_16_bitmap,  ICON_REFRESH_16_WIDTH,  ICON_REFRESH_16_HEIGHT},
+    {"Tetris",   icon_shuffle_16_bitmap,  ICON_SHUFFLE_16_WIDTH,  ICON_SHUFFLE_16_HEIGHT},
+    {"Maze",     icon_loop_16_bitmap,     ICON_LOOP_16_WIDTH,     ICON_LOOP_16_HEIGHT},
 };
 
 #define GAME_COUNT  4

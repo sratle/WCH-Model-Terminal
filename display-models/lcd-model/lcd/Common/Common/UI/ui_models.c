@@ -23,22 +23,22 @@ typedef struct {
 } module_info_t;
 
 static const module_info_t s_comm_modules[] = {
-    {"Bluetooth", icon_bluetooth_bitmap, ICON_BLUETOOTH_WIDTH, ICON_BLUETOOTH_HEIGHT, true,  "v2.1"},
-    {"WiFi",      icon_wifi_bitmap,      ICON_WIFI_WIDTH,      ICON_WIFI_HEIGHT,      false, "v1.3"},
-    {"USB",       icon_usb_bitmap,       ICON_USB_WIDTH,       ICON_USB_HEIGHT,       true,  "v3.0"},
-    {"GPS",       icon_gps_bitmap,       ICON_GPS_WIDTH,       ICON_GPS_HEIGHT,       true,  "v1.0"},
+    {"Bluetooth", icon_bluetooth_16_bitmap, ICON_BLUETOOTH_16_WIDTH, ICON_BLUETOOTH_16_HEIGHT, true,  "v2.1"},
+    {"WiFi",      icon_wifi_16_bitmap,      ICON_WIFI_16_WIDTH,      ICON_WIFI_16_HEIGHT,      false, "v1.3"},
+    {"USB",       icon_usb_16_bitmap,       ICON_USB_16_WIDTH,       ICON_USB_16_HEIGHT,       true,  "v3.0"},
+    {"GPS",       icon_gps_16_bitmap,       ICON_GPS_16_WIDTH,       ICON_GPS_16_HEIGHT,       true,  "v1.0"},
 };
 
 static const module_info_t s_display_modules[] = {
-    {"LCD",       icon_image_bitmap,     ICON_IMAGE_WIDTH,     ICON_IMAGE_HEIGHT,     true,  "v1.0"},
-    {"Touch",     icon_bars_bitmap,      ICON_BARS_WIDTH,      ICON_BARS_HEIGHT,      true,  "v2.0"},
-    {"Audio",     icon_audio_bitmap,     ICON_AUDIO_WIDTH,     ICON_AUDIO_HEIGHT,     true,  "v1.2"},
+    {"LCD",       icon_image_16_bitmap,     ICON_IMAGE_16_WIDTH,     ICON_IMAGE_16_HEIGHT,     true,  "v1.0"},
+    {"Touch",     icon_bars_16_bitmap,      ICON_BARS_16_WIDTH,      ICON_BARS_16_HEIGHT,      true,  "v2.0"},
+    {"Audio",     icon_audio_16_bitmap,     ICON_AUDIO_16_WIDTH,     ICON_AUDIO_16_HEIGHT,     true,  "v1.2"},
 };
 
 static const module_info_t s_storage_modules[] = {
-    {"SD Card",   icon_sd_card_bitmap,   ICON_SD_CARD_WIDTH,   ICON_SD_CARD_HEIGHT,   true,  "v1.0"},
-    {"Flash",     icon_drive_bitmap,     ICON_DRIVE_WIDTH,     ICON_DRIVE_HEIGHT,     true,  "v2.1"},
-    {"Download",  icon_download_bitmap,  ICON_DOWNLOAD_WIDTH,  ICON_DOWNLOAD_HEIGHT,  false, "v1.0"},
+    {"SD Card",   icon_sd_card_16_bitmap,   ICON_SD_CARD_16_WIDTH,   ICON_SD_CARD_16_HEIGHT,   true,  "v1.0"},
+    {"Flash",     icon_drive_16_bitmap,     ICON_DRIVE_16_WIDTH,     ICON_DRIVE_16_HEIGHT,     true,  "v2.1"},
+    {"Download",  icon_download_16_bitmap,  ICON_DOWNLOAD_16_WIDTH,  ICON_DOWNLOAD_16_HEIGHT,  false, "v1.0"},
 };
 
 /*=============================================================================
