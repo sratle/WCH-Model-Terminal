@@ -52,10 +52,7 @@ Mkfile.old
 dkms.conf
 
 # Documentation
-docs/CH32H417EVT/
-docs/CH32V103EVT/
-docs/CH32V307EVT/
-docs/CH585EVT/
+docs/evt/
 
 **/obj/
 **/LVGL/

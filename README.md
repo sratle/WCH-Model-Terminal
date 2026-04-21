@@ -38,45 +38,33 @@
 
 ### [main-model](main-model/) - 核心底板
 
-- **core-model**: CH32H417主控
-- **wireless-model**: CH585蓝牙/WiFi模块
+- **core**: CH32H417主控
+- **wireless**: CH585蓝牙
 
 ### [display-models](display-models/) - 显示模块
 
-- **lcd-model**: 7寸TFT屏（800×480，CH32H417 + LTDC）
-- **epd-model**: 7寸墨水屏（低功耗，SPI驱动）
+- **display-1**: 7寸TFT屏（800×480，CH32H417 + LTDC）
+- **display-2**: 7寸墨水屏（低功耗，SPI驱动）
 
 ### [keyboard-models](keyboard-models/) - 键盘模块
 
-- **keyboard-model**: 40%标准配列键盘
-- **joycon-model**: 游戏手柄布局
-- **piano-model**: 电子琴布局
+- **keyboard-1**: 40%标准配列键盘
+- **keyboard-2**: 游戏手柄布局
+- **keyboard-3**: 电子琴布局
 
-### [extension-models](extension-models/) - 配件模块
+### [sub-models](sub-models/) - 配件模块
 
-- **fingerprint-model**: 指纹识别（本地匹配）
-- **knob-model**: 旋钮模块（音量/参数调节）
-- **health-model**: 健康监测（心率/血氧/温湿度）
-- **NFC-model**: NFC读卡
-- **touch-ring-model**: 触摸圆环
-- **RGB-model**: RGB点阵
-- **distance-model**: 红外测距
-- **screen-model**: 副屏显示
-
-## 技术栈
-
-- **主控**: CH32H417QEU6
-- **显示**: CH32H417+SSD1963 + LVGL 9.x
-- **配件**: CH32V103
-- **通信**: UART (115200/460800bps, CRC16校验)
-- **文件**: CH378 (FAT32)
-- **音频**: CS43131 DAC
+- **submodel-1**: 指纹识别
+- **submodel-2**: 健康监测
+- **submodel-3**: NFC读卡
+- **submodel-4**: 触摸圆环/旋钮
+- **submodel-5**: RGB点阵
+- **submodel-6**: 红外测距
+- **submodel-7**: 副屏显示
 
 ## 快速开始
 
-详细设计文档请参考：[docs/pre.md](docs/pre.md)
-
-每个子模块包含独立的README，说明硬件配置、功能特性和开发指南。
+详细设计文档请参考：[docs/project](docs/project/)
 
 ## 许可证
 
