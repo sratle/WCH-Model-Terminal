@@ -6,7 +6,7 @@ void Keyboard_Init(keyboard_t *keyboard)
     USART_InitTypeDef USART_InitStructure;
 
     RCC_HB2PeriphClockCmd(RCC_HB2Periph_AFIO | RCC_HB2Periph_GPIOE, ENABLE);
-    RCC_HB1PeriphClockCmd(RCC_HB1Periph_USART5, ENABLE);
+    RCC_HB1PeriphClockCmd(RCC_HB1Periph_USART3, ENABLE);
 
     GPIO_PinAFConfig(KEYBOARD_UART_TX_PORT, GPIO_PinSource10, KEYBOARD_UART_TX_AF);
     GPIO_PinAFConfig(KEYBOARD_UART_RX_PORT, GPIO_PinSource11, KEYBOARD_UART_RX_AF);

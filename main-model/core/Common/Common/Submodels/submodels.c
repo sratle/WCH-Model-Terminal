@@ -60,11 +60,11 @@ void Submodels_Init (submodels_t *submodels) {
     USART_Cmd (USART7, ENABLE);
     USART_Cmd (USART8, ENABLE);
 
-    submodels[1].submodels_id = 1;
+    submodels[0].submodels_id = 1;
     Submodels_Get_Type (submodels + 0);
-    submodels[2].submodels_id = 2;
+    submodels[1].submodels_id = 2;
     Submodels_Get_Type (submodels + 1);
-    submodels[3].submodels_id = 3;
+    submodels[2].submodels_id = 3;
     Submodels_Get_Type (submodels + 2);
 }
 

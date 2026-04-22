@@ -24,9 +24,6 @@
 */
 
 #include "debug.h"
-#include "hardware.h"
-#include "CS43131/cs43131.h"
-
 /*********************************************************************
  * @fn      main
  *
@@ -46,17 +43,12 @@ int main(void)
 #if (Run_Core == Run_Core_V3FandV5F)
 	HSEM_FastTake(HSEM_ID0);
 	HSEM_ReleaseOneSem(HSEM_ID0, 0);
-
-#elif (Run_Core == Run_Core_V3F)
-
-#elif (Run_Core == Run_Core_V5F)
-	Hardware();
 #endif
 
 	printf("V5F Wake Up\r\n");
-	Hardware_V5F_init();
 
-	Audio_PlayTriangleWave(10000,44);
+	hardware_V5F_init();
+
 	while(1)
 	{
 		printf("V5F is running\r\n");

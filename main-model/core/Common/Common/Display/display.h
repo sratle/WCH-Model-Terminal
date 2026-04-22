@@ -5,7 +5,7 @@
 #include "ch32h417_gpio.h"
 #include "debug.h"
 
-#define DISPLAY_UART_BAUDRATE 115200
+#define DISPLAY_UART_BAUDRATE 921600
 #define DISPLAY_UART USART4
 
 /* Display UART gpio definitions UART4 */
