@@ -2,17 +2,17 @@
 
 ## 作品简介
 
-本作品采用青稞RISC-V架构的CH32H417芯片作为核心芯片，旨在设计一台模块化的个人移动终端，满足用户对移动设备的多样化需求。该移动终端主要分成核心底板、供电模块、显示模块、配件模块、键盘模块五个部分，支持各个部分的独立更换和定制，提供灵活的硬件扩展能力和定制化体验。模块可在核心底板上自由组合，终端自动识别其组成，最终实现文本编辑器、电子书、播放器、电子琴、游戏机等多样功能，统一市面上多种简单的终端设备。
+本作品采用青稞RISC-V架构的CH32H417芯片作为核心芯片，旨在设计一台模块化的个人移动终端，满足用户对移动设备的多样化需求。该移动终端主要分成核心底板、供电模块、显示模块、配件模块、键盘模块五个部分，支持各个部分的独立更换和定制，提供灵活的硬件扩展能力和定制化体验。模块可在核心底板上自由组合，终端自动识别其组成，最终实现文本编辑器、电子书、播放器、电子琴、游戏机等多样功能，替代多种单一功能终端。
 
 ## 分模块硬件和功能描述
 
 ### 核心模块main-model
 
-核心模块是一整块PCB，上面有CH378、CH9350L、CS43131、CH32H417QEU6、CH585F这些主要的芯片。供电来自于Power模块，然后在这块PCB上将供电再传输给核心板上连接的其他模块。核心板上可以连接的模块包括Power模块一个、Keyboard模块一个、Display模块一个，Submodel模块三个（但是可能有的Submodel模块体积比较大，物理上占用了两个Submodel位置，但只使用一个UART位）
+核心模块是一整块PCB，上面有CH378、CH9350L、CS43131、CH32H417QEU6、CH585F这些主要的芯片。供电来自于Power模块，然后在这块PCB上将供电再传输给核心板上连接的其他模块。核心板上可以连接的模块包括Power模块一个、Keyboard模块一个、Display模块一个，Submodel模块三个（Submodel-7（副屏）体积较大，物理上占用两个 Submodel 位置，因此整机最多只能插入 2 个 Submodel（如 Submodel-7 + 一个普通 Submodel），占用 2 路 UART）
 
 - CH378是一个文件管理芯片，通过SPI1和CH32H417通信，CH378下接一个USB-A和一个TF卡座，可以读取和操作U盘、TF卡中的文件，文件系统为FAT32，里面的文件主要为txt、wav、md、bmp文件，会有文件夹，满足基础的音乐播放、图片显示、文件编辑需求。会存储裸文件作为配置持久化的措施，也就是会从CH378下挂的TF卡中读取配置。
-- CH9350L是一个HID转UART芯片，接了一个USB-A接口，可能会连接外部的键盘、鼠标等输入设备，负责接收外部来的HID信息并转换为串口通过UART1传给CH32H417。
-- CS43131是一个音频DAC芯片，接了外部22.5782MHz晶振，作为I2S1 Master和CH32H417通信，即CS43131提供BCK、LRCK，CH32H417接收时钟后提供SDIN（使用DMA），CS43131需要通过I2C2让CH32H417配置它，配置为44.1KHz 16bit 双声道，输出HPOA和HPOB，可以通过一个模拟开关芯片使用CTRLA/CTRLB信号切换能够是否输出至音响（这部分通过HPOAB后面的功放芯片实现，功放芯片有SHUTDOWN和Core连接，因此HPOAB是需要一直输出的）。
+- CH9350L是一个HID转UART芯片，接了一个USB-A接口，可以连接外部的标准HID输入设备，是Host口，负责接收外部来的HID信息并转换为串口通过UART1传给CH32H417。
+- CS43131是一个音频DAC芯片，接了外部22.5782MHz晶振，作为I2S1 Master和CH32H417通信，即CS43131提供BCK、LRCK，CH32H417接收时钟后提供SDIN（使用DMA），CS43131需要通过I2C2让CH32H417配置它，配置为44.1KHz 16bit 双声道，输出HPOA和HPOB，可以通过一个模拟开关芯片使用CTRLA/CTRLB信号切换是否输出至音响（这部分通过HPOAB后面的功放芯片实现，功放芯片有SHUTDOWN和Core连接，因此HPOAB是需要一直输出的）。
 - CH585F是一个独立主控wireless-model，但是主要是作为一个蓝牙芯片来使用，通过SPI4和CH32H417连接，主要职责是连接上位机软件，实现操控的功能，其UART1作为DEBUG。
 - CH32H417作为核心为core-model，连接了三个板上的固定按钮，为+、-、enter，还连接了一个以太网口HR911105A，连接了上述四块芯片，负责调度四块芯片和其他模块，其UART2作为DEBUG，引出了UART3-8作为连接其他模块的接口，每个UART连接一种模块，分配为UART3-Keyboard，UART4-Display，UART5-Power，UART6-Submodel1，UART7-Submodel2，UART8-Submodel3。
 
@@ -20,43 +20,66 @@
 
 键盘模块有三种，主控均为CH32V103C8T6，UART1作为和核心模块的接口，波特率115200。
 
-- 主键盘Keyboard-1，大致为40配列，主控通过UART2和CH9329进行连接，CH9329是一款串口转HID芯片，转换为HID之后输出到USB-A口。
-- 游戏键盘Keyboard-2
-- 音乐键盘keyboard-3
+- 主键盘Keyboard-1，大致为40配列，主控通过UART2和CH9329进行连接，CH9329是一款串口转HID芯片，转换为HID之后输出到USB-A口，是Device口，作为标准USB HID设备。
+- 游戏键盘Keyboard-2,大致为上下左右方向键、一个摇杆、四个自定义按键，也有UART2连接CH9329并输出到USB-A。
+- 音乐键盘Keyboard-3,主要包括16个按键作为琴键、两个旋钮、四个控制按键，没有CH9329。
 
 ### 供电模块
 
-## 分程序项目描述
+供电模块只有一种，主控为CH32V103C8T6,UART1作为和核心模块的接口，波特率115200。
 
-## CORE
+- 供电模块Power连接了一个6000mAh的电池，并且可以读取电量，可以输出慢充作为充电宝使用，支持PD快充也支持无线充电，可以读取当前的供电/充电功率。通过接口给核心模块和其他所有模块供5V电。
 
-## WIRELESS
+### 显示模块
 
-## DISPLAY-1
+显示模块有两种，一种为RGB888的800\*480LCD屏幕，一种为黑白墨水屏。均采用UART1作为与核心模块的接口，波特率921600。屏幕上运行MiniUI（自建UI架构）。
 
-## DISPLAY-2
+- LCD显示模块Display-1,主控为CH32H417QEU6,通过FMC 8080并口连接SSD1963,再连接LCD屏幕。SSD1963是一款LCD驱动芯片，负责将CH32H417输出的RGB565转换为RGB888存储到GRAM,数据一帧输出到RGB888的LCD屏幕，达到刷新的效果。采用DE模式，SSD1963有PWM可以操控背光亮度。
+- Eink显示模块Display-2,主控为CH32V307RCT6，通过SPI驱动墨水屏，墨水屏支持局部刷新。目前技术方案未确定，可能是800\*480的4.26寸触摸黑白墨水屏，也可能是648\*480的不支持触摸黑白墨水屏。
 
-## KEYBOARD-1
+### 扩展模块
 
-## KEYBOARD-2
+扩展模块sub-model一共有七种，均采用CH32V103C8T6作为主控，
 
-## KEYBOARD-3
+- submodel-1,指纹识别finger，主要功能是存储指纹数据并上报识别ID成功/失败，也会上报指纹数据。
+- submodel-2,健康监测health,主要功能是检测血氧、心跳、温湿度数据并上报。
+- submodel-3,NFC读卡nfc,主要功能是存储NFC数据并上报识别ID成功/失败。
+- submodel-4,触摸圆环/旋钮touch,主要功能是可以通过触摸圆环发出操控指令，也可以通过旋钮控制。
+- submodel-5,RGB点阵rgb,主要功能是控制WS2812亮灯，接受指令以不同模式炫彩。
+- submodel-6,红外测距infrared,主要功能是通过红外测距。
+- submodel-7,副屏显示subdisplay,主要功能是接受一些数据，在2.13寸122*250全反屏上显示简单的LOGO和当前状态。
 
-## POWER-1
+## 分程序项目描述（TODO）
 
-## SUBMODELS-1
+## Core
 
-## SUBMODELS-2
+## Wireless
 
-## SUBMODELS-3
+## Display-1
 
-## SUBMODELS-4
+## Display-2
 
-## SUBMODELS-5
+## Keyboard-1
 
-## SUBMODELS-6
+## Keyboard-2
 
-## SUBMODELS-7
+## Keyboard-3
+
+## Power-1
+
+## Submodels-1
+
+## Submodels-2
+
+## Submodels-3
+
+## Submodels-4
+
+## Submodels-5
+
+## Submodels-6
+
+## Submodels-7
 
 ## 通信协议规范（V1.0）
 
@@ -64,7 +87,7 @@
 
 本项目采用一套统一的紧凑二进制通信协议，覆盖 **Core** 与 **Display**、**Keyboard**、**Power**、**Submodels**、**CH585F** 之间的所有数据交互。
 
-- **物理层**：UART（115200/8-N-1），CH585F 使用 SPI 但数据载荷遵循本协议格式
+- **物理层**：UART（115200/8-N-1，Display 模块使用 921600），CH585F 使用 SPI 但数据载荷遵循本协议格式
 - **数据链路层**：固定帧头的紧凑二进制帧，无校验和
 - **通信模式**：异步中断驱动，收发双方均不阻塞等待
 - **隔离协议**：CH9350 保持其独立的 `0x57 0xAB` 专用协议，不参与本统一协议
@@ -97,7 +120,7 @@
 | ------ | ---------------- | ----- | --------- | ------------------------- |
 | `0x00` | Core（核心）         | —     | V3F / V5F | 两核共享同一 ID，通过 SRC 区分来源     |
 | `0x01` | Wireless（无线/蓝牙）  | SPI4  | V5F       | 独立 MCU，V5F 通过 SPI 通信      |
-| `0x10` | Display（屏幕模块）    | UART4 | V5F / V3F | V5F 主导，V3F 可直接访问（双核不并发操作） |
+| `0x10` | Display（屏幕模块）    | UART4 | V5F       | 仅 V5F 直接访问，V3F 通过跨核消息让 V5F 代发 |
 | `0x20` | Keyboard（键盘模块）   | UART3 | V3F       | V3F 直接管理                  |
 | `0x30` | Power（供电模块）      | UART5 | V3F       | V3F 直接管理                  |
 | `0x40` | Submodel-1（配件槽1） | UART6 | V3F       | V3F 直接管理                  |
@@ -106,7 +129,7 @@
 
 > 预留范围：Display `0x10-0x12`、Keyboard `0x20-0x22`、Power `0x30-0x31`、Submodels `0x40-0x49`。
 > 
-> **Display 双核访问说明**：V3F 和 V5F 均可直接向 Display 发送命令，但两核不会在同一时间操作 UART4，因此无需额外的并发仲裁机制。Display 模块通过帧中的 SRC 字段（0x00）无法区分来自 V3F 还是 V5F，如需区分可在 DATA 中增加核心标识字段。
+> **Display 访问说明**：UART4 由 V5F 独占访问。V3F 如有显示相关指令，通过 `hardware.c` 中的共享内存 / HSEM 机制通知 V5F，由 V5F 统一打包发送。
 
 ### 4. 通用操作码（0x00 ~ 0x0F）
 
@@ -227,10 +250,10 @@ Guest: [AA][10][00][01][04]
 
 ### 10. 双核通信边界
 
-- **V3F 侧通信**：Keyboard、Power、Submodels 的 UART 中断与协议解析运行在 V3F 上。V3F 可直接访问 UART4 与 Display 通信，无需经过 V5F 转发。
+- **V3F 侧通信**：Keyboard、Power、Submodels 的 UART 中断与协议解析运行在 V3F 上。V3F 不直接访问 UART4；如需更新 Display，通过共享内存 / HSEM 通知 V5F 代发。
 - **V5F 侧通信**：Display、CH585F、CH378、CS43131 的交互运行在 V5F 上。
 - **跨核数据**：V3F 与 V5F 之间不通过 UART 传递数据，如需同步状态使用 `hardware.c` 中的 `volatile` 共享标志位或 HSEM 机制。
-- **Display 并发**：V3F 和 V5F 均可直接操作 UART4，但两核不会在同一时间发送数据，Display 模块无需处理并发冲突。
+- **Display 访问**：UART4 由 V5F 独占，V3F 通过跨核消息让 V5F 代发，Display 模块无需处理并发冲突。
 
 ### 11. 版本与扩展
 
