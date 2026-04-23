@@ -1,11 +1,9 @@
 /********************************** (C) COPYRIGHT *******************************
  * File Name          : cs43131.c
- * Author             : WCH
+ * Author             : 
  * Version            : V1.0.0
  * Date               : 2025/03/01
  * Description        : CS43131 DAC driver implementation.
- *********************************************************************************
- * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
  *******************************************************************************/
 #include "cs43131.h"
 #include "./I2c_soft/i2c_soft.h"

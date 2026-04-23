@@ -31,7 +31,34 @@ void Keyboard_Init(keyboard_t *keyboard)
     USART_Init(KEYBOARD_UART, &USART_InitStructure);
     USART_Cmd(KEYBOARD_UART, ENABLE);
 
+    // 使能接收中断并配置 NVIC
+    USART_ITConfig(KEYBOARD_UART, USART_IT_RXNE, ENABLE);
+    NVIC_SetPriority(KEYBOARD_UART_IRQn, 1 << 4);
+    NVIC_EnableIRQ(KEYBOARD_UART_IRQn);
+
+    // 初始化协议接收状态机
+    Protocol_InitRxCtx(&keyboard->rx_ctx);
+
     Keyboard_Get_Type(keyboard);
+}
+
+/*********************************************************************
+ * @fn      Keyboard_UART_IRQ_Handler
+ *
+ * @brief   Keyboard UART interrupt handler.
+ *
+ * @return  none
+ *********************************************************************/
+void Keyboard_UART_IRQ_Handler(keyboard_t *keyboard)
+{
+    if (keyboard == NULL)
+        return;
+
+    if (USART_GetITStatus(KEYBOARD_UART, USART_IT_RXNE) != RESET)
+    {
+        uint8_t byte = (uint8_t)USART_ReceiveData(KEYBOARD_UART);
+        Protocol_ParseByte(&keyboard->rx_ctx, byte);
+    }
 }
 
 // 获取Power类型，入口参数是Power结构体指针

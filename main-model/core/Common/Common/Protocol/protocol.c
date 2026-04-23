@@ -5,8 +5,6 @@
  * Date               : 2026/04/22
  * Description        : Unified compact binary protocol stack for core firmware.
  *                      Frame format: [AA][SRC][DST][LEN][CMD][DATA...]
- *********************************************************************************
- * Copyright (c) 2026 Nanjing Qinheng Microelectronics Co., Ltd.
  *******************************************************************************/
 
 #include "protocol.h"
@@ -27,6 +25,7 @@ void Protocol_InitRxCtx(protocol_rx_ctx_t *ctx)
 
     memset(ctx, 0, sizeof(protocol_rx_ctx_t));
     ctx->state = PROTO_STATE_WAIT_HEAD;
+    /* err_* 字段已由 memset 清零 */
 }
 
 /*********************************************************************
@@ -93,7 +92,7 @@ uint8_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
 
     if (data_len > 0 && data != NULL)
     {
-        memcpy(&out_buf[5], data, data_len);
+        memmove(&out_buf[5], data, data_len);
     }
 
     return total_len;
@@ -148,6 +147,7 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
             /* LEN must be at least 1 (CMD itself). Zero is illegal. */
             if (ctx->frame.len == 0)
             {
+                ctx->err_len_zero++;
                 ctx->state = PROTO_STATE_WAIT_HEAD;
             }
             else
@@ -185,7 +185,12 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
             {
                 ctx->frame.data[ctx->data_idx] = byte;
             }
-            /* If buffer is full, silently drop the byte (overflow protection) */
+            else
+            {
+                /* Buffer full, count overflow once per frame */
+                if (ctx->data_idx == PROTO_MAX_DATA_LEN)
+                    ctx->err_overflow++;
+            }
 
             ctx->data_idx++;
 
@@ -208,6 +213,7 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
                losing the next frame. */
             if (byte == PROTO_FRAME_HEAD)
             {
+                ctx->err_frame_ready++;
                 ctx->frame_ready = 0;
                 ctx->data_idx = 0;
                 memset(&ctx->frame, 0, sizeof(protocol_frame_t));
@@ -226,4 +232,31 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
     }
 
     return 0;
+}
+
+/*********************************************************************
+ * @fn      Protocol_ParseIdentity
+ *
+ * @brief   Parse module identity from a protocol frame.
+ *
+ * @param   frame - pointer to protocol frame.
+ * @param   out   - pointer to module_identity_t to fill.
+ *
+ * @return  1 on success, 0 if frame data is too short.
+ *********************************************************************/
+uint8_t Protocol_ParseIdentity(const protocol_frame_t *frame, module_identity_t *out)
+{
+    if (frame == NULL || out == NULL)
+        return 0;
+
+    if (frame->len < 2)  /* At least type + subtype required */
+        return 0;
+
+    out->type     = frame->data[0];
+    out->subtype  = frame->data[1];
+    out->hw_ver   = (frame->len > 2) ? frame->data[2] : 0x00;
+    out->fw_major = (frame->len > 3) ? frame->data[3] : 0x00;
+    out->fw_minor = (frame->len > 4) ? frame->data[4] : 0x00;
+
+    return 1;
 }

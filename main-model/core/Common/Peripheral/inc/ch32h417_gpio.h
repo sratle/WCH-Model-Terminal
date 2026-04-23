@@ -1,14 +1,10 @@
 /********************************** (C) COPYRIGHT  *******************************
 * File Name          : ch32h417_gpio.h
-* Author             : WCH
+* Author             : 
 * Version            : V1.0.1
 * Date               : 2025/10/21
 * Description        : This file contains all the functions prototypes for the 
 *                      GPIO firmware library.
-*********************************************************************************
-* Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
-* Attention: This software (modified or not) and binary are used for 
-* microcontroller manufactured by Nanjing Qinheng Microelectronics.
 *******************************************************************************/ 
 #ifndef __CH32H417_GPIO_H
 #define __CH32H417_GPIO_H

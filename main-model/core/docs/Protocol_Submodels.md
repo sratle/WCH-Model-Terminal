@@ -32,14 +32,16 @@ Submodel 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 
 **Submodel 子类型定义**
 
-| 子类型编号       | 实现名称           | 说明         |
-| ----------- | -------------- | ---------- |
-| `0x00`      | 保留             | 系统保留       |
-| `0x01`      | Fingerprint    | 指纹识别模块     |
-| `0x02`      | Health Monitor | 健康监测模块     |
-| `0x03`      | NFC            | NFC 近场通信模块 |
-| `0x04`      | Touch Ring     | 触摸环模块      |
-| `0x05`      | RGB Lights     | RGB 灯效控制模块 |
-| `0x06`      | Infrared       | 红外测距/遥控模块  |
-| `0x07`      | Sub Display    | 副屏显示模块     |
-| `0x08~0xFF` | 预留             | 未来扩展       |
+> 代码宏定义：`protocol.h` → `MODULE_SUBTYPE_SUBMODEL_*`
+
+| 子类型编号 | 宏名 | 实现名称 | 说明 |
+| ---------- | ---- | -------- | ---- |
+| `0x00` | `MODULE_SUBTYPE_SUBMODEL_RESERVED` | 保留 | 系统保留 |
+| `0x01` | `MODULE_SUBTYPE_SUBMODEL_FINGERPRINT` | Fingerprint | 指纹识别模块 |
+| `0x02` | `MODULE_SUBTYPE_SUBMODEL_HEALTH` | Health Monitor | 健康监测模块 |
+| `0x03` | `MODULE_SUBTYPE_SUBMODEL_NFC` | NFC | NFC 近场通信模块 |
+| `0x04` | `MODULE_SUBTYPE_SUBMODEL_TOUCH_RING` | Touch Ring | 触摸环模块 |
+| `0x05` | `MODULE_SUBTYPE_SUBMODEL_RGB` | RGB Lights | RGB 灯效控制模块 |
+| `0x06` | `MODULE_SUBTYPE_SUBMODEL_INFRARED` | Infrared | 红外测距/遥控模块 |
+| `0x07` | `MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY` | Sub Display | 副屏显示模块 |
+| `0x08~0xFF` | — | 预留 | 未来扩展 |

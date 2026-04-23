@@ -60,12 +60,49 @@ void Submodels_Init (submodels_t *submodels) {
     USART_Cmd (USART7, ENABLE);
     USART_Cmd (USART8, ENABLE);
 
+    // 使能接收中断并配置 NVIC
+    USART_ITConfig(USART6, USART_IT_RXNE, ENABLE);
+    NVIC_SetPriority(USART6_IRQn, 2 << 4);
+    NVIC_EnableIRQ(USART6_IRQn);
+
+    USART_ITConfig(USART7, USART_IT_RXNE, ENABLE);
+    NVIC_SetPriority(USART7_IRQn, 2 << 4);
+    NVIC_EnableIRQ(USART7_IRQn);
+
+    USART_ITConfig(USART8, USART_IT_RXNE, ENABLE);
+    NVIC_SetPriority(USART8_IRQn, 2 << 4);
+    NVIC_EnableIRQ(USART8_IRQn);
+
+    // 初始化协议接收状态机
+    Protocol_InitRxCtx(&submodels[0].rx_ctx);
+    Protocol_InitRxCtx(&submodels[1].rx_ctx);
+    Protocol_InitRxCtx(&submodels[2].rx_ctx);
+
     submodels[0].submodels_id = 1;
     Submodels_Get_Type (submodels + 0);
     submodels[1].submodels_id = 2;
     Submodels_Get_Type (submodels + 1);
     submodels[2].submodels_id = 3;
     Submodels_Get_Type (submodels + 2);
+}
+
+/*********************************************************************
+ * @fn      Submodels_UART_IRQ_Handler
+ *
+ * @brief   Submodels UART interrupt handler.
+ *
+ * @return  none
+ *********************************************************************/
+void Submodels_UART_IRQ_Handler(submodels_t *submodel, USART_TypeDef *USARTx)
+{
+    if (submodel == NULL)
+        return;
+
+    if (USART_GetITStatus(USARTx, USART_IT_RXNE) != RESET)
+    {
+        uint8_t byte = (uint8_t)USART_ReceiveData(USARTx);
+        Protocol_ParseByte(&submodel->rx_ctx, byte);
+    }
 }
 
 // 获取Submodels类型，入口参数是Submodels结构体指针

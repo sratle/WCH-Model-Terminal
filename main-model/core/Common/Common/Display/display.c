@@ -31,7 +31,34 @@ void Display_Init(display_t *display)
     USART_Init(DISPLAY_UART, &USART_InitStructure);
     USART_Cmd(DISPLAY_UART, ENABLE);
 
+    // 使能接收中断并配置 NVIC
+    USART_ITConfig(DISPLAY_UART, USART_IT_RXNE, ENABLE);
+    NVIC_SetPriority(DISPLAY_UART_IRQn, 1 << 4);
+    NVIC_EnableIRQ(DISPLAY_UART_IRQn);
+
+    // 初始化协议接收状态机
+    Protocol_InitRxCtx(&display->rx_ctx);
+
     Display_Get_Type(display);
+}
+
+/*********************************************************************
+ * @fn      Display_UART_IRQ_Handler
+ *
+ * @brief   Display UART interrupt handler.
+ *
+ * @return  none
+ *********************************************************************/
+void Display_UART_IRQ_Handler(display_t *display)
+{
+    if (display == NULL)
+        return;
+
+    if (USART_GetITStatus(DISPLAY_UART, USART_IT_RXNE) != RESET)
+    {
+        uint8_t byte = (uint8_t)USART_ReceiveData(DISPLAY_UART);
+        Protocol_ParseByte(&display->rx_ctx, byte);
+    }
 }
 
 // 获取Display类型，入口参数是Display结构体指针

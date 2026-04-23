@@ -4,7 +4,7 @@
 * Version            : V1.0.2
 * Date               : 2025/11/13
 * Description        : This file provides all the LTDC firmware functions.
-*********************************************************************************
+******************************************************************************
 * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
 * Attention: This software (modified or not) and binary are used for 
 * microcontroller manufactured by Nanjing Qinheng Microelectronics.

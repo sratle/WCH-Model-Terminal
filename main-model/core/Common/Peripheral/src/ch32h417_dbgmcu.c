@@ -4,7 +4,7 @@
 * Version            : V1.0.1
 * Date               : 2025/09/05
 * Description        : This file provides all the DBGMCU firmware functions.
-*********************************************************************************
+******************************************************************************
 * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
 * Attention: This software (modified or not) and binary are used for 
 * microcontroller manufactured by Nanjing Qinheng Microelectronics.

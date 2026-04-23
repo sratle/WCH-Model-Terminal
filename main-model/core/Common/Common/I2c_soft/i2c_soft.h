@@ -1,11 +1,9 @@
 /********************************** (C) COPYRIGHT *******************************
  * File Name          : i2c_soft.h
- * Author             : WCH
+ * Author             : 
  * Version            : V1.0.0
  * Date               : 2025/03/01
  * Description        : Software I2C library for CH32H417.
- *********************************************************************************
- * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
  *******************************************************************************/
 #ifndef __I2C_SOFT_H__
 #define __I2C_SOFT_H__

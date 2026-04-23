@@ -4,7 +4,7 @@
 * Version            : V1.0.1
 * Date               : 2025/09/15
 * Description        : RISC-V V3F_V5F Core Peripheral Access Layer Source File for CH32H417_416_415
-*********************************************************************************
+******************************************************************************
 * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
 * Attention: This software (modified or not) and binary are used for 
 * microcontroller manufactured by Nanjing Qinheng Microelectronics.

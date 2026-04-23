@@ -1,3 +1,4 @@
+<!-- From: /home/sratle/workspace/embedded/WCH-Model-Terminal/main-model/core/AGENTS.md -->
 # AGENTS.md
 
 > 本文件面向 AI 编程助手。若你是第一次接触本项目，请先阅读本文档，再修改代码。
@@ -10,7 +11,7 @@
 
 - **MCU**: CH32H417QEU6（青稞 RISC-V 双核：V3F + V5F）
 - **IDE**: MounRiver Studio (MRS) / WCH Studio（基于 Eclipse CDT）
-- **工具链**: RISC-V Embedded GCC（`riscv-none-elf-gcc` / `riscv-wch-elf-gcc`）
+- **工具链**: RISC-V Embedded GCC（`riscv-none-elf-gcc`）
 - **语言**: C（GNU99 标准），无 RTOS（NoneOS）
 - **调试器**: WCH-Link，使用 OpenOCD + GDB，支持双核同步调试
 
@@ -40,6 +41,7 @@ core/
 │   │   ├── Key/                    # 按键基础驱动
 │   │   ├── Keyboard/               # 键盘模块驱动
 │   │   ├── Power/                  # 供电管理模块
+│   │   ├── Protocol/               # 统一通信协议栈（打包 / 解析状态机）
 │   │   ├── Submodels/              # 子模块/配件管理
 │   │   ├── hardware.c              # 全局调度与双核初始化入口
 │   │   └── hardware.h              # 全局调度头文件
@@ -71,9 +73,15 @@ core/
 │   └── obj/                        # 编译产物（含 Merge.bin 合并固件）
 │
 ├── docs/                           # 项目文档与数据手册
-│   └── PROJECT.md                  # 项目结构、通信协议、命名规范等详细文档
+│   ├── PROJECT.md                  # 项目结构、通信协议、命名规范等详细文档
+│   ├── Protocol_Display.md         # Display 模块通信协议细则
+│   ├── Protocol_Keyboard.md        # Keyboard 模块通信协议细则
+│   ├── Protocol_Power.md           # Power 模块通信协议细则
+│   ├── Protocol_Submodels.md       # Submodel 模块通信协议细则
+│   ├── Protocol_Wireless.md        # Wireless 模块通信协议细则
+│   └── Core.md / Display-*.md / Keyboard-*.md / Power-*.md / Submodel-*.md / Wireless.md
 │
-└── core.wvsln                      # MRS 解决方案文件
+└── core.wvsln                      # MounRiver Studio / WCH 解决方案文件
 ```
 
 ---
@@ -134,6 +142,18 @@ Common/Common/<Module>/
 - 模块配置结构体（如 `cs43131_t`、`display_t`）
 - 模块初始化与操作函数原型
 
+### 统一协议栈模块（Protocol）
+
+`Common/Common/Protocol/` 提供所有 UART 模块共享的紧凑二进制协议基础实现：
+
+- **`Protocol_InitRxCtx()`** / **`Protocol_ResetRxCtx()`**：初始化 / 重置接收状态机上下文
+- **`Protocol_PackFrame()`**：将 `src`、`dst`、`cmd`、`data[]` 打包为字节流
+- **`Protocol_ParseByte()`**：逐字节状态机解析，返回 1 表示完整帧就绪
+
+状态机流程：`WAIT_HEAD` → `WAIT_SRC` → `WAIT_DST` → `WAIT_LEN` → `WAIT_CMD` → `WAIT_DATA` → `FRAME_READY`。仅在 `WAIT_HEAD` 状态下识别 `0xAA` 为新帧起始；`LEN` 为 0 时自动丢弃；数据域溢出时静默丢弃但不影响帧完成判断。
+
+各模块（Display、Keyboard、Power、Submodels）应在初始化时调用 `Protocol_InitRxCtx()` 创建接收上下文，并在 UART 中断中逐字节喂入 `Protocol_ParseByte()`。
+
 ### 全局调度中心
 
 `Common/Common/hardware.c` 与 `hardware.h` 是双核初始化的调度中心：
@@ -151,11 +171,13 @@ Common/Common/<Module>/
 3. V5F 唤醒后执行自身初始化逻辑。
 4. 两核分别调用各自的 `Hardware_V*F_init()`，完成后进入主循环。
 
+> **注意**：当前 `V3F/User/main.c` 与 `V5F/User/main.c` 中调用的是 `hardware_V3F_init()` / `hardware_V5F_init()`（首字母小写），但 `hardware.c` 中实际定义及 `hardware.h` 中声明为 `Hardware_V3F_init()` / `Hardware_V5F_init()`（首字母大写）。在 Linux 等大小写敏感环境下可能产生隐式声明警告或链接错误，修改时需保持命名一致。
+
 ---
 
 ## 通信协议规范
 
-本项目采用统一的紧凑二进制通信协议，覆盖 Core 与 Display、Keyboard、Power、Submodels、CH585F 之间的所有数据交互。详细规范见 `docs/PROJECT.md` 第 8 章。
+本项目采用统一的紧凑二进制通信协议，覆盖 Core 与 Display、Keyboard、Power、Submodels、CH585F 之间的所有数据交互。详细规范见 `docs/PROJECT.md` 第 8 章，以及各模块对应的 `Protocol_*.md` 文档。
 
 ### 帧结构
 
@@ -168,7 +190,9 @@ Common/Common/<Module>/
 
 - **HEAD**: 固定 `0xAA`
 - **LEN**: `CMD + DATA` 的总字节数，最大 255，故最大帧长 260 字节
-- **波特率**: 115200/8-N-1（异步中断驱动，不阻塞等待）
+- **波特率**: 
+  - Display 模块为 921600/8-N-1
+  - 其余模块为 115200/8-N-1（异步中断驱动，不阻塞等待）
 
 ### 模块 ID
 
@@ -264,7 +288,13 @@ Common/Common/<Module>/
 5. **新增模块时**：
    - 在 `Common/Common/` 下新建模块目录，放置 `module.c` 和 `module.h`。
    - 在 `hardware.c` 中包含头文件并添加全局变量和初始化调用。
-   - 若涉及通信协议，需在 `docs/PROJECT.md` 中补充模块 ID 和操作码定义。
+   - 若涉及通信协议，需在 `docs/PROJECT.md` 及对应的 `Protocol_*.md` 中补充模块 ID 和操作码定义。
+   - 若模块使用统一协议，应在模块初始化时调用 `Protocol_InitRxCtx()` 初始化接收上下文。
+
+6. **大小写敏感环境注意事项**：
+   - `Common/Common/Submodels/` 目录在文件系统中为 `Submodels`（小写 s），但 `hardware.c` 中 `#include` 写作 `"SubModels/submodels.h"`。
+   - `main.c` 中调用 `hardware_V3F_init()` 而声明为 `Hardware_V3F_init()`，在大小写敏感的文件系统或严格编译器下可能出现问题。
+   - 建议在 Linux / 命令行构建环境下保持文件名、包含路径、函数名的大小写完全一致。
 
 ---
 
@@ -279,7 +309,7 @@ Common/Common/<Module>/
 如需添加测试，建议：
 - 在 `Common/Common/` 下新增 `Test/` 目录存放测试桩代码。
 - 利用 `hardware_init_flag` 等标志位设计初始化顺序测试。
-- 对通信协议解析函数进行边界条件测试（最大帧长 260 字节、帧头 0xAA 转义等）。
+- 对通信协议解析函数进行边界条件测试（最大帧长 260 字节、帧头 0xAA 转义、LEN=0 非法丢弃等）。
 
 ---
 
@@ -296,9 +326,14 @@ Common/Common/<Module>/
 ## 参考文档
 
 - `docs/PROJECT.md` — 项目结构、双核职责、通信协议 V1.0、命名规范、模块 ID 与操作码定义
+- `docs/Protocol_Display.md` — Display 模块通信协议细则
+- `docs/Protocol_Keyboard.md` — Keyboard 模块通信协议细则
+- `docs/Protocol_Power.md` — Power 模块通信协议细则
+- `docs/Protocol_Submodels.md` — Submodel 模块通信协议细则
+- `docs/Protocol_Wireless.md` — Wireless 模块通信协议细则
 - `docs/CH32H417DS0.pdf` / `CH32H417RM.pdf` — 芯片数据手册与参考手册
 - `docs/CH378DS1.PDF` / `CS43131_DS1155F2.pdf` / `CH585DS1.PDF` — 外设芯片数据手册
 
 ---
 
-> 最后更新：2026-04-21
+> 最后更新：2026-04-23

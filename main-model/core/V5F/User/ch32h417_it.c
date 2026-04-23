@@ -1,18 +1,17 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : ch32h417_it.c
-* Author             : WCH
+* Author             : 
 * Version            : V1.0.0
 * Date               : 2025/03/01
 * Description        : Main Interrupt Service Routines.
-*********************************************************************************
-* Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
-* Attention: This software (modified or not) and binary are used for 
-* microcontroller manufactured by Nanjing Qinheng Microelectronics.
 *******************************************************************************/
 #include "ch32h417_it.h"
+#include "hardware.h"
 
 void NMI_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void HardFault_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
+
+void USART4_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 
 /*********************************************************************
  * @fn      NMI_Handler
@@ -43,4 +42,14 @@ void HardFault_Handler(void)
   }
 }
 
-
+/*********************************************************************
+ * @fn      USART4_IRQHandler
+ *
+ * @brief   This function handles USART4 global interrupt (Display).
+ *
+ * @return  none
+ */
+void USART4_IRQHandler(void)
+{
+    Display_UART_IRQ_Handler(&display_g);
+}

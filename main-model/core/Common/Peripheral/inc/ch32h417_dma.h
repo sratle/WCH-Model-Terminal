@@ -1,14 +1,10 @@
 /********************************** (C) COPYRIGHT  *******************************
 * File Name          : ch32h417_dma.h
-* Author             : WCH
+* Author             : 
 * Version            : V1.0.1
 * Date               : 2025/07/22
 * Description        : This file contains all the functions prototypes for the 
 *                      DMA firmware library.
-*********************************************************************************
-* Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
-* Attention: This software (modified or not) and binary are used for 
-* microcontroller manufactured by Nanjing Qinheng Microelectronics.
 *******************************************************************************/ 
 #ifndef __CH32H417_DMA_H
 #define __CH32H417_DMA_H

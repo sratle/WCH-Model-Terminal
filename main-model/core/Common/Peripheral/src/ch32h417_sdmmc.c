@@ -4,9 +4,9 @@
 * Version            : V1.0.2
 * Date               : 2025/10/23
 * Description        : This file provides all the SDMMC firmware functions.
-*********************************************************************************
+******************************************************************************
 * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
-* Attention: This software (modified or not) and binary are used for
+* Attention: This software (modified or not) and binary are used for 
 * microcontroller manufactured by Nanjing Qinheng Microelectronics.
 *******************************************************************************/
 #include "ch32h417_sdmmc.h"

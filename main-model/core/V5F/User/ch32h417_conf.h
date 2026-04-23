@@ -1,13 +1,9 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : ch32h417_conf.h
-* Author             : WCH
+* Author             : 
 * Version            : V1.0.0
 * Date               : 2025/03/01
 * Description        : Library configuration file.
-*********************************************************************************
-* Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
-* Attention: This software (modified or not) and binary are used for 
-* microcontroller manufactured by Nanjing Qinheng Microelectronics.
 *******************************************************************************/
 #ifndef __CH32H417_CONF_H
 #define __CH32H417_CONF_H

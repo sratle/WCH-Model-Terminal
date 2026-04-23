@@ -5,7 +5,7 @@
 * Date               : 2025/09/16
 * Description        : This file contains all the functions prototypes for UART
 *                      Printf , Delay functions.
-*********************************************************************************
+******************************************************************************
 * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
 * Attention: This software (modified or not) and binary are used for 
 * microcontroller manufactured by Nanjing Qinheng Microelectronics.
@@ -70,6 +70,8 @@ void Delay_Init(void);
 void Delay_Us (uint32_t n);
 void Delay_Ms (uint32_t n);
 void USART_Printf_Init(uint32_t baudrate);
+void Debug_EnableRxIRQ(void);
+void Debug_UART_IRQ_Handler(void);
 
 #ifdef __cplusplus
 }

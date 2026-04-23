@@ -1,14 +1,10 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : system_ch32h417.c
-* Author             : WCH
+* Author             : 
 * Version            : V1.0.1
 * Date               : 2025/10/16
 * Description        : CH32H417 Device Peripheral Access Layer System Source File.
 *                      For HSE = 25Mhz
-*********************************************************************************
-* Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
-* Attention: This software (modified or not) and binary are used for 
-* microcontroller manufactured by Nanjing Qinheng Microelectronics.
 *******************************************************************************/
 #include "ch32h417.h" 
 

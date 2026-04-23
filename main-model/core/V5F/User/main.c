@@ -1,13 +1,9 @@
 /********************************** (C) COPYRIGHT *******************************
  * File Name          : main.c
- * Author             : WCH
+ * Author             : 
  * Version            : V1.0.0
  * Date               : 2025/03/01
  * Description        : Main program body.
- *********************************************************************************
- * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
- * Attention: This software (modified or not) and binary are used for
- * microcontroller manufactured by Nanjing Qinheng Microelectronics.
  *******************************************************************************/
 
 /*
@@ -47,7 +43,7 @@ int main(void)
 
 	printf("V5F Wake Up\r\n");
 
-	hardware_V5F_init();
+	Hardware_V5F_Init();
 
 	while(1)
 	{

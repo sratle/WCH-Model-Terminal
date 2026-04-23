@@ -1,13 +1,9 @@
 /********************************** (C) COPYRIGHT *******************************
  * File Name          : main_v3f.c
- * Author             : WCH
+ * Author             : 
  * Version            : V1.0.0
  * Date               : 2025/03/01
  * Description        : Main program body for V3F.
- *********************************************************************************
- * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
- * Attention: This software (modified or not) and binary are used for
- * microcontroller manufactured by Nanjing Qinheng Microelectronics.
  *******************************************************************************/
 
 /*
@@ -38,6 +34,7 @@ int main(void)
 	Delay_Init();
 
 	USART_Printf_Init(115200);
+	Debug_EnableRxIRQ();
 	Delay_Ms(1000);
 
 	printf("SystemClk:%d\r\n", SystemClock);
@@ -54,7 +51,7 @@ int main(void)
 	HSEM_ClearFlag(HSEM_ID0);
 #endif
 
-	hardware_V3F_init();
+	Hardware_V3F_Init();
 	
 	while(1)
 	{

@@ -5,9 +5,9 @@
 * Date               : 2025/10/23
 * Description        : This file contains all the functions prototypes for the
 *                      SDMMC firmware library.
-*********************************************************************************
+*******************************************************************************
 * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
-* Attention: This software (modified or not) and binary are used for
+* Attention: This software (modified or not) and binary are used for 
 * microcontroller manufactured by Nanjing Qinheng Microelectronics.
 ********************************************************************************/
 

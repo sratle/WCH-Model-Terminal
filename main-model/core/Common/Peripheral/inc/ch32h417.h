@@ -1,13 +1,9 @@
 /********************************** (C) COPYRIGHT  *******************************
 * File Name          : ch32h417.h
-* Author             : WCH
+* Author             : 
 * Version            : V1.0.4
 * Date               : 2025/12/08
 * Description        : CH32H417_416_415 Device Peripheral Access Layer Header File.
-*********************************************************************************
-* Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
-* Attention: This software (modified or not) and binary are used for 
-* microcontroller manufactured by Nanjing Qinheng Microelectronics.
 *******************************************************************************/  
 #ifndef __CH32H417_H
 #define __CH32H417_H

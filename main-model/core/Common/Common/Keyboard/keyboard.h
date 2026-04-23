@@ -4,9 +4,11 @@
 #include "ch32h417.h"
 #include "ch32h417_gpio.h"
 #include "debug.h"
+#include "protocol.h"
 
 #define KEYBOARD_UART_BAUDRATE 115200
 #define KEYBOARD_UART USART3
+#define KEYBOARD_UART_IRQn USART3_IRQn
 
 /* Keyboard UART gpio definitions UART3 */
 #define KEYBOARD_UART_TX_PORT GPIOB
@@ -20,11 +22,15 @@
 typedef struct
 {
     uint8_t type_id; // 键盘类型编号
+    protocol_rx_ctx_t rx_ctx; // 协议接收状态机上下文
 } keyboard_t;
 
 // 初始化键盘结构体，初始化串口-和键盘沟通编号和设置
 void Keyboard_Init(keyboard_t *keyboard);
 void Keyboard_Get_Type(keyboard_t *keyboard);
 void Keyboard_Send_Data(keyboard_t *keyboard, uint8_t *data, uint16_t length);
+
+// UART 中断处理函数（在中断服务函数中调用）
+void Keyboard_UART_IRQ_Handler(keyboard_t *keyboard);
 
 #endif

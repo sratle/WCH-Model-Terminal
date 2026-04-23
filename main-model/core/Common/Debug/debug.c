@@ -5,12 +5,13 @@
  * Date               : 2025/07/16
  * Description        : This file contains all the functions prototypes for UART
  *                      Printf , Delay functions.
- *********************************************************************************
+ ******************************************************************************
  * Copyright (c) 2025 Nanjing Qinheng Microelectronics Co., Ltd.
- * Attention: This software (modified or not) and binary are used for
+ * Attention: This software (modified or not) and binary are used for 
  * microcontroller manufactured by Nanjing Qinheng Microelectronics.
  *******************************************************************************/
 #include "debug.h"
+#include "protocol.h"
 
 static uint16_t p_us = 0;
 static uint32_t p_ms = 0;
@@ -124,10 +125,15 @@ void USART_Printf_Init(uint32_t baudrate)
     RCC_HB2PeriphClockCmd(RCC_HB2Periph_AFIO | RCC_HB2Periph_GPIOA, ENABLE);
     RCC_HB1PeriphClockCmd(RCC_HB1Periph_USART2, ENABLE);
     GPIO_PinAFConfig(GPIOA, GPIO_PinSource2, GPIO_AF7);
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource3, GPIO_AF7);
 
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_3;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     GPIO_Init(GPIOA, &GPIO_InitStructure);
 
     USART_InitStructure.USART_BaudRate = baudrate;
@@ -135,7 +141,7 @@ void USART_Printf_Init(uint32_t baudrate)
     USART_InitStructure.USART_StopBits = USART_StopBits_1;
     USART_InitStructure.USART_Parity = USART_Parity_No;
     USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
-    USART_InitStructure.USART_Mode = USART_Mode_Tx;
+    USART_InitStructure.USART_Mode = USART_Mode_Tx | USART_Mode_Rx;
 
     USART_Init(USART2, &USART_InitStructure);
     USART_Cmd(USART2, ENABLE);
@@ -183,4 +189,37 @@ __attribute__((used)) void *_sbrk(ptrdiff_t incr)
 
     curbrk += incr;
     return curbrk - incr;
+}
+
+/*********************************************************************
+ * @fn      Debug_EnableRxIRQ
+ *
+ * @brief   Enable USART2 RX interrupt for debug channel.
+ *
+ * @return  none
+ *********************************************************************/
+static protocol_rx_ctx_t debug_rx_ctx;
+
+void Debug_EnableRxIRQ(void)
+{
+    Protocol_InitRxCtx(&debug_rx_ctx);
+    USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);
+    NVIC_SetPriority(USART2_IRQn, 3 << 4);
+    NVIC_EnableIRQ(USART2_IRQn);
+}
+
+/*********************************************************************
+ * @fn      Debug_UART_IRQ_Handler
+ *
+ * @brief   Debug UART interrupt handler.
+ *
+ * @return  none
+ *********************************************************************/
+void Debug_UART_IRQ_Handler(void)
+{
+    if (USART_GetITStatus(USART2, USART_IT_RXNE) != RESET)
+    {
+        uint8_t byte = (uint8_t)USART_ReceiveData(USART2);
+        Protocol_ParseByte(&debug_rx_ctx, byte);
+    }
 }

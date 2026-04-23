@@ -31,7 +31,34 @@ void Power_Init(power_t *power)
     USART_Init(POWER_UART, &USART_InitStructure);
     USART_Cmd(POWER_UART, ENABLE);
 
+    // 使能接收中断并配置 NVIC
+    USART_ITConfig(POWER_UART, USART_IT_RXNE, ENABLE);
+    NVIC_SetPriority(POWER_UART_IRQn, 2 << 4);
+    NVIC_EnableIRQ(POWER_UART_IRQn);
+
+    // 初始化协议接收状态机
+    Protocol_InitRxCtx(&power->rx_ctx);
+
     Power_Get_Type(power);
+}
+
+/*********************************************************************
+ * @fn      Power_UART_IRQ_Handler
+ *
+ * @brief   Power UART interrupt handler.
+ *
+ * @return  none
+ *********************************************************************/
+void Power_UART_IRQ_Handler(power_t *power)
+{
+    if (power == NULL)
+        return;
+
+    if (USART_GetITStatus(POWER_UART, USART_IT_RXNE) != RESET)
+    {
+        uint8_t byte = (uint8_t)USART_ReceiveData(POWER_UART);
+        Protocol_ParseByte(&power->rx_ctx, byte);
+    }
 }
 
 // 获取Power类型，入口参数是Power结构体指针
