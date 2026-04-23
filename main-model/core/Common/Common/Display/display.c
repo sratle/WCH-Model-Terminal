@@ -1,4 +1,5 @@
 #include "display.h"
+#include "protocol_common.h"
 
 void Display_Init(display_t *display)
 {
@@ -77,4 +78,49 @@ void Display_Send_Data(display_t *display, uint8_t *data, uint16_t length)
             ;
         USART_SendData(DISPLAY_UART, *data++);
     }
+}
+
+/* ============================================================================
+ * 通用命令回调与主循环帧处理
+ * ============================================================================ */
+
+static uint8_t display_on_get_type(const protocol_frame_t *req,
+                                   uint8_t *resp_buf, uint16_t resp_size,
+                                   uint8_t *resp_len)
+{
+    (void)req;
+    (void)resp_size;
+    resp_buf[0] = MODULE_TYPE_DISPLAY;
+    resp_buf[1] = MODULE_SUBTYPE_DISPLAY_LCD;
+    resp_buf[2] = 0x01; /* hw_ver */
+    resp_buf[3] = 0x01; /* fw_major */
+    resp_buf[4] = 0x00; /* fw_minor */
+    *resp_len = 5;
+    return 1;
+}
+
+static const protocol_common_cb_t display_cb = {
+    .on_get_type = display_on_get_type,
+};
+
+void Display_Process(display_t *display)
+{
+    uint8_t resp[PROTO_MAX_FRAME_LEN];
+    uint8_t resp_len = 0;
+
+    if (display == NULL || !display->rx_ctx.frame_ready)
+        return;
+
+    if (ProtocolCommon_Dispatch(&display->rx_ctx.frame, &display_cb,
+                                resp, sizeof(resp), &resp_len))
+    {
+        if (resp_len > 0)
+            Display_Send_Data(display, resp, resp_len);
+    }
+    else
+    {
+        /* 模块专用命令处理（待扩展） */
+    }
+
+    Protocol_ResetRxCtx(&display->rx_ctx);
 }

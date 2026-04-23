@@ -20,6 +20,7 @@
 */
 
 #include "debug.h"
+#include "hardware.h"
 /*********************************************************************
  * @fn      main
  *
@@ -47,9 +48,12 @@ int main(void)
 
 	while(1)
 	{
+		/* Display 统一 UART 帧处理（主循环轮询） */
+		Display_Process(&display_g);
+
 		printf("V5F is running\r\n");
 		printf("SPI2_STATR=0x%04X, SPI2_I2SCFGR=0x%04X\r\n", SPI2->STATR, SPI2->I2SCFGR);
 		printf("DMA_CNTR=%d, DMA_CFG=0x%08X\r\n", DMA1_Channel1->CNTR, DMA1_Channel1->CFGR);
-		Delay_Ms(1000);
+		Delay_Ms(1);
 	}
 }

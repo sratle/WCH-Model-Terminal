@@ -1,4 +1,5 @@
 #include "submodels.h"
+#include "protocol_common.h"
 
 void Submodels_Init (submodels_t *submodels) {
     GPIO_InitTypeDef GPIO_InitStructure;
@@ -138,4 +139,49 @@ void Submodels_Send_Data (submodels_t *submodel, uint8_t *data, uint16_t length)
     default:
         break;
     }
+}
+
+/* ============================================================================
+ * 通用命令回调与主循环帧处理
+ * ============================================================================ */
+
+static uint8_t submodels_on_get_type(const protocol_frame_t *req,
+                                     uint8_t *resp_buf, uint16_t resp_size,
+                                     uint8_t *resp_len)
+{
+    (void)req;
+    (void)resp_size;
+    resp_buf[0] = MODULE_TYPE_SUBMODEL;
+    resp_buf[1] = MODULE_SUBTYPE_SUBMODEL_FINGERPRINT; /* 默认子类型，实际应由硬件决定 */
+    resp_buf[2] = 0x01; /* hw_ver */
+    resp_buf[3] = 0x01; /* fw_major */
+    resp_buf[4] = 0x00; /* fw_minor */
+    *resp_len = 5;
+    return 1;
+}
+
+static const protocol_common_cb_t submodels_cb = {
+    .on_get_type = submodels_on_get_type,
+};
+
+void Submodels_Process(submodels_t *submodel)
+{
+    uint8_t resp[PROTO_MAX_FRAME_LEN];
+    uint8_t resp_len = 0;
+
+    if (submodel == NULL || !submodel->rx_ctx.frame_ready)
+        return;
+
+    if (ProtocolCommon_Dispatch(&submodel->rx_ctx.frame, &submodels_cb,
+                                resp, sizeof(resp), &resp_len))
+    {
+        if (resp_len > 0)
+            Submodels_Send_Data(submodel, resp, resp_len);
+    }
+    else
+    {
+        /* 模块专用命令处理（待扩展） */
+    }
+
+    Protocol_ResetRxCtx(&submodel->rx_ctx);
 }

@@ -1,4 +1,5 @@
 #include "power.h"
+#include "protocol_common.h"
 
 void Power_Init(power_t *power)
 {
@@ -77,4 +78,48 @@ void Power_Send_Data(power_t *power, uint8_t *data, uint16_t length)
             ;
         USART_SendData(POWER_UART, *data++);
     }
+}
+/* ============================================================================
+ * 通用命令回调与主循环帧处理
+ * ============================================================================ */
+
+static uint8_t power_on_get_type(const protocol_frame_t *req,
+                                 uint8_t *resp_buf, uint16_t resp_size,
+                                 uint8_t *resp_len)
+{
+    (void)req;
+    (void)resp_size;
+    resp_buf[0] = MODULE_TYPE_POWER;
+    resp_buf[1] = MODULE_SUBTYPE_POWER_STANDARD;
+    resp_buf[2] = 0x01; /* hw_ver */
+    resp_buf[3] = 0x01; /* fw_major */
+    resp_buf[4] = 0x00; /* fw_minor */
+    *resp_len = 5;
+    return 1;
+}
+
+static const protocol_common_cb_t power_cb = {
+    .on_get_type = power_on_get_type,
+};
+
+void Power_Process(power_t *power)
+{
+    uint8_t resp[PROTO_MAX_FRAME_LEN];
+    uint8_t resp_len = 0;
+
+    if (power == NULL || !power->rx_ctx.frame_ready)
+        return;
+
+    if (ProtocolCommon_Dispatch(&power->rx_ctx.frame, &power_cb,
+                                resp, sizeof(resp), &resp_len))
+    {
+        if (resp_len > 0)
+            Power_Send_Data(power, resp, resp_len);
+    }
+    else
+    {
+        /* 模块专用命令处理（待扩展） */
+    }
+
+    Protocol_ResetRxCtx(&power->rx_ctx);
 }

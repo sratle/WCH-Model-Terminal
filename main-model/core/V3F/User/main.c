@@ -20,6 +20,7 @@
 */
 
 #include "debug.h"
+#include "hardware.h"
 /*********************************************************************
  * @fn      main
  *
@@ -52,9 +53,23 @@ int main(void)
 #endif
 
 	Hardware_V3F_Init();
-	
+
 	while(1)
 	{
-		Delay_Ms(1000);
+		/* 统一 UART 帧处理（主循环轮询，避免中断阻塞） */
+		Keyboard_Process(&keyboard_g);
+		Power_Process(&power_g);
+		Submodels_Process(&submodels_g[0]);
+		Submodels_Process(&submodels_g[1]);
+		Submodels_Process(&submodels_g[2]);
+
+		/* CH9350 HID 数据解析 */
+		if (CH9350_Has_New_Data(&ch9350_g))
+		{
+			CH9350_Parse_Frame(&ch9350_g);
+			CH9350_Clear_Data(&ch9350_g);
+		}
+
+		Delay_Ms(1);
 	}
 }

@@ -11,6 +11,7 @@
  * microcontroller manufactured by Nanjing Qinheng Microelectronics.
  *******************************************************************************/
 #include "debug.h"
+#include "protocol_common.h"
 #include "protocol.h"
 
 static uint16_t p_us = 0;
@@ -198,11 +199,8 @@ __attribute__((used)) void *_sbrk(ptrdiff_t incr)
  *
  * @return  none
  *********************************************************************/
-static protocol_rx_ctx_t debug_rx_ctx;
-
 void Debug_EnableRxIRQ(void)
 {
-    Protocol_InitRxCtx(&debug_rx_ctx);
     USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);
     NVIC_SetPriority(USART2_IRQn, 3 << 4);
     NVIC_EnableIRQ(USART2_IRQn);
@@ -212,6 +210,7 @@ void Debug_EnableRxIRQ(void)
  * @fn      Debug_UART_IRQ_Handler
  *
  * @brief   Debug UART interrupt handler.
+ *          Echo mode: received byte is sent back immediately.
  *
  * @return  none
  *********************************************************************/
@@ -220,6 +219,10 @@ void Debug_UART_IRQ_Handler(void)
     if (USART_GetITStatus(USART2, USART_IT_RXNE) != RESET)
     {
         uint8_t byte = (uint8_t)USART_ReceiveData(USART2);
-        Protocol_ParseByte(&debug_rx_ctx, byte);
+
+        /* Wait for TXE and echo back */
+        while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET)
+            ;
+        USART_SendData(USART2, byte);
     }
 }

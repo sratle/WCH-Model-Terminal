@@ -1,4 +1,5 @@
 #include "keyboard.h"
+#include "protocol_common.h"
 
 void Keyboard_Init(keyboard_t *keyboard)
 {
@@ -77,4 +78,48 @@ void Keyboard_Send_Data(keyboard_t *keyboard, uint8_t *data, uint16_t length)
             ;
         USART_SendData(KEYBOARD_UART, *data++);
     }
+}
+/* ============================================================================
+ * 通用命令回调与主循环帧处理
+ * ============================================================================ */
+
+static uint8_t keyboard_on_get_type(const protocol_frame_t *req,
+                                    uint8_t *resp_buf, uint16_t resp_size,
+                                    uint8_t *resp_len)
+{
+    (void)req;
+    (void)resp_size;
+    resp_buf[0] = MODULE_TYPE_KEYBOARD;
+    resp_buf[1] = MODULE_SUBTYPE_KEYBOARD_MAIN;
+    resp_buf[2] = 0x01; /* hw_ver */
+    resp_buf[3] = 0x01; /* fw_major */
+    resp_buf[4] = 0x00; /* fw_minor */
+    *resp_len = 5;
+    return 1;
+}
+
+static const protocol_common_cb_t keyboard_cb = {
+    .on_get_type = keyboard_on_get_type,
+};
+
+void Keyboard_Process(keyboard_t *keyboard)
+{
+    uint8_t resp[PROTO_MAX_FRAME_LEN];
+    uint8_t resp_len = 0;
+
+    if (keyboard == NULL || !keyboard->rx_ctx.frame_ready)
+        return;
+
+    if (ProtocolCommon_Dispatch(&keyboard->rx_ctx.frame, &keyboard_cb,
+                                resp, sizeof(resp), &resp_len))
+    {
+        if (resp_len > 0)
+            Keyboard_Send_Data(keyboard, resp, resp_len);
+    }
+    else
+    {
+        /* 模块专用命令处理（待扩展） */
+    }
+
+    Protocol_ResetRxCtx(&keyboard->rx_ctx);
 }

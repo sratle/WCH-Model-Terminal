@@ -29,6 +29,7 @@ typedef struct
 void Display_Init(display_t *display);
 void Display_Get_Type(display_t *display);
 void Display_Send_Data(display_t *display, uint8_t *data, uint16_t length);
+void Display_Process(display_t *display);
 
 // UART 中断处理函数（在中断服务函数中调用）
 void Display_UART_IRQ_Handler(display_t *display);

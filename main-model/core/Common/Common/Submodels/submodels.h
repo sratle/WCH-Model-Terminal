@@ -55,6 +55,7 @@ void Submodels_Get_Type(submodels_t *submodel);
 
 // 发送数据，入口参数是Submodels结构体指针，发送数据，发送数据长度
 void Submodels_Send_Data(submodels_t *submodel, uint8_t *data, uint16_t length);
+void Submodels_Process(submodels_t *submodel);
 
 // UART 中断处理函数（在中断服务函数中调用）
 void Submodels_UART_IRQ_Handler(submodels_t *submodel, USART_TypeDef *USARTx);

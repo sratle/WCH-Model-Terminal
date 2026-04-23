@@ -29,6 +29,7 @@ typedef struct
 void Keyboard_Init(keyboard_t *keyboard);
 void Keyboard_Get_Type(keyboard_t *keyboard);
 void Keyboard_Send_Data(keyboard_t *keyboard, uint8_t *data, uint16_t length);
+void Keyboard_Process(keyboard_t *keyboard);
 
 // UART 中断处理函数（在中断服务函数中调用）
 void Keyboard_UART_IRQ_Handler(keyboard_t *keyboard);

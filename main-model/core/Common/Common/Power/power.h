@@ -29,6 +29,7 @@ typedef struct
 void Power_Init(power_t *power);
 void Power_Get_Type(power_t *power);
 void Power_Send_Data(power_t *power, uint8_t *data, uint16_t length);
+void Power_Process(power_t *power);
 
 // UART 中断处理函数（在中断服务函数中调用）
 void Power_UART_IRQ_Handler(power_t *power);
