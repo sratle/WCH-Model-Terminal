@@ -4,7 +4,7 @@
 #include "ch32h417.h"
 #include "ch32h417_gpio.h"
 #include "debug.h"
-#include "protocol.h"
+#include "../Protocol/protocol.h"
 
 #define SUBMODELS_UART_BAUDRATE 115200
 

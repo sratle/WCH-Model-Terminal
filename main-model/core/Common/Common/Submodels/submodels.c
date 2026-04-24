@@ -1,5 +1,5 @@
 #include "submodels.h"
-#include "protocol_common.h"
+#include "../Protocol/protocol_common.h"
 
 void Submodels_Init (submodels_t *submodels) {
     GPIO_InitTypeDef GPIO_InitStructure;

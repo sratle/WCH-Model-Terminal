@@ -11,8 +11,8 @@
  * microcontroller manufactured by Nanjing Qinheng Microelectronics.
  *******************************************************************************/
 #include "debug.h"
-#include "protocol_common.h"
-#include "protocol.h"
+#include "../Common/Protocol/protocol_common.h"
+#include "../Common/Protocol/protocol.h"
 
 static uint16_t p_us = 0;
 static uint32_t p_ms = 0;

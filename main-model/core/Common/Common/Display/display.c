@@ -1,5 +1,5 @@
 #include "display.h"
-#include "protocol_common.h"
+#include "../Protocol/protocol_common.h"
 
 void Display_Init(display_t *display)
 {

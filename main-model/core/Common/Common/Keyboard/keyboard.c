@@ -1,5 +1,5 @@
 #include "keyboard.h"
-#include "protocol_common.h"
+#include "../Protocol/protocol_common.h"
 
 void Keyboard_Init(keyboard_t *keyboard)
 {

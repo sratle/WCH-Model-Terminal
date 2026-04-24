@@ -35,6 +35,9 @@
 #define CH378_Device_TF 0x03
 #define CH378_Device_USB 0x06
 
+/* 文件大小上限：400KB（兼顾 Core 512KB SRAM 与 Display 端缓存） */
+#define CH378_MAX_FILE_SIZE   (400 * 1024)
+
 typedef struct {
     uint8_t enable; // CH378 enable
     uint8_t now_device; // 0x03为TF卡，0x06为U盘
@@ -55,7 +58,7 @@ uint8_t CH378_Read_Byte(ch378_t *ch378);
 void CH378_Device_Select(ch378_t *ch378, uint8_t device);
 void CH378_Open_File(ch378_t *ch378, uint8_t *file_name);
 void CH378_Close_File(ch378_t *ch378, uint8_t *file_name);
-void CH378_Read_File(ch378_t *ch378, uint8_t *file_name, uint8_t *rbuf, uint16_t len);
-void CH378_Edit_File(ch378_t *ch378, uint8_t *file_name, uint8_t *wbuf, uint16_t len);
+void CH378_Read_File(ch378_t *ch378, uint8_t *file_name, uint8_t *rbuf, uint32_t len);
+void CH378_Edit_File(ch378_t *ch378, uint8_t *file_name, uint8_t *wbuf, uint32_t len);
 
 #endif

@@ -4,7 +4,7 @@
 #include "ch32h417.h"
 #include "ch32h417_gpio.h"
 #include "debug.h"
-#include "protocol.h"
+#include "../Protocol/protocol.h"
 
 #define DISPLAY_UART_BAUDRATE 921600
 #define DISPLAY_UART USART4

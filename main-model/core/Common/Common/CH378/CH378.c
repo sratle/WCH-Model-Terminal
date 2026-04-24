@@ -282,10 +282,10 @@ void CH378_Close_File(ch378_t *ch378, uint8_t *file_name)
 }
 
 /************************* 文件读取函数 *************************/
-void CH378_Read_File(ch378_t *ch378, uint8_t *file_name, uint8_t *rbuf, uint16_t len)
+void CH378_Read_File(ch378_t *ch378, uint8_t *file_name, uint8_t *rbuf, uint32_t len)
 {
-    uint16_t total_read = 0;
-    uint16_t once_read = 0;
+    uint32_t total_read = 0;
+    uint32_t once_read = 0;
     uint16_t real_len = 0;
     uint8_t int_status = 0;
     uint8_t len_buf[2] = {0};
@@ -293,6 +293,12 @@ void CH378_Read_File(ch378_t *ch378, uint8_t *file_name, uint8_t *rbuf, uint16_t
     if (ch378->enable != 1 || ch378->now_device == 0x00 || rbuf == NULL || len == 0)
     {
         printf("Read file param error\r\n");
+        return;
+    }
+
+    if (len > CH378_MAX_FILE_SIZE)
+    {
+        printf("Read file size exceed limit %d bytes\r\n", CH378_MAX_FILE_SIZE);
         return;
     }
 
@@ -341,16 +347,22 @@ void CH378_Read_File(ch378_t *ch378, uint8_t *file_name, uint8_t *rbuf, uint16_t
 }
 
 /************************* 文件写入/编辑函数 *************************/
-void CH378_Edit_File(ch378_t *ch378, uint8_t *file_name, uint8_t *wbuf, uint16_t len)
+void CH378_Edit_File(ch378_t *ch378, uint8_t *file_name, uint8_t *wbuf, uint32_t len)
 {
-    uint16_t total_write = 0;
-    uint16_t once_write = 0;
+    uint32_t total_write = 0;
+    uint32_t once_write = 0;
     uint8_t int_status = 0;
     uint8_t len_buf[2] = {0};
 
     if (ch378->enable != 1 || ch378->now_device == 0x00 || wbuf == NULL || len == 0)
     {
         printf("Write file param error\r\n");
+        return;
+    }
+
+    if (len > CH378_MAX_FILE_SIZE)
+    {
+        printf("Write file size exceed limit %d bytes\r\n", CH378_MAX_FILE_SIZE);
         return;
     }
 

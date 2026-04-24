@@ -1,5 +1,5 @@
 #include "power.h"
-#include "protocol_common.h"
+#include "../Protocol/protocol_common.h"
 
 void Power_Init(power_t *power)
 {
