@@ -8,11 +8,13 @@
 - **主要交互核心**：V5F
 - **说明**：UART4 由 V5F 独占访问。V3F 如有显示相关指令，通过跨核消息（共享内存 / HSEM）交由 V5F 统一发送。
 
+---
+
 ## 2. 操作码定义
 
 Display 模块操作码分为两类：
-- **基础操作码**（`0x11~0x1F`）：直接对应常用功能。
-- **扩展操作码**：当基础操作码为 `0x10` 时，`DATA[0]` 作为扩展操作码，支持更多功能。
+- **基础操作码**（`0x11~0x1F`）：直接对应常用功能，低延迟、高频率。
+- **扩展操作码**：当基础操作码为 `0x10` 时，`DATA[0]` 作为扩展操作码，支持大数据量或低频复杂功能。
 
 ### 2.1 基础操作码（0x11 ~ 0x1F）
 
@@ -21,392 +23,354 @@ Display 模块操作码分为两类：
 | `0x11` | `CMD_DISP_SET_BRIGHTNESS` | Core -> Display | 设置背光亮度 | `[亮度值: 0-100]` |
 | `0x12` | `CMD_DISP_GET_BRIGHTNESS` | Core -> Display | 获取当前背光亮度 | 无，Display 回复 ACK + 亮度值 |
 | `0x13` | `CMD_DISP_SHOW_PAGE` | Core -> Display | 切换显示页面 | `[页面编号]` |
-| `0x14` | `CMD_DISP_UPDATE_STATUS` | Core -> Display | 更新状态栏信息 | 见下方状态栏数据格式 |
-| `0x15` | `CMD_DISP_TOUCH_EVT` | Display -> Core | 触摸屏事件上报 | `[事件类型][X高][X低][Y高][Y低]` |
+| `0x14` | `CMD_DISP_UPDATE_STATUS` | Core -> Display | 更新状态栏/模块状态信息 | 见下方状态栏数据格式 |
+| `0x15` | `CMD_DISP_INPUT_EVENT` | Core -> Display | 统一输入事件（键盘/鼠标/触摸/虚拟触摸） | 见下方输入事件格式 |
 | `0x16` | `CMD_DISP_SET_ROTATION` | Core -> Display | 设置屏幕旋转角度 | `[角度: 0/90/180/270]` |
 | `0x17` | `CMD_DISP_GET_ROTATION` | Core -> Display | 获取当前屏幕旋转角度 | 无，Display 回复 ACK + 角度 |
-| `0x18` | `CMD_DISP_SET_AUTO_SCREEN_OFF` | Core -> Display | 设置自动息屏开关 | `[开关: 0=关, 1=开]` |
-| `0x19` | `CMD_DISP_SET_SCREEN_TIMEOUT` | Core -> Display | 设置息屏超时时间 | `[超时秒数高][超时秒数低]` |
-| `0x1A` | `CMD_DISP_VIRTUAL_TOUCH` | Core -> Display | 虚拟触摸事件（核心模块模拟触摸） | `[事件类型][X高][X低][Y高][Y低]` |
-| `0x1B` | `CMD_DISP_KEY_EVENT` | Core -> Display | 键盘/鼠标事件注入 | `[设备类型][键码/事件][修饰键]` |
-| `0x1C` | `CMD_DISP_GET_SYSTEM_INFO` | Core -> Display | 获取系统信息（内存、FPS、CPU） | 无，Display 回复 ACK + 信息 |
-| `0x1D` | `CMD_DISP_FACTORY_RESET` | Core -> Display | 恢复出厂设置 | `[确认码: 0xA5]` |
-| `0x1E` | `CMD_DISP_SET_DEBUG_INFO` | Core -> Display | 设置调试信息显示开关 | `[开关: 0=关, 1=开]` |
-| `0x1F` | `CMD_DISP_RESERVED` | — | 预留 | — |
+| `0x18` | `CMD_DISP_SCREEN_CONTROL` | Core -> Display | 屏幕控制（息屏/亮屏/自动息屏/超时） | 见下方屏幕控制格式 |
+| `0x19` | `CMD_DISP_GET_SCREEN_STATE` | Core -> Display | 获取屏幕当前状态 | 无，Display 回复 ACK + 状态 |
+| `0x1A` | `CMD_DISP_SHOW_NOTICE` | Core -> Display | 显示通知弹窗 | `[优先级][标题长度][标题...][内容长度][内容...]` |
+| `0x1B` | `CMD_DISP_MUSIC_CONTROL` | Display -> Core | 音乐播放控制 | `[控制类型]` |
+| `0x1C` | `CMD_DISP_MUSIC_STATUS` | Core -> Display | 音乐播放状态上报 | `[播放状态][进度高][进度低][总时长高][总时长低][音量]` |
+| `0x1D` | `CMD_DISP_VOLUME_CONTROL` | 双向 | 音量设置/获取 | `[操作: 0=设置, 1=查询][音量值(设置时)]` |
+| `0x1E` | `CMD_DISP_ETHERNET_STATUS` | Core -> Display | 以太网状态上报/响应 | `[连接状态][IP地址...][子网掩码...][网关...]` |
+| `0x1F` | `CMD_DISP_FACTORY_RESET` | Core -> Display | 恢复出厂设置 | `[确认码: 0xA5]` |
 
 ### 2.2 扩展操作码（CMD = 0x10，DATA[0] 为子命令）
 
 | 扩展码 | 宏名 | 方向 | 说明 | DATA 格式 |
 | --- | --- | --- | --- | --- |
-| `0x01` | `CMD_DISP_EXT_SET_QRCODE` | Core -> Display | 设置二维码显示内容 | `[内容类型][内容字符串...]` |
-| `0x02` | `CMD_DISP_EXT_GET_QRCODE` | Core -> Display | 获取当前二维码内容 | 无 |
-| `0x03` | `CMD_DISP_EXT_APP_LAUNCH` | Core -> Display | 启动指定应用 | `[应用ID]` |
-| `0x04` | `CMD_DISP_EXT_APP_CLOSE` | Core -> Display | 关闭当前应用 | 无 |
-| `0x05` | `CMD_DISP_EXT_APP_DATA` | 双向 | 应用数据传输 | `[应用ID][数据...]` |
-| `0x06` | `CMD_DISP_EXT_MODULE_STATUS` | Core -> Display | 更新模块状态显示 | `[模块ID][状态][附加数据...]` |
-| `0x07` | `CMD_DISP_EXT_GET_MODULE_STATUS` | Core -> Display | 获取模块状态 | `[模块ID]` |
-| `0x08` | `CMD_DISP_EXT_GAME_CONTROL` | Core -> Display | 游戏控制指令 | `[游戏ID][控制类型][参数...]` |
-| `0x09` | `CMD_DISP_EXT_SET_VOLUME` | Core -> Display | 设置音量（通过Display转发给音频模块） | `[音量值: 0-100]` |
-| `0x0A` | `CMD_DISP_EXT_GET_VOLUME` | Core -> Display | 获取当前音量 | 无 |
-| `0x0B` | `CMD_DISP_EXT_SET_DEVICE_NAME` | Core -> Display | 设置设备名称 | `[名称字符串...]` |
-| `0x0C` | `CMD_DISP_EXT_GET_DEVICE_NAME` | Core -> Display | 获取设备名称 | 无 |
-| `0x0D` | `CMD_DISP_EXT_NOTIFICATION` | Core -> Display | 显示通知弹窗 | `[优先级][标题长度][标题...][内容长度][内容...]` |
-| `0x0E` | `CMD_DISP_EXT_CLEAR_NOTIFICATION` | Core -> Display | 清除通知 | `[通知ID]` |
-| `0x0F` | `CMD_DISP_EXT_SET_THEME` | Core -> Display | 设置主题/配色 | `[主题ID]` |
-| `0x10` | `CMD_DISP_EXT_MUSIC_CONTROL` | Core <-> Display | 音乐播放控制 | `[控制类型][参数...]` |
-| `0x11` | `CMD_DISP_EXT_MUSIC_STATUS` | Core -> Display | 音乐播放状态上报 | `[播放状态][进度高][进度低][总时长高][总时长低]` |
-| `0x12` | `CMD_DISP_EXT_FILE_LIST` | Core -> Display | 文件列表数据 | `[路径长度][路径...][文件数量][文件信息...]` |
-| `0x13` | `CMD_DISP_EXT_FILE_OPERATION` | Core <-> Display | 文件操作（打开/读取/写入/删除） | `[操作类型][路径长度][路径...][数据...]` |
-| `0x14` | `CMD_DISP_EXT_IMAGE_DATA` | Core -> Display | 图片数据流 | `[图片ID][格式][宽度高][宽度低][高度高][高度低][数据...]` |
-| `0x15` | `CMD_DISP_EXT_BT_DEVICE` | Core -> Display | 蓝牙设备列表/状态 | `[设备数量][设备信息...]` |
-| `0x16` | `CMD_DISP_EXT_BT_PAIRING` | Core <-> Display | 蓝牙配对流程 | `[配对状态][设备地址...][PIN码...]` |
-| `0x17` | `CMD_DISP_EXT_NFC_TAG` | Core -> Display | NFC 标签数据 | `[标签类型][UID长度][UID...][数据长度][数据...]` |
-| `0x18` | `CMD_DISP_EXT_FP_STATUS` | Core -> Display | 指纹识别状态 | `[状态][指纹ID][匹配度]` |
-| `0x19` | `CMD_DISP_EXT_HEALTH_DATA` | Core -> Display | 健康监测数据 | `[数据类型][数值高][数值低][时间戳...]` |
-| `0x1A` | `CMD_DISP_EXT_POWER_STATUS` | Core -> Display | 电源状态详细数据 | `[电压高][电压低][电流高][电流低][电量][充电状态]` |
-| `0x1B` | `CMD_DISP_EXT_USB_STATUS` | Core -> Display | USB 连接状态/传输进度 | `[连接状态][传输进度][设备类型]` |
-| `0x1C` | `CMD_DISP_EXT_LIGHTS_CONTROL` | Core <-> Display | 灯效控制 | `[灯效ID][颜色R][颜色G][颜色B][亮度][速度]` |
-| `0x1D` | `CMD_DISP_EXT_IR_RANGE_DATA` | Core -> Display | 红外测距数据 | `[距离高][距离低][单位][精度]` |
-| `0x1E` | `CMD_DISP_EXT_EBOOK_DATA` | Core -> Display | 电子书内容 | `[章节ID][页码高][页码低][文本长度][文本...]` |
-| `0x1F` | `CMD_DISP_EXT_EMUSIC_CONTROL` | Core <-> Display | 电子音乐/合成器控制 | `[音符][音色][力度][时长]` |
-| `0x20` | `CMD_DISP_EXT_SAVE_CONFIG` | Core <-> Display | 保存配置到 Flash | `[配置类型][配置数据...]` |
-| `0x21` | `CMD_DISP_EXT_LOAD_CONFIG` | Core -> Display | 加载配置（开机下发） | `[配置类型][配置数据...]` |
-| `0x22` | `CMD_DISP_EXT_DATA_STREAM` | 双向 | 大数据流传输（分帧） | `[传输ID][帧序号][总帧数][数据...]` |
-| `0x23` | `CMD_DISP_EXT_REQUEST_DATA` | Display -> Core | Display 请求数据 | `[请求类型][参数...]` |
-| `0x24` | `CMD_DISP_EXT_REPORT_EVENT` | Display -> Core | Display 上报用户事件 | `[事件类型][事件数据...]` |
-| `0x25` | `CMD_DISP_EXT_ERROR_REPORT` | Display -> Core | Display 错误/异常上报 | `[错误码][错误信息...]` |
-| `0x26` | `CMD_DISP_EXT_OTA_STATUS` | Core -> Display | OTA 升级状态通知 | `[状态][进度][错误码]` |
-| `0x27` | `CMD_DISP_EXT_WIFI_SCAN` | Core <-> Display | WiFi 扫描/列表 | `[状态][网络数量][网络信息...]` |
-| `0x28` | `CMD_DISP_EXT_WIFI_CONNECT` | Core <-> Display | WiFi 连接/断开 | `[SSID长度][SSID...][密码长度][密码...]` |
-| `0x29` | `CMD_DISP_EXT_WIFI_STATUS` | Core -> Display | WiFi 状态详情 | `[连接状态][信号强度][IP地址...]` |
-| `0x2A` | `CMD_DISP_EXT_SUBDISP_CONTENT` | Core <-> Display | 副屏显示内容设置 | `[内容类型][内容数据...]` |
-| `0x2B` | `CMD_DISP_EXT_SUBDISP_CONFIG` | Core <-> Display | 副屏配置 | `[分辨率][方向][开关]` |
-| `0x2C` | `CMD_DISP_EXT_SCREEN_WAKEUP` | Display -> Core | 屏幕唤醒事件 | `[唤醒源: 0=触摸, 1=按键, 2=UART]` |
-| `0x2D` | `CMD_DISP_EXT_SCREEN_SLEEP` | Display -> Core | 屏幕休眠事件 | `[休眠源]` |
-| `0x2E~0x3F` | — | — | 预留 | — |
+| `0x01` | `CMD_DISP_EXT_APP_LAUNCH` | Core -> Display | 启动指定应用 | `[应用ID]` |
+| `0x02` | `CMD_DISP_EXT_APP_CLOSE` | Core -> Display | 关闭当前应用 | 无 |
+| `0x03` | `CMD_DISP_EXT_APP_DATA` | 双向 | 应用数据传输 | `[应用ID][数据类型][数据长度][数据...]` |
+| `0x04` | `CMD_DISP_EXT_MODULE_STATUS` | Core -> Display | 模块状态主动上报（插拔/在线/离线） | 见下方模块状态格式 |
+| `0x05` | `CMD_DISP_EXT_GET_MODULE_STATUS` | Display -> Core | 请求获取当前模块组成信息 | 无，Core 回复 `0x04` |
+| `0x06` | `CMD_DISP_EXT_REQUEST_FILE_LIST` | Display -> Core | 请求当前目录文件列表 | `[路径长度][路径字符串...]` |
+| `0x07` | `CMD_DISP_EXT_FILE_LIST` | Core -> Display | 文件列表数据响应 | `[路径长度][路径...][文件数量][文件信息...]` |
+| `0x08` | `CMD_DISP_EXT_FILE_READ` | Display -> Core | 请求读取文件（触发 Bulk Mode） | `[文件路径...]` |
+| `0x09` | `CMD_DISP_EXT_FILE_SAVE` | Display -> Core | 请求保存文件（触发 Bulk Mode） | `[文件路径...]` |
+| `0x0A` | `CMD_DISP_EXT_FILE_OPERATION` | 双向 | 文件操作（创建/删除/重命名） | `[操作类型][路径长度][路径...]` |
+| `0x0B` | `CMD_DISP_EXT_PLAY_MUSIC` | Display -> Core | 请求播放指定 wav 文件 | `[文件路径...]` |
+| `0x0C` | `CMD_DISP_EXT_BT_SCAN` | Display -> Core | 请求扫描蓝牙设备 | 无 |
+| `0x0D` | `CMD_DISP_EXT_BT_DEVICE_LIST` | Core -> Display | 蓝牙设备列表（扫描结果） | `[设备数量][设备信息...]` |
+| `0x0E` | `CMD_DISP_EXT_BT_CONNECT` | Display -> Core | 请求连接/断开蓝牙设备 | `[操作: 0=断开, 1=连接][MAC地址(6字节)]` |
+| `0x0F` | `CMD_DISP_EXT_BT_STATUS` | Core -> Display | 蓝牙连接状态变化上报 | `[状态][设备MAC...]` |
+| `0x10` | `CMD_DISP_EXT_FP_STATUS` | Core -> Display | 指纹识别信息上报 | `[状态][指纹ID][匹配度]` |
+| `0x11` | `CMD_DISP_EXT_NFC_TAG` | Core -> Display | NFC 识别信息上报 | `[标签类型][UID长度][UID...][数据长度][数据...]` |
+| `0x12` | `CMD_DISP_EXT_HEALTH_DATA` | Core -> Display | 健康监测信息上报 | `[数据类型][数值高][数值低][时间戳...]` |
+| `0x13` | `CMD_DISP_EXT_POWER_STATUS` | Core -> Display | 电源状态信息上报 | `[电压高][电压低][电流高][电流低][电量][充电状态]` |
+| `0x14` | `CMD_DISP_EXT_IR_RANGE_REQ` | Display -> Core | 请求红外测距 | 无 |
+| `0x15` | `CMD_DISP_EXT_IR_RANGE_DATA` | Core -> Display | 红外测距结果返回 | `[距离高][距离低][单位][精度]` |
+| `0x16` | `CMD_DISP_EXT_SAVE_CONFIG` | Display -> Core | 请求保存配置到 TF 卡 | `[文件路径...][配置数据...]` |
+| `0x17` | `CMD_DISP_EXT_LOAD_CONFIG` | Display -> Core | 请求加载配置文件 | `[文件路径...]` |
+| `0x18` | `CMD_DISP_EXT_CONFIG_RESULT` | Core -> Display | 配置保存/加载结果 | `[结果: 0=成功, 1=失败][配置数据...]` |
+| `0x19` | `CMD_DISP_EXT_SET_RGB_MODE` | Display -> Core | 设置 RGB 灯效模式 | `[灯效ID][颜色R][颜色G][颜色B][亮度][速度]` |
+| `0x1A` | `CMD_DISP_EXT_BULK_TRANSFER` | 双向 | 批量传输控制/确认 | 见下方批量传输协议 |
+| `0x1B` | `CMD_DISP_EXT_SUBDISP_CONTENT` | Core <-> Display | 副屏显示内容设置 | `[内容类型][内容数据...]` |
+| `0x1C` | `CMD_DISP_EXT_SUBDISP_CONFIG` | Core <-> Display | 副屏配置 | `[分辨率][方向][开关]` |
+| `0x1D` | `CMD_DISP_EXT_SCREEN_WAKEUP` | Display -> Core | 屏幕唤醒事件 | `[唤醒源]` |
+| `0x1E` | `CMD_DISP_EXT_SCREEN_SLEEP` | Display -> Core | 屏幕休眠事件 | `[休眠源]` |
+| `0x1F` | `CMD_DISP_EXT_ERROR_REPORT` | Display -> Core | Display 错误/异常上报 | `[错误码][错误信息...]` |
+| `0x20` | `CMD_DISP_EXT_REPORT_EVENT` | Display -> Core | Display 用户事件上报 | `[事件类型][事件数据...]` |
+| `0x21` | `CMD_DISP_EXT_REQUEST_DATA` | Display -> Core | Display 通用数据请求 | `[请求类型][参数...]` |
+| `0x22~0x3F` | — | — | 预留 | — |
 
-## 3. 数据格式详解
+### 2.3 已删除的操作码
 
-### 3.1 触摸屏/虚拟触摸事件格式（CMD 0x15 / 0x1A）
+以下操作码在旧版协议中存在，现已移除：
+
+| 原操作码 | 原功能 | 删除原因 |
+| --- | --- | --- |
+| 扩展 `0x01/0x02` | 二维码 | 功能删除 |
+| 扩展 `0x08` | 游戏控制 | 游戏走 `APP_DATA(0x03)` 或本地处理 |
+| 扩展 `0x14` | 图片数据流 | 图片走 `FILE_READ(0x08)` + Bulk Mode |
+| 扩展 `0x27/0x28/0x29` | WiFi 扫描/连接/状态 | 替换为以太网 `0x1E` |
+| 基础 `0x1C` | 系统信息获取 | 功能删除 |
+| 扩展 `0x1F` | OTA 状态 | 暂不支持 OTA |
+
+---
+
+## 3. 批量传输协议（Bulk Transfer Mode）
+
+### 3.1 设计背景
+
+统一协议单帧 DATA 域上限为 255 字节（`LEN` 字段 1 字节）。若用传统分帧方式传输 400KB 文件，需要约 1700 帧，协议头尾开销大、CPU 中断频繁。
+
+**批量传输协议** 在不修改统一协议帧格式的前提下，通过 **标准协议帧握手 + UART DMA Raw 数据传输** 实现大文件高效传输。
+
+### 3.2 核心机制
+
+- **控制阶段**：使用标准协议帧（`0xAA ... A5 5A FC FD`）进行握手和确认
+- **数据阶段**：发送方直接通过 UART DMA 发送 **原始文件数据**（无协议头尾），接收方用 **DMA + IDLE 中断** 接收
+- **块大小**：由 ACK 帧协商，**默认 20KB**，最大不超过 `CH378_MAX_FILE_SIZE`（400KB）
+- **无 CRC 校验**：不实现错码修正，误码由应用层自行兜底（如花屏则重传）
+
+### 3.3 UART IDLE 中断
+
+IDLE 中断在接收线空闲超过 **1 个字节时间**（921600 波特率下约 10.8μs）时触发。配合 DMA 使用，可解决最后一块不足 20KB 的收尾问题：
+- **整 block（20KB）**：DMA 收满触发 `TCIF` 完成中断
+- **尾 block（<20KB）**：发送方停发后 UART 线空闲，触发 `IDLE` 中断，CPU 读取 DMA 剩余计数器得到实际接收长度
+
+### 3.4 传输流程
+
+#### 3.4.1 文件读取（Core → Display）
 
 ```
-DATA[0]: 事件类型
-  - 0x00: 按下 (PRESS)
-  - 0x01: 移动 (MOVE)
-  - 0x02: 释放 (RELEASE)
-  - 0x03: 长按 (LONG_PRESS)
-  - 0x04: 双击 (DOUBLE_CLICK)
-DATA[1]: X 坐标高字节
-DATA[2]: X 坐标低字节
-DATA[3]: Y 坐标高字节
-DATA[4]: Y 坐标低字节
+① Display → Core: [标准帧] CMD=0x10 EXT=0x08 FILE_READ
+   DATA: [文件路径字符串...]
+
+② Core → Display: [标准帧] ACK + 传输参数
+   DATA[0..3]:  总大小（32位大端，单位字节）
+   DATA[4..5]:  块大小（16位大端，默认 20480）
+
+③ [进入 Bulk Mode - 数据阶段]
+   Core → Display: [Raw] Block 0（20KB 原始数据）
+   Core → Display: [Raw] Block 1（20KB 原始数据）
+   ...
+   Core → Display: [Raw] Block N（最后一块，可能不足 20KB）
+
+④ Display → Core: [标准帧] CMD=0x10 EXT=0x1A BULK_TRANSFER
+   DATA[0]:   完成标记（0x01 = 接收完毕）
+   DATA[1..4]: 实际接收总大小（32位大端）
+
+⑤ Core → Display: [标准帧] ACK（结束）
 ```
 
-### 3.2 键盘/鼠标事件格式（CMD 0x1B）
+#### 3.4.2 文件保存（Display → Core）
+
+```
+① Display → Core: [标准帧] CMD=0x10 EXT=0x09 FILE_SAVE
+   DATA: [文件路径字符串...]
+
+② Core → Display: [标准帧] ACK + 传输参数
+   DATA[0..3]:  允许传输的最大大小（32位大端）
+   DATA[4..5]:  块大小（16位大端，默认 20480）
+
+③ [进入 Bulk Mode - 数据阶段]
+   Display → Core: [Raw] Block 0（20KB 原始数据）
+   Display → Core: [Raw] Block 1（20KB 原始数据）
+   ...
+   Display → Core: [Raw] Block N（最后一块）
+
+④ Core → Display: [标准帧] CMD=0x10 EXT=0x1A BULK_TRANSFER
+   DATA[0]:   完成标记（0x01 = 接收完毕）
+   DATA[1..4]: 实际接收总大小（32位大端）
+   DATA[5]:   保存结果（0=成功, 1=失败）
+```
+
+### 3.5 注意事项
+
+- Bulk Mode 期间 UART 总线被独占，不应插入其他标准协议帧
+- 发送方在发送 Raw 数据前必须确保上一帧标准协议已完全发送（TC 标志置位）
+- 接收方在进入 Bulk Mode 前需配置好 DMA 和 IDLE 中断
+- 若文件大小 ≤ 块大小，仅发送一块即可
+
+---
+
+## 4. 数据格式详解
+
+### 4.1 统一输入事件格式（CMD 0x15）
 
 ```
 DATA[0]: 设备类型
-  - 0x00: 键盘
-  - 0x01: 鼠标
-  - 0x02: 触摸板
+  - 0x00: 键盘（来自 Keyboard 模块）
+  - 0x01: 鼠标（来自 CH9350）
+  - 0x02: 触摸板（来自 CH9350）
+  - 0x03: 虚拟触摸（Core 模拟）
 DATA[1]: 事件类型
   - 键盘: 0x00=按下, 0x01=释放, 0x02=长按
   - 鼠标: 0x00=移动, 0x01=左键按下, 0x02=左键释放, 0x03=右键按下, 0x04=右键释放, 0x05=滚轮
-DATA[2]: 键码/鼠标X偏移（有符号）
-DATA[3]: 修饰键（Ctrl/Shift/Alt）/ 鼠标Y偏移（有符号）
-DATA[4]: 鼠标滚轮偏移（有符号，仅滚轮事件）
+  - 触摸/虚拟触摸: 0x00=按下, 0x01=移动, 0x02=释放, 0x03=长按, 0x04=双击
+DATA[2]: 键码 / X 坐标高字节 / 鼠标 X 偏移（有符号）
+DATA[3]: 修饰键 / X 坐标低字节 / 鼠标 Y 偏移（有符号）
+DATA[4]: Y 坐标高字节 / 鼠标滚轮偏移（有符号，仅滚轮事件）
+DATA[5]: Y 坐标低字节
 ```
 
-### 3.3 状态栏更新格式（CMD 0x14）
+### 4.2 屏幕控制格式（CMD 0x18）
+
+```
+DATA[0]: 控制类型
+  - 0x00: 立即息屏
+  - 0x01: 立即亮屏
+  - 0x02: 设置自动息屏开关
+  - 0x03: 设置息屏超时时间
+DATA[1]: 参数
+  - 控制类型 0x02: 0x00=关, 0x01=开
+  - 控制类型 0x03: 超时秒数高字节
+DATA[2]: 超时秒数低字节（仅控制类型 0x03）
+```
+
+### 4.3 屏幕状态响应格式（CMD 0x19 ACK）
+
+```
+DATA[0]: 状态位掩码
+  - bit0: 是否息屏（0=亮屏, 1=息屏）
+  - bit1: 自动息屏开关（0=关, 1=开）
+  - bit2: 背光亮度有效
+  - bit3: 旋转角度有效
+DATA[1]: 背光亮度（0-100，若 bit2=1）
+DATA[2]: 旋转角度（0/90/180/270，若 bit3=1）
+DATA[3..4]: 息屏超时秒数（16位大端，若 bit1=1）
+```
+
+### 4.4 状态栏更新格式（CMD 0x14）
 
 ```
 DATA[0]: 更新掩码（位域，指示哪些字段有效）
   - bit0: 电量
   - bit1: 蓝牙状态
-  - bit2: WiFi状态
+  - bit2: 以太网状态
   - bit3: 时间
   - bit4: 日期
   - bit5: 核心模块连接状态
   - bit6: 音量
   - bit7: 预留
-DATA[1]: 电量百分比（0-100，若bit0=1）
-DATA[2]: 蓝牙状态（0=断开, 1=已连接, 2=配对中，若bit1=1）
-DATA[3]: WiFi状态（0=断开, 1=已连接, 2=连接中，若bit2=1）
-DATA[4-7]: 时间戳（Unix时间，32位大端，若bit3=1）
-DATA[8-11]: 日期（YYYYMMDD格式，32位大端，若bit4=1）
-DATA[12]: 核心模块状态（0=离线, 1=在线, 2=休眠，若bit5=1）
-DATA[13]: 音量（0-100，若bit6=1）
+DATA[1]: 电量百分比（0-100，若 bit0=1）
+DATA[2]: 蓝牙状态（0=断开, 1=已连接, 2=配对中，若 bit1=1）
+DATA[3]: 以太网状态（0=断开, 1=已连接, 2=连接中，若 bit2=1）
+DATA[4-7]: 时间戳（Unix 时间，32位大端，若 bit3=1）
+DATA[8-11]: 日期（YYYYMMDD 格式，32位大端，若 bit4=1）
+DATA[12]: 核心模块状态（0=离线, 1=在线, 2=休眠，若 bit5=1）
+DATA[13]: 音量（0-100，若 bit6=1）
 ```
 
-### 3.4 模块状态格式（扩展码 0x06）
-
-```
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x06
-DATA[2]: 模块ID（0x01=CH585F, 0x20=Keyboard, 0x30=Power, 0x40-0x42=Submodels）
-DATA[3]: 状态（0=离线, 1=在线, 2=错误, 3=休眠）
-DATA[4]: 附加数据长度
-DATA[5..N]: 附加数据（模块特定）
-```
-
-### 3.5 应用数据传输格式（扩展码 0x05）
+### 4.5 模块状态格式（扩展码 0x04 / 0x05）
 
 ```
 DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x05
-DATA[2]: 应用ID（见下方应用ID定义）
-DATA[3]: 数据类型（0x00=命令, 0x01=查询, 0x02=响应, 0x03=状态上报）
-DATA[4]: 数据长度
-DATA[5..N]: 应用特定数据
+DATA[1]: 扩展码 = 0x04（主动上报）或 0x05（响应查询）
+DATA[2]: 模块数量 N
+DATA[3..6]:  模块1信息 [模块ID][类型][子类型][在线状态]
+DATA[7..10]: 模块2信息 ...
+...
+在线状态: 0=离线, 1=在线, 2=错误, 3=休眠
 ```
 
-### 3.6 音乐播放控制格式（扩展码 0x10）
-
-```
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x10
-DATA[2]: 控制类型
-  - 0x00: 播放
-  - 0x01: 暂停
-  - 0x02: 停止
-  - 0x03: 下一首
-  - 0x04: 上一首
-  - 0x05: 设置进度（DATA[3-6] = 毫秒，32位大端）
-  - 0x06: 设置音量（DATA[3] = 0-100）
-  - 0x07: 设置播放模式（0x00=顺序, 0x01=随机, 0x02=单曲循环, 0x03=列表循环）
-  - 0x08: 获取播放列表
-  - 0x09: 选择歌曲（DATA[3] = 歌曲索引）
-DATA[3..N]: 参数（根据控制类型）
-```
-
-### 3.7 音乐状态上报格式（扩展码 0x11）
+### 4.6 文件列表格式（扩展码 0x07）
 
 ```
 DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x11
-DATA[2]: 播放状态（0x00=停止, 0x01=播放中, 0x02=暂停）
-DATA[3-6]: 当前进度（毫秒，32位大端）
-DATA[7-10]: 总时长（毫秒，32位大端）
-DATA[11]: 当前音量（0-100）
-DATA[12]: 播放模式
-DATA[13..N]: 当前歌曲信息（歌曲名长度 + 歌曲名 + 艺术家长度 + 艺术家）
-```
-
-### 3.8 文件列表格式（扩展码 0x12）
-
-```
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x12
+DATA[1]: 扩展码 = 0x07
 DATA[2]: 路径长度
 DATA[3..N]: 路径字符串
-后续帧: [文件数量][文件1类型][文件1名长度][文件1名...][文件2...]
+DATA[N+1]: 文件数量 M
+DATA[N+2]: 文件1类型（0=文件, 1=文件夹）
+DATA[N+3]: 文件1名称长度
+DATA[N+4..]: 文件1名称
+... 后续文件
 ```
 
-### 3.9 蓝牙设备格式（扩展码 0x15）
+### 4.7 音乐播放控制格式（基础码 0x1B / 扩展码 0x0B）
+
+**基础码 0x1B（播放控制命令）**：
+```
+DATA[0]: 控制类型
+  - 0x00: 播放
+  - 0x01: 暂停
+  - 0x02: 继续
+  - 0x03: 停止
+  - 0x04: 下一首
+  - 0x05: 上一首
+```
+
+**扩展码 0x0B（请求播放指定文件）**：
+```
+DATA[0]: 基础操作码 = 0x10
+DATA[1]: 扩展码 = 0x0B
+DATA[2]: 文件路径长度
+DATA[3..N]: 文件路径字符串（如 "/music/song.wav"）
+```
+
+### 4.8 音乐状态上报格式（基础码 0x1C）
+
+```
+DATA[0]: 播放状态（0x00=停止, 0x01=播放中, 0x02=暂停）
+DATA[1-4]: 当前进度（毫秒，32位大端）
+DATA[5-8]: 总时长（毫秒，32位大端）
+DATA[9]: 当前音量（0-100）
+DATA[10]: 播放模式（0x00=顺序, 0x01=随机, 0x02=单曲循环, 0x03=列表循环）
+DATA[11]: 当前歌曲名长度
+DATA[12..N]: 当前歌曲名
+```
+
+### 4.9 蓝牙设备格式（扩展码 0x0D）
 
 ```
 DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x15
-DATA[2]: 设备数量
-DATA[3]: 设备1状态（0x00=已配对, 0x01=已连接, 0x02=发现中）
-DATA[4]: 设备1名称长度
-DATA[5..N]: 设备1名称
-DATA[N+1]: 设备1 MAC 地址（6字节）
+DATA[1]: 扩展码 = 0x0D
+DATA[2]: 设备数量 N
+DATA[3]:  设备1状态（0x00=已配对, 0x01=已连接, 0x02=发现中）
+DATA[4]:  设备1名称长度
+DATA[5..M]: 设备1名称
+DATA[M+1..M+6]: 设备1 MAC 地址（6字节）
 ... 后续设备
 ```
 
-### 3.10 健康监测数据格式（扩展码 0x19）
+### 4.10 配置保存/加载格式（扩展码 0x16 / 0x17 / 0x18）
 
+**请求保存（Display → Core，0x16）**：
 ```
 DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x19
-DATA[2]: 数据类型（0x00=心率, 0x01=血氧, 0x02=血压, 0x03=体温）
-DATA[3-4]: 数值（16位大端，心率=次/分，血氧=0.1%，血压=mmHg，体温=0.1°C）
-DATA[5-8]: 时间戳（32位大端，Unix时间）
+DATA[1]: 扩展码 = 0x16
+DATA[2]: 文件路径长度
+DATA[3..N]: 文件路径
+DATA[N+1]: 配置数据长度（若 ≤200 字节可直接携带）
+DATA[N+2..]: 配置数据
 ```
 
-### 3.11 电源状态格式（扩展码 0x1A）
+> 若配置数据 > 200 字节，DATA 中不携带配置内容，走 `BULK_TRANSFER(0x1A)` 传输。
 
-```
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x1A
-DATA[2-3]: 电池电压（mV，16位大端）
-DATA[4-5]: 电池电流（mA，16位有符号大端，负值=放电，正值=充电）
-DATA[6]: 电池电量百分比（0-100）
-DATA[7]: 充电状态（0x00=未充电, 0x01=充电中, 0x02=已充满, 0x03=充电错误）
-DATA[8-9]: 电池温度（0.1°C，16位有符号大端）
-DATA[10-11]: 预计剩余时间（分钟，16位大端，0xFFFF=未知）
-```
-
-### 3.12 配置保存/加载格式（扩展码 0x20 / 0x21）
-
+**请求加载（Display → Core，0x17）**：
 ```
 DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x20（保存）或 0x21（加载）
-DATA[2]: 配置类型
-  - 0x00: 全部配置
-  - 0x01: 背光亮度
-  - 0x02: 屏幕旋转
-  - 0x03: 自动息屏设置
-  - 0x04: 主题/配色
-  - 0x05: 音量
-  - 0x06: 调试信息显示
-  - 0x07: 设备名称
-  - 0x08~0xFF: 预留
-DATA[3]: 配置数据长度
-DATA[4..N]: 配置数据（根据配置类型）
+DATA[1]: 扩展码 = 0x17
+DATA[2]: 文件路径长度
+DATA[3..N]: 文件路径
 ```
 
-### 3.13 大数据流传输格式（扩展码 0x22）
-
+**结果响应（Core → Display，0x18）**：
 ```
 DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x22
-DATA[2]: 传输ID（唯一标识一次传输，0-255）
-DATA[3]: 帧序号（0-based，最后一帧标记为 0xFF 表示结束）
-DATA[4]: 总帧数（1-255，0xFF 表示未知/流式传输）
-DATA[5-6]: 数据偏移（字节，16位大端，可选）
-DATA[7]: 本帧数据长度
-DATA[8..N]: 数据载荷
+DATA[1]: 扩展码 = 0x18
+DATA[2]: 结果（0=成功, 1=失败）
+DATA[3]: 错误码（仅失败时有效）
+DATA[4]: 配置数据长度（加载成功时）
+DATA[5..N]: 配置数据（加载成功时，若 ≤200 字节）
 ```
 
-> **说明**：大数据传输用于图片、文件、电子书章节等。发送方分帧发送，接收方按传输ID和帧序号重组。如果帧序号不连续，接收方可请求重传（通过 `CMD_DISP_EXT_REQUEST_DATA`）。
-
-### 3.14 Display 请求数据格式（扩展码 0x23）
+### 4.11 以太网状态格式（基础码 0x1E）
 
 ```
+DATA[0]: 连接状态（0x00=断开, 0x01=连接中, 0x02=已连接）
+DATA[1..4]: IP 地址（4字节）
+DATA[5..8]: 子网掩码（4字节）
+DATA[9..12]: 网关（4字节）
+DATA[13..18]: MAC 地址（6字节）
+```
+
+### 4.12 副屏控制格式（扩展码 0x1B / 0x1C）
+
+```
+// 副屏内容设置（0x1B）
 DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x23
-DATA[2]: 请求类型
-  - 0x00: 请求文件列表
-  - 0x01: 请求文件内容
-  - 0x02: 请求图片数据
-  - 0x03: 请求音乐列表
-  - 0x04: 请求音乐状态
-  - 0x05: 请求蓝牙设备列表
-  - 0x06: 请求 WiFi 列表
-  - 0x07: 请求电源状态
-  - 0x08: 请求健康数据
-  - 0x09: 请求模块状态
-  - 0x0A: 请求系统信息
-  - 0x0B~0xFF: 预留
-DATA[3..N]: 请求参数（根据请求类型，如路径、ID 等）
-```
-
-### 3.15 Display 事件上报格式（扩展码 0x24）
-
-```
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x24
-DATA[2]: 事件类型
-  - 0x00: 用户点击按钮
-  - 0x01: 用户切换页面
-  - 0x02: 用户启动应用
-  - 0x03: 用户关闭应用
-  - 0x04: 用户修改设置
-  - 0x05: 游戏分数上报
-  - 0x06: 屏幕唤醒
-  - 0x07: 屏幕休眠
-  - 0x08~0xFF: 预留
-DATA[3]: 事件数据长度
-DATA[4..N]: 事件数据（如按钮ID、应用ID、设置项ID、分数值等）
-```
-
-### 3.16 Display 错误上报格式（扩展码 0x25）
-
-```
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x25
-DATA[2]: 错误码
-  - 0x00: SSD1963 通信失败
-  - 0x01: 触摸屏通信失败
-  - 0x02: UART 通信错误
-  - 0x03: 内存不足
-  - 0x04: 渲染超时
-  - 0x05: 配置保存失败
-  - 0x06: 配置加载失败
-  - 0x07~0xFF: 预留
-DATA[3]: 错误信息长度
-DATA[4..N]: 错误信息字符串（可选）
-```
-
-### 3.17 OTA 升级状态格式（扩展码 0x26）
-
-```
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x26
-DATA[2]: 状态
-  - 0x00: 进入升级模式
-  - 0x01: 下载中
-  - 0x02: 校验中
-  - 0x03: 烧录中
-  - 0x04: 升级完成
-  - 0x05: 升级失败
-DATA[3]: 进度（0-100，仅下载/烧录状态有效）
-DATA[4]: 错误码（仅失败状态有效，0=无错误）
-DATA[5..N]: 错误信息（可选）
-```
-
-### 3.18 WiFi 扫描/连接格式（扩展码 0x27 / 0x28 / 0x29）
-
-```
-// WiFi 扫描请求（Display -> Core）
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x27
-DATA[2]: 0x00（开始扫描）
-
-// WiFi 扫描结果（Core -> Display）
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x27
-DATA[2]: 状态（0x00=扫描中, 0x01=完成, 0x02=失败）
-DATA[3]: 网络数量
-DATA[4]: 网络1 SSID 长度
-DATA[5..N]: 网络1 SSID
-DATA[N+1]: 网络1 信号强度（dBm，有符号）
-DATA[N+2]: 网络1 加密类型（0=开放, 1=WPA, 2=WPA2, 3=WPA3）
-... 后续网络
-
-// WiFi 连接（Display -> Core）
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x28
-DATA[2]: SSID 长度
-DATA[3..N]: SSID
-DATA[N+1]: 密码长度
-DATA[N+2..M]: 密码（明文或预共享密钥）
-
-// WiFi 状态（Core -> Display）
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x29
-DATA[2]: 连接状态（0x00=断开, 0x01=连接中, 0x02=已连接）
-DATA[3]: 信号强度（dBm，有符号）
-DATA[4]: IP 地址（4字节）
-DATA[5]: 子网掩码（4字节）
-DATA[6]: 网关（4字节）
-DATA[7]: MAC 地址（6字节）
-```
-
-### 3.19 副屏控制格式（扩展码 0x2A / 0x2B）
-
-```
-// 副屏内容设置
-DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x2A
+DATA[1]: 扩展码 = 0x1B
 DATA[2]: 内容类型（0x00=关闭, 0x01=镜像主屏, 0x02=自定义内容, 0x03=状态信息）
 DATA[3..N]: 内容数据（根据类型）
 
-// 副屏配置
+// 副屏配置（0x1C）
 DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x2B
+DATA[1]: 扩展码 = 0x1C
 DATA[2]: 分辨率（0x00=800x480, 0x01=640x480, 0x02=自定义）
 DATA[3]: 方向（0x00=0°, 0x01=90°, 0x02=180°, 0x03=270°）
 DATA[4]: 开关（0x00=关, 0x01=开）
 ```
 
-### 3.20 屏幕唤醒/休眠事件格式（扩展码 0x2C / 0x2D）
+### 4.13 屏幕唤醒/休眠事件格式（扩展码 0x1D / 0x1E）
 
 ```
 DATA[0]: 基础操作码 = 0x10
-DATA[1]: 扩展码 = 0x2C（唤醒）或 0x2D（休眠）
+DATA[1]: 扩展码 = 0x1D（唤醒）或 0x1E（休眠）
 DATA[2]: 事件源
   - 0x00: 触摸唤醒
   - 0x01: 按键唤醒
@@ -417,7 +381,9 @@ DATA[2]: 事件源
   - 0x06: 省电模式休眠
 ```
 
-## 4. 应用 ID 定义
+---
+
+## 5. 应用 ID 定义
 
 | 应用ID | 应用名称 | 说明 |
 | --- | --- | --- |
@@ -437,14 +403,16 @@ DATA[2]: 事件源
 | `0x0D` | IRRange | 红外测距 |
 | `0x0E` | EBook | 电子书阅读 |
 | `0x0F` | EMusic | 电子音乐/合成器 |
-| `0x10` | Tetris | 俄罗斯方块（本地游戏，不通过UART交互） |
+| `0x10` | Tetris | 俄罗斯方块（本地游戏） |
 | `0x11` | 2048 | 2048游戏（本地游戏） |
 | `0x12` | Snake | 贪吃蛇（本地游戏） |
 | `0x13` | Breakout | 打砖块（本地游戏） |
 | `0x14~0x7F` | 预留 | 未来扩展 |
 | `0x80~0xFF` | 用户自定义 | 用户自定义应用 |
 
-## 5. 页面编号定义
+---
+
+## 6. 页面编号定义
 
 | 页面编号 | 页面名称 |
 | --- | --- |
@@ -457,7 +425,9 @@ DATA[2]: 事件源
 | `0x20~0x7F` | 应用页面（对应应用ID） |
 | `0x80~0xFF` | 用户自定义页面 |
 
-## 6. CMD_GET_TYPE 响应
+---
+
+## 7. CMD_GET_TYPE 响应
 
 Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 
@@ -480,3 +450,12 @@ Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | `0x01` | `MODULE_SUBTYPE_DISPLAY_LCD` | LCD | 液晶显示屏（当前主方案） |
 | `0x02` | `MODULE_SUBTYPE_DISPLAY_EINK` | E-ink | 电子墨水屏 |
 | `0x03~0xFF` | — | 预留 | 未来扩展 |
+
+---
+
+## 8. 版本记录
+
+| 版本 | 日期 | 说明 |
+|------|------|------|
+| V1.0 | 2026-04-22 | 初始版本 |
+| V2.0 | 2026-04-24 | 重构操作码：删除二维码/WiFi/OTA/系统信息/图片独立码；新增统一输入事件、批量传输协议、以太网状态、RGB控制 |
