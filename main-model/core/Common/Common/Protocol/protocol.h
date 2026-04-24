@@ -15,6 +15,12 @@
 /* 帧头 */
 #define PROTO_FRAME_HEAD        0xAA
 
+/* 帧尾 */
+#define PROTO_FRAME_TAIL0       0xA5
+#define PROTO_FRAME_TAIL1       0x5A
+#define PROTO_FRAME_TAIL2       0xFC
+#define PROTO_FRAME_TAIL3       0xFD
+
 /* 通用操作码 (0x00 ~ 0x0F) */
 #define CMD_NOP                 0x00
 #define CMD_GET_TYPE            0x01
@@ -85,12 +91,12 @@
 
 /* 长度限制 */
 #define PROTO_MAX_DATA_LEN      255
-#define PROTO_MAX_FRAME_LEN     260
+#define PROTO_MAX_FRAME_LEN     264
 
 /* 打包/解析辅助宏 */
 #define PROTO_PACK_ERR              0       /* PackFrame 错误返回值 */
 #define PROTO_DATA_LEN(frame)       ((frame).len > 0 ? (frame).len - 1 : 0)
-#define PROTO_FRAME_TOTAL_LEN(dlen) (5 + (dlen))   /* HEAD+SRC+DST+LEN+CMD+DATA */
+#define PROTO_FRAME_TOTAL_LEN(dlen) (5 + (dlen) + 4)   /* HEAD+SRC+DST+LEN+CMD+DATA+TAIL(4) */
 
 /* 各模块建议接收缓冲区大小 */
 #define PROTO_BUF_SIZE_DISPLAY  512
@@ -111,6 +117,10 @@ typedef enum {
     PROTO_STATE_WAIT_LEN,
     PROTO_STATE_WAIT_CMD,
     PROTO_STATE_WAIT_DATA,
+    PROTO_STATE_WAIT_TAIL0,
+    PROTO_STATE_WAIT_TAIL1,
+    PROTO_STATE_WAIT_TAIL2,
+    PROTO_STATE_WAIT_TAIL3,
     PROTO_STATE_FRAME_READY
 } protocol_state_t;
 
@@ -174,8 +184,9 @@ void Protocol_ResetRxCtx(protocol_rx_ctx_t *ctx);
  * @param  out_size  输出缓冲区大小
  * @return 实际写入的字节数；0表示参数错误或缓冲区不足
  *
- * @note   输出格式: [HEAD][SRC][DST][LEN][CMD][DATA...]
+ * @note   输出格式: [HEAD][SRC][DST][LEN][CMD][DATA...][TAIL0][TAIL1][TAIL2][TAIL3]
  *         LEN = 1 + data_len（包含CMD自身）
+ *         TAIL = A5 5A FC FD
  */
 uint8_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
                            const uint8_t *data, uint8_t data_len,

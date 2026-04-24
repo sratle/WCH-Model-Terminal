@@ -147,10 +147,10 @@ Common/Common/<Module>/
 `Common/Common/Protocol/` 提供所有 UART 模块共享的紧凑二进制协议基础实现：
 
 - **`Protocol_InitRxCtx()`** / **`Protocol_ResetRxCtx()`**：初始化 / 重置接收状态机上下文
-- **`Protocol_PackFrame()`**：将 `src`、`dst`、`cmd`、`data[]` 打包为字节流
+- **`Protocol_PackFrame()`**：将 `src`、`dst`、`cmd`、`data[]` 打包为字节流，末尾附加固定帧尾 `A5 5A FC FD`
 - **`Protocol_ParseByte()`**：逐字节状态机解析，返回 1 表示完整帧就绪
 
-状态机流程：`WAIT_HEAD` → `WAIT_SRC` → `WAIT_DST` → `WAIT_LEN` → `WAIT_CMD` → `WAIT_DATA` → `FRAME_READY`。仅在 `WAIT_HEAD` 状态下识别 `0xAA` 为新帧起始；`LEN` 为 0 时自动丢弃；数据域溢出时静默丢弃但不影响帧完成判断。
+状态机流程：`WAIT_HEAD` → `WAIT_SRC` → `WAIT_DST` → `WAIT_LEN` → `WAIT_CMD` → `WAIT_DATA` → `WAIT_TAIL0` → `WAIT_TAIL1` → `WAIT_TAIL2` → `WAIT_TAIL3` → `FRAME_READY`。仅在 `WAIT_HEAD` 状态下识别 `0xAA` 为新帧起始；`LEN` 为 0 时自动丢弃；数据域溢出时静默丢弃但不影响帧完成判断；帧尾不匹配时丢弃整帧。
 
 各模块（Display、Keyboard、Power、Submodels）应在初始化时调用 `Protocol_InitRxCtx()` 创建接收上下文，并在 UART 中断中逐字节喂入 `Protocol_ParseByte()`。
 
@@ -309,7 +309,7 @@ Common/Common/<Module>/
 如需添加测试，建议：
 - 在 `Common/Common/` 下新增 `Test/` 目录存放测试桩代码。
 - 利用 `hardware_init_flag` 等标志位设计初始化顺序测试。
-- 对通信协议解析函数进行边界条件测试（最大帧长 260 字节、帧头 0xAA 转义、LEN=0 非法丢弃等）。
+- 对通信协议解析函数进行边界条件测试（最大帧长 264 字节、帧头 0xAA 转义、LEN=0 非法丢弃、帧尾 A5 5A FC FD 校验等）。
 
 ---
 

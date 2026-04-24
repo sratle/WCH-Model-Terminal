@@ -4,7 +4,7 @@
  * Version            : V1.0.0
  * Date               : 2026/04/22
  * Description        : Unified compact binary protocol stack for core firmware.
- *                      Frame format: [AA][SRC][DST][LEN][CMD][DATA...]
+ *                      Frame format: [AA][SRC][DST][LEN][CMD][DATA...][A5][5A][FC][FD]
  *******************************************************************************/
 
 #include "protocol.h"
@@ -79,7 +79,7 @@ uint8_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
         return 0;
 
     len_field = 1 + data_len;               /* LEN = CMD(1) + DATA(data_len) */
-    total_len = 4 + len_field;              /* HEAD+SRC+DST+LEN + CMD+DATA */
+    total_len = 4 + len_field + 4;          /* HEAD+SRC+DST+LEN + CMD+DATA + TAIL(4) */
 
     if (out_size < total_len)
         return 0;
@@ -94,6 +94,12 @@ uint8_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
     {
         memmove(&out_buf[5], data, data_len);
     }
+
+    /* Append frame tail */
+    out_buf[5 + data_len]     = PROTO_FRAME_TAIL0;
+    out_buf[5 + data_len + 1] = PROTO_FRAME_TAIL1;
+    out_buf[5 + data_len + 2] = PROTO_FRAME_TAIL2;
+    out_buf[5 + data_len + 3] = PROTO_FRAME_TAIL3;
 
     return total_len;
 }
@@ -162,12 +168,10 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
             ctx->frame.cmd = byte;
             ctx->data_idx = 0;
 
-            /* If LEN == 1, there is no data field; frame is complete. */
+            /* If LEN == 1, there is no data field; go straight to tail. */
             if (ctx->frame.len == 1)
             {
-                ctx->frame_ready = 1;
-                ctx->state = PROTO_STATE_FRAME_READY;
-                return 1;
+                ctx->state = PROTO_STATE_WAIT_TAIL0;
             }
             else
             {
@@ -199,9 +203,62 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
             /* Check if all data bytes have been received */
             if (ctx->data_idx >= expected_data_len)
             {
+                ctx->state = PROTO_STATE_WAIT_TAIL0;
+            }
+            break;
+        }
+
+        case PROTO_STATE_WAIT_TAIL0:
+        {
+            if (byte == PROTO_FRAME_TAIL0)
+            {
+                ctx->state = PROTO_STATE_WAIT_TAIL1;
+            }
+            else
+            {
+                /* Tail mismatch: discard frame */
+                ctx->state = PROTO_STATE_WAIT_HEAD;
+            }
+            break;
+        }
+
+        case PROTO_STATE_WAIT_TAIL1:
+        {
+            if (byte == PROTO_FRAME_TAIL1)
+            {
+                ctx->state = PROTO_STATE_WAIT_TAIL2;
+            }
+            else
+            {
+                ctx->state = PROTO_STATE_WAIT_HEAD;
+            }
+            break;
+        }
+
+        case PROTO_STATE_WAIT_TAIL2:
+        {
+            if (byte == PROTO_FRAME_TAIL2)
+            {
+                ctx->state = PROTO_STATE_WAIT_TAIL3;
+            }
+            else
+            {
+                ctx->state = PROTO_STATE_WAIT_HEAD;
+            }
+            break;
+        }
+
+        case PROTO_STATE_WAIT_TAIL3:
+        {
+            if (byte == PROTO_FRAME_TAIL3)
+            {
                 ctx->frame_ready = 1;
                 ctx->state = PROTO_STATE_FRAME_READY;
                 return 1;
+            }
+            else
+            {
+                ctx->state = PROTO_STATE_WAIT_HEAD;
             }
             break;
         }

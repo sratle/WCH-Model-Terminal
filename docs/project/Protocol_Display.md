@@ -472,9 +472,11 @@ Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 
 **Display 子类型定义**
 
-| 子类型编号 | 实现名称 | 说明 |
-|------------|----------|------|
-| `0x00` | 保留 | 系统保留 |
-| `0x01` | LCD | 液晶显示屏 |
-| `0x02` | E-ink | 电子墨水屏 |
-| `0x03~0xFF` | 预留 | 未来扩展 |
+> 代码宏定义：`protocol.h` → `MODULE_SUBTYPE_DISPLAY_*`
+
+| 子类型编号 | 宏名 | 实现名称 | 说明 |
+|------------|------|----------|------|
+| `0x00` | `MODULE_SUBTYPE_DISPLAY_RESERVED` | 保留 | 系统保留 |
+| `0x01` | `MODULE_SUBTYPE_DISPLAY_LCD` | LCD | 液晶显示屏（当前主方案） |
+| `0x02` | `MODULE_SUBTYPE_DISPLAY_EINK` | E-ink | 电子墨水屏 |
+| `0x03~0xFF` | — | 预留 | 未来扩展 |
