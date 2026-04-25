@@ -31,6 +31,88 @@
 #define CMD_EVT_NOTIFY          0x06
 #define CMD_DATA_STREAM         0x07
 
+/* ============================================================================
+ * Display 基础操作码 (CMD = 0x10 ~ 0x1F)
+ * ============================================================================ */
+#define CMD_DISP_EXTENSION              0x10
+#define CMD_DISP_SET_BRIGHTNESS         0x11
+#define CMD_DISP_GET_BRIGHTNESS         0x12
+#define CMD_DISP_SHOW_PAGE              0x13
+#define CMD_DISP_UPDATE_STATUS          0x14
+#define CMD_DISP_INPUT_EVENT            0x15
+#define CMD_DISP_SET_ROTATION           0x16
+#define CMD_DISP_GET_ROTATION           0x17
+#define CMD_DISP_SCREEN_CONTROL         0x18
+#define CMD_DISP_GET_SCREEN_STATE       0x19
+#define CMD_DISP_SHOW_NOTICE            0x1A
+#define CMD_DISP_MUSIC_CONTROL          0x1B
+#define CMD_DISP_MUSIC_STATUS           0x1C
+#define CMD_DISP_VOLUME_CONTROL         0x1D
+#define CMD_DISP_ETHERNET_STATUS        0x1E
+#define CMD_DISP_FACTORY_RESET          0x1F
+
+/* ============================================================================
+ * Display 扩展操作码 (CMD = 0x10, DATA[0] 为子命令)
+ * ============================================================================ */
+#define CMD_DISP_EXT_APP_LAUNCH         0x01
+#define CMD_DISP_EXT_APP_CLOSE          0x02
+#define CMD_DISP_EXT_APP_DATA           0x03
+#define CMD_DISP_EXT_MODULE_STATUS      0x04
+#define CMD_DISP_EXT_GET_MODULE_STATUS  0x05
+#define CMD_DISP_EXT_REQUEST_FILE_LIST  0x06
+#define CMD_DISP_EXT_FILE_LIST          0x07
+#define CMD_DISP_EXT_FILE_READ          0x08
+#define CMD_DISP_EXT_FILE_SAVE          0x09
+#define CMD_DISP_EXT_FILE_OPERATION     0x0A
+#define CMD_DISP_EXT_PLAY_MUSIC         0x0B
+#define CMD_DISP_EXT_BT_SCAN            0x0C
+#define CMD_DISP_EXT_BT_DEVICE_LIST     0x0D
+#define CMD_DISP_EXT_BT_CONNECT         0x0E
+#define CMD_DISP_EXT_BT_STATUS          0x0F
+#define CMD_DISP_EXT_FP_STATUS          0x10
+#define CMD_DISP_EXT_NFC_TAG            0x11
+#define CMD_DISP_EXT_HEALTH_DATA        0x12
+#define CMD_DISP_EXT_POWER_STATUS       0x13
+#define CMD_DISP_EXT_IR_RANGE_REQ       0x14
+#define CMD_DISP_EXT_IR_RANGE_DATA      0x15
+#define CMD_DISP_EXT_SAVE_CONFIG        0x16
+#define CMD_DISP_EXT_LOAD_CONFIG        0x17
+#define CMD_DISP_EXT_CONFIG_RESULT      0x18
+#define CMD_DISP_EXT_SET_RGB_MODE       0x19
+#define CMD_DISP_EXT_BULK_TRANSFER      0x1A
+#define CMD_DISP_EXT_SUBDISP_CONTENT    0x1B
+#define CMD_DISP_EXT_SUBDISP_CONFIG     0x1C
+#define CMD_DISP_EXT_SCREEN_WAKEUP      0x1D
+#define CMD_DISP_EXT_SCREEN_SLEEP       0x1E
+#define CMD_DISP_EXT_ERROR_REPORT       0x1F
+#define CMD_DISP_EXT_REPORT_EVENT       0x20
+#define CMD_DISP_EXT_REQUEST_DATA       0x21
+
+/* ============================================================================
+ * Keyboard 基础操作码 (CMD = 0x21 ~ 0x2F)
+ * ============================================================================ */
+#define CMD_KBD_SET_BACKLIGHT           0x21
+#define CMD_KBD_GET_BACKLIGHT           0x22
+#define CMD_KBD_SET_CONFIG              0x23
+#define CMD_KBD_GET_STATUS              0x24
+#define CMD_KBD_HID_REPORT              0x25
+#define CMD_KBD_MUSIC_KEYS              0x26
+#define CMD_KBD_MUSIC_KNOBS             0x27
+#define CMD_KBD_MUSIC_SLIDER            0x28
+#define CMD_KBD_GAME_INPUT              0x29
+
+/* ============================================================================
+ * Power 基础操作码 (CMD = 0x31 ~ 0x3F)
+ * ============================================================================ */
+#define CMD_PWR_GET_STATUS              0x31
+#define CMD_PWR_GET_BATTERY_INFO        0x32
+#define CMD_PWR_SET_CHARGE_POLICY       0x33
+#define CMD_PWR_SET_OUTPUT_POLICY       0x34
+#define CMD_PWR_SET_ALARM_THRESHOLD     0x35
+#define CMD_PWR_STATUS_REPORT           0x36
+#define CMD_PWR_CHARGE_EVENT            0x37
+#define CMD_PWR_ALARM_EVENT             0x38
+
 /* 模块 ID */
 #define MODULE_ID_CORE          0x00
 #define MODULE_ID_WIRELESS      0x01
