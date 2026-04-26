@@ -133,7 +133,44 @@ void Submodels_UART_IRQ_Handler(submodels_t *submodel, USART_TypeDef *USARTx)
 // 获取Submodels类型，入口参数是Submodels结构体指针
 void Submodels_Get_Type(submodels_t *submodel)
 {
-    (void)submodel;
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint8_t frame_len;
+    uint8_t dst;
+    uint32_t timeout;
+
+    if (submodel == NULL)
+        return;
+
+    /* 根据 submodels_id 确定目标模块 ID */
+    dst = MODULE_ID_SUBMODEL_1 + (submodel->submodels_id - 1);
+
+    /* 发送 GET_TYPE 命令 */
+    frame_len = Protocol_PackFrame(MODULE_ID_CORE, dst, CMD_GET_TYPE,
+                                   NULL, 0, buf, sizeof(buf));
+    if (frame_len > 0)
+        Submodels_Send_Data(submodel, buf, frame_len);
+
+    /* 轮询等待响应，超时约 50ms @ 100MHz V3F */
+    timeout = 500000;
+    while (timeout-- > 0)
+    {
+        if (submodel->rx_ctx.frame_ready)
+        {
+            /* 必须是 ACK 帧，且数据域至少包含 type + subtype */
+            if (submodel->rx_ctx.frame.cmd == CMD_ACK &&
+                submodel->rx_ctx.frame.len >= 2 &&
+                submodel->rx_ctx.frame.data[0] == MODULE_TYPE_SUBMODEL)
+            {
+                submodel->type_id = submodel->rx_ctx.frame.data[1];
+                Protocol_ResetRxCtx(&submodel->rx_ctx);
+                return;
+            }
+            /* 收到非预期帧，重置继续等待 */
+            Protocol_ResetRxCtx(&submodel->rx_ctx);
+        }
+    }
+
+    /* 超时：type_id 保持 RESERVED，由主循环继续探测 */
 }
 
 // 发送数据，入口参数是Submodels结构体指针，发送数据，发送数据长度
@@ -234,6 +271,21 @@ void Submodels_Process(submodels_t *submodel)
         return;
 
     req = &submodel->rx_ctx.frame;
+
+    /* 0. type_id 尚未确定时，尝试从 ACK 帧解析模块身份 */
+    if (submodel->type_id == MODULE_SUBTYPE_SUBMODEL_RESERVED)
+    {
+        if (req->cmd == CMD_ACK && req->len >= 2 &&
+            req->data[0] == MODULE_TYPE_SUBMODEL)
+        {
+            submodel->type_id = req->data[1];
+            Protocol_ResetRxCtx(&submodel->rx_ctx);
+            return;
+        }
+        /* 未识别到身份前，静默丢弃所有帧（不回复 NACK） */
+        Protocol_ResetRxCtx(&submodel->rx_ctx);
+        return;
+    }
 
     /* 1. 通用命令（0x00~0x0F） */
     if (ProtocolCommon_Dispatch(req, &submodels_cb, resp, sizeof(resp), &resp_len))
