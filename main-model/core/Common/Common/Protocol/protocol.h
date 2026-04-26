@@ -113,6 +113,20 @@
 #define CMD_PWR_CHARGE_EVENT            0x37
 #define CMD_PWR_ALARM_EVENT             0x38
 
+/* ============================================================================
+ * Submodel 基础操作码 (CMD = 0x40 ~ 0x4F)
+ * ============================================================================
+ * 所有 Submodel 子类型（指纹/健康/NFC/RGB/触摸/红外/副屏）共用以下操作码，
+ * 通过 DATA[0] 子命令区分具体功能，各子类型的子命令定义见对应协议文档。
+ * ============================================================================ */
+#define CMD_SUB_EVT_NOTIFY              0x40
+#define CMD_SUB_SET_MODE                0x41
+#define CMD_SUB_GET_STATUS              0x42
+#define CMD_SUB_DATA_REPORT             0x43
+#define CMD_SUB_SET_CONFIG              0x44
+#define CMD_SUB_ACTION_RESULT           0x45
+#define CMD_SUB_BULK_TRANSFER           0x46
+
 /* 模块 ID */
 #define MODULE_ID_CORE          0x00
 #define MODULE_ID_WIRELESS      0x01
