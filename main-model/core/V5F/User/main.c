@@ -46,6 +46,9 @@ int main(void)
 
 	Hardware_V5F_Init();
 
+	CH378_Device_Select(&ch378_g, CH378_Device_TF);  // 先挂载 TF 卡
+	CH378_List_Root_Files(&ch378_g);                  // 列出根目录
+
 	while(1)
 	{
 		/* Display 统一 UART 帧处理（主循环轮询） */

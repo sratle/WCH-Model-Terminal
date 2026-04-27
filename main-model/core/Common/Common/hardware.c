@@ -13,7 +13,7 @@
 #include "Keyboard/keyboard.h"
 #include "Display/display.h"
 #include "CH9350/ch9350.h"
-#include "CH378/ch378.h"
+#include "CH378/CH378.h"
 #include "CH585F/ch585f.h"
 #include "Key/key.h"
 
@@ -43,34 +43,34 @@ volatile hardware_t hardware_g; // Hardware global variable
 void Hardware_V3F_Init(void)
 {
     Key_Init();
-    Power_Init(&power_g);
-    hardware_g.hardware_init_flag |= 0x10;
+    // Power_Init(&power_g);
+    // hardware_g.hardware_init_flag |= 0x10;
 
-    Keyboard_Init(&keyboard_g);
-    hardware_g.hardware_init_flag |= 0x20;
+    // Keyboard_Init(&keyboard_g);
+    // hardware_g.hardware_init_flag |= 0x20;
 
-    CH9350_Init(&ch9350_g);
-    hardware_g.hardware_init_flag |= 0x40;
+    // CH9350_Init(&ch9350_g);
+    // hardware_g.hardware_init_flag |= 0x40;
 
-    Submodels_Init(submodels_g);
-    hardware_g.hardware_init_flag |= 0x80;
+    // Submodels_Init(submodels_g);
+    // hardware_g.hardware_init_flag |= 0x80;
 
-    while (hardware_g.hardware_init_flag != 0xFF);
+    // while (hardware_g.hardware_init_flag != 0xFF);
 }
 
 void Hardware_V5F_Init(void)
 {
-    CS43131_init(&CS43131_g);
-    hardware_g.hardware_init_flag |= 0x01;
+    // CS43131_init(&CS43131_g);
+    // hardware_g.hardware_init_flag |= 0x01;
 
     CH378_Init(&ch378_g);
     hardware_g.hardware_init_flag |= 0x02;
 
-    CH585F_Init(&ch585f_g);
-    hardware_g.hardware_init_flag |= 0x04;
+    // CH585F_Init(&ch585f_g);
+    // hardware_g.hardware_init_flag |= 0x04;
 
-    Display_Init(&display_g);
-    hardware_g.hardware_init_flag |= 0x08;
+    // Display_Init(&display_g);
+    // hardware_g.hardware_init_flag |= 0x08;
 
-    while (hardware_g.hardware_init_flag != 0xFF);
+    // while (hardware_g.hardware_init_flag != 0xFF);
 }
