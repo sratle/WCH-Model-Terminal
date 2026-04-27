@@ -1385,12 +1385,50 @@ static void CLI_Cmd_Echo(ch378_t *ch378, uint8_t argc, char **argv)
     }
 }
 
+/* 递归清空目录内所有文件（不包括目录本身）
+ * CH378 的 CMD0H_FILE_ERASE 官方注释明确说明"对目录则等待"，
+ * 即不支持删除目录，因此本函数仅删除文件，子目录本身保留。
+ */
+static void CLI_Cmd_RmRecursive(ch378_t *ch378, const char *dir)
+{
+    uint8_t i;
+    char subdirs[CLI_MAX_ENTRIES][14];
+    uint8_t subdir_cnt = 0;
+
+    /* 进入目标目录 */
+    if (CH378_Dir_Enter(ch378, dir) != ERR_SUCCESS) {
+        return;
+    }
+
+    /* 收集目录内条目 */
+    g_cli_entries.count = 0;
+    CH378_Dir_List(ch378, CLI_RmCollectCallback);
+
+    /* 删除所有文件，同时记录子目录名 */
+    for (i = 0; i < g_cli_entries.count; i++) {
+        if (!g_cli_entries.is_dir[i]) {
+            CH378_File_Delete(ch378, g_cli_entries.names[i]);
+        } else {
+            if (subdir_cnt < CLI_MAX_ENTRIES) {
+                strncpy(subdirs[subdir_cnt], g_cli_entries.names[i], 13);
+                subdirs[subdir_cnt][13] = '\0';
+                subdir_cnt++;
+            }
+        }
+    }
+
+    /* 递归清空子目录 */
+    for (i = 0; i < subdir_cnt; i++) {
+        CLI_Cmd_RmRecursive(ch378, subdirs[i]);
+    }
+
+    /* 返回上级 */
+    CH378_Dir_Go_Parent(ch378);
+}
+
 static void CLI_Cmd_Rm(ch378_t *ch378, uint8_t argc, char **argv)
 {
     uint8_t status;
-    uint8_t i;
-    char saved_path[CH378_MAX_PATH_LEN];
-    char abs_path[CH378_MAX_PATH_LEN];
 
     if (argc < 2) {
         printf("Usage: rm <file> or rm -rf <dir>\r\n");
@@ -1400,36 +1438,17 @@ static void CLI_Cmd_Rm(ch378_t *ch378, uint8_t argc, char **argv)
     if (argc >= 3 && strcmp(argv[1], "-rf") == 0) {
         const char *dir = argv[2];
 
-        strcpy(saved_path, CH378_Dir_Get_Path());
+        /* 递归清空目录内所有文件（包括子目录中的文件） */
+        CLI_Cmd_RmRecursive(ch378, dir);
 
-        /* 进入目标目录 */
-        status = CH378_Dir_Enter(ch378, dir);
-        if (status != ERR_SUCCESS) {
-            printf("rm -rf: cannot access '%s'\r\n", dir);
-            return;
-        }
-
-        /* 收集目录内条目 */
-        g_cli_entries.count = 0;
-        CH378_Dir_List(ch378, CLI_RmCollectCallback);
-
-        /* 删除所有文件（不递归子目录） */
-        for (i = 0; i < g_cli_entries.count; i++) {
-            if (!g_cli_entries.is_dir[i]) {
-                CH378_File_Delete(ch378, g_cli_entries.names[i]);
-            }
-        }
-
-        /* 返回上级 */
-        CH378_Dir_Go_Parent(ch378);
-
-        /* 使用绝对路径删除目录 */
-        CH378_Path_Join(saved_path, dir, abs_path, sizeof(abs_path));
-        status = CH378FileErase((uint8_t*)abs_path);
+        /* 尝试删除目录本身。
+         * CH378 的 CMD0H_FILE_ERASE 官方注释明确说明"对目录则等待"，
+         * 即不支持删除目录，此步骤预期会失败。 */
+        status = CH378FileErase((uint8_t*)dir);
         if (status == ERR_SUCCESS) {
             printf("rm -rf: removed '%s'\r\n", dir);
         } else {
-            printf("rm -rf: removed files, but directory '%s' remains (status=%02X)\r\n", dir, status);
+            printf("rm -rf: cleared '%s', but directory itself cannot be removed (CH378 limitation)\r\n", dir);
         }
     } else {
         status = CH378_File_Delete(ch378, argv[1]);
