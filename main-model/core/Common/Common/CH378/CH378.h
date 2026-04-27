@@ -56,9 +56,10 @@ uint8_t CH378_Send_Byte(ch378_t *ch378, uint8_t data);
 uint8_t CH378_Read_Byte(ch378_t *ch378);
 
 void CH378_Device_Select(ch378_t *ch378, uint8_t device);
-void CH378_Open_File(ch378_t *ch378, uint8_t *file_name);
-void CH378_Close_File(ch378_t *ch378, uint8_t *file_name);
+uint8_t CH378_Open_File(ch378_t *ch378, uint8_t *file_name);
+void CH378_Close_File(ch378_t *ch378, uint8_t update_len);
 void CH378_Read_File(ch378_t *ch378, uint8_t *file_name, uint8_t *rbuf, uint32_t len);
 void CH378_Edit_File(ch378_t *ch378, uint8_t *file_name, uint8_t *wbuf, uint32_t len);
+void CH378_List_Root_Files(ch378_t *ch378);
 
 #endif

@@ -53,6 +53,7 @@ dkms.conf
 
 # Documentation
 docs/evt/
+**/evt/
 
 **/obj/
 **/LVGL/
