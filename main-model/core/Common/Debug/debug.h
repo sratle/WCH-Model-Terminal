@@ -72,6 +72,7 @@ void Delay_Ms (uint32_t n);
 void USART_Printf_Init(uint32_t baudrate);
 void Debug_EnableRxIRQ(void);
 void Debug_UART_IRQ_Handler(void);
+uint8_t Debug_CLI_Process(void);
 
 #ifdef __cplusplus
 }

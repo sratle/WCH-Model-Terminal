@@ -13,9 +13,19 @@
 #include "debug.h"
 #include "../Common/Protocol/protocol_common.h"
 #include "../Common/Protocol/protocol.h"
+#include "../Common/CH378/CH378.h"
 
 static uint16_t p_us = 0;
 static uint32_t p_ms = 0;
+
+/* CLI 串口接收缓冲区 */
+#define CLI_RX_BUF_SIZE 128
+static volatile uint8_t cli_rx_buf[CLI_RX_BUF_SIZE];
+static volatile uint8_t cli_rx_len = 0;
+static volatile uint8_t cli_cmd_ready = 0;
+
+/* 内存屏障：强制编译器重新读取 volatile 变量 */
+#define CLI_MEMORY_BARRIER() __asm__ __volatile__("" ::: "memory")
 
 /*********************************************************************
  * @fn      Delay_Init
@@ -164,7 +174,7 @@ __attribute__((used)) int _write(int fd, char *buf, int size)
 
     for (i = 0; i < size; i++)
     {
-        while (USART_GetFlagStatus(USART2, USART_FLAG_TC) == RESET)
+        while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET)
             ;
         USART_SendData(USART2, *buf++);
     }
@@ -204,13 +214,20 @@ void Debug_EnableRxIRQ(void)
     USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);
     NVIC_SetPriority(USART2_IRQn, 3 << 4);
     NVIC_EnableIRQ(USART2_IRQn);
+
+    /* NVIC_SetAllocateIRQ 只支持 IRQn<=31，USART2_IRQn=45 直接写 IALLOCR */
+#if defined(Core_V5F)
+    NVIC->IALLOCR[USART2_IRQn] = Core_ID_V5F;
+#elif defined(Core_V3F)
+    NVIC->IALLOCR[USART2_IRQn] = Core_ID_V3F;
+#endif
 }
 
 /*********************************************************************
  * @fn      Debug_UART_IRQ_Handler
  *
- * @brief   Debug UART interrupt handler.
- *          Echo mode: received byte is sent back immediately.
+ * @brief   Debug UART interrupt handler with line buffering for CLI.
+ *          Echo back, handles backspace, fires on Enter key.
  *
  * @return  none
  *********************************************************************/
@@ -220,9 +237,89 @@ void Debug_UART_IRQ_Handler(void)
     {
         uint8_t byte = (uint8_t)USART_ReceiveData(USART2);
 
-        /* Wait for TXE and echo back */
-        while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET)
-            ;
+        /* Echo back */
+        while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
         USART_SendData(USART2, byte);
+
+        if (cli_cmd_ready) return; /* Drop chars until processed */
+
+        if (byte == '\r' || byte == '\n')
+        {
+            if (cli_rx_len > 0)
+            {
+                cli_cmd_ready = 1;
+                /* Print newline after command */
+                while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
+                USART_SendData(USART2, '\r');
+                while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
+                USART_SendData(USART2, '\n');
+            }
+            else
+            {
+                /* Empty line: just reprint prompt */
+                while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
+                USART_SendData(USART2, '\r');
+                while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
+                USART_SendData(USART2, '\n');
+                while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
+                USART_SendData(USART2, '>');
+                while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
+                USART_SendData(USART2, ' ');
+            }
+        }
+        else if (byte == '\b' || byte == 0x7F) /* Backspace / DEL */
+        {
+            if (cli_rx_len > 0)
+            {
+                cli_rx_len--;
+                /* Erase character on terminal */
+                while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
+                USART_SendData(USART2, '\b');
+                while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
+                USART_SendData(USART2, ' ');
+                while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
+                USART_SendData(USART2, '\b');
+            }
+        }
+        else if (cli_rx_len < CLI_RX_BUF_SIZE - 1)
+        {
+            cli_rx_buf[cli_rx_len] = byte;
+            cli_rx_len++;
+        }
     }
+}
+
+/*********************************************************************
+ * @fn      Debug_CLI_Process
+ *
+ * @brief   Poll for a ready CLI command and execute it via CH378_CLI.
+ *          Call this in the main loop.
+ *
+ * @return  1 if a command was executed, 0 otherwise
+ *********************************************************************/
+__attribute__((noinline)) uint8_t Debug_CLI_Process(void)
+{
+    extern ch378_t ch378_g;
+    uint8_t local_buf[CLI_RX_BUF_SIZE];
+    uint8_t len;
+    uint8_t i;
+
+    CLI_MEMORY_BARRIER();
+    if (!cli_cmd_ready) return 0;
+    CLI_MEMORY_BARRIER();
+
+    /* 把 volatile 缓冲区复制到局部缓冲区 */
+    len = cli_rx_len;
+    for (i = 0; i < len; i++) {
+        local_buf[i] = cli_rx_buf[i];
+    }
+    local_buf[len] = '\0';
+
+    CH378_CLI(&ch378_g, local_buf, len);
+
+    printf("> ");
+
+    cli_rx_len = 0;
+    cli_cmd_ready = 0;
+    return 1;
 }

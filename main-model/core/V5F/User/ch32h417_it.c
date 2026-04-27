@@ -11,6 +11,7 @@
 void NMI_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void HardFault_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 
+void USART2_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void USART4_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 
 /*********************************************************************
@@ -40,6 +41,18 @@ void HardFault_Handler(void)
   while (1)
   {
   }
+}
+
+/*********************************************************************
+ * @fn      USART2_IRQHandler
+ *
+ * @brief   This function handles USART2 global interrupt (Debug/CLI).
+ *
+ * @return  none
+ */
+void USART2_IRQHandler(void)
+{
+    Debug_UART_IRQ_Handler();
 }
 
 /*********************************************************************

@@ -25,6 +25,7 @@ cs43131_t CS43131_g;
 ch378_t ch378_g;
 ch585f_t ch585f_g;
 display_t display_g;
+
 // V3F hardware
 power_t power_g;
 keyboard_t keyboard_g;
