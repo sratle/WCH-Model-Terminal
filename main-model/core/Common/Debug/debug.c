@@ -156,6 +156,8 @@ void USART_Printf_Init(uint32_t baudrate)
 
     USART_Init(USART2, &USART_InitStructure);
     USART_Cmd(USART2, ENABLE);
+
+    setbuf(stdout, NULL);
 }
 
 /*********************************************************************
@@ -237,18 +239,20 @@ void Debug_UART_IRQ_Handler(void)
     {
         uint8_t byte = (uint8_t)USART_ReceiveData(USART2);
 
-        /* Echo back */
-        while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
-        USART_SendData(USART2, byte);
-
         if (cli_cmd_ready) return; /* Drop chars until processed */
 
-        if (byte == '\r' || byte == '\n')
+        if (byte == '\n')
+        {
+            /* 忽略单独的 \n，换行由 \r 统一处理，避免终端发 \r\n 时重复响应 */
+            return;
+        }
+
+        if (byte == '\r')
         {
             if (cli_rx_len > 0)
             {
                 cli_cmd_ready = 1;
-                /* Print newline after command */
+                /* 回显 \r\n，让终端正确换行 */
                 while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
                 USART_SendData(USART2, '\r');
                 while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
@@ -256,7 +260,7 @@ void Debug_UART_IRQ_Handler(void)
             }
             else
             {
-                /* Empty line: just reprint prompt */
+                /* Empty line: reprint prompt */
                 while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
                 USART_SendData(USART2, '\r');
                 while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
@@ -266,8 +270,14 @@ void Debug_UART_IRQ_Handler(void)
                 while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
                 USART_SendData(USART2, ' ');
             }
+            return;
         }
-        else if (byte == '\b' || byte == 0x7F) /* Backspace / DEL */
+
+        /* Echo back normal chars */
+        while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET);
+        USART_SendData(USART2, byte);
+
+        if (byte == '\b' || byte == 0x7F) /* Backspace / DEL */
         {
             if (cli_rx_len > 0)
             {

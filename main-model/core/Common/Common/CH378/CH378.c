@@ -1251,6 +1251,12 @@ static void CLI_Cmd_Cd(ch378_t *ch378, uint8_t argc, char **argv)
     }
 }
 
+static void CLI_Cmd_Pwd(ch378_t *ch378)
+{
+    (void)ch378;
+    printf("%s\r\n", CH378_Dir_Get_Path());
+}
+
 static void CLI_Cmd_Mkdir(ch378_t *ch378, uint8_t argc, char **argv)
 {
     char full_path[CH378_MAX_PATH_LEN];
@@ -1458,6 +1464,8 @@ void CH378_CLI(ch378_t *ch378, uint8_t *cmd, uint8_t len)
         CLI_Cmd_Ls(ch378);
     } else if (strcmp(argv[0], "cd") == 0) {
         CLI_Cmd_Cd(ch378, argc, argv);
+    } else if (strcmp(argv[0], "pwd") == 0) {
+        CLI_Cmd_Pwd(ch378);
     } else if (strcmp(argv[0], "mkdir") == 0) {
         CLI_Cmd_Mkdir(ch378, argc, argv);
     } else if (strcmp(argv[0], "touch") == 0) {
