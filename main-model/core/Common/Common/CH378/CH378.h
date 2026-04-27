@@ -110,6 +110,7 @@
 #define CH378_Device_USB           0x07   /* USB host mode / enabled */
 
 #define CH378_MAX_FILE_SIZE        (400 * 1024)
+#define CH378_MAX_PATH_LEN          260
 
 /* ======================================================================== */
 /* Type Definitions */
@@ -194,8 +195,9 @@ uint8_t CH378_File_Write(ch378_t *ch378, const char *filename, const uint8_t *bu
 uint32_t CH378_File_GetSize(ch378_t *ch378, const char *filename);
 
 /* ======================================================================== */
-/* CLI 命令行接口 */
+/* 路径工具（供 CLI 等外部模块使用） */
 /* ======================================================================== */
-void CH378_CLI(ch378_t *ch378, uint8_t *cmd, uint8_t len);
+extern char ch378_current_path[];
+void CH378_Path_Join(const char *base, const char *name, char *out, uint16_t out_len);
 
 #endif

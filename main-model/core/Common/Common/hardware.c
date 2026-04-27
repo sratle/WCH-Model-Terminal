@@ -16,6 +16,7 @@
 #include "CH378/CH378.h"
 #include "CH585F/ch585f.h"
 #include "Key/key.h"
+#include "CLI/CLI.h"
 
 /**
  * Global variables
@@ -66,6 +67,8 @@ void Hardware_V5F_Init(void)
 
     CH378_Init(&ch378_g);
     hardware_g.hardware_init_flag |= 0x02;
+
+    CLI_Init();
 
     // CH585F_Init(&ch585f_g);
     // hardware_g.hardware_init_flag |= 0x04;

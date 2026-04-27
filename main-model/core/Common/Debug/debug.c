@@ -13,7 +13,7 @@
 #include "debug.h"
 #include "../Common/Protocol/protocol_common.h"
 #include "../Common/Protocol/protocol.h"
-#include "../Common/CH378/CH378.h"
+#include "../Common/CLI/CLI.h"
 
 static uint16_t p_us = 0;
 static uint32_t p_ms = 0;
@@ -302,14 +302,13 @@ void Debug_UART_IRQ_Handler(void)
 /*********************************************************************
  * @fn      Debug_CLI_Process
  *
- * @brief   Poll for a ready CLI command and execute it via CH378_CLI.
+ * @brief   Poll for a ready CLI command and execute it via CLI_Process.
  *          Call this in the main loop.
  *
  * @return  1 if a command was executed, 0 otherwise
  *********************************************************************/
 __attribute__((noinline)) uint8_t Debug_CLI_Process(void)
 {
-    extern ch378_t ch378_g;
     uint8_t local_buf[CLI_RX_BUF_SIZE];
     uint8_t len;
     uint8_t i;
@@ -325,7 +324,7 @@ __attribute__((noinline)) uint8_t Debug_CLI_Process(void)
     }
     local_buf[len] = '\0';
 
-    CH378_CLI(&ch378_g, local_buf, len);
+    CLI_Process(local_buf, len);
 
     printf("> ");
 
