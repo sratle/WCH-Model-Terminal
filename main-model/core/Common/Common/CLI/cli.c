@@ -123,16 +123,12 @@ static uint8_t CLI_LFN_Operation(const char *full_path, uint8_t op)
     uint8_t status;
     uint16_t i;
 
-    /* 分离目录路径和文件名 */
+    /* 分离文件名用于生成 UTF-16LE LFN；完整路径直接传给 CH378，
+     * 由固件自行解析父目录与目标文件名 */
     filename = strrchr(full_path, '\\');
     if (filename) {
-        i = (uint16_t)(filename - full_path);
-        strncpy(dir_path, full_path, i);
-        dir_path[i] = '\0';
         filename++;
     } else {
-        dir_path[0] = '\\';
-        dir_path[1] = '\0';
         filename = full_path;
     }
 
@@ -141,16 +137,16 @@ static uint8_t CLI_LFN_Operation(const char *full_path, uint8_t op)
 
     switch (op) {
         case 0:  /* open */
-            status = CH378_Open_Long_Name((uint8_t*)dir_path, unicode_name);
+            status = CH378_Open_Long_Name((uint8_t*)full_path, unicode_name);
             break;
         case 1:  /* create file */
-            status = CH378_Create_Long_File((uint8_t*)dir_path, unicode_name);
+            status = CH378_Create_Long_File((uint8_t*)full_path, unicode_name);
             break;
         case 2:  /* create dir */
-            status = CH378_Create_Long_Dir((uint8_t*)dir_path, unicode_name);
+            status = CH378_Create_Long_Dir((uint8_t*)full_path, unicode_name);
             break;
         case 3:  /* erase */
-            status = CH378_Erase_Long_Name((uint8_t*)dir_path, unicode_name);
+            status = CH378_Erase_Long_Name((uint8_t*)full_path, unicode_name);
             break;
         default:
             return ERR_PARAMETER_ERROR;
@@ -263,6 +259,8 @@ static void CLI_Cmd_Mkdir(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
 
+    printf("[MKDIR-DEBUG] path=%s, is_short=%d\r\n", full_path, CLI_IsShortName(argv[1]));
+
     if (CLI_IsShortName(argv[1])) {
         status = CH378DirCreate((uint8_t*)full_path);
     } else {
@@ -287,6 +285,8 @@ static void CLI_Cmd_Touch(uint8_t argc, char **argv)
     }
 
     CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+
+    printf("[TOUCH-DEBUG] path=%s, is_short=%d\r\n", full_path, CLI_IsShortName(argv[1]));
 
     if (CLI_IsShortName(argv[1])) {
         status = CH378_File_Create(&ch378_g, argv[1]);
