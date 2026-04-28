@@ -52,15 +52,31 @@
 #define CMD0H_FILE_CREATE          0x34
 #define CMD0H_FILE_ERASE           0x35
 #define CMD1H_FILE_CLOSE           0x36
-#define CMD0H_DIR_CREATE           0x40
+#define CMD1H_DIR_INFO_READ        0x37
+#define CMD1H_DIR_INFO_SAVE        0x38
 #define CMD4H_BYTE_LOCATE          0x39
 #define CMD2H_BYTE_READ            0x3A
 #define CMD2H_BYTE_WRITE           0x3C
 #define CMD0H_DISK_CAPACITY        0x3E
 #define CMD0H_DISK_QUERY           0x3F
-#define CMD00_RD_HOST_REQ_DATA     0x28
+#define CMD0H_DIR_CREATE           0x40
+#define CMD0H_FILE_QUERY           0x55
+#define CMD0H_FILE_MODIFY          0x57
+#define CMD50_SET_FILE_SIZE        0x0D
+#define CMD40_RD_HOST_OFS_DATA     0x26
 #define CMD20_RD_HOST_CUR_DATA     0x27
+#define CMD00_RD_HOST_REQ_DATA     0x28
+#define CMD40_WR_HOST_OFS_DATA     0x2D
 #define CMD20_WR_HOST_CUR_DATA     0x2E
+
+/* Long Filename Commands */
+#define CMD10_SET_LONG_FILE_NAME   0x60
+#define CMD10_GET_LONG_FILE_NAME   0x61
+#define CMD0H_LONG_FILE_CREATE     0x62
+#define CMD0H_LONG_DIR_CREATE      0x63
+#define CMD1H_GET_SHORT_FILE_NAME  0x65
+#define CMD0H_LONG_FILE_OPEN       0x66
+#define CMD0H_LONG_FILE_ERASE      0x67
 
 /* ======================================================================== */
 /* Status Codes (from CH378INC.H) */
@@ -74,6 +90,8 @@
 #define ERR_BPB_ERROR              0xA1
 #define ERR_FOUND_NAME             0x43
 #define ERR_PARAMETER_ERROR        0x03
+#define ERR_LONG_NAME_ERR          0x49
+#define ERR_NAME_EXIST             0x4A
 
 #define USB_INT_SUCCESS            0x14
 #define USB_INT_CONNECT            0x15
@@ -199,5 +217,34 @@ uint32_t CH378_File_GetSize(ch378_t *ch378, const char *filename);
 /* ======================================================================== */
 extern char ch378_current_path[];
 void CH378_Path_Join(const char *base, const char *name, char *out, uint16_t out_len);
+
+/* ======================================================================== */
+/* 磁盘/文件信息查询 */
+/* ======================================================================== */
+uint32_t CH378_Disk_Query_FreeSectors(void);
+uint8_t  CH378_File_Query(uint8_t *buf);
+
+/* ======================================================================== */
+/* 目录项读写 */
+/* ======================================================================== */
+uint8_t CH378_Dir_Info_Read(uint8_t index);
+uint8_t CH378_Dir_Info_Save(uint8_t index);
+uint8_t CH378_Dir_Info_Write(uint8_t index, const uint8_t *buf);
+
+/* ======================================================================== */
+/* 文件信息修改 */
+/* ======================================================================== */
+uint8_t CH378_File_Modify(uint32_t filesize, uint16_t filedate, uint16_t filetime, uint8_t fileattr);
+
+/* ======================================================================== */
+/* 长文件名支持 (Long Filename Extension) */
+/* ======================================================================== */
+uint8_t CH378_Set_Long_File_Name(const uint8_t *long_name, uint16_t len);
+uint8_t CH378_Get_Long_Name(const uint8_t *path, uint8_t *long_name);
+uint8_t CH378_Get_Short_Name(const uint8_t *path, const uint8_t *long_name, uint8_t *short_name);
+uint8_t CH378_Create_Long_File(const uint8_t *path, const uint8_t *long_name);
+uint8_t CH378_Create_Long_Dir(const uint8_t *path, const uint8_t *long_name);
+uint8_t CH378_Open_Long_Name(const uint8_t *path, const uint8_t *long_name);
+uint8_t CH378_Erase_Long_Name(const uint8_t *path, const uint8_t *long_name);
 
 #endif

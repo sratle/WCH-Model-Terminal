@@ -342,6 +342,10 @@ uint16_t CH378ReadReqBlock(uint8_t *buf)
     len = xReadCH378Data();
     len |= (uint16_t)xReadCH378Data() << 8;
     Delay_Us(1);
+    /* CH378 某些命令返回的长度可能是内部缓冲区总大小而非实际数据长度，
+     * 限制单次读取不超过 512 字节以避免溢出 */
+    if (len > 512)
+        len = 512;
     l = len;
     if (len)
     {
@@ -1012,6 +1016,8 @@ void CH378_Dir_List(ch378_t *ch378, ch378_dir_callback_t callback)
         xEndCH378Cmd();
         int_status = CH378_Wait_Interrupt();
     }
+
+    CH378FileClose(0);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1154,4 +1160,277 @@ uint32_t CH378_File_GetSize(ch378_t *ch378, const char *filename)
     return size;
 }
 
+/* ------------------------------------------------------------------------ */
+/* 磁盘/文件信息查询 (CMD0H_DISK_QUERY, CMD0H_FILE_QUERY)                  */
+/* ------------------------------------------------------------------------ */
 
+uint32_t CH378_Disk_Query_FreeSectors(void)
+{
+    uint8_t buf[16];
+    uint16_t len;
+    uint32_t free_sectors = 0;
+
+    if (CH378SendCmdWaitInt(CMD0H_DISK_QUERY) != ERR_SUCCESS) {
+        return 0;
+    }
+
+    len = CH378ReadReqBlock(buf);
+    if (len >= 9) {
+        /* buf[0..3] = total_sectors */
+        /* buf[4..7] = free_sectors */
+        free_sectors = (uint32_t)buf[4] | ((uint32_t)buf[5] << 8)
+                     | ((uint32_t)buf[6] << 16) | ((uint32_t)buf[7] << 24);
+        /* buf[8] = disk_fat */
+    }
+
+    return free_sectors;
+}
+
+uint8_t CH378_File_Query(uint8_t *buf)
+{
+    uint8_t status;
+
+    status = CH378SendCmdWaitInt(CMD0H_FILE_QUERY);
+    if (status != ERR_SUCCESS) {
+        return status;
+    }
+
+    CH378ReadReqBlock(buf);
+    return status;
+}
+
+/* ------------------------------------------------------------------------ */
+/* 目录项读写 (CMD1H_DIR_INFO_READ / CMD1H_DIR_INFO_SAVE)                 */
+/* ------------------------------------------------------------------------ */
+
+uint8_t CH378_Dir_Info_Read(uint8_t index)
+{
+    return CH378SendCmdDatWaitInt(CMD1H_DIR_INFO_READ, index);
+}
+
+uint8_t CH378_Dir_Info_Save(uint8_t index)
+{
+    return CH378SendCmdDatWaitInt(CMD1H_DIR_INFO_SAVE, index);
+}
+
+uint8_t CH378_Dir_Info_Write(uint8_t index, const uint8_t *buf)
+{
+    uint8_t i;
+    xWriteCH378Cmd(CMD40_WR_HOST_OFS_DATA);
+    xWriteCH378Data(0x00);
+    xWriteCH378Data(0x00);
+    xWriteCH378Data(0x20);
+    xWriteCH378Data(0x00);
+    for (i = 0; i < 32; i++) {
+        xWriteCH378Data(buf[i]);
+    }
+    xEndCH378Cmd();
+    return CH378_Dir_Info_Save(index);
+}
+
+/* ------------------------------------------------------------------------ */
+/* 文件信息修改 (CMD0H_FILE_MODIFY)                                        */
+/* ------------------------------------------------------------------------ */
+
+uint8_t CH378_File_Modify(uint32_t filesize, uint16_t filedate, uint16_t filetime, uint8_t fileattr)
+{
+    xWriteCH378Cmd(CMD40_WR_HOST_OFS_DATA);
+    xWriteCH378Data(0x00);  /* offset low */
+    xWriteCH378Data(0x00);  /* offset high */
+    xWriteCH378Data(0x09);  /* len low (9 bytes) */
+    xWriteCH378Data(0x00);  /* len high */
+    xWriteCH378Data((uint8_t)filesize);
+    xWriteCH378Data((uint8_t)(filesize >> 8));
+    xWriteCH378Data((uint8_t)(filesize >> 16));
+    xWriteCH378Data((uint8_t)(filesize >> 24));
+    xWriteCH378Data((uint8_t)filedate);
+    xWriteCH378Data((uint8_t)(filedate >> 8));
+    xWriteCH378Data((uint8_t)filetime);
+    xWriteCH378Data((uint8_t)(filetime >> 8));
+    xWriteCH378Data(fileattr);
+    xEndCH378Cmd();
+
+    return CH378SendCmdWaitInt(CMD0H_FILE_MODIFY);
+}
+
+/* ------------------------------------------------------------------------ */
+/* 长文件名支持 (Long Filename Extension)                                  */
+/* ------------------------------------------------------------------------ */
+
+#define LFN_MAX_BUF_LEN     512
+#define LFN_MAX_CHAR_LEN    510
+
+uint8_t CH378_Set_Long_File_Name(const uint8_t *long_name, uint16_t len)
+{
+    xWriteCH378Cmd(CMD10_SET_LONG_FILE_NAME);
+    xWriteCH378Data((uint8_t)len);
+    xWriteCH378Data(len >> 8);
+    while (len--) {
+        xWriteCH378Data(*long_name++);
+    }
+    xEndCH378Cmd();
+    return ERR_SUCCESS;
+}
+
+uint8_t CH378_Get_Long_Name(const uint8_t *path, uint8_t *long_name)
+{
+    uint8_t status;
+    uint16_t len;
+
+    CH378SetFileName((uint8_t*)path);
+    status = CH378SendCmdWaitInt(CMD10_GET_LONG_FILE_NAME);
+    if (status == ERR_SUCCESS) {
+        len = CH378ReadReqBlock(long_name);
+        if (len < 2) {
+            long_name[0] = 0;
+            long_name[1] = 0;
+        }
+    }
+    return status;
+}
+
+uint8_t CH378_Get_Short_Name(const uint8_t *path, const uint8_t *long_name, uint8_t *short_name)
+{
+    uint8_t status;
+    uint16_t count;
+
+    CH378SetFileName((uint8_t*)path);
+
+    /* 设置长文件名 */
+    for (count = 0; count < LFN_MAX_CHAR_LEN; count += 2) {
+        if (*(uint16_t*)&long_name[count] == 0) {
+            break;
+        }
+    }
+    if ((count == 0) || (count >= LFN_MAX_CHAR_LEN)) {
+        return ERR_LONG_NAME_ERR;
+    }
+    count += 2;  /* include terminating double 0 */
+
+    xWriteCH378Cmd(CMD10_SET_LONG_FILE_NAME);
+    xWriteCH378Data((uint8_t)count);
+    xWriteCH378Data(count >> 8);
+    do {
+        xWriteCH378Data(*long_name++);
+    } while (--count);
+    xEndCH378Cmd();
+
+    /* 获取对应的短文件名 */
+    status = CH378SendCmdWaitInt(CMD1H_GET_SHORT_FILE_NAME);
+    if (status == ERR_SUCCESS) {
+        CH378ReadReqBlock(short_name);
+    }
+    return status;
+}
+
+uint8_t CH378_Create_Long_File(const uint8_t *path, const uint8_t *long_name)
+{
+    uint16_t count;
+
+    CH378SetFileName((uint8_t*)path);
+
+    for (count = 0; count < LFN_MAX_CHAR_LEN; count += 2) {
+        if (*(uint16_t*)&long_name[count] == 0) {
+            break;
+        }
+    }
+    if ((count == 0) || (count >= LFN_MAX_CHAR_LEN)) {
+        return ERR_LONG_NAME_ERR;
+    }
+    count += 2;
+
+    xWriteCH378Cmd(CMD10_SET_LONG_FILE_NAME);
+    xWriteCH378Data((uint8_t)count);
+    xWriteCH378Data(count >> 8);
+    do {
+        xWriteCH378Data(*long_name++);
+    } while (--count);
+    xEndCH378Cmd();
+
+    return CH378SendCmdWaitInt(CMD0H_LONG_FILE_CREATE);
+}
+
+uint8_t CH378_Create_Long_Dir(const uint8_t *path, const uint8_t *long_name)
+{
+    uint16_t count;
+
+    CH378SetFileName((uint8_t*)path);
+
+    for (count = 0; count < LFN_MAX_CHAR_LEN; count += 2) {
+        if (*(uint16_t*)&long_name[count] == 0) {
+            break;
+        }
+    }
+    if ((count == 0) || (count >= LFN_MAX_CHAR_LEN)) {
+        return ERR_LONG_NAME_ERR;
+    }
+    count += 2;
+
+    xWriteCH378Cmd(CMD10_SET_LONG_FILE_NAME);
+    xWriteCH378Data((uint8_t)count);
+    xWriteCH378Data(count >> 8);
+    do {
+        xWriteCH378Data(*long_name++);
+    } while (--count);
+    xEndCH378Cmd();
+
+    return CH378SendCmdWaitInt(CMD0H_LONG_DIR_CREATE);
+}
+
+uint8_t CH378_Open_Long_Name(const uint8_t *path, const uint8_t *long_name)
+{
+    uint8_t status;
+    uint16_t count;
+
+    CH378SetFileName((uint8_t*)path);
+
+    for (count = 0; count < LFN_MAX_CHAR_LEN; count += 2) {
+        if (*(uint16_t*)&long_name[count] == 0) {
+            break;
+        }
+    }
+    if ((count == 0) || (count >= LFN_MAX_CHAR_LEN)) {
+        return ERR_LONG_NAME_ERR;
+    }
+    count += 2;
+
+    xWriteCH378Cmd(CMD10_SET_LONG_FILE_NAME);
+    xWriteCH378Data((uint8_t)count);
+    xWriteCH378Data(count >> 8);
+    do {
+        xWriteCH378Data(*long_name++);
+    } while (--count);
+    xEndCH378Cmd();
+
+    status = CH378SendCmdWaitInt(CMD0H_LONG_FILE_OPEN);
+    return status;
+}
+
+uint8_t CH378_Erase_Long_Name(const uint8_t *path, const uint8_t *long_name)
+{
+    uint8_t status;
+    uint16_t count;
+
+    CH378SetFileName((uint8_t*)path);
+
+    for (count = 0; count < LFN_MAX_CHAR_LEN; count += 2) {
+        if (*(uint16_t*)&long_name[count] == 0) {
+            break;
+        }
+    }
+    if ((count == 0) || (count >= LFN_MAX_CHAR_LEN)) {
+        return ERR_LONG_NAME_ERR;
+    }
+    count += 2;
+
+    xWriteCH378Cmd(CMD10_SET_LONG_FILE_NAME);
+    xWriteCH378Data((uint8_t)count);
+    xWriteCH378Data(count >> 8);
+    do {
+        xWriteCH378Data(*long_name++);
+    } while (--count);
+    xEndCH378Cmd();
+
+    status = CH378SendCmdWaitInt(CMD0H_LONG_FILE_ERASE);
+    return status;
+}

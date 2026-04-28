@@ -2,8 +2,9 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-#include "all_devices.h"
+#include "CH378/CH378.h"
 #include "debug.h"
 
 extern ch378_t ch378_g;
@@ -17,10 +18,15 @@ extern ch378_t ch378_g;
 typedef struct {
     char names[CLI_MAX_ENTRIES][14];
     uint8_t is_dir[CLI_MAX_ENTRIES];
+    uint32_t size[CLI_MAX_ENTRIES];
     uint8_t count;
 } cli_entries_t;
 
 static cli_entries_t g_cli_entries;
+static uint8_t g_tree_depth;
+static const char *g_find_pattern;
+static uint8_t g_find_found;
+static uint8_t g_lfn_buf[512];
 
 /* 命令行参数解析（支持双引号包裹含空格的字符串） */
 static uint8_t CLI_ParseArgs(char *buf, char **argv, uint8_t max_argv)
@@ -46,23 +52,14 @@ static uint8_t CLI_ParseArgs(char *buf, char **argv, uint8_t max_argv)
     return argc;
 }
 
-/* ls 打印回调 */
-static void CLI_LsCallback(const char *name, uint8_t is_dir, uint32_t size)
-{
-    if (is_dir)
-        printf("  [DIR]  %s\r\n", name);
-    else
-        printf("  [FILE] %s  (%lu bytes)\r\n", name, size);
-}
-
-/* rm -rf 条目收集回调 */
+/* rm -rf / tree / du / find 条目收集回调 */
 static void CLI_RmCollectCallback(const char *name, uint8_t is_dir, uint32_t size)
 {
-    (void)size;
     if (g_cli_entries.count < CLI_MAX_ENTRIES) {
         strncpy(g_cli_entries.names[g_cli_entries.count], name, 13);
         g_cli_entries.names[g_cli_entries.count][13] = '\0';
         g_cli_entries.is_dir[g_cli_entries.count] = is_dir;
+        g_cli_entries.size[g_cli_entries.count] = size;
         g_cli_entries.count++;
     }
 }
@@ -71,10 +68,163 @@ static void CLI_RmCollectCallback(const char *name, uint8_t is_dir, uint32_t siz
 /* 各命令实现 */
 /* ------------------------------------------------------------------------ */
 
+/* ASCII 转 UTF-16LE，双 0 结尾 */
+static uint16_t CLI_AsciiToUnicode(const char *ascii, uint8_t *unicode, uint16_t max_len)
+{
+    uint16_t i = 0;
+    while (*ascii && i < max_len - 2) {
+        unicode[i++] = (uint8_t)*ascii++;
+        unicode[i++] = 0;
+    }
+    unicode[i++] = 0;
+    unicode[i++] = 0;
+    return i;
+}
+
+/* 判断文件名是否为有效的 FAT 短文件名 */
+static uint8_t CLI_IsShortName(const char *name)
+{
+    uint8_t has_dot = 0;
+    uint8_t len = strlen(name);
+    uint8_t i;
+
+    if (len > 12) return 0;
+
+    for (i = 0; i < len; i++) {
+        char c = name[i];
+        if (c == '.') {
+            if (has_dot) return 0;
+            has_dot = 1;
+        } else if (c >= 'a' && c <= 'z') {
+            return 0;
+        } else if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '~' || c == '-')) {
+            return 0;
+        }
+    }
+
+    if (has_dot) {
+        const char *dot = strchr(name, '.');
+        if ((uint8_t)(dot - name) > 8) return 0;
+        if (strlen(dot + 1) > 3) return 0;
+    } else {
+        if (len > 8) return 0;
+    }
+
+    return 1;
+}
+
+/* 长文件名操作辅助：分离路径和文件名，执行 LFN 操作 */
+static uint8_t CLI_LFN_Operation(const char *full_path, uint8_t op)
+{
+    char dir_path[CH378_MAX_PATH_LEN];
+    const char *filename;
+    uint8_t unicode_name[512];
+    uint16_t unicode_len;
+    uint8_t status;
+    uint16_t i;
+
+    /* 分离目录路径和文件名 */
+    filename = strrchr(full_path, '\\');
+    if (filename) {
+        i = (uint16_t)(filename - full_path);
+        strncpy(dir_path, full_path, i);
+        dir_path[i] = '\0';
+        filename++;
+    } else {
+        dir_path[0] = '\\';
+        dir_path[1] = '\0';
+        filename = full_path;
+    }
+
+    /* ASCII 转 UTF-16LE */
+    unicode_len = CLI_AsciiToUnicode(filename, unicode_name, sizeof(unicode_name));
+
+    switch (op) {
+        case 0:  /* open */
+            status = CH378_Open_Long_Name((uint8_t*)dir_path, unicode_name);
+            break;
+        case 1:  /* create file */
+            status = CH378_Create_Long_File((uint8_t*)dir_path, unicode_name);
+            break;
+        case 2:  /* create dir */
+            status = CH378_Create_Long_Dir((uint8_t*)dir_path, unicode_name);
+            break;
+        case 3:  /* erase */
+            status = CH378_Erase_Long_Name((uint8_t*)dir_path, unicode_name);
+            break;
+        default:
+            return ERR_PARAMETER_ERROR;
+    }
+
+    return status;
+}
+
 static void CLI_Cmd_Ls(void)
 {
+    uint8_t i;
+    char display_name[256];
+
     printf("--- %s ---\r\n", CH378_Dir_Get_Path());
-    CH378_Dir_List(&ch378_g, CLI_LsCallback);
+
+    g_cli_entries.count = 0;
+    CH378_Dir_List(&ch378_g, CLI_RmCollectCallback);
+
+    for (i = 0; i < g_cli_entries.count; i++) {
+        char full_path[CH378_MAX_PATH_LEN];
+
+        CH378_Path_Join(ch378_current_path, g_cli_entries.names[i], full_path, sizeof(full_path));
+
+        /* 暂时禁用 LFN 显示：CH378 CMD10_GET_LONG_FILE_NAME 返回的长度不稳定，
+         * 常包含旧缓冲区数据导致字符串污染。先回退到短名显示。 */
+        (void)full_path;
+#if 0
+        {
+            uint8_t status;
+            uint8_t lfn_status;
+            uint16_t j;
+            uint16_t lfn_len = 0;
+
+            display_name[0] = '\0';
+
+            /* 先打开文件/目录，再获取长文件名 */
+            status = CH378FileOpen((uint8_t*)full_path);
+            if (status == ERR_SUCCESS || status == ERR_OPEN_DIR) {
+                memset(g_lfn_buf, 0, sizeof(g_lfn_buf));
+                lfn_status = CH378SendCmdWaitInt(CMD10_GET_LONG_FILE_NAME);
+                if (lfn_status == ERR_SUCCESS) {
+                    lfn_len = CH378ReadReqBlock(g_lfn_buf);
+                    /* CH378 固件对 LFN 长度返回不稳定，严格限制只接受可信长度 */
+                    if (lfn_len >= 2 && lfn_len <= 32 && (lfn_len & 0x1F) != 0) {
+                        for (j = 0; j < 255 && (j * 2 + 1) < lfn_len; j++) {
+                            if (g_lfn_buf[j * 2] == 0 && g_lfn_buf[j * 2 + 1] == 0)
+                                break;
+                            display_name[j] = g_lfn_buf[j * 2];
+                        }
+                        display_name[j] = '\0';
+                    } else {
+                        lfn_len = 0;
+                    }
+                }
+                CH378FileClose(0);
+            }
+
+            if (lfn_len >= 2 && display_name[0] != '\0')
+                goto lfn_ok;
+        }
+#endif
+        {
+            strncpy(display_name, g_cli_entries.names[i], 13);
+            display_name[13] = '\0';
+        }
+#if 0
+lfn_ok:;
+#endif
+
+        if (g_cli_entries.is_dir[i])
+            printf("  [DIR]  %s\r\n", display_name);
+        else
+            printf("  [FILE] %s  (%lu bytes)\r\n", display_name, g_cli_entries.size[i]);
+    }
 }
 
 static void CLI_Cmd_Cd(uint8_t argc, char **argv)
@@ -120,7 +270,12 @@ static void CLI_Cmd_Mkdir(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
 
-    status = CH378DirCreate((uint8_t*)full_path);
+    if (CLI_IsShortName(argv[1])) {
+        status = CH378DirCreate((uint8_t*)full_path);
+    } else {
+        status = CLI_LFN_Operation(full_path, 2);
+    }
+
     if (status == ERR_SUCCESS) {
         printf("mkdir: created '%s'\r\n", argv[1]);
     } else {
@@ -130,6 +285,7 @@ static void CLI_Cmd_Mkdir(uint8_t argc, char **argv)
 
 static void CLI_Cmd_Touch(uint8_t argc, char **argv)
 {
+    char full_path[CH378_MAX_PATH_LEN];
     uint8_t status;
 
     if (argc < 2) {
@@ -137,7 +293,17 @@ static void CLI_Cmd_Touch(uint8_t argc, char **argv)
         return;
     }
 
-    status = CH378_File_Create(&ch378_g, argv[1]);
+    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+
+    if (CLI_IsShortName(argv[1])) {
+        status = CH378_File_Create(&ch378_g, argv[1]);
+    } else {
+        status = CLI_LFN_Operation(full_path, 1);
+        if (status == ERR_SUCCESS) {
+            CH378FileClose(0);
+        }
+    }
+
     if (status == ERR_SUCCESS) {
         printf("touch: created '%s'\r\n", argv[1]);
     } else {
@@ -160,7 +326,11 @@ static void CLI_Cmd_Cat(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
 
-    status = CH378FileOpen((uint8_t*)full_path);
+    if (CLI_IsShortName(argv[1])) {
+        status = CH378FileOpen((uint8_t*)full_path);
+    } else {
+        status = CLI_LFN_Operation(full_path, 0);
+    }
     if (status != ERR_SUCCESS) {
         printf("cat: %s: No such file\r\n", argv[1]);
         return;
@@ -180,10 +350,43 @@ static void CLI_Cmd_Cat(uint8_t argc, char **argv)
     CH378FileClose(0);
 }
 
+static uint8_t CLI_File_Append(const char *filename, const uint8_t *data, uint16_t len)
+{
+    char full_path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint16_t real_len;
+    uint32_t fsize;
+
+    CH378_Path_Join(ch378_current_path, filename, full_path, sizeof(full_path));
+
+    status = CH378FileOpen((uint8_t*)full_path);
+    if (status == ERR_MISS_FILE) {
+        status = CH378FileCreate((uint8_t*)full_path);
+        if (status != ERR_SUCCESS) return status;
+        CH378FileClose(0);
+        status = CH378FileOpen((uint8_t*)full_path);
+    }
+    if (status != ERR_SUCCESS) return status;
+
+    fsize = CH378GetFileSize();
+    if (fsize > 0) {
+        status = CH378ByteLocate(fsize);
+        if (status != ERR_SUCCESS) {
+            CH378FileClose(0);
+            return status;
+        }
+    }
+
+    status = CH378ByteWrite((uint8_t*)data, len, &real_len);
+    CH378FileClose(1);
+    return status;
+}
+
 static void CLI_Cmd_Echo(uint8_t argc, char **argv)
 {
     uint8_t i;
     uint8_t redirect_idx = 0;
+    uint8_t append_mode = 0;
     uint8_t text_start = 1;
     uint8_t text_end = argc;
 
@@ -192,9 +395,14 @@ static void CLI_Cmd_Echo(uint8_t argc, char **argv)
         return;
     }
 
-    /* 查找 > 重定向符号 */
+    /* 查找 > 或 >> 重定向符号 */
     for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], ">") == 0) {
+        if (strcmp(argv[i], ">>") == 0) {
+            redirect_idx = i;
+            text_end = i;
+            append_mode = 1;
+            break;
+        } else if (strcmp(argv[i], ">") == 0) {
             redirect_idx = i;
             text_end = i;
             break;
@@ -221,11 +429,20 @@ static void CLI_Cmd_Echo(uint8_t argc, char **argv)
         }
         text_buf[pos] = '\0';
 
-        status = CH378_File_Write(&ch378_g, argv[redirect_idx + 1], (const uint8_t*)text_buf, pos);
-        if (status == ERR_SUCCESS) {
-            printf("Wrote %d bytes to %s\r\n", pos, argv[redirect_idx + 1]);
+        if (append_mode) {
+            status = CLI_File_Append(argv[redirect_idx + 1], (const uint8_t*)text_buf, pos);
+            if (status == ERR_SUCCESS) {
+                printf("Appended %d bytes to %s\r\n", pos, argv[redirect_idx + 1]);
+            } else {
+                printf("echo: append failed (status=%02X)\r\n", status);
+            }
         } else {
-            printf("echo: write failed (status=%02X)\r\n", status);
+            status = CH378_File_Write(&ch378_g, argv[redirect_idx + 1], (const uint8_t*)text_buf, pos);
+            if (status == ERR_SUCCESS) {
+                printf("Wrote %d bytes to %s\r\n", pos, argv[redirect_idx + 1]);
+            } else {
+                printf("echo: write failed (status=%02X)\r\n", status);
+            }
         }
     } else {
         /* 无重定向，直接打印 */
@@ -302,12 +519,742 @@ static void CLI_Cmd_Rm(uint8_t argc, char **argv)
             printf("rm -rf: cleared '%s', but directory itself cannot be removed (CH378 limitation)\r\n", dir);
         }
     } else {
-        status = CH378_File_Delete(&ch378_g, argv[1]);
+        char full_path[CH378_MAX_PATH_LEN];
+        CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+
+        if (CLI_IsShortName(argv[1])) {
+            status = CH378_File_Delete(&ch378_g, argv[1]);
+        } else {
+            status = CLI_LFN_Operation(full_path, 3);
+        }
         if (status == ERR_SUCCESS) {
             printf("rm: removed '%s'\r\n", argv[1]);
         } else {
             printf("rm: cannot remove '%s' (status=%02X)\r\n", argv[1], status);
         }
+    }
+}
+
+static void CLI_Cmd_Help(void)
+{
+    printf("Available commands:\r\n");
+    printf("  ls              List directory contents (with LFN)\r\n");
+    printf("  cd <dir>        Change directory\r\n");
+    printf("  pwd             Print working directory\r\n");
+    printf("  mkdir <dir>     Create directory (supports LFN)\r\n");
+    printf("  touch <file>    Create empty file (supports LFN)\r\n");
+    printf("  cat <file>      Display file contents (supports LFN)\r\n");
+    printf("  echo [text]     Print text or write to file (use > or >>)\r\n");
+    printf("  rm <file>       Remove file (supports LFN)\r\n");
+    printf("  rm -rf <dir>    Clear directory recursively\r\n");
+    printf("  cp <src> <dst>  Copy file (supports LFN)\r\n");
+    printf("  mv <old> <new>  Rename file (short names only)\r\n");
+    printf("  hexdump <file>  Display file in hex format (supports LFN)\r\n");
+    printf("  head <file> [n] Show first n bytes of file (supports LFN)\r\n");
+    printf("  tail <file> [n] Show last n bytes of file (supports LFN)\r\n");
+    printf("  tree [dir]      List directory tree\r\n");
+    printf("  du <dir>        Show directory total size\r\n");
+    printf("  find <pattern>  Find files matching pattern\r\n");
+    printf("  df              Show disk capacity\r\n");
+    printf("  free            Show disk free space\r\n");
+    printf("  device [usb|sd] Show or switch device mode\r\n");
+    printf("  stat <file>     Show file status (supports LFN)\r\n");
+    printf("  chmod <file> <attr>  Change file attributes (supports LFN)\r\n");
+    printf("  ver             Show CH378 firmware version\r\n");
+    printf("  clear           Clear screen\r\n");
+    printf("  help            Show this help message\r\n");
+}
+
+static void CLI_Cmd_Clear(void)
+{
+    printf("\x1B[2J\x1B[H");
+}
+
+static void CLI_Cmd_Ver(void)
+{
+    uint8_t ver = CH378_Get_IC_Ver();
+    printf("CH378 IC Version: 0x%02X\r\n", ver);
+}
+
+static void CLI_Cmd_Df(void)
+{
+    CH378_Disk_Capacity(&ch378_g);
+}
+
+static void CLI_Cmd_Device(uint8_t argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Current device: %s\r\n",
+               (ch378_g.now_device == CH378_Device_USB) ? "USB" :
+               (ch378_g.now_device == CH378_Device_TF) ? "SD" : "Unknown");
+        return;
+    }
+
+    if (strcmp(argv[1], "usb") == 0) {
+        CH378_Device_Select(&ch378_g, CH378_Device_USB);
+    } else if (strcmp(argv[1], "sd") == 0) {
+        CH378_Device_Select(&ch378_g, CH378_Device_TF);
+    } else {
+        printf("Usage: device [usb|sd]\r\n");
+    }
+}
+
+static void CLI_Cmd_Hexdump(uint8_t argc, char **argv)
+{
+    char full_path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint8_t buf[256];
+    uint16_t real_len;
+    uint16_t once_read;
+    uint32_t offset = 0;
+    uint16_t i;
+
+    if (argc < 2) {
+        printf("Usage: hexdump <file>\r\n");
+        return;
+    }
+
+    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+
+    if (CLI_IsShortName(argv[1])) {
+        status = CH378FileOpen((uint8_t*)full_path);
+    } else {
+        status = CLI_LFN_Operation(full_path, 0);
+    }
+    if (status != ERR_SUCCESS) {
+        printf("hexdump: %s: No such file\r\n", argv[1]);
+        return;
+    }
+
+    while (1) {
+        once_read = sizeof(buf);
+        status = CH378ByteRead(buf, once_read, &real_len);
+        if (status != ERR_SUCCESS || real_len == 0) break;
+
+        for (i = 0; i < real_len; i++) {
+            if ((i % 16) == 0) {
+                printf("\r\n%08lX  ", offset + i);
+            }
+            printf("%02X ", buf[i]);
+            if ((i % 16) == 7) {
+                printf(" ");
+            }
+        }
+        offset += real_len;
+        if (real_len < once_read) break;
+    }
+    printf("\r\n");
+    CH378FileClose(0);
+}
+
+static void CLI_Cmd_Head(uint8_t argc, char **argv)
+{
+    char full_path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint8_t buf[256];
+    uint16_t real_len;
+    uint16_t once_read;
+    uint32_t remain;
+    uint16_t i;
+    uint32_t n = 256;
+
+    if (argc < 2) {
+        printf("Usage: head <file> [n_bytes]\r\n");
+        return;
+    }
+    if (argc >= 3) {
+        n = (uint32_t)atoi(argv[2]);
+        if (n == 0) n = 256;
+    }
+
+    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+
+    if (CLI_IsShortName(argv[1])) {
+        status = CH378FileOpen((uint8_t*)full_path);
+    } else {
+        status = CLI_LFN_Operation(full_path, 0);
+    }
+    if (status != ERR_SUCCESS) {
+        printf("head: %s: No such file\r\n", argv[1]);
+        return;
+    }
+
+    remain = n;
+    while (remain > 0) {
+        once_read = (remain > sizeof(buf)) ? sizeof(buf) : (uint16_t)remain;
+        status = CH378ByteRead(buf, once_read, &real_len);
+        if (status != ERR_SUCCESS || real_len == 0) break;
+
+        for (i = 0; i < real_len; i++) {
+            printf("%c", buf[i]);
+        }
+        remain -= real_len;
+    }
+    printf("\r\n");
+    CH378FileClose(0);
+}
+
+static void CLI_Cmd_Tail(uint8_t argc, char **argv)
+{
+    char full_path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint8_t buf[256];
+    uint16_t real_len;
+    uint32_t file_size;
+    uint32_t offset;
+    uint32_t n = 256;
+    uint16_t i;
+
+    if (argc < 2) {
+        printf("Usage: tail <file> [n_bytes]\r\n");
+        return;
+    }
+    if (argc >= 3) {
+        n = (uint32_t)atoi(argv[2]);
+        if (n == 0) n = 256;
+    }
+
+    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+
+    if (CLI_IsShortName(argv[1])) {
+        status = CH378FileOpen((uint8_t*)full_path);
+    } else {
+        status = CLI_LFN_Operation(full_path, 0);
+    }
+    if (status != ERR_SUCCESS) {
+        printf("tail: %s: No such file\r\n", argv[1]);
+        return;
+    }
+
+    file_size = CH378GetFileSize();
+    if (n > file_size) n = file_size;
+    offset = file_size - n;
+
+    status = CH378ByteLocate(offset);
+    if (status != ERR_SUCCESS) {
+        printf("tail: seek failed\r\n");
+        CH378FileClose(0);
+        return;
+    }
+
+    while (n > 0) {
+        uint16_t once_read = (n > sizeof(buf)) ? sizeof(buf) : (uint16_t)n;
+        status = CH378ByteRead(buf, once_read, &real_len);
+        if (status != ERR_SUCCESS || real_len == 0) break;
+
+        for (i = 0; i < real_len; i++) {
+            printf("%c", buf[i]);
+        }
+        n -= real_len;
+    }
+    printf("\r\n");
+    CH378FileClose(0);
+}
+
+static void CLI_Cmd_Cp(uint8_t argc, char **argv)
+{
+    char src_path[CH378_MAX_PATH_LEN];
+    char dst_path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint8_t buf[256];
+    uint16_t real_len;
+    uint32_t offset = 0;
+    uint8_t src_lfn, dst_lfn;
+
+    if (argc < 3) {
+        printf("Usage: cp <src> <dst>\r\n");
+        return;
+    }
+
+    CH378_Path_Join(ch378_current_path, argv[1], src_path, sizeof(src_path));
+    CH378_Path_Join(ch378_current_path, argv[2], dst_path, sizeof(dst_path));
+
+    src_lfn = !CLI_IsShortName(argv[1]);
+    dst_lfn = !CLI_IsShortName(argv[2]);
+
+    /* Open source */
+    if (src_lfn) {
+        status = CLI_LFN_Operation(src_path, 0);
+    } else {
+        status = CH378FileOpen((uint8_t*)src_path);
+    }
+    if (status != ERR_SUCCESS) {
+        printf("cp: %s: No such file\r\n", argv[1]);
+        return;
+    }
+    CH378FileClose(0);
+
+    /* Remove destination if exists */
+    if (dst_lfn) {
+        CLI_LFN_Operation(dst_path, 3);
+    } else {
+        CH378FileErase((uint8_t*)dst_path);
+    }
+
+    /* Create destination */
+    if (dst_lfn) {
+        status = CLI_LFN_Operation(dst_path, 1);
+    } else {
+        status = CH378FileCreate((uint8_t*)dst_path);
+    }
+    if (status != ERR_SUCCESS) {
+        printf("cp: cannot create '%s'\r\n", argv[2]);
+        return;
+    }
+    CH378FileClose(0);
+
+    /* Copy loop */
+    while (1) {
+        /* Read from source */
+        if (src_lfn) {
+            status = CLI_LFN_Operation(src_path, 0);
+        } else {
+            status = CH378FileOpen((uint8_t*)src_path);
+        }
+        if (status != ERR_SUCCESS) break;
+
+        if (offset > 0) {
+            status = CH378ByteLocate(offset);
+            if (status != ERR_SUCCESS) {
+                CH378FileClose(0);
+                break;
+            }
+        }
+
+        status = CH378ByteRead(buf, sizeof(buf), &real_len);
+        CH378FileClose(0);
+        if (status != ERR_SUCCESS || real_len == 0) break;
+
+        /* Write to destination */
+        if (dst_lfn) {
+            status = CLI_LFN_Operation(dst_path, 0);
+        } else {
+            status = CH378FileOpen((uint8_t*)dst_path);
+        }
+        if (status != ERR_SUCCESS) {
+            printf("cp: write error on '%s'\r\n", argv[2]);
+            break;
+        }
+
+        if (offset > 0) {
+            status = CH378ByteLocate(offset);
+            if (status != ERR_SUCCESS) {
+                CH378FileClose(0);
+                break;
+            }
+        }
+
+        status = CH378ByteWrite(buf, real_len, &real_len);
+        CH378FileClose(1);
+        if (status != ERR_SUCCESS) {
+            printf("cp: write error\r\n");
+            break;
+        }
+
+        offset += real_len;
+        if (real_len < sizeof(buf)) break;
+    }
+
+    printf("cp: copied '%s' -> '%s'\r\n", argv[1], argv[2]);
+}
+
+/* Tree/Du/Find helpers */
+static void CLI_TreePrint(const char *name, uint8_t is_dir, uint32_t size)
+{
+    uint8_t i;
+    for (i = 0; i < g_tree_depth; i++) {
+        printf("  ");
+    }
+    if (is_dir) {
+        printf("[DIR]  %s\r\n", name);
+    } else {
+        printf("[FILE] %s  (%lu bytes)\r\n", name, size);
+    }
+}
+
+static void CLI_TreeRecursive(const char *dir, uint8_t depth)
+{
+    char saved_path[CH378_MAX_PATH_LEN];
+    uint8_t i;
+    char subdirs[CLI_MAX_ENTRIES][14];
+    uint8_t subdir_cnt = 0;
+
+    strcpy(saved_path, CH378_Dir_Get_Path());
+
+    if (CH378_Dir_Enter(&ch378_g, dir) != ERR_SUCCESS) {
+        return;
+    }
+
+    g_tree_depth = depth;
+    g_cli_entries.count = 0;
+    CH378_Dir_List(&ch378_g, CLI_RmCollectCallback);
+
+    for (i = 0; i < g_cli_entries.count; i++) {
+        CLI_TreePrint(g_cli_entries.names[i], g_cli_entries.is_dir[i], 0);
+        if (g_cli_entries.is_dir[i]) {
+            if (subdir_cnt < CLI_MAX_ENTRIES) {
+                strncpy(subdirs[subdir_cnt], g_cli_entries.names[i], 13);
+                subdirs[subdir_cnt][13] = '\0';
+                subdir_cnt++;
+            }
+        }
+    }
+
+    for (i = 0; i < subdir_cnt; i++) {
+        CLI_TreeRecursive(subdirs[i], depth + 1);
+    }
+
+    CH378_Dir_Go_Parent(&ch378_g);
+}
+
+static void CLI_Cmd_Tree(uint8_t argc, char **argv)
+{
+    const char *dir = ".";
+    uint8_t i;
+    char subdirs[CLI_MAX_ENTRIES][14];
+    uint8_t subdir_cnt = 0;
+
+    if (argc >= 2) dir = argv[1];
+
+    printf("%s\r\n", CH378_Dir_Get_Path());
+    if (strcmp(dir, ".") == 0) {
+        /* List current directory tree */
+        g_tree_depth = 0;
+        g_cli_entries.count = 0;
+        CH378_Dir_List(&ch378_g, CLI_RmCollectCallback);
+        for (i = 0; i < g_cli_entries.count; i++) {
+            CLI_TreePrint(g_cli_entries.names[i], g_cli_entries.is_dir[i], 0);
+            if (g_cli_entries.is_dir[i]) {
+                if (subdir_cnt < CLI_MAX_ENTRIES) {
+                    strncpy(subdirs[subdir_cnt], g_cli_entries.names[i], 13);
+                    subdirs[subdir_cnt][13] = '\0';
+                    subdir_cnt++;
+                }
+            }
+        }
+        for (i = 0; i < subdir_cnt; i++) {
+            CLI_TreeRecursive(subdirs[i], 1);
+        }
+    } else {
+        CLI_TreeRecursive(dir, 0);
+    }
+}
+
+static uint32_t CLI_DuRecursive(const char *dir)
+{
+    char saved_path[CH378_MAX_PATH_LEN];
+    uint8_t i;
+    char subdirs[CLI_MAX_ENTRIES][14];
+    uint8_t subdir_cnt = 0;
+    uint32_t total = 0;
+    uint8_t entered = 0;
+
+    strcpy(saved_path, CH378_Dir_Get_Path());
+
+    if (strcmp(dir, ".") != 0) {
+        if (CH378_Dir_Enter(&ch378_g, dir) != ERR_SUCCESS) {
+            return 0;
+        }
+        entered = 1;
+    }
+
+    g_cli_entries.count = 0;
+    CH378_Dir_List(&ch378_g, CLI_RmCollectCallback);
+
+    for (i = 0; i < g_cli_entries.count; i++) {
+        if (!g_cli_entries.is_dir[i]) {
+            total += CH378_File_GetSize(&ch378_g, g_cli_entries.names[i]);
+        } else {
+            if (subdir_cnt < CLI_MAX_ENTRIES) {
+                strncpy(subdirs[subdir_cnt], g_cli_entries.names[i], 13);
+                subdirs[subdir_cnt][13] = '\0';
+                subdir_cnt++;
+            }
+        }
+    }
+
+    for (i = 0; i < subdir_cnt; i++) {
+        total += CLI_DuRecursive(subdirs[i]);
+    }
+
+    if (entered) {
+        CH378_Dir_Go_Parent(&ch378_g);
+    }
+    return total;
+}
+
+static void CLI_Cmd_Du(uint8_t argc, char **argv)
+{
+    const char *dir = ".";
+    uint32_t total;
+
+    if (argc >= 2) dir = argv[1];
+
+    if (strcmp(dir, ".") == 0) {
+        total = CLI_DuRecursive(".");
+    } else {
+        total = CLI_DuRecursive(dir);
+    }
+
+    printf("%lu bytes  %s\r\n", total, CH378_Dir_Get_Path());
+}
+
+static void CLI_FindCallback(const char *name, uint8_t is_dir, uint32_t size)
+{
+    if (strstr(name, g_find_pattern) != NULL) {
+        if (is_dir)
+            printf("  [DIR]  %s\r\n", name);
+        else
+            printf("  [FILE] %s  (%lu bytes)\r\n", name, size);
+        g_find_found = 1;
+    }
+}
+
+static void CLI_FindRecursive(const char *dir)
+{
+    char saved_path[CH378_MAX_PATH_LEN];
+    uint8_t i;
+    char subdirs[CLI_MAX_ENTRIES][14];
+    uint8_t subdir_cnt = 0;
+    uint8_t entered = 0;
+
+    strcpy(saved_path, CH378_Dir_Get_Path());
+
+    if (strcmp(dir, ".") != 0) {
+        if (CH378_Dir_Enter(&ch378_g, dir) != ERR_SUCCESS) {
+            return;
+        }
+        entered = 1;
+    }
+
+    CH378_Dir_List(&ch378_g, CLI_FindCallback);
+
+    g_cli_entries.count = 0;
+    CH378_Dir_List(&ch378_g, CLI_RmCollectCallback);
+    for (i = 0; i < g_cli_entries.count; i++) {
+        if (g_cli_entries.is_dir[i]) {
+            if (subdir_cnt < CLI_MAX_ENTRIES) {
+                strncpy(subdirs[subdir_cnt], g_cli_entries.names[i], 13);
+                subdirs[subdir_cnt][13] = '\0';
+                subdir_cnt++;
+            }
+        }
+    }
+
+    for (i = 0; i < subdir_cnt; i++) {
+        CLI_FindRecursive(subdirs[i]);
+    }
+
+    if (entered) {
+        CH378_Dir_Go_Parent(&ch378_g);
+    }
+}
+
+static void CLI_Cmd_Find(uint8_t argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Usage: find <pattern>\r\n");
+        return;
+    }
+
+    g_find_pattern = argv[1];
+    g_find_found = 0;
+
+    printf("--- Searching for '%s' ---\r\n", argv[1]);
+    CLI_FindRecursive(".");
+    if (!g_find_found) {
+        printf("  (no matches)\r\n");
+    }
+}
+
+static void CLI_Cmd_Free(void)
+{
+    uint32_t free_sectors = CH378_Disk_Query_FreeSectors();
+    uint16_t sector_size = (uint16_t)CH378ReadVar8(VAR8_DISK_SEC_LEN) << 8;
+    uint32_t free_bytes;
+
+    if (sector_size == 0) sector_size = 512;
+    free_bytes = free_sectors * sector_size;
+
+    printf("Free space: %lu sectors x %u bytes\r\n", free_sectors, sector_size);
+    printf("           = %lu bytes (%lu MB)\r\n", free_bytes, free_bytes / (1024 * 1024));
+}
+
+static void CLI_Cmd_Stat(uint8_t argc, char **argv)
+{
+    char full_path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint8_t buf[16];
+    uint32_t size;
+    uint16_t fdate, ftime;
+    uint8_t attr;
+    uint16_t year, month, day, hour, minute, second;
+
+    if (argc < 2) {
+        printf("Usage: stat <file>\r\n");
+        return;
+    }
+
+    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+
+    if (CLI_IsShortName(argv[1])) {
+        status = CH378FileOpen((uint8_t*)full_path);
+    } else {
+        status = CLI_LFN_Operation(full_path, 0);
+    }
+    if (status != ERR_SUCCESS) {
+        printf("stat: %s: No such file\r\n", argv[1]);
+        return;
+    }
+
+    status = CH378_File_Query(buf);
+    CH378FileClose(0);
+
+    if (status != ERR_SUCCESS) {
+        printf("stat: query failed (status=%02X)\r\n", status);
+        return;
+    }
+
+    size = (uint32_t)buf[0] | ((uint32_t)buf[1] << 8) | ((uint32_t)buf[2] << 16) | ((uint32_t)buf[3] << 24);
+    fdate = (uint16_t)buf[4] | ((uint16_t)buf[5] << 8);
+    ftime = (uint16_t)buf[6] | ((uint16_t)buf[7] << 8);
+    attr = buf[8];
+
+    /* Decode FAT date/time */
+    day   = fdate & 0x1F;
+    month = (fdate >> 5) & 0x0F;
+    year  = 1980 + ((fdate >> 9) & 0x7F);
+    second = (ftime & 0x1F) * 2;
+    minute = (ftime >> 5) & 0x3F;
+    hour   = (ftime >> 11) & 0x1F;
+
+    printf("  File: %s\r\n", argv[1]);
+    printf("  Size: %lu bytes\r\n", size);
+    printf("  Date: %04u-%02u-%02u\r\n", year, month, day);
+    printf("  Time: %02u:%02u:%02u\r\n", hour, minute, second);
+    printf("  Attr: 0x%02X", attr);
+    if (attr & 0x01) printf(" R");
+    if (attr & 0x02) printf(" H");
+    if (attr & 0x04) printf(" S");
+    if (attr & 0x08) printf(" V");
+    if (attr & 0x10) printf(" D");
+    if (attr & 0x20) printf(" A");
+    printf("\r\n");
+}
+
+static void CLI_Cmd_Mv(uint8_t argc, char **argv)
+{
+    char src_path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint8_t dir_buf[32];
+    uint16_t len;
+    uint8_t i;
+
+    if (argc < 3) {
+        printf("Usage: mv <oldname> <newname>\r\n");
+        return;
+    }
+
+    /* mv 目前只支持短文件名重命名 */
+    if (!CLI_IsShortName(argv[1]) || !CLI_IsShortName(argv[2])) {
+        printf("mv: long filename rename not supported, use cp + rm instead\r\n");
+        return;
+    }
+
+    /* 检查是否跨目录 */
+    if (strchr(argv[2], '\\') != NULL || strchr(argv[2], '/') != NULL) {
+        printf("mv: cross-directory move not supported\r\n");
+        return;
+    }
+
+    CH378_Path_Join(ch378_current_path, argv[1], src_path, sizeof(src_path));
+
+    /* 打开源文件/目录 */
+    status = CH378FileOpen((uint8_t*)src_path);
+    if (status != ERR_SUCCESS) {
+        printf("mv: %s: No such file or directory\r\n", argv[1]);
+        return;
+    }
+
+    /* 读取目录项信息 */
+    status = CH378_Dir_Info_Read(0xFF);
+    if (status != ERR_SUCCESS) {
+        CH378FileClose(0);
+        printf("mv: read dir info failed (status=%02X)\r\n", status);
+        return;
+    }
+
+    /* 读取目录项数据 */
+    len = CH378ReadReqBlock(dir_buf);
+    CH378FileClose(0);
+
+    if (len < 32) {
+        printf("mv: read dir info failed (len=%d)\r\n", len);
+        return;
+    }
+
+    /* 修改文件名 (DIR_Name[0..10]) */
+    memset(&dir_buf[0], ' ', 11);
+    for (i = 0; i < 8 && argv[2][i] && argv[2][i] != '.'; i++) {
+        dir_buf[i] = argv[2][i];
+    }
+    char *dot = strchr(argv[2], '.');
+    if (dot) {
+        for (i = 0; i < 3 && dot[i + 1]; i++) {
+            dir_buf[8 + i] = dot[i + 1];
+        }
+    }
+
+    /* 写回目录项 */
+    status = CH378FileOpen((uint8_t*)src_path);
+    if (status != ERR_SUCCESS) {
+        printf("mv: reopen failed\r\n");
+        return;
+    }
+
+    status = CH378_Dir_Info_Write(0xFF, dir_buf);
+    CH378FileClose(0);
+
+    if (status == ERR_SUCCESS) {
+        printf("mv: renamed '%s' -> '%s'\r\n", argv[1], argv[2]);
+    } else {
+        printf("mv: rename failed (status=%02X)\r\n", status);
+    }
+}
+
+static void CLI_Cmd_Chmod(uint8_t argc, char **argv)
+{
+    char full_path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint8_t attr;
+
+    if (argc < 3) {
+        printf("Usage: chmod <file> <attr_hex>\r\n");
+        printf("  attr: bit0=R bit1=H bit2=S bit3=V bit4=D bit5=A\r\n");
+        return;
+    }
+
+    attr = (uint8_t)strtol(argv[2], NULL, 16);
+
+    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+
+    if (CLI_IsShortName(argv[1])) {
+        status = CH378FileOpen((uint8_t*)full_path);
+    } else {
+        status = CLI_LFN_Operation(full_path, 0);
+    }
+    if (status != ERR_SUCCESS) {
+        printf("chmod: %s: No such file\r\n", argv[1]);
+        return;
+    }
+
+    status = CH378_File_Modify(0xFFFFFFFF, 0xFFFF, 0xFFFF, attr);
+    CH378FileClose(0);
+
+    if (status == ERR_SUCCESS) {
+        printf("chmod: '%s' -> 0x%02X\r\n", argv[1], attr);
+    } else {
+        printf("chmod: failed (status=%02X)\r\n", status);
     }
 }
 
@@ -351,6 +1298,38 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Echo(argc, argv);
     } else if (strcmp(argv[0], "rm") == 0) {
         CLI_Cmd_Rm(argc, argv);
+    } else if (strcmp(argv[0], "help") == 0) {
+        CLI_Cmd_Help();
+    } else if (strcmp(argv[0], "clear") == 0) {
+        CLI_Cmd_Clear();
+    } else if (strcmp(argv[0], "ver") == 0) {
+        CLI_Cmd_Ver();
+    } else if (strcmp(argv[0], "df") == 0) {
+        CLI_Cmd_Df();
+    } else if (strcmp(argv[0], "device") == 0) {
+        CLI_Cmd_Device(argc, argv);
+    } else if (strcmp(argv[0], "hexdump") == 0) {
+        CLI_Cmd_Hexdump(argc, argv);
+    } else if (strcmp(argv[0], "head") == 0) {
+        CLI_Cmd_Head(argc, argv);
+    } else if (strcmp(argv[0], "tail") == 0) {
+        CLI_Cmd_Tail(argc, argv);
+    } else if (strcmp(argv[0], "cp") == 0) {
+        CLI_Cmd_Cp(argc, argv);
+    } else if (strcmp(argv[0], "tree") == 0) {
+        CLI_Cmd_Tree(argc, argv);
+    } else if (strcmp(argv[0], "du") == 0) {
+        CLI_Cmd_Du(argc, argv);
+    } else if (strcmp(argv[0], "find") == 0) {
+        CLI_Cmd_Find(argc, argv);
+    } else if (strcmp(argv[0], "free") == 0) {
+        CLI_Cmd_Free();
+    } else if (strcmp(argv[0], "stat") == 0) {
+        CLI_Cmd_Stat(argc, argv);
+    } else if (strcmp(argv[0], "mv") == 0 || strcmp(argv[0], "rename") == 0) {
+        CLI_Cmd_Mv(argc, argv);
+    } else if (strcmp(argv[0], "chmod") == 0) {
+        CLI_Cmd_Chmod(argc, argv);
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }
