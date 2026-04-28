@@ -174,51 +174,44 @@ static void CLI_Cmd_Ls(void)
 
         CH378_Path_Join(ch378_current_path, g_cli_entries.names[i], full_path, sizeof(full_path));
 
-        /* 暂时禁用 LFN 显示：CH378 CMD10_GET_LONG_FILE_NAME 返回的长度不稳定，
-         * 常包含旧缓冲区数据导致字符串污染。先回退到短名显示。 */
-        (void)full_path;
-#if 0
+        /* 获取长文件名（LFN）；CH378 CMD10_GET_LONG_FILE_NAME 返回的 lfn_len 精确可靠，
+         * 但数据末尾不含 00 00 终止符，需严格按返回长度解析。 */
         {
             uint8_t status;
             uint8_t lfn_status;
             uint16_t j;
             uint16_t lfn_len = 0;
+            uint8_t lfn_ok = 0;
 
             display_name[0] = '\0';
 
-            /* 先打开文件/目录，再获取长文件名 */
             status = CH378FileOpen((uint8_t*)full_path);
             if (status == ERR_SUCCESS || status == ERR_OPEN_DIR) {
                 memset(g_lfn_buf, 0, sizeof(g_lfn_buf));
                 lfn_status = CH378SendCmdWaitInt(CMD10_GET_LONG_FILE_NAME);
                 if (lfn_status == ERR_SUCCESS) {
                     lfn_len = CH378ReadReqBlock(g_lfn_buf);
-                    /* CH378 固件对 LFN 长度返回不稳定，严格限制只接受可信长度 */
-                    if (lfn_len >= 2 && lfn_len <= 32 && (lfn_len & 0x1F) != 0) {
+                    /* CH378 返回的 LFN 为 UTF-16LE，长度必须是偶数且在合理范围 */
+                    if (lfn_len >= 2 && lfn_len <= 512 && (lfn_len % 2) == 0) {
                         for (j = 0; j < 255 && (j * 2 + 1) < lfn_len; j++) {
-                            if (g_lfn_buf[j * 2] == 0 && g_lfn_buf[j * 2 + 1] == 0)
-                                break;
                             display_name[j] = g_lfn_buf[j * 2];
                         }
                         display_name[j] = '\0';
-                    } else {
-                        lfn_len = 0;
+                        if (display_name[0] != '\0')
+                            lfn_ok = 1;
                     }
                 }
                 CH378FileClose(0);
             }
 
-            if (lfn_len >= 2 && display_name[0] != '\0')
-                goto lfn_ok;
+            if (lfn_ok)
+                goto use_lfn;
         }
-#endif
         {
             strncpy(display_name, g_cli_entries.names[i], 13);
             display_name[13] = '\0';
         }
-#if 0
-lfn_ok:;
-#endif
+use_lfn:;
 
         if (g_cli_entries.is_dir[i])
             printf("  [DIR]  %s\r\n", display_name);
