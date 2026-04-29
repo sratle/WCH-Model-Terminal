@@ -6,7 +6,7 @@
 #include "debug.h"
 
 /* CH378 SPI clock definition */
-#define CH378_SPI_CLOCK SPI_BaudRatePrescaler_Mode4
+#define CH378_SPI_CLOCK SPI_BaudRatePrescaler_Mode3
 #define CH378_SPI SPI1
 
 /* CH378 gpio definitions SPI1 */

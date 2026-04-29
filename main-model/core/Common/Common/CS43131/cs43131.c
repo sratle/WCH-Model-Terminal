@@ -171,8 +171,8 @@ void CS43131_I2C_Config(void)
 
     /* 六、PCM音频路径配置 */
     CS43131_I2C_WriteReg(0x090000, 0x02); /* 高通滤波开启, 快速滚降 */
-    CS43131_I2C_WriteReg(0x090001, 0x10); /* 设置音量A */
-    CS43131_I2C_WriteReg(0x090002, 0x10); /* 设置音量B */
+    CS43131_I2C_WriteReg(0x090001, 0x50); /* 设置音量A */
+    CS43131_I2C_WriteReg(0x090002, 0x50); /* 设置音量B */
     CS43131_I2C_WriteReg(0x090003, 0xEC); /* 软斜坡, 自动静音, 双声道同步 */
     CS43131_I2C_WriteReg(0x090004, 0x00); /* 关闭反转/交换/复制 */
 
