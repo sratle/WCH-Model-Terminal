@@ -62,8 +62,8 @@ void Hardware_V3F_Init(void)
 
 void Hardware_V5F_Init(void)
 {
-    // CS43131_init(&CS43131_g);
-    // hardware_g.hardware_init_flag |= 0x01;
+    CS43131_init(&CS43131_g);
+    hardware_g.hardware_init_flag |= 0x01;
 
     CH378_Init(&ch378_g);
     hardware_g.hardware_init_flag |= 0x02;

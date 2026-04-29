@@ -62,12 +62,7 @@ void CH9350_Init(ch9350_t *ch9350)
     ch9350->work_state = CH9350_STATE_2;
     ch9350->rx_timeout_cnt = 0;
 
-    printf("[CH9350] Init done, request State2\r\n");
-    // 发送0x85命令尝试从状态0/1切换到状态2
-    {
-        uint8_t cmd[4] = {CH9350_FRAME_HEAD1, CH9350_FRAME_HEAD2, 0x85, CH9350_STATE_2};
-        CH9350_Send_Data(ch9350, cmd, 4);
-    }
+    printf("[CH9350] Init done (State2)\r\n");
 }
 
 /*********************************************************************
@@ -479,19 +474,21 @@ void CH9350_Process(ch9350_t *ch9350)
         uint8_t parse_ok;
         uint8_t op_code;
 
-        printf("[CH9350] RAW | LEN:%d | DATA:", raw_len);
-        for (i = 0; i < raw_len; i++)
-        {
-            printf(" %02X", raw_buf[i]);
-        }
-        printf("\r\n");
-
         // 关中断：防止printf期间USART1中断覆盖rx_buffer
         __disable_irq();
         raw_len = ch9350->rx_len;
         memcpy(raw_buf, ch9350->rx_buffer, raw_len);
         parse_ok = CH9350_Parse_Frame(ch9350);
         __enable_irq();
+
+        // 打印原始帧（用raw_buf，因为Parse_Frame已清零rx_buffer）
+        op_code = raw_buf[2];
+        // printf("[CH9350] RAW | OP:0x%02X | LEN:%d | DATA:", op_code, raw_len);
+        // for (i = 0; i < raw_len; i++)
+        // {
+        //     printf(" %02X", raw_buf[i]);
+        // }
+        // printf("\r\n");
 
         if (parse_ok)
         {
@@ -507,67 +504,23 @@ void CH9350_Process(ch9350_t *ch9350)
                     if (ch9350->prev_keyboard_data.key_code[i] != 0) has_prev = 1;
                 }
 
-                // 只在"有按键"或"从有到无（松开）"时输出，避免空闲刷屏
-                if (has_curr || has_prev)
+                if (has_curr)
                 {
-                    printf("[CH9350] Keyboard | Modifier: 0x%02X | KeyCodes:",
-                           ch9350->keyboard_data.modifier);
+                    // 有按键：输出 Modifier + 所有非零 KeyCode
+                    printf("[CH9350] KB | Mod: 0x%02X | Keys:", ch9350->keyboard_data.modifier);
                     for (i = 0; i < 6; i++)
                     {
-                        printf(" 0x%02X", ch9350->keyboard_data.key_code[i]);
+                        if (ch9350->keyboard_data.key_code[i])
+                            printf(" 0x%02X", ch9350->keyboard_data.key_code[i]);
                     }
-                    printf(" | LED: 0x%02X\r\n", ch9350->keyboard_data.led_state);
-
-                    // 事件解析：Press / Release / Hold
-                    printf("                  Event |");
-                    uint8_t has_event = 0;
-                    uint8_t j;
-
-                    // Press: 当前有，上一帧没有
-                    for (i = 0; i < 6; i++)
-                    {
-                        uint8_t key = ch9350->keyboard_data.key_code[i];
-                        if (key == 0) continue;
-                        uint8_t found = 0;
-                        for (j = 0; j < 6; j++)
-                        {
-                            if (ch9350->prev_keyboard_data.key_code[j] == key)
-                            {
-                                found = 1;
-                                break;
-                            }
-                        }
-                        if (!found)
-                        {
-                            printf(" Press 0x%02X", key);
-                            has_event = 1;
-                        }
-                    }
-
-                    // Release: 上一帧有，当前没有
-                    for (i = 0; i < 6; i++)
-                    {
-                        uint8_t key = ch9350->prev_keyboard_data.key_code[i];
-                        if (key == 0) continue;
-                        uint8_t found = 0;
-                        for (j = 0; j < 6; j++)
-                        {
-                            if (ch9350->keyboard_data.key_code[j] == key)
-                            {
-                                found = 1;
-                                break;
-                            }
-                        }
-                        if (!found)
-                        {
-                            printf(" Release 0x%02X", key);
-                            has_event = 1;
-                        }
-                    }
-
-                    if (!has_event) printf(" Hold");
                     printf("\r\n");
                 }
+                else if (has_prev)
+                {
+                    // 从有到无：按键释放
+                    printf("[CH9350] KB | Released\r\n");
+                }
+                // 两帧全0：静默，避免空闲刷屏
 
                 ch9350->prev_keyboard_data = ch9350->keyboard_data;
                 break;
@@ -586,7 +539,7 @@ void CH9350_Process(ch9350_t *ch9350)
 
                 if (has_curr || has_prev)
                 {
-                    printf("[CH9350] Mouse(Rel) | Button: 0x%02X | X: %d | Y: %d | Wheel: %d\r\n",
+                    printf("[CH9350] MS | Btn: 0x%02X | X: %+4d | Y: %+4d | W: %+4d\r\n",
                            ch9350->mouse_rel_data.button,
                            ch9350->mouse_rel_data.x_offset,
                            ch9350->mouse_rel_data.y_offset,
@@ -599,7 +552,7 @@ void CH9350_Process(ch9350_t *ch9350)
             // 状态2不支持绝对鼠标和多媒体键
 
             case CH9350_DEV_NONE:
-                // 可能是控制帧（连接/断开/状态改变等）
+                // 连接/断开事件仍然输出
                 if (ch9350->dev_connected)
                 {
                     printf("[CH9350] Device Connected\r\n");
@@ -608,11 +561,13 @@ void CH9350_Process(ch9350_t *ch9350)
                 {
                     printf("[CH9350] Device Disconnected\r\n");
                 }
-                else
+                else if (op_code != CH9350_OP_STATUS_CHG)
                 {
+                    // 非0x80的控制帧才输出
                     printf("[CH9350] Control Frame | WorkState: %d | Version: %d\r\n",
                            ch9350->work_state, ch9350->version);
                 }
+                // 0x80状态改变帧：静默处理，只发应答，不printf
                 break;
 
             default:
