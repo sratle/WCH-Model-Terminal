@@ -175,7 +175,7 @@ void CS43131_I2C_Config(void)
 
     /* 六、PCM音频路径配置 */
     CS43131_I2C_WriteReg(0x090000, 0x02); /* 高通滤波开启, 快速滚降 */
-    Audio_SetVolume(50);                  /* 默认音量 50% */
+    Audio_SetVolume(60);                  /* 默认音量 50% */
     CS43131_I2C_WriteReg(0x090003, 0xEC); /* 软斜坡, 自动静音, 双声道同步 */
     CS43131_I2C_WriteReg(0x090004, 0x00); /* 关闭反转/交换/复制 */
 
@@ -476,9 +476,9 @@ void Audio_SetVolume(uint8_t vol)
 {
     if (vol > 100) vol = 100;
     CS43131_g.volume = vol;
-    /* CS43131 PCM Volume: 0x00=0dB(max), ~0xC0=mute.
-     * Linear map: 100 → 0x00, 0 → 0xC0 */
-    uint8_t reg_val = (uint8_t)(((100 - vol) * 192) / 100);
+    /* CS43131 PCM Volume: 0x20=0dB(max), ~0xC0=mute.
+     * Linear map: 100 → 0x20, 0 → 0xC0 */
+    uint8_t reg_val = (uint8_t)(((100 - vol) * 160) / 100) + 32;
     CS43131_I2C_WriteReg(0x090001, reg_val); /* Volume B */
     CS43131_I2C_WriteReg(0x090002, reg_val); /* Volume A */
 }
