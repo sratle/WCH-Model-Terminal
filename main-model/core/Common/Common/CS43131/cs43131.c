@@ -163,8 +163,8 @@ void CS43131_I2C_Config(void)
     CS43131_I2C_WriteReg(0x040019, 0x0A); /* 50/50 duty | FSD=1 | STP=0 */
     CS43131_I2C_WriteReg(0x050000, 0x00); /* ASP_RX_CH1 = 0 */
     CS43131_I2C_WriteReg(0x050001, 0x00); /* ASP_RX_CH2 = 0 */
-    CS43131_I2C_WriteReg(0x05000A, 0x06); /* CH1: LRCK低电平采样, 16bit, 使能 */
-    CS43131_I2C_WriteReg(0x05000B, 0x0E); /* CH2: LRCK高电平采样, 16bit, 使能 */
+    CS43131_I2C_WriteReg(0x05000A, 0x05); /* CH1: LRCK低电平采样, 16bit, 使能 */
+    CS43131_I2C_WriteReg(0x05000B, 0x0D); /* CH2: LRCK高电平采样, 16bit, 使能 */
     CS43131_I2C_WriteReg(0x01000D, 0x02); /* XSP_3ST=1(default), ASP_3ST=0, 使能时钟输出 */
 
     printf("CS43131_I2C_Config:ASP I2S Master interface config\r\n");

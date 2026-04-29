@@ -15,7 +15,7 @@
 #include "ch32h417.h"
 #include "ch32h417_gpio.h"
 
-#define AUDIO_BUFFER_SIZE   1024
+#define AUDIO_BUFFER_SIZE   2048
 #define SPI2_TX_DMA_REQUEST 65
 #define CS43131_I2C_ADDR    0x30
 
