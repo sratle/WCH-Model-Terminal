@@ -5,6 +5,7 @@
 #include <stdlib.h>
 
 #include "CH378/CH378.h"
+#include "CS43131/cs43131.h"
 #include "debug.h"
 
 extern ch378_t ch378_g;
@@ -554,6 +555,7 @@ static void CLI_Cmd_Help(void)
     printf("  stat <file>     Show file status (supports LFN)\r\n");
     printf("  chmod <file> <attr>  Change file attributes (supports LFN)\r\n");
     printf("  ver             Show CH378 firmware version\r\n");
+    printf("  play <file>     Play a WAV audio file\r\n");
     printf("  clear           Clear screen\r\n");
     printf("  help            Show this help message\r\n");
 }
@@ -1251,6 +1253,18 @@ static void CLI_Cmd_Chmod(uint8_t argc, char **argv)
     }
 }
 
+static void CLI_Cmd_Play(uint8_t argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Usage: play <wav_file>\r\n");
+        return;
+    }
+    uint8_t status = Audio_PlayWAV(argv[1]);
+    if (status != 0) {
+        printf("play: failed to play '%s'\r\n", argv[1]);
+    }
+}
+
 /* ------------------------------------------------------------------------ */
 /* CLI 主入口 */
 /* ------------------------------------------------------------------------ */
@@ -1323,6 +1337,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Mv(argc, argv);
     } else if (strcmp(argv[0], "chmod") == 0) {
         CLI_Cmd_Chmod(argc, argv);
+    } else if (strcmp(argv[0], "play") == 0) {
+        CLI_Cmd_Play(argc, argv);
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }

@@ -12,6 +12,10 @@
 #include "ch32h417_rcc.h"
 #include "debug.h"
 
+#include "CH378/CH378.h"
+#include "hardware.h"
+#include <string.h>
+
 static uint16_t audio_buffer_A[AUDIO_BUFFER_SIZE];
 static uint16_t audio_buffer_B[AUDIO_BUFFER_SIZE];
 
@@ -271,6 +275,56 @@ void I2S1_DMA_DoubleBufferInit(void)
 }
 
 /*********************************************************************
+ * @fn      sine_lookup
+ *
+ * @brief   Lookup sine value from quarter-table using symmetry.
+ *
+ * @param   phase - 8-bit phase 0~255
+ *
+ * @return  16-bit signed sample
+ *********************************************************************/
+static int16_t sine_lookup(uint8_t phase)
+{
+    uint8_t idx;
+    int16_t val;
+
+    if (phase <= 64) {
+        idx = phase;
+        val = sine_quarter[idx];
+    } else if (phase <= 128) {
+        idx = 128 - phase;
+        val = sine_quarter[idx];
+    } else if (phase <= 192) {
+        idx = phase - 128;
+        val = -sine_quarter[idx];
+    } else {
+        idx = 256 - phase;
+        val = -sine_quarter[idx];
+    }
+    return val;
+}
+
+/*********************************************************************
+ * @fn      Audio_GenerateSineWave
+ *
+ * @brief   Generate 1kHz sine wave into buffer (mono -> stereo).
+ *
+ * @param   buffer - pointer to buffer to fill.
+ * @param   length - number of samples to generate.
+ *
+ * @return  none
+ *********************************************************************/
+void Audio_GenerateSineWave(uint16_t *buffer, uint32_t length)
+{
+    uint32_t i;
+    for (i = 0; i < length; i++) {
+        int16_t sample = sine_lookup((uint8_t)sine_phase);
+        buffer[i] = (uint16_t)sample;
+        sine_phase += sine_inc;
+    }
+}
+
+/*********************************************************************
  * @fn      Audio_FillBuffer
  *
  * @brief   Fill audio buffer with next samples from song data.
@@ -281,7 +335,31 @@ void I2S1_DMA_DoubleBufferInit(void)
  *********************************************************************/
 void Audio_FillBuffer(uint16_t *buffer)
 {
+    uint32_t i;
+    uint32_t remaining;
+    uint32_t copy_count;
 
+    if (audio_state != AUDIO_STATE_PLAYING || song_data == NULL) {
+        memset(buffer, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
+        return;
+    }
+
+    remaining = song_data_length - audio_data_offset;
+    copy_count = (remaining < AUDIO_BUFFER_SIZE) ? remaining : AUDIO_BUFFER_SIZE;
+
+    for (i = 0; i < copy_count; i++) {
+        buffer[i] = song_data[audio_data_offset + i];
+    }
+    for (; i < AUDIO_BUFFER_SIZE; i++) {
+        buffer[i] = 0;
+    }
+
+    audio_data_offset += copy_count;
+    if (audio_data_offset >= song_data_length) {
+        audio_state = AUDIO_STATE_IDLE;
+        audio_mode = AUDIO_MODE_NONE;
+        song_data = NULL;
+    }
 }
 
 /*********************************************************************
@@ -296,7 +374,147 @@ void Audio_FillBuffer(uint16_t *buffer)
  *********************************************************************/
 void Audio_PlayStart(const uint16_t *data, uint32_t length)
 {
+    song_data = data;
+    song_data_length = length;
+    audio_data_offset = 0;
+    audio_mode = AUDIO_MODE_MEMORY;
+    audio_state = AUDIO_STATE_PLAYING;
 
+    /* 预填充两个 buffer，避免启动噪声 */
+    Audio_FillBuffer(audio_buffer_A);
+    Audio_FillBuffer(audio_buffer_B);
+}
+
+/*********************************************************************
+ * @fn      Audio_PlayStop
+ *
+ * @brief   Stop audio playback.
+ *
+ * @return  none
+ *********************************************************************/
+void Audio_PlayStop(void)
+{
+    audio_mode = AUDIO_MODE_NONE;
+    audio_state = AUDIO_STATE_STOPPED;
+    song_data = NULL;
+}
+
+/*********************************************************************
+ * @fn      Audio_PlaySineStart
+ *
+ * @brief   Start playing 1kHz sine wave for hardware test.
+ *
+ * @return  none
+ *********************************************************************/
+void Audio_PlaySineStart(void)
+{
+    sine_phase = 0;
+    audio_mode = AUDIO_MODE_SINE;
+    audio_state = AUDIO_STATE_PLAYING;
+
+    Audio_GenerateSineWave(audio_buffer_A, AUDIO_BUFFER_SIZE);
+    Audio_GenerateSineWave(audio_buffer_B, AUDIO_BUFFER_SIZE);
+
+    printf("Audio_PlaySineStart: 1kHz sine wave started\r\n");
+}
+
+/*********************************************************************
+ * @fn      Audio_IsPlaying
+ *
+ * @brief   Check if audio is currently playing.
+ *
+ * @return  1 if playing, 0 otherwise
+ *********************************************************************/
+uint8_t Audio_IsPlaying(void)
+{
+    return (audio_state == AUDIO_STATE_PLAYING);
+}
+
+/*********************************************************************
+ * @fn      Audio_ParseWAVHeader
+ *
+ * @brief   Parse standard WAV file header.
+ *
+ * @param   buf   - pointer to header data (at least 44 bytes).
+ * @param   info  - pointer to wav_info_t to fill.
+ *
+ * @return  0 on success, non-zero on error
+ *********************************************************************/
+uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info)
+{
+    if (buf[0] != 'R' || buf[1] != 'I' || buf[2] != 'F' || buf[3] != 'F') {
+        printf("WAV: not a RIFF file\r\n");
+        return 1;
+    }
+    if (buf[8] != 'W' || buf[9] != 'A' || buf[10] != 'V' || buf[11] != 'E') {
+        printf("WAV: not a WAVE file\r\n");
+        return 2;
+    }
+
+    /* 标准 44 字节头解析 */
+    info->num_channels   = buf[22] | (buf[23] << 8);
+    info->sample_rate    = buf[24] | (buf[25] << 8) | (buf[26] << 16) | (buf[27] << 24);
+    info->bits_per_sample = buf[34] | (buf[35] << 8);
+    info->data_offset    = 44;
+    info->data_size      = buf[40] | (buf[41] << 8) | (buf[42] << 16) | (buf[43] << 24);
+
+    if (info->sample_rate != 44100 || info->bits_per_sample != 16 || info->num_channels != 2) {
+        printf("WAV: unsupported format (SR=%lu, Bits=%u, Ch=%u)\r\n",
+               info->sample_rate, info->bits_per_sample, info->num_channels);
+        return 3;
+    }
+    return 0;
+}
+
+/*********************************************************************
+ * @fn      Audio_PlayWAV
+ *
+ * @brief   Start playing a WAV file from CH378 (framework).
+ *
+ * @param   filename - path to WAV file.
+ *
+ * @return  0 on success, non-zero on error
+ *********************************************************************/
+uint8_t Audio_PlayWAV(const char *filename)
+{
+    uint8_t header[512];
+    uint32_t read_len;
+
+    printf("Audio_PlayWAV: %s\r\n", filename);
+
+    Audio_PlayStop();
+
+    read_len = CH378_File_Read(&ch378_g, filename, header, 512);
+    if (read_len < 44) {
+        printf("Audio_PlayWAV: file too small or read failed\r\n");
+        return 1;
+    }
+
+    if (Audio_ParseWAVHeader(header, &wav_info) != 0) {
+        printf("Audio_PlayWAV: WAV header parse failed\r\n");
+        return 2;
+    }
+
+    printf("Audio_PlayWAV: SR=%lu, Bits=%u, Ch=%u, DataOffset=%lu, DataSize=%lu\r\n",
+           wav_info.sample_rate, wav_info.bits_per_sample, wav_info.num_channels,
+           wav_info.data_offset, wav_info.data_size);
+
+    /* TODO: 启动流式播放：打开文件、定位到 data_offset、填充 ring buffer、切换 mode */
+    printf("Audio_PlayWAV: streaming playback not yet implemented\r\n");
+    return 0;
+}
+
+/*********************************************************************
+ * @fn      Audio_Process
+ *
+ * @brief   Main-loop polling for audio streaming (framework).
+ *          Should be called periodically (e.g. every 10~50ms).
+ *
+ * @return  none
+ *********************************************************************/
+void Audio_Process(void)
+{
+    /* TODO: 在 AUDIO_MODE_WAV 下，从 CH378 读取数据填充 ring buffer */
 }
 
 /*********************************************************************
@@ -343,26 +561,30 @@ void DMA1_Channel1_IRQHandler(void)
     if (DMA_GetITStatus(DMA1, DMA1_IT_HT1) == SET)
     {
         DMA_ClearITPendingBit(DMA1, DMA1_IT_HT1);
-        if (song_data != NULL)
-        {
+        if (audio_mode == AUDIO_MODE_MEMORY) {
             Audio_FillBuffer(audio_buffer_A);
-        }
-        else
-        {
-            Audio_GenerateTriangleWave(audio_buffer_A, AUDIO_BUFFER_SIZE, 10000, 44);
+        } else if (audio_mode == AUDIO_MODE_SINE) {
+            Audio_GenerateSineWave(audio_buffer_A, AUDIO_BUFFER_SIZE);
+        } else if (audio_mode == AUDIO_MODE_WAV) {
+            /* TODO: 从 ring buffer 读取数据填充 */
+            memset(audio_buffer_A, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
+        } else {
+            memset(audio_buffer_A, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
         }
     }
 
     if (DMA_GetITStatus(DMA1, DMA1_IT_TC1) == SET)
     {
         DMA_ClearITPendingBit(DMA1, DMA1_IT_TC1);
-        if (song_data != NULL)
-        {
+        if (audio_mode == AUDIO_MODE_MEMORY) {
             Audio_FillBuffer(audio_buffer_B);
-        }
-        else
-        {
-            Audio_GenerateTriangleWave(audio_buffer_B, AUDIO_BUFFER_SIZE, 10000, 44);
+        } else if (audio_mode == AUDIO_MODE_SINE) {
+            Audio_GenerateSineWave(audio_buffer_B, AUDIO_BUFFER_SIZE);
+        } else if (audio_mode == AUDIO_MODE_WAV) {
+            /* TODO: 从 ring buffer 读取数据填充 */
+            memset(audio_buffer_B, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
+        } else {
+            memset(audio_buffer_B, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
         }
     }
 }
