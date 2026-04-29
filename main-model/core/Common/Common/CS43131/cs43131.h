@@ -78,7 +78,7 @@ void Audio_PlaySineStart(void);
 
 /* 框架函数：后续实现 */
 uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info);
-uint8_t Audio_PlayWAV(const char *filename);
+void Audio_PlayWAV_Start(wav_info_t *info);
 void Audio_Process(void);
 uint8_t Audio_IsPlaying(void);
 

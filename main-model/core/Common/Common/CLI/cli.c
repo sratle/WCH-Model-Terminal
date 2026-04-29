@@ -1255,14 +1255,58 @@ static void CLI_Cmd_Chmod(uint8_t argc, char **argv)
 
 static void CLI_Cmd_Play(uint8_t argc, char **argv)
 {
+    char full_path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint8_t header[512];
+    uint16_t real_len;
+    wav_info_t info;
+
     if (argc < 2) {
         printf("Usage: play <wav_file>\r\n");
         return;
     }
-    uint8_t status = Audio_PlayWAV(argv[1]);
-    if (status != 0) {
-        printf("play: failed to play '%s'\r\n", argv[1]);
+
+    /* 停止当前播放 */
+    Audio_PlayStop();
+
+    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+
+    /* 打开文件（支持长文件名，逻辑同 cat） */
+    if (CLI_IsShortName(argv[1])) {
+        status = CH378FileOpen((uint8_t*)full_path);
+    } else {
+        status = CLI_LFN_Operation(full_path, 0); /* 0 = open */
     }
+    if (status != ERR_SUCCESS) {
+        printf("play: cannot open '%s' (status=%02X)\r\n", argv[1], status);
+        return;
+    }
+
+    /* 读取 WAV 头 */
+    status = CH378ByteRead(header, 512, &real_len);
+    if (status != ERR_SUCCESS || real_len < 44) {
+        printf("play: failed to read header\r\n");
+        CH378FileClose(0);
+        return;
+    }
+
+    /* 解析头 */
+    if (Audio_ParseWAVHeader(header, &info) != 0) {
+        CH378FileClose(0);
+        return;
+    }
+
+    /* 定位到 data chunk */
+    status = CH378ByteLocate(info.data_offset);
+    if (status != ERR_SUCCESS) {
+        printf("play: seek failed (status=%02X)\r\n", status);
+        CH378FileClose(0);
+        return;
+    }
+
+    /* 启动流式播放 */
+    Audio_PlayWAV_Start(&info);
+    printf("Playing: %s (%lu bytes audio data)\r\n", argv[1], info.data_size);
 }
 
 /* ------------------------------------------------------------------------ */

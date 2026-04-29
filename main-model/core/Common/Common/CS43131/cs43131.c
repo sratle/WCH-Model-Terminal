@@ -42,12 +42,45 @@ static const uint32_t sine_inc = 6;   /* 相位增量，约 1033 Hz @ 44.1kHz */
 /* WAV 播放上下文 */
 static wav_info_t wav_info;
 static uint8_t wav_file_opened = 0;
+static uint8_t wav_eof = 0;
 
-/* Ring Buffer (预留，32KB) */
+/* Ring Buffer (32KB) */
 #define AUDIO_RB_SIZE  (32 * 1024)
 static uint8_t audio_ringbuf[AUDIO_RB_SIZE];
 static volatile uint32_t rb_write_pos = 0;
 static volatile uint32_t rb_read_pos = 0;
+
+/* Ring Buffer 辅助函数 */
+static uint32_t rb_used(void)
+{
+    return (rb_write_pos + AUDIO_RB_SIZE - rb_read_pos) % AUDIO_RB_SIZE;
+}
+
+static uint32_t rb_free(void)
+{
+    return AUDIO_RB_SIZE - rb_used() - 1;
+}
+
+static void rb_write_data(uint8_t *data, uint32_t len)
+{
+    uint32_t i;
+    for (i = 0; i < len; i++) {
+        audio_ringbuf[rb_write_pos] = data[i];
+        rb_write_pos = (rb_write_pos + 1) % AUDIO_RB_SIZE;
+    }
+}
+
+static void rb_read_to_buffer(uint16_t *dst, uint32_t sample_count)
+{
+    uint32_t i;
+    for (i = 0; i < sample_count; i++) {
+        uint8_t lo = audio_ringbuf[rb_read_pos];
+        rb_read_pos = (rb_read_pos + 1) % AUDIO_RB_SIZE;
+        uint8_t hi = audio_ringbuf[rb_read_pos];
+        rb_read_pos = (rb_read_pos + 1) % AUDIO_RB_SIZE;
+        dst[i] = (uint16_t)(lo | (hi << 8));
+    }
+}
 
 static uint8_t CS43131_I2C_WriteReg(uint32_t addr, uint8_t dat)
 {
@@ -138,8 +171,8 @@ void CS43131_I2C_Config(void)
 
     /* 六、PCM音频路径配置 */
     CS43131_I2C_WriteReg(0x090000, 0x02); /* 高通滤波开启, 快速滚降 */
-    CS43131_I2C_WriteReg(0x090001, 0x0C); /* 设置音量A */
-    CS43131_I2C_WriteReg(0x090002, 0x0C); /* 设置音量B */
+    CS43131_I2C_WriteReg(0x090001, 0x10); /* 设置音量A */
+    CS43131_I2C_WriteReg(0x090002, 0x10); /* 设置音量B */
     CS43131_I2C_WriteReg(0x090003, 0xEC); /* 软斜坡, 自动静音, 双声道同步 */
     CS43131_I2C_WriteReg(0x090004, 0x00); /* 关闭反转/交换/复制 */
 
@@ -397,6 +430,11 @@ void Audio_PlayStop(void)
     audio_mode = AUDIO_MODE_NONE;
     audio_state = AUDIO_STATE_STOPPED;
     song_data = NULL;
+    wav_eof = 0;
+    if (wav_file_opened) {
+        CH378FileClose(0);
+        wav_file_opened = 0;
+    }
 }
 
 /*********************************************************************
@@ -467,54 +505,87 @@ uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info)
 }
 
 /*********************************************************************
- * @fn      Audio_PlayWAV
+ * @fn      Audio_PlayWAV_Start
  *
- * @brief   Start playing a WAV file from CH378 (framework).
+ * @brief   Start streaming WAV playback. File must already be opened
+ *          and positioned at data chunk by caller (CLI).
  *
- * @param   filename - path to WAV file.
+ * @param   info - parsed WAV header info.
  *
- * @return  0 on success, non-zero on error
+ * @return  none
  *********************************************************************/
-uint8_t Audio_PlayWAV(const char *filename)
+void Audio_PlayWAV_Start(wav_info_t *info)
 {
-    uint8_t header[512];
-    uint32_t read_len;
-
-    printf("Audio_PlayWAV: %s\r\n", filename);
+    uint8_t temp_buf[4096];
+    uint16_t real_len;
+    uint8_t status;
 
     Audio_PlayStop();
+    rb_write_pos = 0;
+    rb_read_pos = 0;
+    wav_eof = 0;
+    memcpy(&wav_info, info, sizeof(wav_info_t));
+    wav_file_opened = 1; /* 文件已由 CLI 打开并定位到 data_offset */
 
-    read_len = CH378_File_Read(&ch378_g, filename, header, 512);
-    if (read_len < 44) {
-        printf("Audio_PlayWAV: file too small or read failed\r\n");
-        return 1;
+    /* 预填充 ring buffer 到约 16KB */
+    while (rb_used() < 16384) {
+        status = CH378ByteRead(temp_buf, sizeof(temp_buf), &real_len);
+        if (status != ERR_SUCCESS || real_len == 0) {
+            wav_eof = 1;
+            break;
+        }
+        rb_write_data(temp_buf, real_len);
+        if (real_len < sizeof(temp_buf)) {
+            wav_eof = 1;
+            break;
+        }
     }
 
-    if (Audio_ParseWAVHeader(header, &wav_info) != 0) {
-        printf("Audio_PlayWAV: WAV header parse failed\r\n");
-        return 2;
+    if (wav_eof) {
+        CH378FileClose(0);
+        wav_file_opened = 0;
     }
 
-    printf("Audio_PlayWAV: SR=%lu, Bits=%u, Ch=%u, DataOffset=%lu, DataSize=%lu\r\n",
-           wav_info.sample_rate, wav_info.bits_per_sample, wav_info.num_channels,
-           wav_info.data_offset, wav_info.data_size);
-
-    /* TODO: 启动流式播放：打开文件、定位到 data_offset、填充 ring buffer、切换 mode */
-    printf("Audio_PlayWAV: streaming playback not yet implemented\r\n");
-    return 0;
+    audio_mode = AUDIO_MODE_WAV;
+    audio_state = AUDIO_STATE_PLAYING;
+    printf("Audio_PlayWAV_Start: streaming started, rb_used=%lu\r\n", rb_used());
 }
 
 /*********************************************************************
  * @fn      Audio_Process
  *
- * @brief   Main-loop polling for audio streaming (framework).
- *          Should be called periodically (e.g. every 10~50ms).
+ * @brief   Main-loop polling for audio streaming.
+ *          Must be called periodically (e.g. every 1~10ms in main loop).
  *
  * @return  none
  *********************************************************************/
 void Audio_Process(void)
 {
-    /* TODO: 在 AUDIO_MODE_WAV 下，从 CH378 读取数据填充 ring buffer */
+    uint8_t status;
+    uint16_t real_len;
+    uint8_t temp_buf[4096];
+
+    if (audio_mode != AUDIO_MODE_WAV) return;
+    if (!wav_file_opened) return;
+    if (wav_eof) return;
+
+    /* 每次尽可能多地读取，直到 ring buffer 空闲不足或文件结束 */
+    while (rb_free() >= sizeof(temp_buf)) {
+        status = CH378ByteRead(temp_buf, sizeof(temp_buf), &real_len);
+        if (status != ERR_SUCCESS || real_len == 0) {
+            wav_eof = 1;
+            CH378FileClose(0);
+            wav_file_opened = 0;
+            break;
+        }
+        rb_write_data(temp_buf, real_len);
+        if (real_len < sizeof(temp_buf)) {
+            wav_eof = 1;
+            CH378FileClose(0);
+            wav_file_opened = 0;
+            break;
+        }
+    }
 }
 
 /*********************************************************************
@@ -566,8 +637,16 @@ void DMA1_Channel1_IRQHandler(void)
         } else if (audio_mode == AUDIO_MODE_SINE) {
             Audio_GenerateSineWave(audio_buffer_A, AUDIO_BUFFER_SIZE);
         } else if (audio_mode == AUDIO_MODE_WAV) {
-            /* TODO: 从 ring buffer 读取数据填充 */
-            memset(audio_buffer_A, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
+            if (rb_used() >= AUDIO_BUFFER_SIZE * sizeof(uint16_t)) {
+                rb_read_to_buffer(audio_buffer_A, AUDIO_BUFFER_SIZE);
+            } else {
+                memset(audio_buffer_A, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
+                if (wav_eof && rb_used() == 0) {
+                    audio_state = AUDIO_STATE_IDLE;
+                    audio_mode = AUDIO_MODE_NONE;
+                    printf("Audio: playback finished\r\n");
+                }
+            }
         } else {
             memset(audio_buffer_A, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
         }
@@ -581,8 +660,16 @@ void DMA1_Channel1_IRQHandler(void)
         } else if (audio_mode == AUDIO_MODE_SINE) {
             Audio_GenerateSineWave(audio_buffer_B, AUDIO_BUFFER_SIZE);
         } else if (audio_mode == AUDIO_MODE_WAV) {
-            /* TODO: 从 ring buffer 读取数据填充 */
-            memset(audio_buffer_B, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
+            if (rb_used() >= AUDIO_BUFFER_SIZE * sizeof(uint16_t)) {
+                rb_read_to_buffer(audio_buffer_B, AUDIO_BUFFER_SIZE);
+            } else {
+                memset(audio_buffer_B, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
+                if (wav_eof && rb_used() == 0) {
+                    audio_state = AUDIO_STATE_IDLE;
+                    audio_mode = AUDIO_MODE_NONE;
+                    printf("Audio: playback finished\r\n");
+                }
+            }
         } else {
             memset(audio_buffer_B, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
         }

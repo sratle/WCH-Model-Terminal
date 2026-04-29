@@ -37,8 +37,8 @@ int main(void)
     Hardware_V5F_Init();
     test_CH378();
 
-    /* 启动 1kHz 正弦波测试，验证音频通路 */
-    Audio_PlaySineStart();
+    // /* 启动 1kHz 正弦波测试，验证音频通路 */
+    // Audio_PlaySineStart();
 
     /* 启用 USART2 接收中断，进入交互式 CLI 模式 */
     Debug_EnableRxIRQ();
@@ -47,6 +47,7 @@ int main(void)
     while(1)
     {
         Display_Process(&display_g);
+        Audio_Process();
         Debug_CLI_Process();
         Delay_Ms(1);
     }
