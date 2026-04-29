@@ -72,7 +72,7 @@ void I2S1_DMA_DoubleBufferInit(void);
 /* 音频播放核心 */
 void Audio_PlayStart(const uint16_t *data, uint32_t length);
 void Audio_PlayStop(void);
-void Audio_FillBuffer(uint16_t *buffer);
+void Audio_FillBuffer(uint16_t *buffer, uint32_t length);
 void Audio_GenerateSineWave(uint16_t *buffer, uint32_t length);
 void Audio_PlaySineStart(void);
 
@@ -81,10 +81,6 @@ uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info);
 void Audio_PlayWAV_Start(wav_info_t *info);
 void Audio_Process(void);
 uint8_t Audio_IsPlaying(void);
-
-/* 保留旧接口（空框架） */
-void Audio_GenerateTriangleWave(uint16_t *buffer, uint32_t length, int16_t amplitude, uint32_t period);
-void Audio_PlayTriangleWave(int16_t amplitude, uint32_t period);
 
 void DMA1_Channel1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 

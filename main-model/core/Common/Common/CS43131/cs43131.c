@@ -293,9 +293,6 @@ void I2S1_DMA_DoubleBufferInit(void)
     DMA_InitStructure.DMA_Mode = DMA_Mode_Circular;
     DMA_InitStructure.DMA_Priority = DMA_Priority_High;
     DMA_InitStructure.DMA_M2M = DMA_M2M_Disable;
-    DMA_InitStructure.DMA_BufferMode = DMA_DoubleBufferMode;
-    DMA_InitStructure.DMA_Memory1BaseAddr = (uint32_t)audio_buffer_B;
-    DMA_InitStructure.DMA_DoubleBuffer_StartMemory = DMA_DoubleBufferMode_Memory_0;
 
     DMA_Init(DMA1_Channel1, &DMA_InitStructure);
     DMA_MuxChannelConfig(DMA_MuxChannel1, SPI2_TX_DMA_REQUEST);
@@ -366,24 +363,24 @@ void Audio_GenerateSineWave(uint16_t *buffer, uint32_t length)
  *
  * @return  none
  *********************************************************************/
-void Audio_FillBuffer(uint16_t *buffer)
+void Audio_FillBuffer(uint16_t *buffer, uint32_t length)
 {
     uint32_t i;
     uint32_t remaining;
     uint32_t copy_count;
 
     if (audio_state != AUDIO_STATE_PLAYING || song_data == NULL) {
-        memset(buffer, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
+        memset(buffer, 0, length * sizeof(uint16_t));
         return;
     }
 
     remaining = song_data_length - audio_data_offset;
-    copy_count = (remaining < AUDIO_BUFFER_SIZE) ? remaining : AUDIO_BUFFER_SIZE;
+    copy_count = (remaining < length) ? remaining : length;
 
     for (i = 0; i < copy_count; i++) {
         buffer[i] = song_data[audio_data_offset + i];
     }
-    for (; i < AUDIO_BUFFER_SIZE; i++) {
+    for (; i < length; i++) {
         buffer[i] = 0;
     }
 
@@ -414,8 +411,7 @@ void Audio_PlayStart(const uint16_t *data, uint32_t length)
     audio_state = AUDIO_STATE_PLAYING;
 
     /* 预填充两个 buffer，避免启动噪声 */
-    Audio_FillBuffer(audio_buffer_A);
-    Audio_FillBuffer(audio_buffer_B);
+    Audio_FillBuffer(audio_buffer_A, AUDIO_BUFFER_SIZE);
 }
 
 /*********************************************************************
@@ -451,7 +447,6 @@ void Audio_PlaySineStart(void)
     audio_state = AUDIO_STATE_PLAYING;
 
     Audio_GenerateSineWave(audio_buffer_A, AUDIO_BUFFER_SIZE);
-    Audio_GenerateSineWave(audio_buffer_B, AUDIO_BUFFER_SIZE);
 
     printf("Audio_PlaySineStart: 1kHz sine wave started\r\n");
 }
@@ -589,89 +584,49 @@ void Audio_Process(void)
 }
 
 /*********************************************************************
- * @fn      Audio_GenerateTriangleWave
- *
- * @brief   Generate a 16-bit stereo triangle wave into buffer.
- *
- * @param   buffer - pointer to buffer to fill.
- * @param   length - number of samples to generate.
- * @param   amplitude - peak amplitude (e.g. 10000 for ~1/3 full scale).
- * @param   period  - number of samples per triangle wave period.
- *
- * @return  none
- *********************************************************************/
-void Audio_GenerateTriangleWave(uint16_t *buffer, uint32_t length, int16_t amplitude, uint32_t period)
-{
-
-}
-
-/*********************************************************************
- * @fn      Audio_PlayTriangleWave
- *
- * @brief   Start playing triangle wave continuously.
- *
- * @param   amplitude - peak amplitude.
- * @param   period    - number of samples per period.
- *
- * @return  none
- *********************************************************************/
-void Audio_PlayTriangleWave(int16_t amplitude, uint32_t period)
-{
-
-}
-
-/*********************************************************************
  * @fn      DMA1_Channel1_IRQHandler
  *
  * @brief   DMA1 Channel1 interrupt handler for I2S1 TX double buffer.
  *
  * @return  none
  *********************************************************************/
+#define AUDIO_HALF_SIZE (AUDIO_BUFFER_SIZE / 2)
+
+static void fill_audio_half(uint16_t *buf)
+{
+    if (audio_mode == AUDIO_MODE_MEMORY) {
+        Audio_FillBuffer(buf, AUDIO_HALF_SIZE);
+    } else if (audio_mode == AUDIO_MODE_SINE) {
+        Audio_GenerateSineWave(buf, AUDIO_HALF_SIZE);
+    } else if (audio_mode == AUDIO_MODE_WAV) {
+        if (rb_used() >= AUDIO_HALF_SIZE * sizeof(uint16_t)) {
+            rb_read_to_buffer(buf, AUDIO_HALF_SIZE);
+        } else {
+            memset(buf, 0, AUDIO_HALF_SIZE * sizeof(uint16_t));
+            if (wav_eof && rb_used() == 0) {
+                audio_state = AUDIO_STATE_IDLE;
+                audio_mode = AUDIO_MODE_NONE;
+                printf("Audio: playback finished\r\n");
+            }
+        }
+    } else {
+        memset(buf, 0, AUDIO_HALF_SIZE * sizeof(uint16_t));
+    }
+}
+
 void DMA1_Channel1_IRQHandler(void)
 {
     if (DMA_GetITStatus(DMA1, DMA1_IT_HT1) == SET)
     {
         DMA_ClearITPendingBit(DMA1, DMA1_IT_HT1);
-        if (audio_mode == AUDIO_MODE_MEMORY) {
-            Audio_FillBuffer(audio_buffer_A);
-        } else if (audio_mode == AUDIO_MODE_SINE) {
-            Audio_GenerateSineWave(audio_buffer_A, AUDIO_BUFFER_SIZE);
-        } else if (audio_mode == AUDIO_MODE_WAV) {
-            if (rb_used() >= AUDIO_BUFFER_SIZE * sizeof(uint16_t)) {
-                rb_read_to_buffer(audio_buffer_A, AUDIO_BUFFER_SIZE);
-            } else {
-                memset(audio_buffer_A, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
-                if (wav_eof && rb_used() == 0) {
-                    audio_state = AUDIO_STATE_IDLE;
-                    audio_mode = AUDIO_MODE_NONE;
-                    printf("Audio: playback finished\r\n");
-                }
-            }
-        } else {
-            memset(audio_buffer_A, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
-        }
+        /* DMA 正在传后半部分，安全地填前半部分 */
+        fill_audio_half(audio_buffer_A);
     }
 
     if (DMA_GetITStatus(DMA1, DMA1_IT_TC1) == SET)
     {
         DMA_ClearITPendingBit(DMA1, DMA1_IT_TC1);
-        if (audio_mode == AUDIO_MODE_MEMORY) {
-            Audio_FillBuffer(audio_buffer_B);
-        } else if (audio_mode == AUDIO_MODE_SINE) {
-            Audio_GenerateSineWave(audio_buffer_B, AUDIO_BUFFER_SIZE);
-        } else if (audio_mode == AUDIO_MODE_WAV) {
-            if (rb_used() >= AUDIO_BUFFER_SIZE * sizeof(uint16_t)) {
-                rb_read_to_buffer(audio_buffer_B, AUDIO_BUFFER_SIZE);
-            } else {
-                memset(audio_buffer_B, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
-                if (wav_eof && rb_used() == 0) {
-                    audio_state = AUDIO_STATE_IDLE;
-                    audio_mode = AUDIO_MODE_NONE;
-                    printf("Audio: playback finished\r\n");
-                }
-            }
-        } else {
-            memset(audio_buffer_B, 0, AUDIO_BUFFER_SIZE * sizeof(uint16_t));
-        }
+        /* DMA 刚回到开头，安全地填后半部分 */
+        fill_audio_half(audio_buffer_A + AUDIO_HALF_SIZE);
     }
 }
