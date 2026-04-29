@@ -11,6 +11,7 @@
 void NMI_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void HardFault_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 
+void USART1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void USART2_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void USART3_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void USART5_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
@@ -45,6 +46,18 @@ void HardFault_Handler(void)
   while (1)
   {
   }
+}
+
+/*********************************************************************
+ * @fn      USART1_IRQHandler
+ *
+ * @brief   This function handles USART1 global interrupt (CH9350 HID).
+ *
+ * @return  none
+ */
+void USART1_IRQHandler(void)
+{
+    CH9350_UART_IRQ_Handler(&ch9350_g);
 }
 
 /*********************************************************************

@@ -14,32 +14,26 @@ void CH9350_Init(ch9350_t *ch9350)
     GPIO_InitTypeDef GPIO_InitStructure = {0};
     USART_InitTypeDef USART_InitStructure = {0};
 
-    // 校验结构体指针
     if (ch9350 == NULL)
         return;
+
+    memset(ch9350, 0, sizeof(ch9350_t));
     g_ch9350_dev = ch9350;
 
-    // 结构体初始化清零
-    memset(ch9350, 0, sizeof(ch9350_t));
-
-    // 开启外设时钟
     RCC_HB2PeriphClockCmd(RCC_HB2Periph_AFIO | RCC_HB2Periph_GPIOA, ENABLE);
     RCC_HB2PeriphClockCmd(RCC_HB2Periph_USART1, ENABLE);
 
-    // TX引脚复用配置（推挽输出）
     GPIO_PinAFConfig(CH9350_UART_TX_PORT, GPIO_PinSource9, CH9350_UART_TX_AF);
     GPIO_InitStructure.GPIO_Pin = CH9350_UART_TX_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
     GPIO_Init(CH9350_UART_TX_PORT, &GPIO_InitStructure);
 
-    // RX引脚复用配置（浮空输入）
     GPIO_PinAFConfig(CH9350_UART_RX_PORT, GPIO_PinSource10, CH9350_UART_RX_AF);
     GPIO_InitStructure.GPIO_Pin = CH9350_UART_RX_PIN;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;
     GPIO_Init(CH9350_UART_RX_PORT, &GPIO_InitStructure);
 
-    // USART核心参数配置（必须与CH9350硬件配置一致）
     USART_InitStructure.USART_BaudRate = CH9350_UART_BAUDRATE;
     USART_InitStructure.USART_WordLength = USART_WordLength_8b;
     USART_InitStructure.USART_StopBits = USART_StopBits_1;
@@ -48,27 +42,37 @@ void CH9350_Init(ch9350_t *ch9350)
     USART_InitStructure.USART_Mode = USART_Mode_Tx | USART_Mode_Rx;
     USART_Init(CH9350_UART, &USART_InitStructure);
 
-    // 开启串口接收中断（RXNE：接收数据非空中断）
-    USART_ITConfig(CH9350_UART, USART_IT_RXNE, ENABLE);
-
-    // CH32H417 NVIC配置：使用PFIC内联函数，无NVIC_InitTypeDef结构体
-    NVIC_SetPriority(CH9350_UART_IRQn, 2 << 4); // 优先级2（根据系统调整）
-    NVIC_EnableIRQ(CH9350_UART_IRQn);
-
-    // 使能串口
-    USART_Cmd(CH9350_UART, ENABLE);
     ch9350->enable = 1;
 
-    // 初始化应答帧默认值
+    USART_ITConfig(CH9350_UART, USART_IT_RXNE, ENABLE);
+    NVIC_SetPriority(CH9350_UART_IRQn, 2 << 4);
+    NVIC_EnableIRQ(CH9350_UART_IRQn);
+
+#if defined(Core_V3F)
+    NVIC->IALLOCR[CH9350_UART_IRQn] = Core_ID_V3F;
+#elif defined(Core_V5F)
+    NVIC->IALLOCR[CH9350_UART_IRQn] = Core_ID_V5F;
+#endif
+
+    USART_Cmd(CH9350_UART, ENABLE);
+
     ch9350->ack_report = 0x00;
     ch9350->pid1 = 0x0000;
     ch9350->pid2 = 0x0000;
-    ch9350->work_state = CH9350_STATE_2;  // 默认状态2（透传模式）
+    ch9350->work_state = CH9350_STATE_2;
+    ch9350->rx_timeout_cnt = 0;
+
+    printf("[CH9350] Init done, request State2\r\n");
+    // 发送0x85命令尝试从状态0/1切换到状态2
+    {
+        uint8_t cmd[4] = {CH9350_FRAME_HEAD1, CH9350_FRAME_HEAD2, 0x85, CH9350_STATE_2};
+        CH9350_Send_Data(ch9350, cmd, 4);
+    }
 }
 
 /*********************************************************************
  * @fn      CH9350_Send_Data
- * @brief   CH9350串口数据发送函数
+ * @brief   CH9350串口数据发送函数（带超时保护）
  * @param   ch9350 - CH9350管理结构体指针
  * @param   data - 待发送数据缓冲区
  * @param   length - 待发送数据长度
@@ -77,6 +81,8 @@ void CH9350_Init(ch9350_t *ch9350)
 void CH9350_Send_Data(ch9350_t *ch9350, uint8_t *data, uint16_t length)
 {
     uint16_t i = 0;
+    uint32_t timeout;
+
     if ((ch9350 == NULL) || (ch9350->enable == 0) || (data == NULL) || (length == 0))
     {
         return;
@@ -84,13 +90,20 @@ void CH9350_Send_Data(ch9350_t *ch9350, uint8_t *data, uint16_t length)
 
     for (i = 0; i < length; i++)
     {
-        // 等待发送数据寄存器为空
-        while (USART_GetFlagStatus(CH9350_UART, USART_FLAG_TXE) == RESET)
+        // 等待发送数据寄存器为空，带超时保护
+        timeout = CH9350_SEND_TIMEOUT;
+        while ((USART_GetFlagStatus(CH9350_UART, USART_FLAG_TXE) == RESET) && (timeout--))
             ;
+        if (timeout == 0)
+        {
+            ch9350->frame_error = 1;
+            return;
+        }
         USART_SendData(CH9350_UART, data[i]);
     }
-    // 等待发送完成
-    while (USART_GetFlagStatus(CH9350_UART, USART_FLAG_TC) == RESET)
+    // 等待发送完成，带超时保护
+    timeout = CH9350_SEND_TIMEOUT;
+    while ((USART_GetFlagStatus(CH9350_UART, USART_FLAG_TC) == RESET) && (timeout--))
         ;
 }
 
@@ -104,7 +117,14 @@ void CH9350_UART_IRQ_Handler(ch9350_t *ch9350)
 {
     uint8_t rx_data = 0;
     if ((ch9350 == NULL) || (ch9350->enable == 0))
+    {
+        // enable 为 0 时仍需清空中断标志，防止中断风暴
+        if (USART_GetITStatus(CH9350_UART, USART_IT_RXNE) != RESET)
+        {
+            (void)USART_ReceiveData(CH9350_UART);
+        }
         return;
+    }
 
     // 检测接收中断标志
     if (USART_GetITStatus(CH9350_UART, USART_IT_RXNE) != RESET)
@@ -132,6 +152,9 @@ void CH9350_UART_IRQ_Handler(ch9350_t *ch9350)
             ch9350->rx_len = 0;
             return;
         }
+
+        // 更新接收时间戳
+        ch9350->rx_timeout_cnt = 0;
 
         // 缓冲区溢出保护
         if (ch9350->rx_len >= CH9350_RX_BUF_MAX_LEN)
@@ -166,52 +189,35 @@ void CH9350_UART_IRQ_Handler(ch9350_t *ch9350)
 
             switch (op_code)
             {
-            // 状态2/3/4 数据帧（固定长度）
+            // 状态2 数据帧（固定长度，无应答）
             case CH9350_OP_KEYBOARD:
                 expect_len = 11;
                 break; // 57 AB 01 + 8字节键盘数据
             case CH9350_OP_MOUSE_REL:
                 expect_len = 7;
                 break; // 57 AB 02 + 4字节鼠标数据
-            case CH9350_OP_MOUSE_ABS:
-                expect_len = 10;
-                break; // 57 AB 04 + 7字节鼠标数据
 
-            // 状态0/1 数据帧（变长：第4字节为后续数据长度）
-            case CH9350_OP_KEY_DATA0:
-            case CH9350_OP_KEY_DATA1:
-                if (ch9350->rx_len >= 4)
-                {
-                    expect_len = 4 + ch9350->rx_buffer[3];
-                }
-                break;
-
-            // 状态0/1 命令帧（固定长度）
-            case CH9350_OP_STATUS_REQ:      // 0x82: 57 AB 82 + 1状态 + 1A* = 5字节
-                expect_len = 5;
-                break;
-            case CH9350_OP_WORK_STATE_CHG:  // 0x85: 57 AB 85 + 1状态 = 4字节
+            // 状态2 命令帧（固定长度，需应答）
+            case CH9350_OP_STATUS_CHG:      // 0x80: 57 AB 80 + 1状态 = 4字节
                 expect_len = 4;
                 break;
-            case CH9350_OP_RESET_DELAY:     // 0x84: 57 AB 84 = 3字节
-            case CH9350_OP_DEV_DISCONNECT:  // 0x86: 57 AB 86 = 3字节
-            case CH9350_OP_GET_VERSION:     // 0x87: 57 AB 87 = 3字节
-            case CH9350_OP_TIMEOUT_CFG:     // 0x89: 57 AB 89 = 3字节
-                expect_len = 3;
-                break;
 
-            // 状态0/1 设备连接帧（变长：第4字节ID，第5-6字节Payload长度）
+            // 设备连接/断开帧（通用）
             case CH9350_OP_DEV_CONNECT:     // 0x81: 57 AB 81 + 1ID + 2长度 + N负载 + 2ID + 1校验
                 if (ch9350->rx_len >= 6)
                 {
                     uint16_t payload_len = ch9350->rx_buffer[4] | (ch9350->rx_buffer[5] << 8);
-                    expect_len = 9 + payload_len;  // 3头码 + 1ID + 2长度 + payload + 2ID + 1校验
+                    expect_len = 9 + payload_len;
+                    if (expect_len > CH9350_RX_BUF_MAX_LEN)
+                    {
+                        ch9350->frame_error = 1;
+                        ch9350->rx_len = 0;
+                        return;
+                    }
                 }
                 break;
-
-            // 状态2/3/4 命令帧（固定长度）
-            case CH9350_OP_STATUS_CHG:      // 0x80: 57 AB 80 + 1状态 = 4字节
-                expect_len = 4;
+            case CH9350_OP_DEV_DISCONNECT:  // 0x86: 57 AB 86 = 3字节
+                expect_len = 3;
                 break;
 
             default:
@@ -219,26 +225,24 @@ void CH9350_UART_IRQ_Handler(ch9350_t *ch9350)
                 break;
             }
 
-            // 接收长度匹配，标记帧就绪
-            if ((expect_len > 0) && (ch9350->rx_len == expect_len))
+            // 接收长度匹配，标记帧就绪；若超长则报错丢弃
+            if (expect_len > 0)
             {
-                ch9350->frame_ready = 1;
+                if (ch9350->rx_len == expect_len)
+                {
+                    ch9350->frame_ready = 1;
+                }
+                else if (ch9350->rx_len > expect_len)
+                {
+                    ch9350->frame_error = 1;
+                    ch9350->rx_len = 0;
+                    return;
+                }
             }
         }
 
         // 注意：RXNE标志已由USART_ReceiveData()自动清除，无需手动调用USART_ClearITPendingBit
     }
-}
-
-/*********************************************************************
- * @fn      USART1_IRQHandler
- * @brief   串口1中断服务函数（必须与使用的串口号对应）
- * @return  none
- */
-void USART1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
-void USART1_IRQHandler(void)
-{
-    CH9350_UART_IRQ_Handler(g_ch9350_dev);
 }
 
 /*********************************************************************
@@ -284,78 +288,19 @@ uint8_t CH9350_Parse_Frame(ch9350_t *ch9350)
         parse_success = 1;
         break;
 
-    // 状态3/4 绝对鼠标数据帧
-    case CH9350_OP_MOUSE_ABS:
-        ch9350->device_type = CH9350_DEV_MOUSE_ABS;
-        ch9350->data_len = 7;
-        memcpy(ch9350->current_data, &ch9350->rx_buffer[3], 7);
-        ch9350->mouse_abs_data.report_id = ch9350->current_data[0];
-        ch9350->mouse_abs_data.button = ch9350->current_data[1];
-        ch9350->mouse_abs_data.x_pos = (uint16_t)(ch9350->current_data[2] | (ch9350->current_data[3] << 8));
-        ch9350->mouse_abs_data.y_pos = (uint16_t)(ch9350->current_data[4] | (ch9350->current_data[5] << 8));
-        ch9350->mouse_abs_data.wheel = (int8_t)ch9350->current_data[6];
-        parse_success = 1;
-        break;
-
-    // 状态0/1 通用键值帧
-    case CH9350_OP_KEY_DATA0:
-    case CH9350_OP_KEY_DATA1:
-    {
-        uint8_t data_field_len = ch9350->rx_buffer[3];  // 标识+键值+序列号+校验总长度
-        uint8_t id_byte = ch9350->rx_buffer[4];         // 标识字节
-        uint8_t calc_sum = 0;
-        uint8_t recv_sum;
-        uint8_t i;
-
-        // 数据域至少包含标识(1)+键值(n)+序列号(1)+校验(1)，最小为4
-        if (data_field_len < 3)
-        {
-            ch9350->frame_error = 1;
-            break;
-        }
-
-        // 校验检查：键值+序列号的累加和（手册7.2.4.11）
-        // 校验字节是数据域最后一个字节
-        recv_sum = ch9350->rx_buffer[4 + data_field_len - 1];
-        // 键值起始=rx_buffer[5]，到序列号结束=rx_buffer[4+data_field_len-2]
-        for (i = 5; i < (4 + data_field_len - 1); i++)
-        {
-            calc_sum += ch9350->rx_buffer[i];
-        }
-        if (calc_sum != recv_sum)
-        {
-            ch9350->frame_error = 1;
-            break;
-        }
-
-        // 拷贝有效数据到current_data（标识+键值+序列号，不含校验字节）
-        ch9350->data_len = data_field_len - 1;
-        memcpy(ch9350->current_data, &ch9350->rx_buffer[4], ch9350->data_len);
-
-        // 解析设备类型（标识字节Bit5&4，手册7.2.4.11）
-        uint8_t dev_type = (id_byte & CH9350_ID_DEV_MASK) >> 4;
-        if (dev_type == 0x01)
-            ch9350->device_type = CH9350_DEV_KEYBOARD;
-        else if (dev_type == 0x02)
-            ch9350->device_type = CH9350_DEV_MOUSE_REL;
-        else if (dev_type == 0x03)
-            ch9350->device_type = CH9350_DEV_MULTIMEDIA;
-        else
-            ch9350->device_type = CH9350_DEV_NONE;
-
-        parse_success = 1;
-        break;
-    }
-
-    // 设备连接命令（状态0/1）
+    // 设备连接命令（状态0/1/2/3/4通用）
     case CH9350_OP_DEV_CONNECT:
         ch9350->dev_connected = 1;
         ch9350->dev_disconnected = 0;
         ch9350->device_type = CH9350_DEV_NONE;
+        if (ch9350->rx_len >= 4)
+        {
+            ch9350->version = ch9350->rx_buffer[3];  // 若存在则记录
+        }
         parse_success = 1;
         break;
 
-    // 设备断开命令（状态1）
+    // 设备断开命令（状态0/1/2/3/4通用）
     case CH9350_OP_DEV_DISCONNECT:
         ch9350->dev_connected = 0;
         ch9350->dev_disconnected = 1;
@@ -363,39 +308,8 @@ uint8_t CH9350_Parse_Frame(ch9350_t *ch9350)
         // 清空已缓存的设备数据
         memset(&ch9350->keyboard_data, 0, sizeof(ch9350_keyboard_t));
         memset(&ch9350->mouse_rel_data, 0, sizeof(ch9350_mouse_rel_t));
-        memset(&ch9350->mouse_abs_data, 0, sizeof(ch9350_mouse_abs_t));
-        parse_success = 1;
-        break;
-
-    // 状态请求命令（状态0/1，需应答）
-    case CH9350_OP_STATUS_REQ:
-        if (ch9350->rx_len >= 4)
-        {
-            // 最后1字节0xA*，高4位固定，低4位为ID状态值
-            ch9350->work_state = ch9350->rx_buffer[3] & 0x0F;
-        }
-        CH9350_Send_Ack(ch9350);
-        parse_success = 1;
-        break;
-
-    // 工作状态改变命令（状态0/1）
-    case CH9350_OP_WORK_STATE_CHG:
-        if (ch9350->rx_len >= 4)
-        {
-            ch9350->work_state = ch9350->rx_buffer[3];
-        }
-        parse_success = 1;
-        break;
-
-    // 复位延迟命令（状态1）
-    case CH9350_OP_RESET_DELAY:
-        parse_success = 1;
-        break;
-
-    // 获取版本号命令（状态0/1/2/3/4）
-    case CH9350_OP_GET_VERSION:
-        // 手册说明只发送一次，可不应答；版本信息通常在后续数据中
-        ch9350->version = ch9350->rx_buffer[3];  // 若存在则记录
+        memset(&ch9350->prev_keyboard_data, 0, sizeof(ch9350_keyboard_t));
+        memset(&ch9350->prev_mouse_rel_data, 0, sizeof(ch9350_mouse_rel_t));
         parse_success = 1;
         break;
 
@@ -406,7 +320,8 @@ uint8_t CH9350_Parse_Frame(ch9350_t *ch9350)
             // 状态值低4位为report ID，高4位为100/101状态值
             ch9350->work_state = ch9350->rx_buffer[3] & 0x0F;
         }
-        CH9350_Send_Ack(ch9350);
+        // 改为置位应答标志，由主循环发送，避免中断阻塞
+        ch9350->ack_pending = 1;
         parse_success = 1;
         break;
 
@@ -507,9 +422,215 @@ void CH9350_Clear_Data(ch9350_t *ch9350)
     ch9350->frame_error = 0;
     ch9350->data_len = 0;
     ch9350->device_type = CH9350_DEV_NONE;
+    ch9350->dev_connected = 0;
+    ch9350->dev_disconnected = 0;
     memset(ch9350->rx_buffer, 0, CH9350_RX_BUF_MAX_LEN);
     memset(ch9350->current_data, 0, CH9350_DATA_MAX_LEN);
     memset(&ch9350->keyboard_data, 0, sizeof(ch9350_keyboard_t));
     memset(&ch9350->mouse_rel_data, 0, sizeof(ch9350_mouse_rel_t));
-    memset(&ch9350->mouse_abs_data, 0, sizeof(ch9350_mouse_abs_t));
+    // 注意：prev_* 字段不清零，用于跨帧事件检测
+}
+
+/*********************************************************************
+ * @fn      CH9350_Process
+ * @brief   CH9350主循环轮询入口：超时检测、应答发送、帧解析、printf输出
+ * @param   ch9350 - CH9350管理结构体指针
+ * @return  none
+ * @note    应在主循环中每1ms调用一次
+ *********************************************************************/
+void CH9350_Process(ch9350_t *ch9350)
+{
+    uint8_t i;
+
+    if ((ch9350 == NULL) || (ch9350->enable == 0))
+        return;
+
+    // 1. 帧接收超时检测：超过10ms未收到新字节且帧未就绪，重置状态
+    // 主循环约每1ms调用一次，计数到10即为10ms
+    if ((ch9350->rx_len > 0) && (ch9350->frame_ready == 0))
+    {
+        if (++ch9350->rx_timeout_cnt > CH9350_FRAME_TIMEOUT_MS)
+        {
+            ch9350->frame_error = 1;
+            ch9350->rx_len = 0;
+            ch9350->rx_timeout_cnt = 0;
+        }
+    }
+
+    // 2. 主循环发送应答（避免中断中阻塞发送）
+    if (ch9350->ack_pending)
+    {
+        ch9350->ack_pending = 0;
+        CH9350_Send_Ack(ch9350);
+    }
+
+    // 3. 帧错误时清理状态
+    if (ch9350->frame_error)
+    {
+        CH9350_Clear_Data(ch9350);
+        return;
+    }
+
+    // 4. 解析并输出HID信息
+    if (CH9350_Has_New_Data(ch9350))
+    {
+        uint8_t raw_buf[CH9350_RX_BUF_MAX_LEN];
+        uint16_t raw_len;
+        uint8_t parse_ok;
+        uint8_t op_code;
+
+        printf("[CH9350] RAW | LEN:%d | DATA:", raw_len);
+        for (i = 0; i < raw_len; i++)
+        {
+            printf(" %02X", raw_buf[i]);
+        }
+        printf("\r\n");
+
+        // 关中断：防止printf期间USART1中断覆盖rx_buffer
+        __disable_irq();
+        raw_len = ch9350->rx_len;
+        memcpy(raw_buf, ch9350->rx_buffer, raw_len);
+        parse_ok = CH9350_Parse_Frame(ch9350);
+        __enable_irq();
+
+        if (parse_ok)
+        {
+            switch (ch9350->device_type)
+            {
+            case CH9350_DEV_KEYBOARD:
+            {
+                uint8_t has_curr = (ch9350->keyboard_data.modifier != 0);
+                uint8_t has_prev = (ch9350->prev_keyboard_data.modifier != 0);
+                for (i = 0; i < 6; i++)
+                {
+                    if (ch9350->keyboard_data.key_code[i] != 0) has_curr = 1;
+                    if (ch9350->prev_keyboard_data.key_code[i] != 0) has_prev = 1;
+                }
+
+                // 只在"有按键"或"从有到无（松开）"时输出，避免空闲刷屏
+                if (has_curr || has_prev)
+                {
+                    printf("[CH9350] Keyboard | Modifier: 0x%02X | KeyCodes:",
+                           ch9350->keyboard_data.modifier);
+                    for (i = 0; i < 6; i++)
+                    {
+                        printf(" 0x%02X", ch9350->keyboard_data.key_code[i]);
+                    }
+                    printf(" | LED: 0x%02X\r\n", ch9350->keyboard_data.led_state);
+
+                    // 事件解析：Press / Release / Hold
+                    printf("                  Event |");
+                    uint8_t has_event = 0;
+                    uint8_t j;
+
+                    // Press: 当前有，上一帧没有
+                    for (i = 0; i < 6; i++)
+                    {
+                        uint8_t key = ch9350->keyboard_data.key_code[i];
+                        if (key == 0) continue;
+                        uint8_t found = 0;
+                        for (j = 0; j < 6; j++)
+                        {
+                            if (ch9350->prev_keyboard_data.key_code[j] == key)
+                            {
+                                found = 1;
+                                break;
+                            }
+                        }
+                        if (!found)
+                        {
+                            printf(" Press 0x%02X", key);
+                            has_event = 1;
+                        }
+                    }
+
+                    // Release: 上一帧有，当前没有
+                    for (i = 0; i < 6; i++)
+                    {
+                        uint8_t key = ch9350->prev_keyboard_data.key_code[i];
+                        if (key == 0) continue;
+                        uint8_t found = 0;
+                        for (j = 0; j < 6; j++)
+                        {
+                            if (ch9350->keyboard_data.key_code[j] == key)
+                            {
+                                found = 1;
+                                break;
+                            }
+                        }
+                        if (!found)
+                        {
+                            printf(" Release 0x%02X", key);
+                            has_event = 1;
+                        }
+                    }
+
+                    if (!has_event) printf(" Hold");
+                    printf("\r\n");
+                }
+
+                ch9350->prev_keyboard_data = ch9350->keyboard_data;
+                break;
+            }
+
+            case CH9350_DEV_MOUSE_REL:
+            {
+                uint8_t has_curr = (ch9350->mouse_rel_data.button != 0) ||
+                                   (ch9350->mouse_rel_data.x_offset != 0) ||
+                                   (ch9350->mouse_rel_data.y_offset != 0) ||
+                                   (ch9350->mouse_rel_data.wheel != 0);
+                uint8_t has_prev = (ch9350->prev_mouse_rel_data.button != 0) ||
+                                   (ch9350->prev_mouse_rel_data.x_offset != 0) ||
+                                   (ch9350->prev_mouse_rel_data.y_offset != 0) ||
+                                   (ch9350->prev_mouse_rel_data.wheel != 0);
+
+                if (has_curr || has_prev)
+                {
+                    printf("[CH9350] Mouse(Rel) | Button: 0x%02X | X: %d | Y: %d | Wheel: %d\r\n",
+                           ch9350->mouse_rel_data.button,
+                           ch9350->mouse_rel_data.x_offset,
+                           ch9350->mouse_rel_data.y_offset,
+                           ch9350->mouse_rel_data.wheel);
+                }
+                ch9350->prev_mouse_rel_data = ch9350->mouse_rel_data;
+                break;
+            }
+
+            // 状态2不支持绝对鼠标和多媒体键
+
+            case CH9350_DEV_NONE:
+                // 可能是控制帧（连接/断开/状态改变等）
+                if (ch9350->dev_connected)
+                {
+                    printf("[CH9350] Device Connected\r\n");
+                }
+                else if (ch9350->dev_disconnected)
+                {
+                    printf("[CH9350] Device Disconnected\r\n");
+                }
+                else
+                {
+                    printf("[CH9350] Control Frame | WorkState: %d | Version: %d\r\n",
+                           ch9350->work_state, ch9350->version);
+                }
+                break;
+
+            default:
+                printf("[CH9350] Unknown DeviceType: 0x%02X | DataLen: %d | Data:",
+                       ch9350->device_type, ch9350->data_len);
+                for (i = 0; i < ch9350->data_len; i++)
+                {
+                    printf(" 0x%02X", ch9350->current_data[i]);
+                }
+                printf("\r\n");
+                break;
+            }
+        }
+        else
+        {
+            printf("[CH9350] Frame Parse Failed\r\n");
+        }
+
+        CH9350_Clear_Data(ch9350);
+    }
 }

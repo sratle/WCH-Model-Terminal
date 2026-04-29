@@ -63,12 +63,8 @@ int main(void)
 		Submodels_Process(&submodels_g[1]);
 		Submodels_Process(&submodels_g[2]);
 
-		/* CH9350 HID 数据解析 */
-		if (CH9350_Has_New_Data(&ch9350_g))
-		{
-			CH9350_Parse_Frame(&ch9350_g);
-			CH9350_Clear_Data(&ch9350_g);
-		}
+		/* CH9350 HID 数据解析（含超时检测、应答发送、printf输出） */
+		CH9350_Process(&ch9350_g);
 
 		Delay_Ms(1);
 	}

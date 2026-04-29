@@ -51,8 +51,8 @@ void Hardware_V3F_Init(void)
     // Keyboard_Init(&keyboard_g);
     // hardware_g.hardware_init_flag |= 0x20;
 
-    // CH9350_Init(&ch9350_g);
-    // hardware_g.hardware_init_flag |= 0x40;
+    CH9350_Init(&ch9350_g);
+    hardware_g.hardware_init_flag |= 0x40;
 
     // Submodels_Init(submodels_g);
     // hardware_g.hardware_init_flag |= 0x80;

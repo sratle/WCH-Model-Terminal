@@ -69,7 +69,7 @@
 #define CH9350_ID_PORT_1            0x00
 #define CH9350_ID_PORT_2            0x01
 
-/* 应答状态帧固定长度 */
+/* 应答帧固定长度 */
 #define CH9350_ACK_FRAME_LEN        11      // 57 AB 12 + 8字节数据
 
 /* 键盘Report值位定义（应答帧） */
@@ -84,6 +84,12 @@
 #define CH9350_DEV_MOUSE_ABS        0x03    // 绝对鼠标
 #define CH9350_DEV_MULTIMEDIA       0x04    // 多媒体设备
 #define CH9350_DEV_SCAN_GUN         0x05    // 扫描枪设备
+
+/* 帧接收超时时间（ms） */
+#define CH9350_FRAME_TIMEOUT_MS     10
+
+/* 串口发送超时（循环计数上限，约10ms@100MHz） */
+#define CH9350_SEND_TIMEOUT         1000000
 
 /************************* 数据结构体定义 *************************/
 // 键盘数据结构体
@@ -119,9 +125,9 @@ typedef struct
 {
     uint8_t enable;                           // CH9350使能标志
     uint8_t rx_buffer[CH9350_RX_BUF_MAX_LEN]; // 串口接收原始缓冲区
-    uint16_t rx_len;                          // 当前已接收字节数
-    uint8_t frame_ready;                      // 完整帧接收完成标志（1=就绪）
-    uint8_t frame_error;                      // 帧错误标志（校验/溢出/格式错误）
+    volatile uint16_t rx_len;                 // 当前已接收字节数（中断修改）
+    volatile uint8_t frame_ready;             // 完整帧接收完成标志（1=就绪）
+    volatile uint8_t frame_error;             // 帧错误标志（校验/溢出/格式错误）
 
     // 核心有效数据字段
     uint8_t current_data[CH9350_DATA_MAX_LEN]; // 当前解析后的完整有效数据
@@ -133,16 +139,25 @@ typedef struct
     ch9350_mouse_rel_t mouse_rel_data;
     ch9350_mouse_abs_t mouse_abs_data;
 
-    // 工作状态与事件跟踪（新增）
-    uint8_t work_state;                       // 当前CH9350工作状态（0~4）
-    uint8_t dev_connected;                    // 设备连接标志（收到0x81置1）
-    uint8_t dev_disconnected;                 // 设备断开脉冲（收到0x86置1，读取后由应用清零）
+    // 上一次设备数据（用于变化检测，避免刷屏）
+    ch9350_keyboard_t prev_keyboard_data;
+    ch9350_mouse_rel_t prev_mouse_rel_data;
+    ch9350_mouse_abs_t prev_mouse_abs_data;
+
+    // 工作状态与事件跟踪
+    volatile uint8_t work_state;              // 当前CH9350工作状态（0~4）
+    volatile uint8_t dev_connected;           // 设备连接标志（收到0x81置1）
+    volatile uint8_t dev_disconnected;        // 设备断开脉冲（收到0x86置1，读取后由应用清零）
     uint8_t version;                          // 下位机版本号（收到0x87更新）
 
-    // 应答帧配置（新增）
+    // 应答帧配置
     uint8_t ack_report;                       // 键盘Report值（Num/Caps/Scroll Lock状态）
     uint16_t pid1;                            // 端口1 PID
     uint16_t pid2;                            // 端口2 PID
+
+    // 新增：应答标志（避免在中断中阻塞发送）
+    volatile uint8_t ack_pending;             // 1=有应答待发送
+    volatile uint8_t rx_timeout_cnt;          // 帧接收超时计数器（ms，主循环每1ms+1）
 } ch9350_t;
 
 /************************* 函数声明 *************************/
@@ -157,6 +172,9 @@ void CH9350_UART_IRQ_Handler(ch9350_t *ch9350);
 uint8_t CH9350_Parse_Frame(ch9350_t *ch9350);
 uint8_t CH9350_Has_New_Data(ch9350_t *ch9350);
 void CH9350_Clear_Data(ch9350_t *ch9350);
+
+// 主循环轮询入口：超时检测、应答发送、帧解析、printf输出
+void CH9350_Process(ch9350_t *ch9350);
 
 // 应答帧发送（状态0/1收到0x82、状态2/3/4收到0x80时自动调用，也可手动调用）
 void CH9350_Send_Ack(ch9350_t *ch9350);
