@@ -387,6 +387,69 @@ void CH9350_Set_Work_State(ch9350_t *ch9350, uint8_t state)
 }
 
 /*********************************************************************
+ * @fn      CH9350_KeyCode_Name
+ * @brief   USB HID键码转按键名称
+ * @param   keycode - USB HID键盘键码（0x00~0xFF）
+ * @return  按键名称字符串（已知键）或 NULL（未知键）
+ * @note    基于USB HID Usage Tables ( Hut1_12v2.pdf ) 键盘/Keypad Page (0x07)
+ *********************************************************************/
+const char *CH9350_KeyCode_Name(uint8_t keycode)
+{
+    static const char *const names[256] = {
+        [0x00] = "None",
+        /* 字母 A-Z */
+        [0x04] = "A",  [0x05] = "B",  [0x06] = "C",  [0x07] = "D",
+        [0x08] = "E",  [0x09] = "F",  [0x0A] = "G",  [0x0B] = "H",
+        [0x0C] = "I",  [0x0D] = "J",  [0x0E] = "K",  [0x0F] = "L",
+        [0x10] = "M",  [0x11] = "N",  [0x12] = "O",  [0x13] = "P",
+        [0x14] = "Q",  [0x15] = "R",  [0x16] = "S",  [0x17] = "T",
+        [0x18] = "U",  [0x19] = "V",  [0x1A] = "W",  [0x1B] = "X",
+        [0x1C] = "Y",  [0x1D] = "Z",
+        /* 数字 1-0 */
+        [0x1E] = "1",  [0x1F] = "2",  [0x20] = "3",  [0x21] = "4",
+        [0x22] = "5",  [0x23] = "6",  [0x24] = "7",  [0x25] = "8",
+        [0x26] = "9",  [0x27] = "0",
+        /* 主键盘符号与功能键 */
+        [0x28] = "Enter",      [0x29] = "Esc",        [0x2A] = "Backspace",
+        [0x2B] = "Tab",        [0x2C] = "Space",      [0x2D] = "Minus",
+        [0x2E] = "Equal",      [0x2F] = "LBracket",   [0x30] = "RBracket",
+        [0x31] = "Backslash",  [0x32] = "NonUSHash",  [0x33] = "Semicolon",
+        [0x34] = "Quote",      [0x35] = "Grave",      [0x36] = "Comma",
+        [0x37] = "Period",     [0x38] = "Slash",      [0x39] = "CapsLock",
+        /* F1-F12 */
+        [0x3A] = "F1",   [0x3B] = "F2",   [0x3C] = "F3",   [0x3D] = "F4",
+        [0x3E] = "F5",   [0x3F] = "F6",   [0x40] = "F7",   [0x41] = "F8",
+        [0x42] = "F9",   [0x43] = "F10",  [0x44] = "F11",  [0x45] = "F12",
+        /* 编辑/导航键 */
+        [0x46] = "PrtSc",      [0x47] = "ScrollLock", [0x48] = "Pause",
+        [0x49] = "Insert",     [0x4A] = "Home",       [0x4B] = "PgUp",
+        [0x4C] = "Delete",     [0x4D] = "End",        [0x4E] = "PgDn",
+        [0x4F] = "Right",      [0x50] = "Left",       [0x51] = "Down",
+        [0x52] = "Up",
+        /* 小键盘 */
+        [0x53] = "NumLock",    [0x54] = "KPDiv",      [0x55] = "KPMul",
+        [0x56] = "KPSub",      [0x57] = "KPAdd",      [0x58] = "KPEnter",
+        [0x59] = "KP1",  [0x5A] = "KP2",  [0x5B] = "KP3",  [0x5C] = "KP4",
+        [0x5D] = "KP5",  [0x5E] = "KP6",  [0x5F] = "KP7",  [0x60] = "KP8",
+        [0x61] = "KP9",  [0x62] = "KP0",  [0x63] = "KPPeriod",
+        /* 杂项 */
+        [0x64] = "NonUSBackslash", [0x65] = "App",      [0x66] = "Power",
+        [0x67] = "KPEqual",
+        /* F13-F24 */
+        [0x68] = "F13",  [0x69] = "F14",  [0x6A] = "F15",  [0x6B] = "F16",
+        [0x6C] = "F17",  [0x6D] = "F18",  [0x6E] = "F19",  [0x6F] = "F20",
+        [0x70] = "F21",  [0x71] = "F22",  [0x72] = "F23",  [0x73] = "F24",
+        /* 媒体/特殊键 */
+        [0x7F] = "Mute",       [0x80] = "VolUp",      [0x81] = "VolDown",
+        /* 左右修饰键（虽然通常出现在Modifier字节，但也映射） */
+        [0xE0] = "LCtrl",  [0xE1] = "LShift", [0xE2] = "LAlt",   [0xE3] = "LGUI",
+        [0xE4] = "RCtrl",  [0xE5] = "RShift", [0xE6] = "RAlt",   [0xE7] = "RGUI",
+    };
+
+    return names[keycode];
+}
+
+/*********************************************************************
  * @fn      CH9350_Has_New_Data
  * @brief   检测是否有新的有效数据
  * @param   ch9350 - CH9350管理结构体指针
@@ -506,12 +569,19 @@ void CH9350_Process(ch9350_t *ch9350)
 
                 if (has_curr)
                 {
-                    // 有按键：输出 Modifier + 所有非零 KeyCode
+                    // 有按键：输出 Modifier + 所有非零 KeyCode（已知键显示名称，未知保留十六进制）
                     printf("[CH9350] KB | Mod: 0x%02X | Keys:", ch9350->keyboard_data.modifier);
                     for (i = 0; i < 6; i++)
                     {
-                        if (ch9350->keyboard_data.key_code[i])
-                            printf(" 0x%02X", ch9350->keyboard_data.key_code[i]);
+                        uint8_t key = ch9350->keyboard_data.key_code[i];
+                        if (key)
+                        {
+                            const char *name = CH9350_KeyCode_Name(key);
+                            if (name)
+                                printf(" %s", name);
+                            else
+                                printf(" 0x%02X", key);
+                        }
                     }
                     printf("\r\n");
                 }

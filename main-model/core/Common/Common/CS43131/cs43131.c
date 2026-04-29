@@ -19,6 +19,32 @@ static const uint16_t *song_data = NULL;
 static volatile uint32_t song_data_length = 0;
 static volatile uint32_t audio_data_offset = 0;
 
+/* 播放模式与状态 */
+static audio_mode_t audio_mode = AUDIO_MODE_NONE;
+static audio_state_t audio_state = AUDIO_STATE_IDLE;
+
+/* 1/4 周期正弦查找表 (0~pi/2)，振幅 8000，65 点 */
+static const int16_t sine_quarter[65] = {
+    0, 196, 393, 589, 784, 979, 1174, 1368, 1561, 1753, 1944, 2134, 2322, 2509, 2695, 2879,
+    3061, 3242, 3420, 3597, 3771, 3943, 4113, 4280, 4445, 4606, 4766, 4922, 5075, 5225, 5372, 5516,
+    5657, 5794, 5928, 6058, 6184, 6307, 6426, 6541, 6652, 6759, 6862, 6961, 7055, 7146, 7232, 7314,
+    7391, 7464, 7532, 7596, 7656, 7710, 7760, 7806, 7846, 7882, 7913, 7940, 7961, 7978, 7990, 7998,
+    8000
+};
+
+static uint32_t sine_phase = 0;       /* 8-bit 相位累加器 0~255 */
+static const uint32_t sine_inc = 6;   /* 相位增量，约 1033 Hz @ 44.1kHz */
+
+/* WAV 播放上下文 */
+static wav_info_t wav_info;
+static uint8_t wav_file_opened = 0;
+
+/* Ring Buffer (预留，32KB) */
+#define AUDIO_RB_SIZE  (32 * 1024)
+static uint8_t audio_ringbuf[AUDIO_RB_SIZE];
+static volatile uint32_t rb_write_pos = 0;
+static volatile uint32_t rb_read_pos = 0;
+
 static uint8_t CS43131_I2C_WriteReg(uint32_t addr, uint8_t dat)
 {
     uint8_t ret = SoftI2C_WriteReg(CS43131_I2C_ADDR, addr, dat);
@@ -51,7 +77,6 @@ static uint8_t CS43131_I2C_ReadReg(uint32_t addr)
 void CS43131_I2C_Config(void)
 {
     uint8_t tmp;
-    uint32_t timeout;
 
     printf("CS43131_I2C_Config\r\n");
 
@@ -63,66 +88,28 @@ void CS43131_I2C_Config(void)
 
     printf("CS43131_I2C_Config: RST low -> high, delay 10ms\r\n");
 
-    /* 一、复位后基础初始化配置 */
-    CS43131_I2C_WriteReg(0x010006, 0x06); /* MCLK_SRC_SEL=RCO, MCLK_INT=22.5792MHz */
+    /* 一、复位后基础初始化配置：临时使用 RCO */
+    CS43131_I2C_WriteReg(0x010006, 0x06); /* MCLK_SRC_SEL=RCO */
 
-    tmp = CS43131_I2C_ReadReg(0x010006);
-    printf("CS43131_I2C_Config: MCLK_SRC_SEL=RCO, MCLK_INT=22.5792MHz, readback=0x%02X\r\n", tmp);
+    CS43131_I2C_WriteReg(0x020052, 0x04); /* XTAL_IBIAS=12.5uA (100) */
 
-    CS43131_I2C_WriteReg(0x020052, 0x02); /* XTAL_IBIAS=12.5uA */
+    /* 二、启动外部 22.5792 MHz 晶振并等待稳定 */
+    CS43131_I2C_WriteReg(0x020000, 0xF6); /* Power up XTAL only */
+    Delay_Ms(100);                         /* 等待晶振起振并稳定 */
 
-    printf("CS43131_I2C_Config:PLL config\r\n");
-    CS43131_I2C_WriteReg(0x020000, 0xF6); /* Power up XTAL */
+    tmp = CS43131_I2C_ReadReg(0x0F0000);
+    printf("CS43131_I2C_Config: XTAL powered, status=0x%02X\r\n", tmp);
 
-    /* 二、PLL配置（26MHz -> 22.5792MHz） */
-    CS43131_I2C_WriteReg(0x040002, 0x03); /* PLL_REF_PREDIV = 8 */
-    CS43131_I2C_WriteReg(0x030008, 0x0A); /* PLL_OUT_DIV = 10 */
-    CS43131_I2C_WriteReg(0x030005, 0x45); /* PLL_DIV_INT = 69 */
-    CS43131_I2C_WriteReg(0x030004, 0x79); /* PLL_DIV_FRAC = 0x79 76 80 */
-    CS43131_I2C_WriteReg(0x030003, 0x76);
-    CS43131_I2C_WriteReg(0x030002, 0x80);
-    CS43131_I2C_WriteReg(0x03001B, 0x01); /* PLL_MODE = 1 */
-    CS43131_I2C_WriteReg(0x03000A, 0x6F); /* PLL_CAL_RATIO = 111 */
-
-    printf("CS43131_I2C_Config:PLL cal\r\n");
-
-    /* 三、晶振与PLL启动、锁定等待 */
-    CS43131_I2C_WriteReg(0x020000, 0xF2); /* Power up XTAL | PLL */
-    CS43131_I2C_WriteReg(0x030001, 0x01); /* PLL_START */
-
-    printf("CS43131_I2C_Config:PLL start\r\n");
-
-    /* 等待PLL锁定 */
-    timeout = 10000;
-    while (timeout--)
-    {
-        tmp = CS43131_I2C_ReadReg(0x0F0000);
-        if (tmp & 0x04)
-        {
-            printf("CS43131_I2C_Config:PLL locked, status=0x%02X\r\n", tmp);
-            break;
-        }
-        if (tmp & 0x02)
-        {
-            printf("CS43131_I2C_Config:PLL error, status=0x%02X\r\n", tmp);
-            break;
-        }
-        Delay_Ms(1);
-    }
-    if (timeout == 0)
-    {
-        printf("CS43131_I2C_Config:PLL lock timeout\r\n");
-    }
-
-    printf("CS43131_I2C_Config:PLL lock done\r\n");
-
-    /* 四、系统时钟源切换 */
-    CS43131_I2C_WriteReg(0x040004, 0x01); /* CLKOUT source = PLL, divide 2 */
-    CS43131_I2C_WriteReg(0x020000, 0xF0); /* Power up XTAL | PLL | CLKOUT */
-    CS43131_I2C_WriteReg(0x010006, 0x05); /* MCLK_SRC_SEL=PLL */
+    /* 三、系统时钟源切换为外部晶振（不使用 PLL）
+     * 22.5792 MHz XTAL 经 divide-by-2 得到 11.2896 MHz = 256*44.1kHz，
+     * 直接作为 44.1kHz 音频的 MCLK，无需 PLL 转换。
+     */
+    CS43131_I2C_WriteReg(0x040004, 0x00); /* CLKOUT source = XTAL */
+    CS43131_I2C_WriteReg(0x020000, 0xF4); /* Power up XTAL | CLKOUT (no PLL) */
+    CS43131_I2C_WriteReg(0x010006, 0x04); /* MCLK_SRC_SEL=XTAL */
     Delay_Ms(10);                          /* 等待时钟切换稳定 */
 
-    printf("CS43131_I2C_Config:clock source switch\r\n");
+    printf("CS43131_I2C_Config: clock source switched to XTAL 22.5792MHz\r\n");
 
     /* 五、ASP I2S Master接口配置（44.1KHz、16bit） */
     CS43131_I2C_WriteReg(0x01000B, 0x01); /* ASP_SPRATE = 44.1KHz */
@@ -135,20 +122,20 @@ void CS43131_I2C_Config(void)
     CS43131_I2C_WriteReg(0x040015, 0x00); /* ASP_LCHI_MSB = 0 */
     CS43131_I2C_WriteReg(0x040016, 0x1F); /* ASP_LCPR_LSB = 31 (32 SCLK) */
     CS43131_I2C_WriteReg(0x040017, 0x00); /* ASP_LCPR_MSB = 0 */
-    CS43131_I2C_WriteReg(0x040018, 0x0C); /* ASP Master Mode | ASP SCLK Inverted */
+    CS43131_I2C_WriteReg(0x040018, 0x1C); /* ASP Master Mode | ASP SCLK Inverted */
     CS43131_I2C_WriteReg(0x040019, 0x0A); /* 50/50 duty | FSD=1 | STP=0 */
     CS43131_I2C_WriteReg(0x050000, 0x00); /* ASP_RX_CH1 = 0 */
     CS43131_I2C_WriteReg(0x050001, 0x00); /* ASP_RX_CH2 = 0 */
     CS43131_I2C_WriteReg(0x05000A, 0x06); /* CH1: LRCK低电平采样, 16bit, 使能 */
     CS43131_I2C_WriteReg(0x05000B, 0x0E); /* CH2: LRCK高电平采样, 16bit, 使能 */
-    CS43131_I2C_WriteReg(0x01000D, 0x00); /* ASP_3ST=0, 使能时钟输出 */
+    CS43131_I2C_WriteReg(0x01000D, 0x02); /* XSP_3ST=1(default), ASP_3ST=0, 使能时钟输出 */
 
     printf("CS43131_I2C_Config:ASP I2S Master interface config\r\n");
 
     /* 六、PCM音频路径配置 */
     CS43131_I2C_WriteReg(0x090000, 0x02); /* 高通滤波开启, 快速滚降 */
-    CS43131_I2C_WriteReg(0x090001, 0x10); /* 设置音量A */
-    CS43131_I2C_WriteReg(0x090002, 0x10); /* 设置音量B */
+    CS43131_I2C_WriteReg(0x090001, 0x0C); /* 设置音量A */
+    CS43131_I2C_WriteReg(0x090002, 0x0C); /* 设置音量B */
     CS43131_I2C_WriteReg(0x090003, 0xEC); /* 软斜坡, 自动静音, 双声道同步 */
     CS43131_I2C_WriteReg(0x090004, 0x00); /* 关闭反转/交换/复制 */
 
@@ -165,9 +152,9 @@ void CS43131_I2C_Config(void)
     CS43131_I2C_WriteReg(0x010010, 0x99); /* Pop-free setting */
     CS43131_I2C_WriteReg(0x080032, 0x20);
 
-    /* 九、最终模块使能 */
-    CS43131_I2C_WriteReg(0x020000, 0xB0); /* Power up ASP | XTAL | PLL | CLKOUT */
-    CS43131_I2C_WriteReg(0x020000, 0xA0); /* Power up HP | ASP | XTAL | PLL | CLKOUT */
+    /* 九、最终模块使能（XTAL 直接驱动，不经过 PLL） */
+    CS43131_I2C_WriteReg(0x020000, 0xB4); /* Power up ASP | XTAL | CLKOUT */
+    CS43131_I2C_WriteReg(0x020000, 0xA4); /* Power up HP | ASP | XTAL | CLKOUT */
     Delay_Ms(22);                         /* 功放软启动完成 */
 
     /* 恢复Pop-free设置 */
@@ -183,7 +170,7 @@ void CS43131_I2C_Config(void)
  * 正式板PB12-WS,PB13-CK,PB15-SDO
  * PB4-OE,PB3-RST
  * PC0-SCL,PC1-SDA
- * CS43131 I2S
+ * CS43131 I2S1 (CH32H417 以 SPI2 复用为 I2S1)
  */
 void CS43131_init(cs43131_t *cs43131)
 {
@@ -232,7 +219,7 @@ void CS43131_init(cs43131_t *cs43131)
     /* CS43131 I2C configuration */
     CS43131_I2C_Config();
 
-    /* I2S1 init: slave tx, Philips, 16b, 44.1kHz, CPOL low, MCLK disable */
+    /* I2S1 (SPI2) init: slave tx, Philips, 16b, 44.1kHz, CPOL low, MCLK disable */
     I2S_StructInit (&I2S_InitStructure);
     I2S_InitStructure.I2S_Mode = I2S_Mode_SlaveTx;
     I2S_InitStructure.I2S_Standard = I2S_Standard_Phillips;
@@ -347,7 +334,7 @@ void Audio_PlayTriangleWave(int16_t amplitude, uint32_t period)
 /*********************************************************************
  * @fn      DMA1_Channel1_IRQHandler
  *
- * @brief   DMA1 Channel1 interrupt handler for I2S2 TX double buffer.
+ * @brief   DMA1 Channel1 interrupt handler for I2S1 TX double buffer.
  *
  * @return  none
  *********************************************************************/
@@ -356,7 +343,6 @@ void DMA1_Channel1_IRQHandler(void)
     if (DMA_GetITStatus(DMA1, DMA1_IT_HT1) == SET)
     {
         DMA_ClearITPendingBit(DMA1, DMA1_IT_HT1);
-        printf("DMA_A");
         if (song_data != NULL)
         {
             Audio_FillBuffer(audio_buffer_A);
@@ -370,7 +356,6 @@ void DMA1_Channel1_IRQHandler(void)
     if (DMA_GetITStatus(DMA1, DMA1_IT_TC1) == SET)
     {
         DMA_ClearITPendingBit(DMA1, DMA1_IT_TC1);
-        printf("DMA_B");
         if (song_data != NULL)
         {
             Audio_FillBuffer(audio_buffer_B);

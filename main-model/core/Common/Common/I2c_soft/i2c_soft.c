@@ -117,7 +117,6 @@ void SoftI2C_SendByte(uint8_t txd)
 
 uint8_t SoftI2C_WaitAck(void)
 {
-    uint8_t ack;
     uint16_t timeout = 5000;
 
     SoftI2C_SDA_In();
@@ -131,15 +130,15 @@ uint8_t SoftI2C_WaitAck(void)
         {
             SoftI2C_SCL_L();
             SoftI2C_SDA_Out();
-            return 1;
+            return 1; /* Timeout: no ACK */
         }
     }
 
-    ack = SoftI2C_SDA_Read();
+    /* SDA is low: ACK received. Latch SCL low before releasing bus. */
     SoftI2C_SCL_L();
     SoftI2C_Delay();
     SoftI2C_SDA_Out();
-    return ack;
+    return 0;
 }
 
 void SoftI2C_Ack(void)
@@ -203,19 +202,23 @@ uint8_t SoftI2C_WriteReg(uint8_t dev_addr, uint32_t reg_addr, uint8_t dat)
 
     SoftI2C_Start();
     SoftI2C_SendByte(dev_addr << 1);
-    if (SoftI2C_WaitAck()) return 1;
+    if (SoftI2C_WaitAck()) goto i2c_wr_err;
 
     for (i = 0; i < 4; i++)
     {
         SoftI2C_SendByte(addr_buf[i]);
-        if (SoftI2C_WaitAck()) return 1;
+        if (SoftI2C_WaitAck()) goto i2c_wr_err;
     }
 
     SoftI2C_SendByte(dat);
-    if (SoftI2C_WaitAck()) return 1;
+    if (SoftI2C_WaitAck()) goto i2c_wr_err;
 
     SoftI2C_Stop();
     return 0;
+
+i2c_wr_err:
+    SoftI2C_Stop();
+    return 1;
 }
 
 uint8_t SoftI2C_ReadReg(uint8_t dev_addr, uint32_t reg_addr, uint8_t *dat)
@@ -231,20 +234,24 @@ uint8_t SoftI2C_ReadReg(uint8_t dev_addr, uint32_t reg_addr, uint8_t *dat)
     /* Write phase: send MAP + control byte */
     SoftI2C_Start();
     SoftI2C_SendByte(dev_addr << 1);
-    if (SoftI2C_WaitAck()) return 1;
+    if (SoftI2C_WaitAck()) goto i2c_rd_err;
 
     for (i = 0; i < 4; i++)
     {
         SoftI2C_SendByte(addr_buf[i]);
-        if (SoftI2C_WaitAck()) return 1;
+        if (SoftI2C_WaitAck()) goto i2c_rd_err;
     }
 
     /* Read phase: repeated start + read */
     SoftI2C_Start();
     SoftI2C_SendByte((dev_addr << 1) | 0x01);
-    if (SoftI2C_WaitAck()) return 1;
+    if (SoftI2C_WaitAck()) goto i2c_rd_err;
 
     *dat = SoftI2C_ReadByte(0);
     SoftI2C_Stop();
     return 0;
+
+i2c_rd_err:
+    SoftI2C_Stop();
+    return 1;
 }
