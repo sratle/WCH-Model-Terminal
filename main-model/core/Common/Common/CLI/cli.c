@@ -556,6 +556,10 @@ static void CLI_Cmd_Help(void)
     printf("  chmod <file> <attr>  Change file attributes (supports LFN)\r\n");
     printf("  ver             Show CH378 firmware version\r\n");
     printf("  play <file>     Play a WAV audio file\r\n");
+    printf("  vol <0-100>     Set playback volume\r\n");
+    printf("  pause           Pause playback\r\n");
+    printf("  resume          Resume playback\r\n");
+    printf("  playst          Show playback status\r\n");
     printf("  clear           Clear screen\r\n");
     printf("  help            Show this help message\r\n");
 }
@@ -563,6 +567,43 @@ static void CLI_Cmd_Help(void)
 static void CLI_Cmd_Clear(void)
 {
     printf("\x1B[2J\x1B[H");
+}
+
+static void CLI_Cmd_Vol(uint8_t argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Usage: vol <0-100>\r\n");
+        return;
+    }
+    int vol = atoi(argv[1]);
+    if (vol < 0) vol = 0;
+    if (vol > 100) vol = 100;
+    Audio_SetVolume((uint8_t)vol);
+    printf("Volume: %d\r\n", vol);
+}
+
+static void CLI_Cmd_Pause(void)
+{
+    Audio_Pause();
+    printf("Paused\r\n");
+}
+
+static void CLI_Cmd_Resume(void)
+{
+    Audio_Resume();
+    printf("Resumed\r\n");
+}
+
+static void CLI_Cmd_Playst(void)
+{
+    const char *track = Audio_GetCurrentTrackName();
+    uint32_t time_ms = Audio_GetPlayTime_ms();
+    uint32_t sec = time_ms / 1000;
+    uint32_t min = sec / 60;
+    sec = sec % 60;
+
+    printf("Track: %s\r\n", (track && track[0]) ? track : "(none)");
+    printf("Time:  %02lu:%02lu\r\n", min, sec);
 }
 
 static void CLI_Cmd_Ver(void)
@@ -1304,8 +1345,9 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
         return;
     }
 
-    /* 启动流式播放 */
+    /* 启动流式播放，再保存曲目名（Audio_PlayWAV_Start 内部会调 Audio_PlayStop 清空名字） */
     Audio_PlayWAV_Start(&info);
+    Audio_SetCurrentTrack(argv[1]);
     printf("Playing: %s (%lu bytes audio data)\r\n", argv[1], info.data_size);
 }
 
@@ -1383,6 +1425,14 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Chmod(argc, argv);
     } else if (strcmp(argv[0], "play") == 0) {
         CLI_Cmd_Play(argc, argv);
+    } else if (strcmp(argv[0], "vol") == 0) {
+        CLI_Cmd_Vol(argc, argv);
+    } else if (strcmp(argv[0], "pause") == 0) {
+        CLI_Cmd_Pause();
+    } else if (strcmp(argv[0], "resume") == 0) {
+        CLI_Cmd_Resume();
+    } else if (strcmp(argv[0], "playst") == 0) {
+        CLI_Cmd_Playst();
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }

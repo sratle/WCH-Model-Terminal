@@ -37,7 +37,10 @@
 #define I2S_SDO_AF              GPIO_AF5
 
 typedef struct {
-    uint8_t enable; // cs43131 enable
+    uint8_t enable;               /* cs43131 enable */
+    uint8_t volume;               /* 音量 0~100 */
+    volatile uint32_t samples_played; /* 播放进度计数 (声道样本数) */
+    char track_name[64];          /* 当前曲目名称 */
 }cs43131_t;
 
 /* 播放模式 */
@@ -52,6 +55,7 @@ typedef enum {
 typedef enum {
     AUDIO_STATE_IDLE = 0,
     AUDIO_STATE_PLAYING,
+    AUDIO_STATE_PAUSED,
     AUDIO_STATE_STOPPED
 } audio_state_t;
 
@@ -75,6 +79,22 @@ void Audio_PlayStop(void);
 void Audio_FillBuffer(uint16_t *buffer, uint32_t length);
 void Audio_GenerateSineWave(uint16_t *buffer, uint32_t length);
 void Audio_PlaySineStart(void);
+
+/* 音量控制 */
+void Audio_SetVolume(uint8_t vol);
+uint8_t Audio_GetVolume(void);
+
+/* 暂停/恢复 */
+void Audio_Pause(void);
+void Audio_Resume(void);
+
+/* 播放状态查询 */
+audio_state_t Audio_GetState(void);
+
+/* 播放进度与曲目信息 */
+uint32_t Audio_GetPlayTime_ms(void);
+const char* Audio_GetCurrentTrackName(void);
+void Audio_SetCurrentTrack(const char *name);
 
 /* 框架函数：后续实现 */
 uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info);

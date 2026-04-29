@@ -16,6 +16,8 @@
 #include "hardware.h"
 #include <string.h>
 
+extern cs43131_t CS43131_g;
+
 static uint16_t audio_buffer_A[AUDIO_BUFFER_SIZE];
 static uint16_t audio_buffer_B[AUDIO_BUFFER_SIZE];
 
@@ -26,6 +28,8 @@ static volatile uint32_t audio_data_offset = 0;
 /* 播放模式与状态 */
 static audio_mode_t audio_mode = AUDIO_MODE_NONE;
 static audio_state_t audio_state = AUDIO_STATE_IDLE;
+
+
 
 /* 1/4 周期正弦查找表 (0~pi/2)，振幅 8000，65 点 */
 static const int16_t sine_quarter[65] = {
@@ -171,8 +175,7 @@ void CS43131_I2C_Config(void)
 
     /* 六、PCM音频路径配置 */
     CS43131_I2C_WriteReg(0x090000, 0x02); /* 高通滤波开启, 快速滚降 */
-    CS43131_I2C_WriteReg(0x090001, 0x50); /* 设置音量A */
-    CS43131_I2C_WriteReg(0x090002, 0x50); /* 设置音量B */
+    Audio_SetVolume(50);                  /* 默认音量 50% */
     CS43131_I2C_WriteReg(0x090003, 0xEC); /* 软斜坡, 自动静音, 双声道同步 */
     CS43131_I2C_WriteReg(0x090004, 0x00); /* 关闭反转/交换/复制 */
 
@@ -427,6 +430,8 @@ void Audio_PlayStop(void)
     audio_state = AUDIO_STATE_STOPPED;
     song_data = NULL;
     wav_eof = 0;
+    CS43131_g.samples_played = 0;
+    CS43131_g.track_name[0] = '\0';
     if (wav_file_opened) {
         CH378FileClose(0);
         wav_file_opened = 0;
@@ -458,6 +463,112 @@ void Audio_PlaySineStart(void)
  *
  * @return  1 if playing, 0 otherwise
  *********************************************************************/
+/*********************************************************************
+ * @fn      Audio_SetVolume
+ *
+ * @brief   Set playback volume (0~100).
+ *
+ * @param   vol - 0=mute, 100=max
+ *
+ * @return  none
+ *********************************************************************/
+void Audio_SetVolume(uint8_t vol)
+{
+    if (vol > 100) vol = 100;
+    CS43131_g.volume = vol;
+    /* CS43131 PCM Volume: 0x00=0dB(max), ~0xC0=mute.
+     * Linear map: 100 → 0x00, 0 → 0xC0 */
+    uint8_t reg_val = (uint8_t)(((100 - vol) * 192) / 100);
+    CS43131_I2C_WriteReg(0x090001, reg_val); /* Volume B */
+    CS43131_I2C_WriteReg(0x090002, reg_val); /* Volume A */
+}
+
+/*********************************************************************
+ * @fn      Audio_GetVolume
+ *
+ * @brief   Get current volume.
+ *
+ * @return  0~100
+ *********************************************************************/
+uint8_t Audio_GetVolume(void)
+{
+    return CS43131_g.volume;
+}
+
+/*********************************************************************
+ * @fn      Audio_Pause
+ *
+ * @brief   Pause playback.
+ *
+ * @return  none
+ *********************************************************************/
+void Audio_Pause(void)
+{
+    if (audio_state == AUDIO_STATE_PLAYING) {
+        audio_state = AUDIO_STATE_PAUSED;
+    }
+}
+
+/*********************************************************************
+ * @fn      Audio_Resume
+ *
+ * @brief   Resume playback.
+ *
+ * @return  none
+ *********************************************************************/
+void Audio_Resume(void)
+{
+    if (audio_state == AUDIO_STATE_PAUSED) {
+        audio_state = AUDIO_STATE_PLAYING;
+    }
+}
+
+/*********************************************************************
+ * @fn      Audio_GetPlayTime_ms
+ *
+ * @brief   Get current playback time in milliseconds.
+ *
+ * @return  time in ms
+ *********************************************************************/
+uint32_t Audio_GetPlayTime_ms(void)
+{
+    /* audio_samples_played is in channel-samples.
+     * Stereo 44.1kHz = 88200 channel-samples/sec.
+     * ms = samples * 1000 / 88200 */
+    return (CS43131_g.samples_played * 1000ULL) / 88200;
+}
+
+/*********************************************************************
+ * @fn      Audio_GetCurrentTrackName
+ *
+ * @brief   Get current track name.
+ *
+ * @return  pointer to track name string, or empty string if none
+ *********************************************************************/
+const char* Audio_GetCurrentTrackName(void)
+{
+    return CS43131_g.track_name;
+}
+
+/*********************************************************************
+ * @fn      Audio_SetCurrentTrack
+ *
+ * @brief   Set current track name.
+ *
+ * @param   name - track name string
+ *
+ * @return  none
+ *********************************************************************/
+void Audio_SetCurrentTrack(const char *name)
+{
+    if (name) {
+        strncpy(CS43131_g.track_name, name, sizeof(CS43131_g.track_name) - 1);
+        CS43131_g.track_name[sizeof(CS43131_g.track_name) - 1] = '\0';
+    } else {
+        CS43131_g.track_name[0] = '\0';
+    }
+}
+
 uint8_t Audio_IsPlaying(void)
 {
     return (audio_state == AUDIO_STATE_PLAYING);
@@ -594,6 +705,12 @@ void Audio_Process(void)
 
 static void fill_audio_half(uint16_t *buf)
 {
+    /* 暂停状态：填静音，保持进度不增加 */
+    if (audio_state == AUDIO_STATE_PAUSED) {
+        memset(buf, 0, AUDIO_HALF_SIZE * sizeof(uint16_t));
+        return;
+    }
+
     if (audio_mode == AUDIO_MODE_MEMORY) {
         Audio_FillBuffer(buf, AUDIO_HALF_SIZE);
     } else if (audio_mode == AUDIO_MODE_SINE) {
@@ -614,6 +731,20 @@ static void fill_audio_half(uint16_t *buf)
     }
 }
 
+static void update_playback_progress(void)
+{
+    if (audio_state != AUDIO_STATE_PLAYING) return;
+
+    if (audio_mode == AUDIO_MODE_WAV) {
+        /* 只有实际从 ring buffer 读出数据时才计进度 */
+        if (rb_used() >= AUDIO_HALF_SIZE * sizeof(uint16_t)) {
+            CS43131_g.samples_played += AUDIO_HALF_SIZE;
+        }
+    } else if (audio_mode != AUDIO_MODE_NONE) {
+        CS43131_g.samples_played += AUDIO_HALF_SIZE;
+    }
+}
+
 void DMA1_Channel1_IRQHandler(void)
 {
     if (DMA_GetITStatus(DMA1, DMA1_IT_HT1) == SET)
@@ -621,6 +752,7 @@ void DMA1_Channel1_IRQHandler(void)
         DMA_ClearITPendingBit(DMA1, DMA1_IT_HT1);
         /* DMA 正在传后半部分，安全地填前半部分 */
         fill_audio_half(audio_buffer_A);
+        update_playback_progress();
     }
 
     if (DMA_GetITStatus(DMA1, DMA1_IT_TC1) == SET)
@@ -628,5 +760,6 @@ void DMA1_Channel1_IRQHandler(void)
         DMA_ClearITPendingBit(DMA1, DMA1_IT_TC1);
         /* DMA 刚回到开头，安全地填后半部分 */
         fill_audio_half(audio_buffer_A + AUDIO_HALF_SIZE);
+        update_playback_progress();
     }
 }

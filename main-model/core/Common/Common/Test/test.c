@@ -110,34 +110,34 @@ void test_CH378(void)
     printf("  --- List current dir (advanced API) ---\r\n");
     CH378_Dir_List(&ch378_g, List_Callback);
 
-    /* 文件读写测试 */
-    {
-        uint8_t test_buf[64] = "Hello CH378 from File Manager API!";
-        uint32_t test_len = strlen((char*)test_buf);
-        uint32_t read_len = 0;
-        uint32_t file_size = 0;
+    // /* 文件读写测试 */
+    // {
+    //     uint8_t test_buf[64] = "Hello CH378 from File Manager API!";
+    //     uint32_t test_len = strlen((char*)test_buf);
+    //     uint32_t read_len = 0;
+    //     uint32_t file_size = 0;
 
-        CH378_Dir_Enter(&ch378_g, "DOC");
-        printf("  Current path: %s\r\n", CH378_Dir_Get_Path());
-        CH378_Dir_List(&ch378_g, List_Callback);
+    //     CH378_Dir_Enter(&ch378_g, "DOC");
+    //     printf("  Current path: %s\r\n", CH378_Dir_Get_Path());
+    //     CH378_Dir_List(&ch378_g, List_Callback);
 
-        // printf("  --- File write test ---\r\n");
-        // status = CH378_File_Write(&ch378_g, "TEST.TXT", test_buf, test_len);
-        // printf("  Write TEST.TXT status=%02X\r\n", status);
+    //     printf("  --- File write test ---\r\n");
+    //     status = CH378_File_Write(&ch378_g, "TEST.TXT", test_buf, test_len);
+    //     printf("  Write TEST.TXT status=%02X\r\n", status);
 
-        // printf("  --- File size query ---\r\n");
-        // file_size = CH378_File_GetSize(&ch378_g, "TEST.TXT");
-        // printf("  TEST.TXT size=%lu\r\n", file_size);
+    //     printf("  --- File size query ---\r\n");
+    //     file_size = CH378_File_GetSize(&ch378_g, "TEST.TXT");
+    //     printf("  TEST.TXT size=%lu\r\n", file_size);
 
-        // printf("  --- File read test ---\r\n");
-        // memset(test_buf, 0, sizeof(test_buf));
-        // read_len = CH378_File_Read(&ch378_g, "TEST.TXT", test_buf, sizeof(test_buf));
-        // printf("  Read TEST.TXT: %lu bytes, content=%s\r\n", read_len, test_buf);
+    //     printf("  --- File read test ---\r\n");
+    //     memset(test_buf, 0, sizeof(test_buf));
+    //     read_len = CH378_File_Read(&ch378_g, "TEST.TXT", test_buf, sizeof(test_buf));
+    //     printf("  Read TEST.TXT: %lu bytes, content=%s\r\n", read_len, test_buf);
 
-        // printf("  --- File delete test ---\r\n");
-        // status = CH378_File_Delete(&ch378_g, "TEST.TXT");
-        // printf("  Delete TEST.TXT status=%02X\r\n", status);
-    }
+    //     printf("  --- File delete test ---\r\n");
+    //     status = CH378_File_Delete(&ch378_g, "TEST.TXT");
+    //     printf("  Delete TEST.TXT status=%02X\r\n", status);
+    // }
 
     /* Step 9: CLI 命令行接口演示 */
     // printf("[Step 9] CLI demo...\r\n");
