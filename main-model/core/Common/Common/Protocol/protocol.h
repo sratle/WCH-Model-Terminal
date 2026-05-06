@@ -133,11 +133,11 @@
 #define CMD_BT_EXTENSION                0x50
 #define CMD_BT_GET_STATUS               0x51
 #define CMD_BT_SEND_DATA                0x52
-#define CMD_BT_START_OTA                0x53
+/* 0x53 预留 */
 #define CMD_BT_CONN_EVT                 0x54
 #define CMD_BT_RECV_DATA                0x55
 #define CMD_BT_HID_REPORT               0x56
-#define CMD_BT_AUDIO_STATUS             0x57
+/* 0x57 预留 */
 #define CMD_BT_SET_DISCOVERABLE         0x58
 #define CMD_BT_RESET                    0x59
 /* 0x5A ~ 0x5F 预留 */
@@ -150,11 +150,9 @@
 #define CMD_BT_EXT_CONNECT              0x03
 #define CMD_BT_EXT_PAIRING_MGMT         0x04
 #define CMD_BT_EXT_SET_MODE             0x05
-#define CMD_BT_EXT_AUDIO_CTRL           0x06
+/* 0x06 预留 */
 #define CMD_BT_EXT_CLI_DATA             0x07
-#define CMD_BT_EXT_AUDIO_STREAM         0x08
-#define CMD_BT_EXT_OTA_PACKET           0x09
-/* 0x0A ~ 0x3F 预留 */
+/* 0x08~0x3F 预留 */
 
 /* 模块 ID */
 #define MODULE_ID_CORE          0x00

@@ -319,7 +319,7 @@ Common/Common/<Module>/
 - **时钟安全**: `system_ch32h417.c` 中若 HSE 启动失败会静默回退，生产代码应增加错误处理分支。
 - **栈大小**: 链接脚本中 `__stack_size = 2048`，若新增复杂递归或大数据局部变量，需评估栈溢出风险。
 - **Volatile 使用**: 双核共享的变量（如 `hardware_g`）必须使用 `volatile`，避免编译器优化导致可见性问题。
-- **CH585F OTA**: V5F 通过 SPI 向 CH585F 发送 `CMD_BT_START_OTA`（`0x53`）启动蓝牙固件升级，OTA 流程需确保时序和校验正确。
+- **CH585F 为独立 MCU**: V5F 仅通过 SPI4 与 CH585F 通信，不负责 CH585F 的固件升级。CH585F 的固件维护在独立仓库中进行。
 
 ---
 
