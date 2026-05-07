@@ -234,7 +234,7 @@ static const protocol_common_cb_t submodels_cb = {
  * 专用命令分发辅助函数
  * ============================================================================ */
 
-static uint8_t submodels_dispatch_req(const protocol_frame_t *req,
+__attribute__((unused)) static uint8_t submodels_dispatch_req(const protocol_frame_t *req,
                                       uint8_t (*handler)(const protocol_frame_t *,
                                                          uint8_t *, uint16_t, uint8_t *),
                                       uint8_t *resp_buf, uint16_t resp_size)

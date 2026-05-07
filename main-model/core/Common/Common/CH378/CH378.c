@@ -6,7 +6,7 @@
 
 /************************* 全局变量 *************************/
 extern ch378_t ch378_g;
-static uint16_t SectorSize = 512;
+/* static uint16_t SectorSize = 512; */
 
 /************************* 内部静态辅助函数声明 *************************/
 static void xWriteCH378Cmd(uint8_t cmd);
@@ -504,73 +504,101 @@ uint8_t CH378_SetUsbMode(uint8_t mode)
 
 void CH378_Device_Select(ch378_t *ch378, uint8_t device)
 {
+    uint8_t mode = device;
+    uint8_t mount_retry = 0;
+    uint8_t int_status = 0;
+
     if (ch378->enable != 1)
     {
         printf("CH378 not initialized\r\n");
         return;
     }
 
-    if (ch378->now_device != device)
+    if (ch378->now_device == device)
+        return;
+
+    /* 模式切换时直接硬件复位 CH378，避免控制器内部状态紊乱导致挂载失败 */
+    printf("CH378 switching to device %02X, performing hardware reset...\r\n", device);
+    CH378_RSTI_LOW();
+    Delay_Ms(300);
+    CH378_RSTI_HIGH();
+    Delay_Ms(300);
+
+    /* 通讯检测 */
     {
-        uint8_t mode = device;
-        uint8_t mount_retry = 0;
-        uint8_t int_status = 0;
-
-        CH378_Clear_Pending_Int();
-
-        xWriteCH378Cmd(CMD11_SET_USB_MODE);
-        xWriteCH378Data(mode);
-        if (device == CH378_Device_USB)
-            Delay_Ms(50);
-        else
-            Delay_Ms(50);
-
-        uint8_t mode_ret = xReadCH378Data();
+        uint8_t test = 0x57;
+        xWriteCH378Cmd(CMD11_CHECK_EXIST);
+        xWriteCH378Data(test);
+        uint8_t ret = xReadCH378Data();
         xEndCH378Cmd();
-
-        if (mode_ret != CMD_RET_SUCCESS)
+        if (ret != (uint8_t)~test)
         {
-            printf("CH378 SET_USB_MODE failed, ret=%02X\r\n", mode_ret);
+            printf("CH378 communication test failed after reset\r\n");
             ch378->now_device = 0x00;
             return;
         }
+    }
 
-        CH378_Clear_Pending_Int();
-        int_status = CH378DiskConnect();
-        printf("CH378 DISK_CONNECT status=%02X\r\n", int_status);
-        if (int_status != ERR_SUCCESS)
+    /* 设置目标模式 */
+    xWriteCH378Cmd(CMD11_SET_USB_MODE);
+    xWriteCH378Data(mode);
+    Delay_Ms(50);
+    uint8_t mode_ret = xReadCH378Data();
+    xEndCH378Cmd();
+    if (mode_ret != CMD_RET_SUCCESS)
+    {
+        printf("CH378 SET_USB_MODE failed, ret=%02X\r\n", mode_ret);
+        ch378->now_device = 0x00;
+        return;
+    }
+
+    /* 设备连接检测（USB 模式可能需要重试） */
+    CH378_Clear_Pending_Int();
+    int_status = CH378DiskConnect();
+    printf("CH378 DISK_CONNECT status=%02X\r\n", int_status);
+    if (int_status != ERR_SUCCESS)
+    {
+        uint8_t retry;
+        for (retry = 0; retry < 20; retry++)
         {
-            printf("CH378 device not connected\r\n");
-            ch378->now_device = 0x00;
-            return;
-        }
-
-        printf("CH378 wait 200ms for device init...\r\n");
-        Delay_Ms(200);
-
-        while (mount_retry < 100)
-        {
+            Delay_Ms(100);
             CH378_Clear_Pending_Int();
-            int_status = CH378DiskReady();
-            printf("CH378 DISK_MOUNT try %d, status=%02X\r\n", mount_retry, int_status);
+            int_status = CH378DiskConnect();
+            printf("CH378 DISK_CONNECT retry %d, status=%02X\r\n", retry, int_status);
             if (int_status == ERR_SUCCESS)
                 break;
-            mount_retry++;
-            Delay_Ms(50);
         }
+    }
+    if (int_status != ERR_SUCCESS)
+    {
+        printf("CH378 device not connected\r\n");
+        ch378->now_device = 0x00;
+        return;
+    }
 
+    /* 挂载 */
+    printf("CH378 wait 200ms for device init...\r\n");
+    Delay_Ms(200);
+    while (mount_retry < 10)
+    {
+        CH378_Clear_Pending_Int();
+        int_status = CH378DiskReady();
+        printf("CH378 DISK_MOUNT try %d, status=%02X\r\n", mount_retry, int_status);
         if (int_status == ERR_SUCCESS)
-        {
-            printf("CH378 device %02X mount success\r\n", device);
-            ch378->now_device = device;
-        }
-        else
-        {
-            printf("CH378 device %02X mount failed, final status=%02X\r\n", device, int_status);
-            uint8_t disk_status = CH378GetDiskStatus();
-            printf("CH378 internal disk status=%02X\r\n", disk_status);
-            ch378->now_device = 0x00;
-        }
+            break;
+        mount_retry++;
+        Delay_Ms(50);
+    }
+
+    if (int_status == ERR_SUCCESS)
+    {
+        printf("CH378 device %02X mount success\r\n", device);
+        ch378->now_device = device;
+    }
+    else
+    {
+        printf("CH378 device %02X mount failed, final status=%02X\r\n", device, int_status);
+        ch378->now_device = 0x00;
     }
 }
 

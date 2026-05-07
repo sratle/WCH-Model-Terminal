@@ -35,10 +35,6 @@ int main(void)
     printf("V5F Wake Up\r\n");
 
     Hardware_V5F_Init();
-    test_CH378();
-
-    // /* 启动 1kHz 正弦波测试，验证音频通路 */
-    // Audio_PlaySineStart();
 
     /* 启用 USART2 接收中断，进入交互式 CLI 模式 */
     Debug_EnableRxIRQ();

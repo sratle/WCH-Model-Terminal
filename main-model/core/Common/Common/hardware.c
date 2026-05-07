@@ -68,6 +68,8 @@ void Hardware_V5F_Init(void)
     CH378_Init(&ch378_g);
     hardware_g.hardware_init_flag |= 0x02;
 
+    CH378_Device_Select(&ch378_g, CH378_Device_TF);
+
     CLI_Init();
 
     // CH585F_Init(&ch585f_g);

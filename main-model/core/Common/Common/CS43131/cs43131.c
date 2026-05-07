@@ -19,7 +19,7 @@
 extern cs43131_t CS43131_g;
 
 static uint16_t audio_buffer_A[AUDIO_BUFFER_SIZE];
-static uint16_t audio_buffer_B[AUDIO_BUFFER_SIZE];
+/* static uint16_t audio_buffer_B[AUDIO_BUFFER_SIZE]; */
 
 static const uint16_t *song_data = NULL;
 static volatile uint32_t song_data_length = 0;

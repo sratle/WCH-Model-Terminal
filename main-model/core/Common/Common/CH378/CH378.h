@@ -168,6 +168,8 @@ uint8_t CH378GetIntStatus(void);
 uint8_t CH378DiskConnect(void);
 uint8_t CH378DiskReady(void);
 void    CH378SetFileName(uint8_t *PathName);
+uint8_t CH378SendCmdWaitInt(uint8_t mCmd);
+uint8_t CH378SendCmdDatWaitInt(uint8_t mCmd, uint8_t mDat);
 uint8_t CH378FileOpen(uint8_t *PathName);
 uint8_t CH378FileCreate(uint8_t *PathName);
 uint8_t CH378DirCreate(uint8_t *PathName);

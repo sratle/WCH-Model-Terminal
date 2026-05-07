@@ -117,12 +117,9 @@ static uint8_t CLI_IsShortName(const char *name)
 /* 长文件名操作辅助：分离路径和文件名，执行 LFN 操作 */
 static uint8_t CLI_LFN_Operation(const char *full_path, uint8_t op)
 {
-    char dir_path[CH378_MAX_PATH_LEN];
     const char *filename;
     uint8_t unicode_name[512];
-    uint16_t unicode_len;
     uint8_t status;
-    uint16_t i;
 
     /* 分离文件名用于生成 UTF-16LE LFN；完整路径直接传给 CH378，
      * 由固件自行解析父目录与目标文件名 */
@@ -134,7 +131,7 @@ static uint8_t CLI_LFN_Operation(const char *full_path, uint8_t op)
     }
 
     /* ASCII 转 UTF-16LE */
-    unicode_len = CLI_AsciiToUnicode(filename, unicode_name, sizeof(unicode_name));
+    (void)CLI_AsciiToUnicode(filename, unicode_name, sizeof(unicode_name));
 
     switch (op) {
         case 0:  /* open */
