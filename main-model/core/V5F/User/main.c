@@ -9,6 +9,7 @@
 #include "debug.h"
 #include "hardware.h"
 #include "CH378/CH378.h"
+#include "CH585F/ch585f_bt.h"
 #include "Test/test.h"
 
 /*********************************************************************
@@ -35,6 +36,7 @@ int main(void)
     printf("V5F Wake Up\r\n");
 
     Hardware_V5F_Init();
+    CH585F_BT_Init();
 
     /* 启用 USART2 接收中断，进入交互式 CLI 模式 */
     Debug_EnableRxIRQ();
@@ -45,6 +47,7 @@ int main(void)
         Display_Process(&display_g);
         Audio_Process();
         Debug_CLI_Process();
+        CH585F_BT_Poll();
         Delay_Ms(1);
     }
 }

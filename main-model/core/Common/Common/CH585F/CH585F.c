@@ -29,8 +29,11 @@ void CH585F_Init(ch585f_t *ch585f)
     GPIO_Init(CH585F_SPI_SCK_PORT, &GPIO_InitStructure);
 
     GPIO_InitStructure.GPIO_Pin = CH585F_SPI_NSS_PIN;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
     GPIO_Init(CH585F_SPI_NSS_PORT, &GPIO_InitStructure);
+
+    /* NSS default high (deselect slave) */
+    GPIO_SetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
 
     /* SPI4 init: master, full duplex, 8bit, CPOL low, CPHA 1 edge, software NSS, MSB first */
     SPI_StructInit(&SPI_InitStructure);
@@ -54,6 +57,7 @@ void CH585F_Init(ch585f_t *ch585f)
 void CH585F_Send_Data(ch585f_t *ch585f, uint8_t *data, uint16_t length)
 {
     uint16_t i;
+    GPIO_ResetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
     for (i = 0; i < length; i++)
     {
         while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_TXE) == RESET);
@@ -61,4 +65,20 @@ void CH585F_Send_Data(ch585f_t *ch585f, uint8_t *data, uint16_t length)
         while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_RXNE) == RESET);
         (void)SPI_I2S_ReceiveData(CH585F_SPI);
     }
+    GPIO_SetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
+}
+
+// 接收数据，通过发送dummy字节同步读取MISO数据
+void CH585F_Recv_Data(ch585f_t *ch585f, uint8_t *buf, uint16_t length)
+{
+    uint16_t i;
+    GPIO_ResetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
+    for (i = 0; i < length; i++)
+    {
+        while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_TXE) == RESET);
+        SPI_I2S_SendData(CH585F_SPI, 0x00);
+        while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_RXNE) == RESET);
+        buf[i] = (uint8_t)SPI_I2S_ReceiveData(CH585F_SPI);
+    }
+    GPIO_SetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
 }

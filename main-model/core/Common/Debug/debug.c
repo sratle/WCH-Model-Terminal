@@ -14,6 +14,7 @@
 #include "../Common/Protocol/protocol_common.h"
 #include "../Common/Protocol/protocol.h"
 #include "../Common/CLI/CLI.h"
+#include "../Common/CH585F/ch585f_bt.h"
 
 static uint16_t p_us = 0;
 static uint32_t p_ms = 0;
@@ -178,7 +179,15 @@ __attribute__((used)) int _write(int fd, char *buf, int size)
     {
         while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET)
             ;
-        USART_SendData(USART2, *buf++);
+        USART_SendData(USART2, *buf);
+
+        /* 若处于 CLI 捕获模式，同时写入 BT 回传缓冲区 */
+        if (cli_capture_flag && cli_capture_len < CH585F_BT_CLI_CAPTURE_SIZE)
+        {
+            cli_capture_buf[cli_capture_len++] = *buf;
+        }
+
+        buf++;
     }
 
     return size;

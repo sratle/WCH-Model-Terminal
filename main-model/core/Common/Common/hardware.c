@@ -72,8 +72,8 @@ void Hardware_V5F_Init(void)
 
     CLI_Init();
 
-    // CH585F_Init(&ch585f_g);
-    // hardware_g.hardware_init_flag |= 0x04;
+    CH585F_Init(&ch585f_g);
+    hardware_g.hardware_init_flag |= 0x04;
 
     // Display_Init(&display_g);
     // hardware_g.hardware_init_flag |= 0x08;

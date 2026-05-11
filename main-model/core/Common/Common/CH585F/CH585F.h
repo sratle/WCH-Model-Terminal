@@ -36,5 +36,6 @@ typedef struct
 // 初始化CH585F结构体，初始化SPI和CH585F沟通编号和设置
 void CH585F_Init(ch585f_t *ch585f);
 void CH585F_Send_Data(ch585f_t *ch585f, uint8_t *data, uint16_t length);
+void CH585F_Recv_Data(ch585f_t *ch585f, uint8_t *buf, uint16_t length);
 
 #endif
