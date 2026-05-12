@@ -65,6 +65,8 @@ void CH585F_Send_Data(ch585f_t *ch585f, uint8_t *data, uint16_t length)
         while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_RXNE) == RESET);
         (void)SPI_I2S_ReceiveData(CH585F_SPI);
     }
+    /* 等待 SPI 总线空闲后再拉高 NSS，防止最后一字节传输被截断 */
+    while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_BSY) == SET);
     GPIO_SetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
 }
 
@@ -80,5 +82,7 @@ void CH585F_Recv_Data(ch585f_t *ch585f, uint8_t *buf, uint16_t length)
         while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_RXNE) == RESET);
         buf[i] = (uint8_t)SPI_I2S_ReceiveData(CH585F_SPI);
     }
+    /* 等待 SPI 总线空闲后再拉高 NSS，确保 Slave 完整发送最后一字节 */
+    while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_BSY) == SET);
     GPIO_SetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
 }

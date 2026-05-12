@@ -48,6 +48,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <CH585SFR.h>
+#include <stdbool.h>
 #include "core_riscv.h"
 #include "CH58x_clk.h"
 #include "CH58x_uart.h"

@@ -10,6 +10,11 @@
 
 #define CH585F_BT_POLL_SIZE         32
 #define CH585F_BT_CLI_CAPTURE_SIZE  512
+#define CH585F_BT_CLI_ASSEMBLE_SIZE 512
+
+/* CLI_DATA FLAGS */
+#define CLI_FLAG_SOF                0x01    /* bit0: Start of Frame */
+#define CLI_FLAG_EOF                0x02    /* bit1: End of Frame   */
 
 /* CLI 输出捕获（供 debug.c _write 使用） */
 extern uint8_t cli_capture_buf[CH585F_BT_CLI_CAPTURE_SIZE];
@@ -28,7 +33,7 @@ extern ch585f_bt_ctx_t ch585f_bt_g;
 
 void CH585F_BT_Init(void);
 void CH585F_BT_Poll(void);
-void CH585F_BT_SendCliData(uint8_t *data, uint8_t len);
+void CH585F_BT_SendCliData(uint8_t *data, uint16_t len);
 
 void CLI_Capture_Start(void);
 void CLI_Capture_Stop(void);

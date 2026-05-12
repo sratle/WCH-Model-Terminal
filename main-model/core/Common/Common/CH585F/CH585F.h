@@ -8,7 +8,7 @@
 #include "debug.h"
 
 /* CH585F SPI clock definition */
-#define CH585F_SPI_CLOCK SPI_BaudRatePrescaler_Mode7
+#define CH585F_SPI_CLOCK SPI_BaudRatePrescaler_Mode3
 #define CH585F_SPI SPI4
 
 /* CH585F SPI gpio definitions SPI4 */

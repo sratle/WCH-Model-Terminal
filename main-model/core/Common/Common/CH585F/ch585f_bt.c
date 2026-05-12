@@ -2,6 +2,7 @@
 #include "CH585F.h"
 #include "CLI/CLI.h"
 #include "debug.h"
+#include "hardware.h"
 #include <string.h>
 
 /* CLI 输出捕获缓冲区（被 debug.c _write 写入） */
@@ -14,10 +15,15 @@ ch585f_bt_ctx_t ch585f_bt_g;
 /* 静态发送缓冲区 */
 static uint8_t s_tx_buf[PROTO_MAX_FRAME_LEN];
 
+/* CLI 多帧组装缓冲区 */
+static uint8_t s_cli_assemble_buf[CH585F_BT_CLI_ASSEMBLE_SIZE];
+static uint16_t s_cli_assemble_len = 0;
+
 static void CH585F_BT_SendFrame(uint8_t cmd, const uint8_t *data, uint8_t data_len);
 static void CH585F_BT_HandleConnEvt(const protocol_frame_t *frame);
 static void CH585F_BT_HandleExtFrame(const protocol_frame_t *frame);
 static void CH585F_BT_HandleCliData(const protocol_frame_t *frame);
+void CH585F_BT_HandleFrame(void);
 
 /*********************************************************************
  * @fn      CH585F_BT_Init
@@ -45,13 +51,38 @@ void CH585F_BT_Poll(void)
 {
     uint8_t rx_buf[CH585F_BT_POLL_SIZE];
     uint16_t i;
+    uint8_t has_data = 0;
 
     CH585F_Recv_Data(&ch585f_g, rx_buf, CH585F_BT_POLL_SIZE);
+
+    /* 调试：检查本轮是否读到非 0x00/0xFF 的有效数据 */
+    for (i = 0; i < CH585F_BT_POLL_SIZE; i++)
+    {
+        if (rx_buf[i] != 0x00 && rx_buf[i] != 0xFF)
+        {
+            has_data = 1;
+            break;
+        }
+    }
+
+    if (has_data)
+    {
+        printf("[BT POLL] RAW [%d]: ", CH585F_BT_POLL_SIZE);
+        for (i = 0; i < CH585F_BT_POLL_SIZE; i++)
+        {
+            printf("%02X ", rx_buf[i]);
+        }
+        printf("\r\n");
+    }
 
     for (i = 0; i < CH585F_BT_POLL_SIZE; i++)
     {
         if (Protocol_ParseByte(&ch585f_bt_g.rx_ctx, rx_buf[i]))
         {
+            printf("[BT] Frame ready: cmd=0x%02X, len=%d, data[0]=0x%02X\r\n",
+                   ch585f_bt_g.rx_ctx.frame.cmd,
+                   ch585f_bt_g.rx_ctx.frame.len,
+                   ch585f_bt_g.rx_ctx.frame.data[0]);
             CH585F_BT_HandleFrame();
             Protocol_ResetRxCtx(&ch585f_bt_g.rx_ctx);
         }
@@ -166,17 +197,24 @@ static void CH585F_BT_HandleExtFrame(const protocol_frame_t *frame)
  *
  * @brief   处理 APP CLI 透传数据（扩展码 0x07）
  *
+ *          协议格式（V2.2）:
+ *          DATA[0] = 0x07 (扩展码)
+ *          DATA[1] = FLAGS (bit0=SOF, bit1=EOF)
+ *          DATA[2..N] = CLI 原始数据
+ *
+ *          支持多帧拆分：通过 FLAGS 的 SOF/EOF 位组装完整 CLI 命令。
+ *
  * @return  none
  *********************************************************************/
 static void CH585F_BT_HandleCliData(const protocol_frame_t *frame)
 {
+    uint8_t flags;
     uint8_t *cli_data;
     uint8_t cli_len;
     uint16_t out_len;
     uint8_t *out_buf;
-    uint8_t cli_buf[256];
 
-    if (frame->len < 2) return;
+    if (frame->len < 3) return; /* 至少: ext_cmd(1) + FLAGS(1) */
 
     if (!ch585f_bt_g.app_connected)
     {
@@ -184,23 +222,66 @@ static void CH585F_BT_HandleCliData(const protocol_frame_t *frame)
         return;
     }
 
-    cli_data = (uint8_t *)&frame->data[1];
-    cli_len = frame->len - 2; /* LEN - 1(CMD) - 1(ext_cmd) */
+    flags    = frame->data[1];
+    cli_data = (uint8_t *)&frame->data[2];
+    cli_len  = frame->len - 3; /* LEN - 1(CMD) - 1(ext_cmd) - 1(FLAGS) */
 
-    if (cli_len >= sizeof(cli_buf)) cli_len = sizeof(cli_buf) - 1;
-
-    memcpy(cli_buf, cli_data, cli_len);
-    cli_buf[cli_len] = '\0';
-
-    /* 执行 CLI 命令并捕获输出 */
-    CLI_Capture_Start();
-    CLI_Process(cli_buf, cli_len);
-    CLI_Capture_Stop();
-
-    out_buf = CLI_Capture_Flush(&out_len);
-    if (out_len > 0 && out_len <= 255)
+    /* SOF: 新消息开始，清空组装缓冲区 */
+    if (flags & CLI_FLAG_SOF)
     {
-        CH585F_BT_SendCliData(out_buf, (uint8_t)out_len);
+        s_cli_assemble_len = 0;
+    }
+
+    /* 将本帧 CLI 数据追加到组装缓冲区 */
+    if (cli_len > 0)
+    {
+        if (s_cli_assemble_len + cli_len > CH585F_BT_CLI_ASSEMBLE_SIZE)
+        {
+            cli_len = CH585F_BT_CLI_ASSEMBLE_SIZE - s_cli_assemble_len;
+        }
+        if (cli_len > 0)
+        {
+            memcpy(&s_cli_assemble_buf[s_cli_assemble_len], cli_data, cli_len);
+            s_cli_assemble_len += cli_len;
+        }
+    }
+
+    /* EOF: 消息结束，执行 CLI 并回传输出 */
+    if (flags & CLI_FLAG_EOF)
+    {
+        if (s_cli_assemble_len > 0)
+        {
+            /* 确保字符串以 '\0' 结尾 */
+            if (s_cli_assemble_len < CH585F_BT_CLI_ASSEMBLE_SIZE)
+            {
+                s_cli_assemble_buf[s_cli_assemble_len] = '\0';
+            }
+            else
+            {
+                s_cli_assemble_buf[CH585F_BT_CLI_ASSEMBLE_SIZE - 1] = '\0';
+            }
+
+            printf("[BT] CLI exec: len=%d, cmd='%s'\r\n",
+                   s_cli_assemble_len, s_cli_assemble_buf);
+
+            /* 执行 CLI 命令并捕获输出
+             * CLI_Process 接收 uint8_t len，最大 255，超限截断
+             */
+            CLI_Capture_Start();
+            if (s_cli_assemble_len > 255)
+            {
+                s_cli_assemble_len = 255;
+            }
+            CLI_Process(s_cli_assemble_buf, (uint8_t)s_cli_assemble_len);
+            CLI_Capture_Stop();
+
+            out_buf = CLI_Capture_Flush(&out_len);
+            printf("[BT] CLI output: len=%d\r\n", out_len);
+            if (out_len > 0)
+            {
+                CH585F_BT_SendCliData(out_buf, out_len);
+            }
+        }
     }
 }
 
@@ -209,18 +290,48 @@ static void CH585F_BT_HandleCliData(const protocol_frame_t *frame)
  *
  * @brief   将 CLI 输出数据通过扩展码下发给 CH585F
  *
+ *          协议格式（V2.2）:
+ *          DATA[0] = 0x07 (扩展码)
+ *          DATA[1] = FLAGS (bit0=SOF, bit1=EOF)
+ *          DATA[2..N] = CLI 原始数据
+ *
+ *          若输出超过单帧容量（253 字节），自动拆分为多帧。
+ *
  * @return  none
  *********************************************************************/
-void CH585F_BT_SendCliData(uint8_t *data, uint8_t len)
+void CH585F_BT_SendCliData(uint8_t *data, uint16_t len)
 {
     uint8_t buf[PROTO_MAX_DATA_LEN];
+    uint16_t offset = 0;
+    uint8_t chunk;
+    uint8_t flags;
 
-    if (len > PROTO_MAX_DATA_LEN - 1) len = PROTO_MAX_DATA_LEN - 1;
+    while (offset < len)
+    {
+        chunk = (uint8_t)(len - offset);
+        /* 每帧预留 2 字节给扩展码 + FLAGS */
+        if (chunk > PROTO_MAX_DATA_LEN - 2)
+        {
+            chunk = PROTO_MAX_DATA_LEN - 2;
+        }
 
-    buf[0] = CMD_BT_EXT_CLI_DATA;
-    memcpy(&buf[1], data, len);
+        flags = 0;
+        if (offset == 0)
+        {
+            flags |= CLI_FLAG_SOF;  /* 首帧 */
+        }
+        if (offset + chunk >= len)
+        {
+            flags |= CLI_FLAG_EOF;  /* 尾帧 */
+        }
 
-    CH585F_BT_SendFrame(CMD_BT_EXTENSION, buf, len + 1);
+        buf[0] = CMD_BT_EXT_CLI_DATA;
+        buf[1] = flags;
+        memcpy(&buf[2], &data[offset], chunk);
+
+        CH585F_BT_SendFrame(CMD_BT_EXTENSION, buf, chunk + 2);
+        offset += chunk;
+    }
 }
 
 /*********************************************************************
