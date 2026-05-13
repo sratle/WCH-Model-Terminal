@@ -25,22 +25,18 @@ static inline void SOFT8080_SetData(uint16_t data)
     uint32_t out_d = GPIOD->OUTDR & ~PD_DATA_MASK;
     uint32_t out_e = GPIOE->OUTDR & ~PE_DATA_MASK;
 
-    if (data & 0x0001) out_d |= GPIO_Pin_14;  /* D0  */
-    if (data & 0x0002) out_d |= GPIO_Pin_15;  /* D1  */
-    if (data & 0x0004) out_d |= GPIO_Pin_0;   /* D2  */
-    if (data & 0x0008) out_d |= GPIO_Pin_1;   /* D3  */
-    if (data & 0x0010) out_e |= GPIO_Pin_7;   /* D4  */
-    if (data & 0x0020) out_e |= GPIO_Pin_8;   /* D5  */
-    if (data & 0x0040) out_e |= GPIO_Pin_9;   /* D6  */
-    if (data & 0x0080) out_e |= GPIO_Pin_10;  /* D7  */
-    if (data & 0x0100) out_e |= GPIO_Pin_11;  /* D8  */
-    if (data & 0x0200) out_e |= GPIO_Pin_12;  /* D9  */
-    if (data & 0x0400) out_e |= GPIO_Pin_13;  /* D10 */
-    if (data & 0x0800) out_e |= GPIO_Pin_14;  /* D11 */
-    if (data & 0x1000) out_e |= GPIO_Pin_15;  /* D12 */
-    if (data & 0x2000) out_d |= GPIO_Pin_8;   /* D13 */
-    if (data & 0x4000) out_d |= GPIO_Pin_9;   /* D14 */
-    if (data & 0x8000) out_d |= GPIO_Pin_10;  /* D15 */
+    /* D0-D3, D13-D15 on GPIOD — pure bit-masking, no branches */
+    out_d |= ((data & 0x0001) << 14);   /* D0  -> PD14 */
+    out_d |= ((data & 0x0002) << 14);   /* D1  -> PD15 */
+    out_d |= ((data & 0x0004) >> 2);    /* D2  -> PD0  */
+    out_d |= ((data & 0x0008) >> 2);    /* D3  -> PD1  */
+    out_d |= ((data & 0x2000) >> 5);    /* D13 -> PD8  */
+    out_d |= ((data & 0x4000) >> 5);    /* D14 -> PD9  */
+    out_d |= ((data & 0x8000) >> 5);    /* D15 -> PD10 */
+
+    /* D4-D12 on GPIOE */
+    out_e |= ((data & 0x00F0) << 3);    /* D4-D7  -> PE7-PE10  */
+    out_e |= ((data & 0x1F00) << 3);    /* D8-D12 -> PE11-PE15 */
 
     GPIOD->OUTDR = out_d;
     GPIOE->OUTDR = out_e;
@@ -226,7 +222,12 @@ void SOFT8080_WriteData16(uint16_t data)
     GPIO_SetBits(GPIOB, GPIO_Pin_3);       /* RS high */
     SOFT8080_SetData(data);
     GPIO_ResetBits(GPIOD, GPIO_Pin_5);     /* WR low  */
-    Delay_Us(1);                           /* 1us is enough for GRAM burst */
+    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
     GPIO_SetBits(GPIOD, GPIO_Pin_5);       /* WR high */
     GPIO_SetBits(GPIOD, GPIO_Pin_7);       /* CS high */
 }
@@ -239,7 +240,12 @@ void SOFT8080_WriteBuffer(const uint16_t *buf, uint32_t len)
     while (len--) {
         SOFT8080_SetData(*buf++);
         GPIO_ResetBits(GPIOD, GPIO_Pin_5); /* WR low  */
-        Delay_Us(1);
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
         GPIO_SetBits(GPIOD, GPIO_Pin_5);   /* WR high */
     }
 
@@ -259,7 +265,12 @@ void SOFT8080_Clear(uint16_t color)
     for (i = 0; i < total; i++) {
         SOFT8080_SetData(color);
         GPIO_ResetBits(GPIOD, GPIO_Pin_5); /* WR low  */
-        Delay_Us(1);
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
         GPIO_SetBits(GPIOD, GPIO_Pin_5);   /* WR high */
     }
 
