@@ -6,6 +6,7 @@
 * Description        : MiniUI system initialization and main loop.
 ********************************************************************************/
 #include "miniui.h"
+#include "debug.h"
 #include "../UI/ui_main.h"
 #include "../UI/ui_home.h"
 #include "../UI/ui_apps.h"
@@ -14,6 +15,7 @@
 #include "../UI/ui_games.h"
 #include "../Apps/apps.h"
 #include "../Games/games.h"
+#include "../FMC/fmc_driver.h"
 #include "../SSD1963/ssd1963.h"
 #include "../SSD1963/lcd_config.h"
 
@@ -25,30 +27,54 @@
 
 void UI_Init(void)
 {
+    printf("[UI_Init] start\r\n");
+
+    printf("[UI_Init] -> FMC_Driver_Init()\r\n");
+    FMC_Driver_Init();
+
+    printf("[UI_Init] -> LCD_Init()\r\n");
     LCD_Init(LCD_ORIENTATION_NORMAL);
+
+    printf("[UI_Init] -> SSD1963_Init()\r\n");
     SSD1963_Init();
 
+    printf("[UI_Init] -> ui_render_init()\r\n");
     ui_render_init();
+    printf("[UI_Init] -> ui_page_init()\r\n");
     ui_page_init();
+    printf("[UI_Init] -> ui_input_init()\r\n");
     ui_input_init();
+    printf("[UI_Init] -> ui_anim_init()\r\n");
     ui_anim_init();
 
     ui_page_set_sidebar_callbacks(ui_main_draw_sidebar, ui_main_handle_event);
     ui_page_set_sidebar_width(SIDEBAR_WIDTH);
 
+    printf("[UI_Init] -> ui_main_init()\r\n");
     ui_main_init();
+    printf("[UI_Init] -> ui_home_init()\r\n");
     ui_home_init();
+    printf("[UI_Init] -> ui_apps_init()\r\n");
     ui_apps_init();
+    printf("[UI_Init] -> ui_models_init()\r\n");
     ui_models_init();
+    printf("[UI_Init] -> ui_settings_init()\r\n");
     ui_settings_init();
+    printf("[UI_Init] -> ui_games_init()\r\n");
     ui_games_init();
 
+    printf("[UI_Init] -> apps_init_all()\r\n");
     apps_init_all();
+    printf("[UI_Init] -> games_init_all()\r\n");
     games_init_all();
 
+    printf("[UI_Init] -> ui_page_switch(&page_home)\r\n");
     ui_page_switch(&page_home);
 
+    printf("[UI_Init] -> UI_FullRefresh()\r\n");
     UI_FullRefresh();
+
+    printf("[UI_Init] done\r\n");
 }
 
 /*=============================================================================

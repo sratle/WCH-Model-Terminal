@@ -7,6 +7,7 @@
 *                      Page stack, navigation, and dirty region tracking.
 ********************************************************************************/
 #include "miniui_page.h"
+#include "debug.h"
 #include <string.h>
 
 static int16_t s_sidebar_width = 200;
@@ -63,6 +64,7 @@ static void rect_clamp_screen(ui_rect_t *r)
 
 void ui_page_init(void)
 {
+    printf("[ui_page_init] start\r\n");
     s_registered_count = 0;
     s_stack_top = -1;
     s_dirty_list.count = 0;
@@ -70,6 +72,7 @@ void ui_page_init(void)
     s_sidebar_event = NULL;
     memset(s_registered_pages, 0, sizeof(s_registered_pages));
     memset(s_page_stack, 0, sizeof(s_page_stack));
+    printf("[ui_page_init] done\r\n");
 }
 
 void ui_page_register(ui_page_t *page)

@@ -10,6 +10,7 @@
 ********************************************************************************/
 #include "miniui_render.h"
 #include "../SSD1963/ssd1963.h"
+#include "debug.h"
 #include <string.h>
 
 static ui_display_driver_t s_driver = {
@@ -80,10 +81,12 @@ static inline bool rect_contains(const ui_rect_t *r, int16_t x, int16_t y)
 
 void ui_render_init(void)
 {
+    printf("[ui_render_init] start\r\n");
     g_clip_rect.x = 0;
     g_clip_rect.y = 0;
     g_clip_rect.w = UI_SCREEN_WIDTH;
     g_clip_rect.h = UI_SCREEN_HEIGHT;
+    printf("[ui_render_init] done\r\n");
 }
 
 /*=============================================================================

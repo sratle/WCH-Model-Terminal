@@ -103,26 +103,6 @@
 - **AccessMode**: `FMC_AccessMode_B`（8080 并口常用 Mode B）
 - **时序**: 根据 V5F 主频（400MHz）和 SSD1963 datasheet 配置 `AddressSetupTime`、`DataSetupTime`
 
-### 2.8 命令/数据地址映射
-`DC` 引脚接 **PB3 (FSMC_A1)**，因此可通过 FMC 地址偏移自动区分命令和数据，无需软件手动翻转 GPIO：
-
-```c
-#define SSD1963_CMD_ADDR  (*(volatile uint16_t *)0x60000000)  // A1 = 0
-#define SSD1963_DATA_ADDR (*(volatile uint16_t *)0x60000004)  // A1 = 1, 偏移 4 (2^(1+1))
-
-static inline void SSD1963_WriteCmd(uint16_t cmd)
-{
-    SSD1963_CMD_ADDR = cmd;
-}
-
-static inline void SSD1963_WriteData(uint16_t data)
-{
-    SSD1963_DATA_ADDR = data;
-}
-```
-
-> 原理：FSMC_A1 对应地址线 bit1，当访问 `0x60000004` 时，A1 自动拉高，DC = 1；访问 `0x60000000` 时，A1 自动拉低，DC = 0。FMC 硬件自动完成时序，无需 CPU 干预。
-
 ## 三、SSD1963 驱动层
 
 ### 3.1 底层读写接口

@@ -6,6 +6,7 @@
 * Description        : MiniUI animation system implementation.
 ********************************************************************************/
 #include "miniui_anim.h"
+#include "debug.h"
 #include <string.h>
 
 /*=============================================================================
@@ -20,7 +21,9 @@ static ui_anim_t s_animations[UI_MAX_ANIMATIONS];
 
 void ui_anim_init(void)
 {
+    printf("[ui_anim_init] start\r\n");
     memset(s_animations, 0, sizeof(s_animations));
+    printf("[ui_anim_init] done\r\n");
 }
 
 ui_anim_t* ui_anim_start(int32_t start, int32_t end, uint16_t duration_ms,

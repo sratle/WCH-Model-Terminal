@@ -38,7 +38,8 @@ int main(void)
 	SystemAndCoreClockUpdate();
 	Delay_Init();
 	USART_Printf_Init(115200);
-	printf("V5F SystemCoreClk:%d\r\n", SystemCoreClock);
+	printf("V5F SystemCoreClk:%d (HCLK)\r\n", SystemCoreClock);
+	printf("V5F HCLKClock:%d\r\n", HCLKClock);
 
 	Delay_Ms(500);
 

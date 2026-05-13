@@ -27,12 +27,14 @@ void SPI_Slave_Init(void)
     DataQueue_Init(&s_rx_queue, s_rx_buf, SPI_SLAVE_RX_BUF_SIZE);
     DataQueue_Init(&s_tx_queue, s_tx_buf, SPI_SLAVE_TX_BUF_SIZE);
 
-    /* Configure SPI0 GPIO pins (remap: PB12=SCS, PB13=MISO, PB14=MOSI, PB15=SCK)
+    /* Configure SPI0 GPIO pins (remap: PB12=SCS, PB13=SCK, PB14=MOSI, PB15=MISO)
      * Enable remap first, then configure PB pins
      */
     GPIOPinRemap(ENABLE, RB_PIN_SPI0);
-    GPIOB_ModeCfg(GPIO_Pin_13, GPIO_ModeOut_PP_5mA); /* MISO: output */
-    GPIOADigitalCfg(ENABLE, GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15);
+    GPIOB_ModeCfg(GPIO_Pin_12, GPIO_ModeIN_PU);      /* SCS:  input, pull-up */
+    GPIOB_ModeCfg(GPIO_Pin_13, GPIO_ModeIN_PU);      /* SCK:  input, pull-up */
+    GPIOB_ModeCfg(GPIO_Pin_14, GPIO_ModeIN_PU);      /* MOSI: input, pull-up */
+    GPIOB_ModeCfg(GPIO_Pin_15, GPIO_ModeOut_PP_5mA); /* MISO: output */
     GPIOBDigitalCfg(ENABLE, GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15);
 
     /* Initialize SPI0 in slave mode */

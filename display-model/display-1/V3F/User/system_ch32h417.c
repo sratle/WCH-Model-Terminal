@@ -330,9 +330,9 @@ static void SetSYSCLK_400M_CoreCLK_V5F_400M_V3F_100M_HSE(void)
     {
     }
 
-    /* V5F core clock = SYSCLK */
+    /* HCLK max = 150MHz per datasheet, must divide SYSCLK(400MHz) by at least 4 */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_HPRE));
-    RCC->CFGR0 |= (uint32_t)RCC_HPRE_DIV1; 
+    RCC->CFGR0 |= (uint32_t)RCC_HPRE_DIV4; 
 
     /* V3F core clock = HCLK = SYSCLK/4 */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_FPRE));

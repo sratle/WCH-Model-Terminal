@@ -32,5 +32,7 @@ void Hardware_V5F_Init(void)
      *   - SSD1963 display controller (PLL, timing, GRAM)
      *   - MiniUI lightweight UI framework
      */
+    printf("[Hardware_V5F_Init] start\r\n");
     UI_Init();
+    printf("[Hardware_V5F_Init] done\r\n");
 }

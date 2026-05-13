@@ -8,6 +8,7 @@
 ********************************************************************************/
 #include "miniui_input.h"
 #include "miniui_page.h"
+#include "debug.h"
 #include <string.h>
 
 /*=============================================================================
@@ -50,6 +51,7 @@ static bool queue_pop(ui_event_t *e)
 
 void ui_input_init(void)
 {
+    printf("[ui_input_init] start\r\n");
     memset(&s_input_state, 0, sizeof(s_input_state));
     memset(s_event_queue, 0, sizeof(s_event_queue));
     s_queue_head = 0;
@@ -57,6 +59,7 @@ void ui_input_init(void)
     s_queue_count = 0;
     s_input_state.mouse_pos.x = UI_SCREEN_WIDTH / 2;
     s_input_state.mouse_pos.y = UI_SCREEN_HEIGHT / 2;
+    printf("[ui_input_init] done\r\n");
 }
 
 /*=============================================================================

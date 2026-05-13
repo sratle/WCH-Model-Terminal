@@ -28,10 +28,14 @@ void LCD_Init(uint8_t orientation)
 {
     GPIO_InitTypeDef gpio_init;
 
+    printf("[LCD_Init] start\r\n");
+
     /* Enable GPIOA clock */
+    printf("[LCD_Init] enable GPIOA clock\r\n");
     RCC_HB2PeriphClockCmd(RCC_HB2Periph_GPIOA, ENABLE);
 
     /* Configure PA4~PA7 as push-pull outputs */
+    printf("[LCD_Init] configure PA4~PA7\r\n");
     gpio_init.GPIO_Pin = LCD_MODE_PIN | LCD_LR_PIN | LCD_UD_PIN | LCD_RESET_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
     gpio_init.GPIO_Speed = GPIO_Speed_Very_High;
@@ -45,7 +49,10 @@ void LCD_Init(uint8_t orientation)
     LCD_SetOrientation(orientation);
 
     /* Hardware reset LCD panel */
+    printf("[LCD_Init] reset LCD panel\r\n");
     LCD_Reset();
+
+    printf("[LCD_Init] done\r\n");
 }
 
 /**
