@@ -29,8 +29,8 @@ void UI_Init(void)
 {
     printf("[UI_Init] start\r\n");
 
-    printf("[UI_Init] -> FMC_Driver_Init()\r\n");
-    FMC_Driver_Init();
+    // printf("[UI_Init] -> FMC_Driver_Init()\r\n");
+    // FMC_Driver_Init();
 
     printf("[UI_Init] -> LCD_Init()\r\n");
     LCD_Init(LCD_ORIENTATION_NORMAL);

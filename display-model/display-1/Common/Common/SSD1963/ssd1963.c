@@ -8,8 +8,9 @@
 *                      Timing values derived from verified CH32H417 example.
 ********************************************************************************/
 #include "ssd1963.h"
-#include "../FMC/fmc_driver.h"
+#include "../FMC/soft_8080.h"
 #include "ch32h417_gpio.h"
+#include "ch32h417_rcc.h"
 #include "debug.h"
 #include <stdbool.h>
 
@@ -36,90 +37,35 @@
 #define SSD_VPS (SSD_VER_BACK_PORCH)
 
 /*=============================================================================
- *  Low-Level Access
+ *  Low-Level Access (forward to SOFT8080)
  *=============================================================================*/
-void SSD1963_WriteCmd(uint16_t cmd)
-{
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);  // CS low
-    SSD1963_CMD = cmd;                   // FMC write
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);    // CS high
-}
-
-void SSD1963_WriteData(uint16_t data)
-{
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);  // CS low
-    SSD1963_DATA = data;                 // FMC write
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);    // CS high
-}
-
-uint16_t SSD1963_ReadData(void)
-{
-    uint16_t val;
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);  // CS low
-    val = SSD1963_DATA;                  // FMC read
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);    // CS high
-    return val;
-}
-
-void SSD1963_WriteReg(uint16_t reg, uint16_t val)
-{
-    SSD1963_WriteCmd(reg);
-    SSD1963_WriteData(val);
-}
-
-uint16_t SSD1963_ReadReg(uint16_t reg)
-{
-    SSD1963_WriteCmd(reg);
-    /* Allow SSD1963 to prepare read data */
-    Delay_Us(5);
-    return SSD1963_ReadData();
-}
+void SSD1963_WriteCmd(uint16_t cmd)   { SOFT8080_WriteCmd(cmd); }
+void SSD1963_WriteData(uint16_t data) { SOFT8080_WriteData(data); }
+uint16_t SSD1963_ReadData(void)       { return SOFT8080_ReadData(); }
+void SSD1963_WriteReg(uint16_t reg, uint16_t val) { SOFT8080_WriteReg(reg, val); }
+uint16_t SSD1963_ReadReg(uint16_t reg)            { return SOFT8080_ReadReg(reg); }
 
 /*=============================================================================
- *  Window and GRAM Access
+ *  Window and GRAM Access (forward to SOFT8080)
  *=============================================================================*/
 void SSD1963_SetWindow(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
 {
-    /* Column address set (0x2A) */
-    SSD1963_WriteCmd(SSD1963_SET_COLUMN_ADDRESS);
-    SSD1963_WriteData((x1 >> 8) & 0xFF);
-    SSD1963_WriteData(x1 & 0xFF);
-    SSD1963_WriteData((x2 >> 8) & 0xFF);
-    SSD1963_WriteData(x2 & 0xFF);
-
-    /* Page address set (0x2B) */
-    SSD1963_WriteCmd(SSD1963_SET_PAGE_ADDRESS);
-    SSD1963_WriteData((y1 >> 8) & 0xFF);
-    SSD1963_WriteData(y1 & 0xFF);
-    SSD1963_WriteData((y2 >> 8) & 0xFF);
-    SSD1963_WriteData(y2 & 0xFF);
-
-    /* Prepare GRAM write (0x2C) */
-    SSD1963_WriteCmd(SSD1963_WRITE_MEMORY_START);
+    SOFT8080_SetWindow(x1, y1, x2, y2);
 }
 
 void SSD1963_WriteData16(uint16_t data)
 {
-    SSD1963_WriteData(data);
+    SOFT8080_WriteData16(data);
 }
 
 void SSD1963_WriteBuffer(const uint16_t *buf, uint32_t len)
 {
-    while (len--) {
-        SSD1963_WriteData(*buf++);
-    }
+    SOFT8080_WriteBuffer(buf, len);
 }
 
 void SSD1963_Clear(uint16_t color)
 {
-    uint32_t i;
-    uint32_t total = (uint32_t)SSD1963_WIDTH * SSD1963_HEIGHT;
-
-    SSD1963_SetWindow(0, 0, SSD1963_WIDTH - 1, SSD1963_HEIGHT - 1);
-
-    for (i = 0; i < total; i++) {
-        SSD1963_WriteData(color);
-    }
+    SOFT8080_Clear(color);
 }
 
 /*=============================================================================
@@ -127,325 +73,21 @@ void SSD1963_Clear(uint16_t color)
  *=============================================================================*/
 void SSD1963_SetBacklight(uint8_t pwm)
 {
-    /* PWM frequency = PLL / (256 * (PWMF+1)) / 256 */
-    /* With PWMF=0x05 => ~170Hz when PLL=120MHz */
+    /* PWM frequency = PLL / (256 * PWMF) / 256
+     * With PLL~100MHz and PWMF=1 => ~1.5kHz (good for LED, no flicker)
+     * Duty cycle = PWM[7:0] / 256
+     * Param 3: C[0]=1(enable), C[3]=0(host control)
+     * Param 4: D=0xFF (max manual brightness, no effect if DBC off)
+     * Param 5: E=0x00 (DBC min brightness, no effect if DBC off)
+     * Param 6: F=0x00 (brightness prescaler off)
+     */
     SSD1963_WriteCmd(SSD1963_SET_PWM_CONF);
-    SSD1963_WriteData(0x05);      /* PWM frequency divider */
+    SSD1963_WriteData(0x01);      /* PWMF = 1 => ~1.5kHz */
     SSD1963_WriteData(pwm);       /* Duty cycle 0~255 */
-    SSD1963_WriteData(0x01);      /* PWM enabled, DBC disabled */
-    SSD1963_WriteData(0xFF);
-    SSD1963_WriteData(0x00);
-    SSD1963_WriteData(0x00);
-}
-
-/*=============================================================================
- *  Temporary GPIO Bit-Bang Test
- *  Bypasses FMC to verify hardware connectivity (CS/RS/WR/D0-D7).
- *=============================================================================*/
-static void SSD1963_GPIO_SetData(uint8_t data)
-{
-    /* D0=PD14, D1=PD15, D2=PD0, D3=PD1, D4=PE7, D5=PE8, D6=PE9, D7=PE10 */
-    if (data & 0x01) GPIO_SetBits(GPIOD, GPIO_Pin_14);   else GPIO_ResetBits(GPIOD, GPIO_Pin_14);
-    if (data & 0x02) GPIO_SetBits(GPIOD, GPIO_Pin_15);   else GPIO_ResetBits(GPIOD, GPIO_Pin_15);
-    if (data & 0x04) GPIO_SetBits(GPIOD, GPIO_Pin_0);    else GPIO_ResetBits(GPIOD, GPIO_Pin_0);
-    if (data & 0x08) GPIO_SetBits(GPIOD, GPIO_Pin_1);    else GPIO_ResetBits(GPIOD, GPIO_Pin_1);
-    if (data & 0x10) GPIO_SetBits(GPIOE, GPIO_Pin_7);    else GPIO_ResetBits(GPIOE, GPIO_Pin_7);
-    if (data & 0x20) GPIO_SetBits(GPIOE, GPIO_Pin_8);    else GPIO_ResetBits(GPIOE, GPIO_Pin_8);
-    if (data & 0x40) GPIO_SetBits(GPIOE, GPIO_Pin_9);    else GPIO_ResetBits(GPIOE, GPIO_Pin_9);
-    if (data & 0x80) GPIO_SetBits(GPIOE, GPIO_Pin_10);   else GPIO_ResetBits(GPIOE, GPIO_Pin_10);
-}
-
-static uint8_t SSD1963_GPIO_ReadData(void)
-{
-    uint8_t val = 0;
-    uint16_t indr_d = GPIOD->INDR;
-    uint16_t indr_e = GPIOE->INDR;
-    if (indr_d & GPIO_Pin_14) val |= 0x01;
-    if (indr_d & GPIO_Pin_15) val |= 0x02;
-    if (indr_d & GPIO_Pin_0)  val |= 0x04;
-    if (indr_d & GPIO_Pin_1)  val |= 0x08;
-    if (indr_e & GPIO_Pin_7)  val |= 0x10;
-    if (indr_e & GPIO_Pin_8)  val |= 0x20;
-    if (indr_e & GPIO_Pin_9)  val |= 0x40;
-    if (indr_e & GPIO_Pin_10) val |= 0x80;
-    return val;
-}
-
-static uint8_t SSD1963_GPIO_ReadReg(uint8_t reg)
-{
-    GPIO_InitTypeDef gpio = {0};
-    uint8_t val;
-
-    /* Step 1: Send register address (RS=0, WR pulse) */
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     // CS low
-    GPIO_ResetBits(GPIOB, GPIO_Pin_3);     // RS low (command)
-    SSD1963_GPIO_SetData(reg);
-    GPIO_ResetBits(GPIOD, GPIO_Pin_5);     // WR low
-    Delay_Us(5);
-    GPIO_SetBits(GPIOD, GPIO_Pin_5);       // WR high
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);       // CS high
-
-    Delay_Us(5);
-
-    /* Step 2: Switch D0-D7 to floating input for read */
-    gpio.GPIO_Pin = GPIO_Pin_14 | GPIO_Pin_15 | GPIO_Pin_0 | GPIO_Pin_1;
-    gpio.GPIO_Mode = GPIO_Mode_IN_FLOATING;
-    GPIO_Init(GPIOD, &gpio);
-    gpio.GPIO_Pin = GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10;
-    GPIO_Init(GPIOE, &gpio);
-
-    /* Step 3: Read data (RS=1, RD pulse) */
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     // CS low
-    GPIO_SetBits(GPIOB, GPIO_Pin_3);       // RS high (data)
-    Delay_Us(2);                           // t_AS
-
-    GPIO_ResetBits(GPIOD, GPIO_Pin_4);     // RD low
-    Delay_Us(5);                           // t_ACC + margin
-    val = SSD1963_GPIO_ReadData();
-    GPIO_SetBits(GPIOD, GPIO_Pin_4);       // RD high
-
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);       // CS high
-
-    /* Step 4: Restore D0-D7 to output */
-    gpio.GPIO_Pin = GPIO_Pin_14 | GPIO_Pin_15 | GPIO_Pin_0 | GPIO_Pin_1;
-    gpio.GPIO_Mode = GPIO_Mode_Out_PP;
-    gpio.GPIO_Speed = GPIO_Speed_Very_High;
-    GPIO_Init(GPIOD, &gpio);
-    gpio.GPIO_Pin = GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10;
-    GPIO_Init(GPIOE, &gpio);
-
-    return val;
-}
-
-static void SSD1963_GPIO_WriteCmd(uint8_t cmd)
-{
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     // CS low
-    GPIO_ResetBits(GPIOB, GPIO_Pin_3);     // RS low (command)
-    SSD1963_GPIO_SetData(cmd);
-    GPIO_ResetBits(GPIOD, GPIO_Pin_5);     // WR low
-    Delay_Us(5);
-    GPIO_SetBits(GPIOD, GPIO_Pin_5);       // WR high
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);       // CS high
-}
-
-static void SSD1963_GPIO_WriteData(uint8_t data)
-{
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     // CS low
-    GPIO_SetBits(GPIOB, GPIO_Pin_3);       // RS high (data)
-    SSD1963_GPIO_SetData(data);
-    GPIO_ResetBits(GPIOD, GPIO_Pin_5);     // WR low
-    Delay_Us(5);
-    GPIO_SetBits(GPIOD, GPIO_Pin_5);       // WR high
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);       // CS high
-}
-
-static uint8_t SSD1963_GPIO_ReadDataOnly(void)
-{
-    uint8_t val;
-
-    /* Assumes D0-D7 are already in input mode */
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     // CS low
-    GPIO_SetBits(GPIOB, GPIO_Pin_3);       // RS high (data)
-    Delay_Us(2);                           // t_AS
-
-    GPIO_ResetBits(GPIOD, GPIO_Pin_4);     // RD low
-    Delay_Us(5);                           // t_ACC + margin
-    val = SSD1963_GPIO_ReadData();
-    GPIO_SetBits(GPIOD, GPIO_Pin_4);       // RD high
-
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);       // CS high
-    return val;
-}
-
-static void SSD1963_GPIO_Test(void)
-{
-    GPIO_InitTypeDef gpio = {0};
-    uint8_t val;
-
-    printf("[SSD1963_GPIO_Test] start bit-bang test with full init\r\n");
-
-    /*--- Temporarily switch control pins to GPIO ---*/
-    gpio.GPIO_Pin = GPIO_Pin_3;
-    gpio.GPIO_Mode = GPIO_Mode_Out_PP;
-    gpio.GPIO_Speed = GPIO_Speed_Very_High;
-    GPIO_Init(GPIOB, &gpio);               // PB3: RS
-
-    gpio.GPIO_Pin = GPIO_Pin_5;
-    GPIO_Init(GPIOD, &gpio);               // PD5: WR
-
-    gpio.GPIO_Pin = GPIO_Pin_4;
-    GPIO_Init(GPIOD, &gpio);
-    GPIO_SetBits(GPIOD, GPIO_Pin_4);       // PD4: RD idle high
-
-    gpio.GPIO_Pin = GPIO_Pin_14 | GPIO_Pin_15 | GPIO_Pin_0 | GPIO_Pin_1;
-    GPIO_Init(GPIOD, &gpio);               // D0-D3
-    gpio.GPIO_Pin = GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10;
-    GPIO_Init(GPIOE, &gpio);               // D4-D7
-
-    /*--- 1. Software reset ---*/
-    SSD1963_GPIO_WriteCmd(0x01);
-    Delay_Ms(10);
-    SSD1963_GPIO_WriteCmd(0x01);
-    Delay_Ms(10);
-
-    /*--- 2. Configure PLL: M=0x23, N=0x02, effect=0x04 ---*/
-    SSD1963_GPIO_WriteCmd(0xE2);
-    SSD1963_GPIO_WriteData(0x23);
-    SSD1963_GPIO_WriteData(0x02);
-    SSD1963_GPIO_WriteData(0x04);
-    Delay_Us(100);
-
-    /*--- 3. Enable PLL ---*/
-    SSD1963_GPIO_WriteCmd(0xE0);
-    SSD1963_GPIO_WriteData(0x01);
-    Delay_Ms(10);
-
-    /*--- 4. Switch system clock to PLL ---*/
-    SSD1963_GPIO_WriteCmd(0xE0);
-    SSD1963_GPIO_WriteData(0x03);
-    Delay_Ms(12);
-
-    /*--- 5. Software reset after PLL lock ---*/
-    SSD1963_GPIO_WriteCmd(0x01);
-    Delay_Ms(10);
-
-    /*--- 6. Set pixel data interface: 16-bit (565) ---*/
-    SSD1963_GPIO_WriteCmd(0xF0);
-    SSD1963_GPIO_WriteData(0x03);
-
-    printf("[SSD1963_GPIO_Test] GPIO init sequence done\r\n");
-
-    /*--- Read 0xE4 (PLL Status) ---*/
-    val = SSD1963_GPIO_ReadReg(0xE4);
-    printf("[SSD1963_GPIO_Test] GPIO read 0xE4 (PLL Status) = 0x%02X ", val);
-    if (val & 0x04) printf("[OK: locked]\r\n"); else printf("[FAIL: not locked]\r\n");
-
-    /*--- Read 0x0A (Power Mode) ---*/
-    val = SSD1963_GPIO_ReadReg(0x0A);
-    printf("[SSD1963_GPIO_Test] GPIO read 0x0A (Power Mode) = 0x%02X ", val);
-    if ((val & 0x0C) == 0x0C) printf("[OK: normal+display-on bits set]\r\n");
-    else printf("[INFO: raw value]\r\n");
-
-    /*--- Read 0xA1 (DDB[0]) ---*/
-    val = SSD1963_GPIO_ReadReg(0xA1);
-    printf("[SSD1963_GPIO_Test] GPIO read 0xA1 (DDB[0]) = 0x%02X ", val);
-    if (val == 0x01) printf("[OK: Supplier ID high byte]\r\n"); else printf("[WARN: unexpected]\r\n");
-
-    /*--- Extended GPIO tests: multi-bit data line verification ---*/
-    printf("[SSD1963_GPIO_Test] --- MADCTL R/W test ---\r\n");
-
-    /* 0x0B returns A[7:2] only; expected 0x55 & 0xFC = 0x54 */
-    /* Test pattern 0x55 = 0b01010101 (D0,D2,D4,D6) */
-    SSD1963_GPIO_WriteCmd(0x36);
-    SSD1963_GPIO_WriteData(0x55);
-    Delay_Us(50);
-    val = SSD1963_GPIO_ReadReg(0x0B);    /* GET_ADDRESS_MODE = 0x0B */
-    printf("[SSD1963_GPIO_Test] MADCTL wr=0x55 rd=0x%02X ", val);
-    if (val == 0x54) printf("[OK]\r\n"); else printf("[FAIL]\r\n");
-
-    /* 0x0B returns A[7:2] only; expected 0xAA & 0xFC = 0xA8 */
-    /* Test pattern 0xAA = 0b10101010 (D1,D3,D5,D7) */
-    SSD1963_GPIO_WriteCmd(0x36);
-    SSD1963_GPIO_WriteData(0xAA);
-    Delay_Us(50);
-    val = SSD1963_GPIO_ReadReg(0x0B);
-    printf("[SSD1963_GPIO_Test] MADCTL wr=0xAA rd=0x%02X ", val);
-    if (val == 0xA8) printf("[OK]\r\n"); else printf("[FAIL]\r\n");
-
-    /* 0x0B returns A[7:2] only; expected 0xFF & 0xFC = 0xFC */
-    /* Test pattern 0xFF = 0b11111111 (all D0-D7) */
-    SSD1963_GPIO_WriteCmd(0x36);
-    SSD1963_GPIO_WriteData(0xFF);
-    Delay_Us(50);
-    val = SSD1963_GPIO_ReadReg(0x0B);
-    printf("[SSD1963_GPIO_Test] MADCTL wr=0xFF rd=0x%02X ", val);
-    if (val == 0xFC) printf("[OK]\r\n"); else printf("[FAIL]\r\n");
-
-    /* 0x0B returns A[7:2] only; expected 0x00 & 0xFC = 0x00 */
-    /* Test pattern 0x00 = 0b00000000 (all D0-D7 low) */
-    SSD1963_GPIO_WriteCmd(0x36);
-    SSD1963_GPIO_WriteData(0x00);
-    Delay_Us(50);
-    val = SSD1963_GPIO_ReadReg(0x0B);
-    printf("[SSD1963_GPIO_Test] MADCTL wr=0x00 rd=0x%02X ", val);
-    if (val == 0x00) printf("[OK]\r\n"); else printf("[FAIL]\r\n");
-
-    /*--- DDB continuous read (5 parameters) ---*/
-    {
-        uint8_t ddb[5];
-        int i;
-        GPIO_InitTypeDef gpio = {0};
-        printf("[SSD1963_GPIO_Test] --- DDB continuous read ---\r\n");
-
-        /* Send DDB read command */
-        SSD1963_GPIO_WriteCmd(0xA1);
-        Delay_Us(5);
-
-        /* Switch D0-D7 to floating input */
-        gpio.GPIO_Pin = GPIO_Pin_14 | GPIO_Pin_15 | GPIO_Pin_0 | GPIO_Pin_1;
-        gpio.GPIO_Mode = GPIO_Mode_IN_FLOATING;
-        GPIO_Init(GPIOD, &gpio);
-        gpio.GPIO_Pin = GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10;
-        GPIO_Init(GPIOE, &gpio);
-
-        /* Read 5 parameters continuously */
-        for (i = 0; i < 5; i++) {
-            ddb[i] = SSD1963_GPIO_ReadDataOnly();
-            printf("[SSD1963_GPIO_Test] DDB[%d] = 0x%02X\r\n", i, ddb[i]);
-        }
-        printf("[SSD1963_GPIO_Test] DDB expected: 01 57 61 01 FF\r\n");
-
-        /* Restore D0-D7 to output */
-        gpio.GPIO_Pin = GPIO_Pin_14 | GPIO_Pin_15 | GPIO_Pin_0 | GPIO_Pin_1;
-        gpio.GPIO_Mode = GPIO_Mode_Out_PP;
-        gpio.GPIO_Speed = GPIO_Speed_Very_High;
-        GPIO_Init(GPIOD, &gpio);
-        gpio.GPIO_Pin = GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10;
-        GPIO_Init(GPIOE, &gpio);
-    }
-
-    /*--- Restore FMC alternate functions ---*/
-    /* PB3 -> FMC_A1 (AF12) */
-    gpio.GPIO_Pin = GPIO_Pin_3;
-    gpio.GPIO_Mode = GPIO_Mode_AF_PP;
-    gpio.GPIO_Speed = GPIO_Speed_Very_High;
-    GPIO_Init(GPIOB, &gpio);
-    GPIO_PinAFConfig(GPIOB, GPIO_PinSource3, GPIO_AF12);
-
-    /* PD4 -> FMC_NOE (AF12) */
-    gpio.GPIO_Pin = GPIO_Pin_4;
-    GPIO_Init(GPIOD, &gpio);
-    GPIO_PinAFConfig(GPIOD, GPIO_PinSource4, GPIO_AF12);
-
-    /* PD5 -> FMC_NWE (AF12) */
-    gpio.GPIO_Pin = GPIO_Pin_5;
-    GPIO_Init(GPIOD, &gpio);
-    GPIO_PinAFConfig(GPIOD, GPIO_PinSource5, GPIO_AF12);
-
-    /* PD0/1/14/15 -> FMC_D2/D3/D0/D1 (AF12) */
-    gpio.GPIO_Pin = GPIO_Pin_14 | GPIO_Pin_15 | GPIO_Pin_0 | GPIO_Pin_1;
-    GPIO_Init(GPIOD, &gpio);
-    GPIO_PinAFConfig(GPIOD, GPIO_PinSource0, GPIO_AF12);
-    GPIO_PinAFConfig(GPIOD, GPIO_PinSource1, GPIO_AF12);
-    GPIO_PinAFConfig(GPIOD, GPIO_PinSource14, GPIO_AF12);
-    GPIO_PinAFConfig(GPIOD, GPIO_PinSource15, GPIO_AF12);
-
-    /* PE7/8/9/10 -> FMC_D4/D5/D6/D7 (AF12) */
-    gpio.GPIO_Pin = GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10;
-    GPIO_Init(GPIOE, &gpio);
-    GPIO_PinAFConfig(GPIOE, GPIO_PinSource7, GPIO_AF12);
-    GPIO_PinAFConfig(GPIOE, GPIO_PinSource8, GPIO_AF12);
-    GPIO_PinAFConfig(GPIOE, GPIO_PinSource9, GPIO_AF12);
-    GPIO_PinAFConfig(GPIOE, GPIO_PinSource10, GPIO_AF12);
-
-    /* PD7 remains GPIO Out_PP (CS manual control) */
-    gpio.GPIO_Pin = GPIO_Pin_7;
-    gpio.GPIO_Mode = GPIO_Mode_Out_PP;
-    gpio.GPIO_Speed = GPIO_Speed_Very_High;
-    GPIO_Init(GPIOD, &gpio);
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     // CS keep low
-
-    printf("[SSD1963_GPIO_Test] FMC pins restored\r\n");
+    SSD1963_WriteData(0x01);      /* C=0x01: PWM enable, host controlled */
+    SSD1963_WriteData(0xFF);      /* D=0xFF: manual brightness max */
+    SSD1963_WriteData(0x00);      /* E=0x00: DBC min brightness */
+    SSD1963_WriteData(0x00);      /* F=0x00: prescaler off */
 }
 
 /*=============================================================================
@@ -463,15 +105,26 @@ void SSD1963_Init(void)
 {
     printf("[SSD1963_Init] start\r\n");
 
-    /* 1. Hardware reset via PA0 */
+    /* 1. Initialize PA0 (SSD1963 RESET) since FMC_Driver_Init is no longer called */
+    {
+        GPIO_InitTypeDef gpio = {0};
+        RCC_HB2PeriphClockCmd(RCC_HB2Periph_GPIOA, ENABLE);
+        gpio.GPIO_Pin = GPIO_Pin_0;
+        gpio.GPIO_Mode = GPIO_Mode_Out_PP;
+        gpio.GPIO_Speed = GPIO_Speed_Very_High;
+        GPIO_Init(GPIOA, &gpio);
+        GPIO_SetBits(GPIOA, GPIO_Pin_0);
+    }
+
+    /* 1a. Hardware reset */
     printf("[SSD1963_Init] hardware reset\r\n");
     GPIO_ResetBits(GPIOA, GPIO_Pin_0);
     Delay_Ms(10);
     GPIO_SetBits(GPIOA, GPIO_Pin_0);
     Delay_Ms(5);
 
-    /* 1a. GPIO bit-bang test: bypass FMC to verify chip response */
-    SSD1963_GPIO_Test();
+    /* 1b. Initialize software 8080 GPIO interface */
+    SOFT8080_Init();
 
     /* 2. Software reset */
     SSD1963_WriteCmd(SSD1963_SOFT_RESET);
@@ -586,20 +239,24 @@ void SSD1963_Init(void)
     SSD1963_WriteCmd(SSD1963_SET_PIXEL_DATA_INTERFACE);
     SSD1963_WriteData(0x03);
 
-    /* 12. Turn on display */
+    /* 12. Exit sleep mode, then turn on display */
     printf("[SSD1963_Init] display on\r\n");
+    SSD1963_WriteCmd(SSD1963_EXIT_SLEEP_MODE);
+    Delay_Ms(10);
     SSD1963_WriteCmd(SSD1963_SET_DISPLAY_ON);
 
     /* 12a. Verify power mode (0x0A)
-     *      Expected: 0x9C = sleep out(1<<4) | normal mode(1<<3) | display on(1<<2)
+     *      Datasheet: D7=0, D6=A6(Idle), D5=A5(Partial), D4=A4(Sleep),
+     *                 D3=A3(Normal), D2=A2(Display), D1=0, D0=0.
+     *      Expected: A4=1(SleepOut) | A3=1(NormalOn) | A2=1(DisplayOn) = 0x1C
      */
     {
         uint16_t pwr = SSD1963_ReadReg(SSD1963_GET_POWER_MODE);
         printf("[SSD1963_Init] Power mode (0x0A) = 0x%04X ", pwr);
-        if ((pwr & 0x00FF) == 0x9C) {
+        if ((pwr & 0x00FF) == 0x1C) {
             printf("[OK]\r\n");
         } else {
-            printf("[WARN: expected 0x9C]\r\n");
+            printf("[WARN: expected 0x1C]\r\n");
         }
     }
 
@@ -617,7 +274,7 @@ void SSD1963_Init(void)
 
     /* 15. Configure PWM backlight */
     printf("[SSD1963_Init] configure backlight\r\n");
-    SSD1963_SetBacklight(100);
+    SSD1963_SetBacklight(140);   /* 100% duty for maximum brightness */
 
     /* 16. Communication self-test */
     SSD1963_SelfTest();
@@ -648,10 +305,10 @@ bool SSD1963_SelfTest(void)
     /* Test 2: Power mode */
     val = SSD1963_ReadReg(SSD1963_GET_POWER_MODE);
     printf("[SSD1963_SelfTest] Power mode (0x0A) = 0x%04X ", val);
-    if ((val & 0x00FF) == 0x9C) {
+    if ((val & 0x00FF) == 0x1C) {
         printf("[OK]\r\n");
     } else {
-        printf("[WARN: expected 0x9C]\r\n");
+        printf("[WARN: expected 0x1C]\r\n");
         /* Don't fail here, some panels may differ */
     }
 
@@ -672,15 +329,17 @@ bool SSD1963_SelfTest(void)
     /* Restore default */
     SSD1963_WriteReg(SSD1963_SET_ADDRESS_MODE, 0x00);
 
-    /* Test 4: Read DDB (0xA1) - first word should be manufacturer code */
+    /* Test 4: Read DDB (0xA1) - 5 parameters total.
+     * In 8-bit read mode we only fetch the first byte: SSL[15:8] = 0x01.
+     * Full sequence would be: 0x01, 0x57, 0x61, 0x01, 0xFF */
     SSD1963_WriteCmd(SSD1963_READ_DDB);
     Delay_Us(5);
     val = SSD1963_ReadData();
     printf("[SSD1963_SelfTest] DDB[0] (0xA1) = 0x%04X ", val);
-    if (val == 0x5761 || val == 0x6157) {
-        printf("[OK: SSD1963 detected]\r\n");
+    if ((val & 0x00FF) == 0x01) {
+        printf("[OK: Supplier ID high byte = 0x01]\r\n");
     } else {
-        printf("[WARN: unexpected ID]\r\n");
+        printf("[WARN: expected 0x01]\r\n");
     }
 
     if (ok) {
