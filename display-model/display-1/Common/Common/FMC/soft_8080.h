@@ -8,6 +8,15 @@
 extern "C" {
 #endif
 
+#define CS_HIGH() do { GPIOD->BSHR = GPIO_Pin_7; } while(0)
+#define CS_LOW()  do { GPIOD->BCR  = GPIO_Pin_7; } while(0)
+#define RS_HIGH() do { GPIOB->BSHR = GPIO_Pin_3; } while(0)
+#define RS_LOW()  do { GPIOB->BCR  = GPIO_Pin_3; } while(0)
+#define WR_HIGH() do { GPIOD->BSHR = GPIO_Pin_5; } while(0)
+#define WR_LOW()  do { GPIOD->BCR  = GPIO_Pin_5; } while(0)
+#define RD_HIGH() do { GPIOD->BSHR = GPIO_Pin_4; } while(0)
+#define RD_LOW()  do { GPIOD->BCR  = GPIO_Pin_4; } while(0)
+
 /* Initialize GPIO pins for software 8080 interface */
 void SOFT8080_Init(void);
 

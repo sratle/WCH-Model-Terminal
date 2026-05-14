@@ -83,22 +83,22 @@ void SOFT8080_Init(void)
     gpio.GPIO_Mode = GPIO_Mode_Out_PP;
     gpio.GPIO_Speed = GPIO_Speed_Very_High;
     GPIO_Init(GPIOB, &gpio);
-    GPIO_ResetBits(GPIOB, GPIO_Pin_3);
+    RS_LOW();
 
     /* PD4: RD, push-pull output, idle high */
     gpio.GPIO_Pin = GPIO_Pin_4;
     GPIO_Init(GPIOD, &gpio);
-    GPIO_SetBits(GPIOD, GPIO_Pin_4);
+    RD_HIGH();
 
     /* PD5: WR, push-pull output, idle high */
     gpio.GPIO_Pin = GPIO_Pin_5;
     GPIO_Init(GPIOD, &gpio);
-    GPIO_SetBits(GPIOD, GPIO_Pin_5);
+    WR_HIGH();
 
     /* PD7: CS, push-pull output, idle high */
     gpio.GPIO_Pin = GPIO_Pin_7;
     GPIO_Init(GPIOD, &gpio);
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);
+    CS_HIGH();
 
     /* PD0,1,8,9,10,14,15: D0-D3, D13-D15 */
     gpio.GPIO_Pin = GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10 | GPIO_Pin_14 | GPIO_Pin_15;
@@ -120,24 +120,30 @@ void SOFT8080_Init(void)
  *===========================================================================*/
 void SOFT8080_WriteCmd(uint16_t cmd)
 {
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     /* CS low  */
-    GPIO_ResetBits(GPIOB, GPIO_Pin_3);     /* RS low (command) */
+    CS_LOW();     /* CS low  */
+    RS_LOW();     /* RS low (command) */
     SOFT8080_SetData(cmd);
-    GPIO_ResetBits(GPIOD, GPIO_Pin_5);     /* WR low  */
-    Delay_Us(1);
-    GPIO_SetBits(GPIOD, GPIO_Pin_5);       /* WR high */
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);       /* CS high */
+    WR_LOW();     /* WR low  */
+    __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    WR_HIGH();       /* WR high */
+    CS_HIGH();       /* CS high */
 }
 
 void SOFT8080_WriteData(uint16_t data)
 {
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     /* CS low  */
-    GPIO_SetBits(GPIOB, GPIO_Pin_3);       /* RS high (data) */
+    CS_LOW();     /* CS low  */
+    RS_HIGH();       /* RS high (data) */
     SOFT8080_SetData(data);
-    GPIO_ResetBits(GPIOD, GPIO_Pin_5);     /* WR low  */
-    Delay_Us(1);
-    GPIO_SetBits(GPIOD, GPIO_Pin_5);       /* WR high */
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);       /* CS high */
+    WR_LOW();     /* WR low  */
+    __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    WR_HIGH();       /* WR high */
+    CS_HIGH();       /* CS high */
 }
 
 uint16_t SOFT8080_ReadData(void)
@@ -155,16 +161,16 @@ uint16_t SOFT8080_ReadData(void)
     GPIO_Init(GPIOE, &gpio);
 
     /* Read cycle */
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     /* CS low  */
-    GPIO_SetBits(GPIOB, GPIO_Pin_3);       /* RS high (data) */
+    CS_LOW();     /* CS low  */
+    RS_HIGH();       /* RS high (data) */
     Delay_Us(1);                           /* t_AS = 2us (very safe) */
 
-    GPIO_ResetBits(GPIOD, GPIO_Pin_4);     /* RD low  */
+    RD_LOW();     /* RD low  */
     Delay_Us(1);                           /* t_ACC = 5us (very safe) */
     val = SOFT8080_GetData();
-    GPIO_SetBits(GPIOD, GPIO_Pin_4);       /* RD high */
+    RD_HIGH();       /* RD high */
 
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);       /* CS high */
+    CS_HIGH();       /* CS high */
 
     /* Restore D0-D7 to push-pull output */
     gpio.GPIO_Pin = GPIO_Pin_14 | GPIO_Pin_15 | GPIO_Pin_0 | GPIO_Pin_1;
@@ -187,7 +193,10 @@ void SOFT8080_WriteReg(uint16_t reg, uint16_t val)
 uint16_t SOFT8080_ReadReg(uint16_t reg)
 {
     SOFT8080_WriteCmd(reg);
-    Delay_Us(5);
+    __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
     return SOFT8080_ReadData();
 }
 
@@ -218,38 +227,34 @@ void SOFT8080_WriteData16(uint16_t data)
 {
     /* Optimized single-pixel write with CS kept low.
      * Assumes caller has already set window and issued 0x2C. */
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     /* CS low  */
-    GPIO_SetBits(GPIOB, GPIO_Pin_3);       /* RS high */
+    CS_LOW();     /* CS low  */
+    RS_HIGH();       /* RS high */
     SOFT8080_SetData(data);
-    GPIO_ResetBits(GPIOD, GPIO_Pin_5);     /* WR low  */
-    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    GPIO_SetBits(GPIOD, GPIO_Pin_5);       /* WR high */
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);       /* CS high */
+    WR_LOW();     /* WR low  */
+    __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+    WR_HIGH();       /* WR high */
+    CS_HIGH();       /* CS high */
 }
 
 void SOFT8080_WriteBuffer(const uint16_t *buf, uint32_t len)
 {
-    GPIO_SetBits(GPIOB, GPIO_Pin_3);       /* RS=1    */
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     /* CS low  */
+    RS_HIGH();       /* RS=1    */
+    CS_LOW();     /* CS low  */
 
     while (len--) {
         SOFT8080_SetData(*buf++);
-        GPIO_ResetBits(GPIOD, GPIO_Pin_5); /* WR low  */
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        GPIO_SetBits(GPIOD, GPIO_Pin_5);   /* WR high */
+        WR_LOW(); /* WR low  */
+        __NOP();
+        // __NOP(); __NOP(); __NOP(); __NOP();
+        // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        WR_HIGH();   /* WR high */
     }
 
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);       /* CS high */
+    CS_HIGH();       /* CS high */
 }
 
 void SOFT8080_Clear(uint16_t color)
@@ -259,22 +264,20 @@ void SOFT8080_Clear(uint16_t color)
 
     SOFT8080_SetWindow(0, 0, 800 - 1, 480 - 1);
 
-    GPIO_SetBits(GPIOB, GPIO_Pin_3);       /* RS=1    */
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);     /* CS low  */
+    RS_HIGH();       /* RS=1    */
+    CS_LOW();     /* CS low  */
 
     for (i = 0; i < total; i++) {
         SOFT8080_SetData(color);
-        GPIO_ResetBits(GPIOD, GPIO_Pin_5); /* WR low  */
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        GPIO_SetBits(GPIOD, GPIO_Pin_5);   /* WR high */
+        WR_LOW(); /* WR low  */
+        __NOP();
+        // __NOP(); __NOP(); __NOP(); __NOP();
+        // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+        WR_HIGH();   /* WR high */
     }
 
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);       /* CS high */
+    CS_HIGH();       /* CS high */
 }
 
 /*=============================================================================
@@ -301,53 +304,53 @@ void SOFT8080_Test(void)
 
     /*--- Minimal init sequence via 8-bit GPIO ---*/
     SET_DATA_8BIT(0x01);  /* soft reset */
-    GPIO_ResetBits(GPIOD, GPIO_Pin_7);
-    GPIO_ResetBits(GPIOB, GPIO_Pin_3);
-    GPIO_ResetBits(GPIOD, GPIO_Pin_5);
+    CS_LOW();
+    RS_LOW();
+    WR_LOW();
     Delay_Us(5);
-    GPIO_SetBits(GPIOD, GPIO_Pin_5);
-    GPIO_SetBits(GPIOD, GPIO_Pin_7);
+    WR_HIGH();
+    CS_HIGH();
     Delay_Ms(10);
 
     /* PLL config */
-    SET_DATA_8BIT(0xE2); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_ResetBits(GPIOB, GPIO_Pin_3); GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7);
-    SET_DATA_8BIT(0x23); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_SetBits(GPIOB, GPIO_Pin_3);  GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7);
-    SET_DATA_8BIT(0x02); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_SetBits(GPIOB, GPIO_Pin_3);  GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7);
-    SET_DATA_8BIT(0x04); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_SetBits(GPIOB, GPIO_Pin_3);  GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7);
+    SET_DATA_8BIT(0xE2); CS_LOW(); RS_LOW(); WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH();
+    SET_DATA_8BIT(0x23); CS_LOW(); RS_HIGH();  WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH();
+    SET_DATA_8BIT(0x02); CS_LOW(); RS_HIGH();  WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH();
+    SET_DATA_8BIT(0x04); CS_LOW(); RS_HIGH();  WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH();
     Delay_Us(100);
 
     /* Enable PLL */
-    SET_DATA_8BIT(0xE0); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_ResetBits(GPIOB, GPIO_Pin_3); GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7);
-    SET_DATA_8BIT(0x01); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_SetBits(GPIOB, GPIO_Pin_3);  GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7);
+    SET_DATA_8BIT(0xE0); CS_LOW(); RS_LOW(); WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH();
+    SET_DATA_8BIT(0x01); CS_LOW(); RS_HIGH();  WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH();
     Delay_Ms(10);
 
     /* Switch to PLL */
-    SET_DATA_8BIT(0xE0); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_ResetBits(GPIOB, GPIO_Pin_3); GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7);
-    SET_DATA_8BIT(0x03); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_SetBits(GPIOB, GPIO_Pin_3);  GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7);
+    SET_DATA_8BIT(0xE0); CS_LOW(); RS_LOW(); WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH();
+    SET_DATA_8BIT(0x03); CS_LOW(); RS_HIGH();  WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH();
     Delay_Ms(12);
 
     /* Soft reset after PLL lock */
-    SET_DATA_8BIT(0x01); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_ResetBits(GPIOB, GPIO_Pin_3); GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7);
+    SET_DATA_8BIT(0x01); CS_LOW(); RS_LOW(); WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH();
     Delay_Ms(10);
 
     /* 8-bit pixel interface for this test */
-    SET_DATA_8BIT(0xF0); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_ResetBits(GPIOB, GPIO_Pin_3); GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7);
-    SET_DATA_8BIT(0x00); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_SetBits(GPIOB, GPIO_Pin_3);  GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7);
+    SET_DATA_8BIT(0xF0); CS_LOW(); RS_LOW(); WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH();
+    SET_DATA_8BIT(0x00); CS_LOW(); RS_HIGH();  WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH();
 
     /*--- Read tests ---*/
     #define READ_REG_8BIT(r) ({ \
         uint8_t v; \
-        SET_DATA_8BIT(r); GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_ResetBits(GPIOB, GPIO_Pin_3); GPIO_ResetBits(GPIOD, GPIO_Pin_5); Delay_Us(5); GPIO_SetBits(GPIOD, GPIO_Pin_5); GPIO_SetBits(GPIOD, GPIO_Pin_7); \
+        SET_DATA_8BIT(r); CS_LOW(); RS_LOW(); WR_LOW(); Delay_Us(5); WR_HIGH(); CS_HIGH(); \
         Delay_Us(5); \
         gpio.GPIO_Pin = GPIO_Pin_14 | GPIO_Pin_15 | GPIO_Pin_0 | GPIO_Pin_1; gpio.GPIO_Mode = GPIO_Mode_IN_FLOATING; GPIO_Init(GPIOD, &gpio); \
         gpio.GPIO_Pin = GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10; GPIO_Init(GPIOE, &gpio); \
-        GPIO_ResetBits(GPIOD, GPIO_Pin_7); GPIO_SetBits(GPIOB, GPIO_Pin_3); Delay_Us(2); \
-        GPIO_ResetBits(GPIOD, GPIO_Pin_4); Delay_Us(5); \
+        CS_LOW(); RS_HIGH(); Delay_Us(2); \
+        RD_LOW(); Delay_Us(5); \
         v = 0; \
         { uint16_t id = GPIOD->INDR, ie = GPIOE->INDR; \
           if (id & GPIO_Pin_14) v |= 0x01; if (id & GPIO_Pin_15) v |= 0x02; if (id & GPIO_Pin_0) v |= 0x04; if (id & GPIO_Pin_1) v |= 0x08; \
           if (ie & GPIO_Pin_7)  v |= 0x10; if (ie & GPIO_Pin_8)  v |= 0x20; if (ie & GPIO_Pin_9)  v |= 0x40; if (ie & GPIO_Pin_10) v |= 0x80; } \
-        GPIO_SetBits(GPIOD, GPIO_Pin_4); GPIO_SetBits(GPIOD, GPIO_Pin_7); \
+        RD_HIGH(); CS_HIGH(); \
         gpio.GPIO_Pin = GPIO_Pin_14 | GPIO_Pin_15 | GPIO_Pin_0 | GPIO_Pin_1; gpio.GPIO_Mode = GPIO_Mode_Out_PP; gpio.GPIO_Speed = GPIO_Speed_Very_High; GPIO_Init(GPIOD, &gpio); \
         gpio.GPIO_Pin = GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10; GPIO_Init(GPIOE, &gpio); \
         v; \
