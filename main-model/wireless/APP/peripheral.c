@@ -333,10 +333,10 @@ static void Peripheral_ProcessGAPMsg(gapRoleEvent_t *pEvent)
 {
     switch (pEvent->gap.opcode) {
         case GAP_SCAN_REQUEST_EVENT:
-            PRINT("Scan req from %x:%x:%x:%x:%x:%x\n",
-                  pEvent->scanReqEvt.scannerAddr[0], pEvent->scanReqEvt.scannerAddr[1],
-                  pEvent->scanReqEvt.scannerAddr[2], pEvent->scanReqEvt.scannerAddr[3],
-                  pEvent->scanReqEvt.scannerAddr[4], pEvent->scanReqEvt.scannerAddr[5]);
+            // PRINT("Scan req from %x:%x:%x:%x:%x:%x\n",
+            //       pEvent->scanReqEvt.scannerAddr[0], pEvent->scanReqEvt.scannerAddr[1],
+            //       pEvent->scanReqEvt.scannerAddr[2], pEvent->scanReqEvt.scannerAddr[3],
+            //       pEvent->scanReqEvt.scannerAddr[4], pEvent->scanReqEvt.scannerAddr[5]);
             break;
 
         case GAP_PHY_UPDATE_EVENT:
@@ -730,11 +730,20 @@ static void ProcessBleToSpi(const uint8_t *app_data, uint16_t len)
 static void ProcessSpiRxData(void)
 {
     uint8_t rx_byte;
+    static uint32_t last_rx = 0;
+    uint32_t rx_cnt = SPI_Slave_GetRxCountTotal();
 
-    while (SPI_Slave_RxCount() > 0) {
-        if (SPI_Slave_DequeueRx(&rx_byte, 1) == 1) {
-            Protocol_ParseByte(rx_byte);
+    while (SPI_Slave_DequeueRx(&rx_byte, 1) == 1) {
+        Protocol_ParseByte(rx_byte);
+    }
+
+    /* Only print when new data received and processed */
+    if (rx_cnt != last_rx) {
+        uint16_t queue_cnt = SPI_Slave_RxCount();
+        if (queue_cnt > 200) {
+            PRINT("[SPI] queue high: %u\n", queue_cnt);
         }
+        last_rx = rx_cnt;
     }
 }
 

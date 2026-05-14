@@ -12,6 +12,10 @@
 #define CH585F_BT_CLI_CAPTURE_SIZE  512
 #define CH585F_BT_CLI_ASSEMBLE_SIZE 512
 
+/* 标准帧单帧最大 payload（受 Protocol_PackFrame uint8_t data_len 限制，最大 254）
+ * CLI_DATA 每帧需预留 2 字节给 ext_cmd + FLAGS，故实际 CLI 数据最大 253 字节/帧 */
+#define CH585F_BT_STD_MAX_PAYLOAD   253
+
 /* CLI_DATA FLAGS */
 #define CLI_FLAG_SOF                0x01    /* bit0: Start of Frame */
 #define CLI_FLAG_EOF                0x02    /* bit1: End of Frame   */

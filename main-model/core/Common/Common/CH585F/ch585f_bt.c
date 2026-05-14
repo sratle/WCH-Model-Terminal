@@ -210,7 +210,7 @@ static void CH585F_BT_HandleCliData(const protocol_frame_t *frame)
 {
     uint8_t flags;
     uint8_t *cli_data;
-    uint8_t cli_len;
+    uint16_t cli_len;
     uint16_t out_len;
     uint8_t *out_buf;
 
@@ -238,14 +238,15 @@ static void CH585F_BT_HandleCliData(const protocol_frame_t *frame)
     /* 将本帧 CLI 数据追加到组装缓冲区 */
     if (cli_len > 0)
     {
-        if (s_cli_assemble_len + cli_len > CH585F_BT_CLI_ASSEMBLE_SIZE)
+        uint16_t copy_len = cli_len;
+        if (s_cli_assemble_len + copy_len > CH585F_BT_CLI_ASSEMBLE_SIZE)
         {
-            cli_len = CH585F_BT_CLI_ASSEMBLE_SIZE - s_cli_assemble_len;
+            copy_len = CH585F_BT_CLI_ASSEMBLE_SIZE - s_cli_assemble_len;
         }
-        if (cli_len > 0)
+        if (copy_len > 0)
         {
-            memcpy(&s_cli_assemble_buf[s_cli_assemble_len], cli_data, cli_len);
-            s_cli_assemble_len += cli_len;
+            memcpy(&s_cli_assemble_buf[s_cli_assemble_len], cli_data, copy_len);
+            s_cli_assemble_len += copy_len;
         }
     }
 
@@ -322,10 +323,10 @@ void CH585F_BT_SendCliData(uint8_t *data, uint16_t len)
     while (offset < len)
     {
         chunk = (uint8_t)(len - offset);
-        /* 每帧预留 2 字节给扩展码 + FLAGS */
-        if (chunk > PROTO_MAX_DATA_LEN - 2)
+        /* 每帧预留 2 字节给扩展码 + FLAGS，标准帧最大 payload 253 字节 */
+        if (chunk > CH585F_BT_STD_MAX_PAYLOAD)
         {
-            chunk = PROTO_MAX_DATA_LEN - 2;
+            chunk = CH585F_BT_STD_MAX_PAYLOAD;
         }
 
         flags = 0;

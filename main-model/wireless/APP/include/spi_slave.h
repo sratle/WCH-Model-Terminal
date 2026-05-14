@@ -29,6 +29,11 @@ uint16_t SPI_Slave_DequeueRx(uint8_t *data, uint16_t max_len);
 /* Get count of pending RX bytes */
 uint16_t SPI_Slave_RxCount(void);
 
+/* Debug counters for SPI ISR */
+uint32_t SPI_Slave_GetIrqCount(void);
+uint32_t SPI_Slave_GetRxCountTotal(void);
+void SPI_Slave_ClearCounters(void);
+
 /* SPI0 Interrupt Handler */
 __INTERRUPT __HIGH_CODE void SPI0_IRQHandler(void);
 

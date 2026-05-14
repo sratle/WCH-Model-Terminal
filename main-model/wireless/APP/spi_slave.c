@@ -81,6 +81,9 @@ uint16_t SPI_Slave_RxCount(void)
 /*  SPI0 Interrupt Handler                                              */
 /* ==================================================================== */
 
+static volatile uint32_t s_spi_irq_cnt = 0;
+static volatile uint32_t s_spi_rx_cnt = 0;
+
 __INTERRUPT __HIGH_CODE void SPI0_IRQHandler(void)
 {
     uint8_t rx_byte;
@@ -90,10 +93,11 @@ __INTERRUPT __HIGH_CODE void SPI0_IRQHandler(void)
      * Unified handling: read RX FIFO if data present, then preload next TX byte.
      */
     if (SPI0_GetITFlag(SPI0_IT_FST_BYTE) || SPI0_GetITFlag(SPI0_IT_BYTE_END)) {
-        /* Read received byte if FIFO has data */
-        if (R8_SPI0_FIFO_COUNT > 0) {
-            rx_byte = R8_SPI0_FIFO;
-            DataQueue_Push(&s_rx_queue, rx_byte);
+        s_spi_irq_cnt++;
+        /* Read received byte directly (BYTE_END guarantees data in FIFO for slave) */
+        rx_byte = R8_SPI0_FIFO;
+        if (DataQueue_Push(&s_rx_queue, rx_byte)) {
+            s_spi_rx_cnt++;
         }
 
         /* Clear flags */
@@ -106,4 +110,20 @@ __INTERRUPT __HIGH_CODE void SPI0_IRQHandler(void)
             R8_SPI0_FIFO = 0x00;  /* Idle byte */
         }
     }
+}
+
+uint32_t SPI_Slave_GetIrqCount(void)
+{
+    return s_spi_irq_cnt;
+}
+
+uint32_t SPI_Slave_GetRxCountTotal(void)
+{
+    return s_spi_rx_cnt;
+}
+
+void SPI_Slave_ClearCounters(void)
+{
+    s_spi_irq_cnt = 0;
+    s_spi_rx_cnt = 0;
 }

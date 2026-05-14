@@ -213,13 +213,20 @@
 #define MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY 0x07
 
 /* 长度限制 */
-#define PROTO_MAX_DATA_LEN      255
-#define PROTO_MAX_FRAME_LEN     264
+#define PROTO_MAX_DATA_LEN      512
+#define PROTO_MAX_FRAME_LEN     (5 + PROTO_MAX_DATA_LEN + 4)
+
+/* 流式帧 LEN 特殊值 */
+#define PROTO_STREAM_LEN        0xFF
+
+/* 流式帧 DATA 建议上限（20KB），受实现限制 */
+#define PROTO_STREAM_MAX_DATA   20480
 
 /* 打包/解析辅助宏 */
 #define PROTO_PACK_ERR              0       /* PackFrame 错误返回值 */
-#define PROTO_DATA_LEN(frame)       ((frame).len > 0 ? (frame).len - 1 : 0)
+#define PROTO_DATA_LEN(frame)       ((frame).len > 0 ? (uint16_t)(frame).len - 1 : 0)
 #define PROTO_FRAME_TOTAL_LEN(dlen) (5 + (dlen) + 4)   /* HEAD+SRC+DST+LEN+CMD+DATA+TAIL(4) */
+#define PROTO_IS_STREAM_FRAME(frame) ((frame).len == PROTO_STREAM_LEN)
 
 /* 各模块建议接收缓冲区大小 */
 #define PROTO_BUF_SIZE_DISPLAY  512
@@ -244,17 +251,21 @@ typedef enum {
     PROTO_STATE_WAIT_TAIL1,
     PROTO_STATE_WAIT_TAIL2,
     PROTO_STATE_WAIT_TAIL3,
+    PROTO_STATE_WAIT_STREAM_DATA,       /* 流式帧：逐字节接收 DATA，扫描帧尾 */
+    PROTO_STATE_TENTATIVE_TAIL1,        /* 流式帧：收到 TAIL0，试探 TAIL1 */
+    PROTO_STATE_TENTATIVE_TAIL2,        /* 流式帧：收到 TAIL0+TAIL1，试探 TAIL2 */
+    PROTO_STATE_TENTATIVE_TAIL3,        /* 流式帧：收到 TAIL0+TAIL1+TAIL2，试探 TAIL3 */
     PROTO_STATE_FRAME_READY
 } protocol_state_t;
 
 /* 协议帧结构（ unpacked 形式，便于访问） */
 typedef struct {
-    uint8_t head;                       /* 0xAA */
-    uint8_t src;                        /* 源模块ID */
-    uint8_t dst;                        /* 目标模块ID */
-    uint8_t len;                        /* CMD + DATA 总字节数 */
-    uint8_t cmd;                        /* 操作码 */
-    uint8_t data[PROTO_MAX_DATA_LEN];   /* 数据域 */
+    uint8_t  head;                      /* 0xAA */
+    uint8_t  src;                       /* 源模块ID */
+    uint8_t  dst;                       /* 目标模块ID */
+    uint16_t len;                       /* CMD + DATA 总字节数；0xFF 表示流式帧 */
+    uint8_t  cmd;                       /* 操作码 */
+    uint8_t  data[PROTO_MAX_DATA_LEN];  /* 数据域 */
 } protocol_frame_t;
 
 /* 模块身份（CMD_GET_TYPE 响应 DATA[0..4] 的标准解析形式） */
@@ -270,8 +281,8 @@ typedef struct {
 typedef struct {
     protocol_state_t state;             /* 当前解析状态 */
     protocol_frame_t frame;             /* 解析中的帧 */
-    uint8_t data_idx;                   /* 当前数据域接收索引 */
-    uint8_t frame_ready;                /* 帧就绪标志 (1=就绪) */
+    uint16_t data_idx;                  /* 当前数据域接收索引（支持流式帧 >255） */
+    uint8_t  frame_ready;               /* 帧就绪标志 (1=就绪) */
     /* 错误统计（调试用，Init 时清零，Reset 不清零） */
     uint16_t err_len_zero;              /* LEN=0 非法帧计数 */
     uint16_t err_overflow;              /* DATA 域溢出计数 */
@@ -314,6 +325,24 @@ void Protocol_ResetRxCtx(protocol_rx_ctx_t *ctx);
 uint8_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
                            const uint8_t *data, uint8_t data_len,
                            uint8_t *out_buf, uint16_t out_size);
+
+/**
+ * @brief  打包流式协议帧（LEN = 0xFF，DATA 长度不受 255 限制）
+ * @param  src       源模块ID
+ * @param  dst       目标模块ID
+ * @param  cmd       操作码
+ * @param  data      数据域指针
+ * @param  data_len  数据域长度（1 ~ PROTO_STREAM_MAX_DATA）
+ * @param  out_buf   输出缓冲区
+ * @param  out_size  输出缓冲区大小
+ * @return 实际写入的字节数；0 表示参数错误或缓冲区不足
+ *
+ * @note   流式帧格式: [HEAD][SRC][DST][0xFF][CMD][DATA...][TAIL0][TAIL1][TAIL2][TAIL3]
+ *         DATA 长度由 out_buf 容量决定，建议单帧不超过 20KB
+ */
+uint16_t Protocol_PackStreamFrame(uint8_t src, uint8_t dst, uint8_t cmd,
+                                  const uint8_t *data, uint16_t data_len,
+                                  uint8_t *out_buf, uint16_t out_size);
 
 /**
  * @brief  接收状态机逐字节处理
