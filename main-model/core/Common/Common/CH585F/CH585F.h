@@ -8,7 +8,8 @@
 #include "debug.h"
 
 /* CH585F SPI clock definition */
-#define CH585F_SPI_CLOCK SPI_BaudRatePrescaler_Mode3
+/* Mode3(/16)=25MHz 对 CH585F Slave 太快，改为 Mode7(/256)≈1.56MHz 确保跟上 */
+#define CH585F_SPI_CLOCK SPI_BaudRatePrescaler_Mode7
 #define CH585F_SPI SPI4
 
 /* CH585F SPI gpio definitions SPI4 */

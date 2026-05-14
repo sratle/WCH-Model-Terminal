@@ -216,10 +216,13 @@ static void CH585F_BT_HandleCliData(const protocol_frame_t *frame)
 
     if (frame->len < 3) return; /* 至少: ext_cmd(1) + FLAGS(1) */
 
+    /* 若收到 CLI 数据但 app_connected 未置位，自动标记为已连接
+     * （CH585F 可能未发送或 Core 漏收了 CMD_BT_CONN_EVT）
+     */
     if (!ch585f_bt_g.app_connected)
     {
-        printf("[BT] CLI data received but APP not connected, dropped\r\n");
-        return;
+        ch585f_bt_g.app_connected = 1;
+        printf("[BT] APP auto-connected via CLI data\r\n");
     }
 
     flags    = frame->data[1];
@@ -259,6 +262,16 @@ static void CH585F_BT_HandleCliData(const protocol_frame_t *frame)
             else
             {
                 s_cli_assemble_buf[CH585F_BT_CLI_ASSEMBLE_SIZE - 1] = '\0';
+            }
+
+            /* 去掉末尾的 \r 和 \n，避免 CLI_Process 不认识 */
+            while (s_cli_assemble_len > 0)
+            {
+                uint8_t last = s_cli_assemble_buf[s_cli_assemble_len - 1];
+                if (last == '\r' || last == '\n')
+                    s_cli_assemble_len--;
+                else
+                    break;
             }
 
             printf("[BT] CLI exec: len=%d, cmd='%s'\r\n",
