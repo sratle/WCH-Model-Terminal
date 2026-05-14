@@ -12,12 +12,49 @@ uint8_t cli_capture_flag = 0;
 
 ch585f_bt_ctx_t ch585f_bt_g;
 
-/* 静态发送缓冲区 */
+/* 静态发送缓冲区：Protocol_PackFrame 打包完整帧后，写入 TX FIFO */
 static uint8_t s_tx_buf[PROTO_MAX_FRAME_LEN];
 
 /* CLI 多帧组装缓冲区 */
 static uint8_t s_cli_assemble_buf[CH585F_BT_CLI_ASSEMBLE_SIZE];
 static uint16_t s_cli_assemble_len = 0;
+
+/* SPI 发送 FIFO（poll 时顺带发送，避免在 HandleCliData 中独立发导致 Slave 错过） */
+#define SPI_TX_FIFO_SIZE    2048
+static uint8_t  s_spi_tx_fifo[SPI_TX_FIFO_SIZE];
+static uint16_t s_spi_tx_head = 0;
+static uint16_t s_spi_tx_tail = 0;
+
+/* 接收状态机卡住计数器：连续 N 次 poll 未完成帧则强制复位 */
+static uint8_t s_rx_stuck_cnt = 0;
+#define RX_STUCK_THRESHOLD  5
+
+static uint16_t spi_tx_fifo_write(const uint8_t *data, uint16_t len)
+{
+    uint16_t i;
+    for (i = 0; i < len; i++)
+    {
+        uint16_t next = (s_spi_tx_head + 1) % SPI_TX_FIFO_SIZE;
+        if (next == s_spi_tx_tail)
+            break;
+        s_spi_tx_fifo[s_spi_tx_head] = data[i];
+        s_spi_tx_head = next;
+    }
+    return i;
+}
+
+static uint16_t spi_tx_fifo_read(uint8_t *out, uint16_t max_len)
+{
+    uint16_t i;
+    for (i = 0; i < max_len; i++)
+    {
+        if (s_spi_tx_tail == s_spi_tx_head)
+            break;
+        out[i] = s_spi_tx_fifo[s_spi_tx_tail];
+        s_spi_tx_tail = (s_spi_tx_tail + 1) % SPI_TX_FIFO_SIZE;
+    }
+    return i;
+}
 
 static void CH585F_BT_SendFrame(uint8_t cmd, const uint8_t *data, uint8_t data_len);
 static void CH585F_BT_HandleConnEvt(const protocol_frame_t *frame);
@@ -50,24 +87,47 @@ void CH585F_BT_Init(void)
 void CH585F_BT_Poll(void)
 {
     uint8_t rx_buf[CH585F_BT_POLL_SIZE];
+    uint8_t tx_buf[CH585F_BT_POLL_SIZE];
     uint16_t i;
-    uint8_t has_data = 0;
+    uint16_t tx_len;
+    uint8_t has_rx_data = 0;
+    uint8_t frame_ready = 0;
 
-    CH585F_Recv_Data(&ch585f_g, rx_buf, CH585F_BT_POLL_SIZE);
+    /* 从 TX FIFO 取待发送数据，不足补 0x00（dummy） */
+    tx_len = spi_tx_fifo_read(tx_buf, CH585F_BT_POLL_SIZE);
+    if (tx_len < CH585F_BT_POLL_SIZE)
+    {
+        memset(&tx_buf[tx_len], 0x00, CH585F_BT_POLL_SIZE - tx_len);
+    }
+
+    /* 全双工传输：发送 tx_buf 的同时接收 rx_buf */
+    CH585F_SPI_Transfer(&ch585f_g, tx_buf, rx_buf, CH585F_BT_POLL_SIZE);
+
+    /* 调试：打印本次发送的内容 */
+    if (tx_len > 0)
+    {
+        printf("[BT POLL] TX [%d]: ", tx_len);
+        for (i = 0; i < tx_len && i < 16; i++)
+        {
+            printf("%02X ", tx_buf[i]);
+        }
+        if (tx_len > 16) printf("...");
+        printf("\r\n");
+    }
 
     /* 调试：检查本轮是否读到非 0x00/0xFF 的有效数据 */
     for (i = 0; i < CH585F_BT_POLL_SIZE; i++)
     {
         if (rx_buf[i] != 0x00 && rx_buf[i] != 0xFF)
         {
-            has_data = 1;
+            has_rx_data = 1;
             break;
         }
     }
 
-    if (has_data)
+    if (has_rx_data)
     {
-        printf("[BT POLL] RAW [%d]: ", CH585F_BT_POLL_SIZE);
+        printf("[BT POLL] RX [%d]: ", CH585F_BT_POLL_SIZE);
         for (i = 0; i < CH585F_BT_POLL_SIZE; i++)
         {
             printf("%02X ", rx_buf[i]);
@@ -75,16 +135,43 @@ void CH585F_BT_Poll(void)
         printf("\r\n");
     }
 
+    /* 解析接收到的数据 */
     for (i = 0; i < CH585F_BT_POLL_SIZE; i++)
     {
         if (Protocol_ParseByte(&ch585f_bt_g.rx_ctx, rx_buf[i]))
         {
-            printf("[BT] Frame ready: cmd=0x%02X, len=%d, data[0]=0x%02X\r\n",
-                   ch585f_bt_g.rx_ctx.frame.cmd,
-                   ch585f_bt_g.rx_ctx.frame.len,
-                   ch585f_bt_g.rx_ctx.frame.data[0]);
-            CH585F_BT_HandleFrame();
-            Protocol_ResetRxCtx(&ch585f_bt_g.rx_ctx);
+            frame_ready = 1;
+            break;  /* 帧已就绪，剩余字节留给下一帧 */
+        }
+    }
+
+    if (frame_ready)
+    {
+        s_rx_stuck_cnt = 0;
+        printf("[BT] Frame ready: cmd=0x%02X, len=%d, data[0]=0x%02X\r\n",
+               ch585f_bt_g.rx_ctx.frame.cmd,
+               ch585f_bt_g.rx_ctx.frame.len,
+               ch585f_bt_g.rx_ctx.frame.data[0]);
+        CH585F_BT_HandleFrame();
+        Protocol_ResetRxCtx(&ch585f_bt_g.rx_ctx);
+    }
+    else
+    {
+        /* 状态机卡住检测：不在 WAIT_HEAD 且连续多次没收到完整帧 */
+        if (ch585f_bt_g.rx_ctx.state != PROTO_STATE_WAIT_HEAD)
+        {
+            s_rx_stuck_cnt++;
+            if (s_rx_stuck_cnt >= RX_STUCK_THRESHOLD)
+            {
+                printf("[BT] RX state machine stuck (state=%d, cnt=%d), force reset\r\n",
+                       ch585f_bt_g.rx_ctx.state, s_rx_stuck_cnt);
+                Protocol_ResetRxCtx(&ch585f_bt_g.rx_ctx);
+                s_rx_stuck_cnt = 0;
+            }
+        }
+        else
+        {
+            s_rx_stuck_cnt = 0;
         }
     }
 }
@@ -121,15 +208,28 @@ void CH585F_BT_HandleFrame(void)
  *
  * @return  none
  *********************************************************************/
+/*********************************************************************
+ * @fn      CH585F_BT_SendFrame
+ *
+ * @brief   打包完整协议帧并写入 SPI TX FIFO，等 poll 时顺带发出
+ *
+ * @return  none
+ *********************************************************************/
 static void CH585F_BT_SendFrame(uint8_t cmd, const uint8_t *data, uint8_t data_len)
 {
     uint8_t len;
+    uint16_t written;
+
     len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_WIRELESS, cmd,
                              data, data_len,
                              s_tx_buf, sizeof(s_tx_buf));
     if (len > 0)
     {
-        CH585F_Send_Data(&ch585f_g, s_tx_buf, len);
+        written = spi_tx_fifo_write(s_tx_buf, len);
+        if (written < len)
+        {
+            printf("[BT] SendFrame: TX FIFO full! Dropped %d bytes\r\n", len - written);
+        }
     }
 }
 
@@ -319,6 +419,25 @@ void CH585F_BT_SendCliData(uint8_t *data, uint16_t len)
     uint16_t offset = 0;
     uint8_t chunk;
     uint8_t flags;
+    uint16_t j;
+
+    /* 调试：打印 CLI 输出内容 */
+    printf("[BT] SendCliData input: len=%d\r\n", len);
+    printf("[BT] CLI output content: ");
+    for (j = 0; j < len && j < 128; j++)
+    {
+        uint8_t c = data[j];
+        if (c >= 0x20 && c < 0x7F)
+            printf("%c", c);
+        else if (c == '\r')
+            printf("\\r");
+        else if (c == '\n')
+            printf("\\n");
+        else
+            printf("\\x%02X", c);
+    }
+    if (len > 128) printf("...");
+    printf("\r\n");
 
     while (offset < len)
     {
@@ -346,6 +465,9 @@ void CH585F_BT_SendCliData(uint8_t *data, uint16_t len)
         CH585F_BT_SendFrame(CMD_BT_EXTENSION, buf, chunk + 2);
         offset += chunk;
     }
+
+    printf("[BT] SendCliData: queued %d bytes (%d frames) to TX FIFO\r\n",
+           offset, (len + CH585F_BT_STD_MAX_PAYLOAD - 1) / CH585F_BT_STD_MAX_PAYLOAD);
 }
 
 /*********************************************************************

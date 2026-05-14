@@ -767,6 +767,12 @@ static void OnProtocolStdFrame(const proto_frame_t *frame)
         return;
     }
 
+    /* Only handle frames destined to Wireless module */
+    if (frame->dst != MODULE_ID_WIRELESS) {
+        PRINT("[SPI RX] Drop: wrong DST=%02X\n", frame->dst);
+        return;
+    }
+
     switch (frame->cmd) {
         case CMD_GET_TYPE: {
             uint8_t type_data[6] = {

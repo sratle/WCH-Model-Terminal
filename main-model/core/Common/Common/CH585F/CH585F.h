@@ -38,5 +38,6 @@ typedef struct
 void CH585F_Init(ch585f_t *ch585f);
 void CH585F_Send_Data(ch585f_t *ch585f, uint8_t *data, uint16_t length);
 void CH585F_Recv_Data(ch585f_t *ch585f, uint8_t *buf, uint16_t length);
+void CH585F_SPI_Transfer(ch585f_t *ch585f, uint8_t *tx_buf, uint8_t *rx_buf, uint16_t length);
 
 #endif

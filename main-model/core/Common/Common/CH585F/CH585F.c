@@ -86,3 +86,20 @@ void CH585F_Recv_Data(ch585f_t *ch585f, uint8_t *buf, uint16_t length)
     while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_BSY) == SET);
     GPIO_SetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
 }
+
+// SPI 全双工传输：同时发送 tx_buf 和接收 rx_buf
+void CH585F_SPI_Transfer(ch585f_t *ch585f, uint8_t *tx_buf, uint8_t *rx_buf, uint16_t length)
+{
+    uint16_t i;
+    GPIO_ResetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
+    for (i = 0; i < length; i++)
+    {
+        while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_TXE) == RESET);
+        SPI_I2S_SendData(CH585F_SPI, tx_buf[i]);
+        while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_RXNE) == RESET);
+        rx_buf[i] = (uint8_t)SPI_I2S_ReceiveData(CH585F_SPI);
+    }
+    /* 等待 SPI 总线空闲后再拉高 NSS */
+    while (SPI_I2S_GetFlagStatus(CH585F_SPI, SPI_I2S_FLAG_BSY) == SET);
+    GPIO_SetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
+}
