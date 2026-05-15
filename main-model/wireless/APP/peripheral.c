@@ -603,9 +603,9 @@ static bStatus_t AppProtoSendNotify(const uint8_t *payload, uint16_t payload_len
     max_payload = (peripheralMTU > 8) ? (peripheralMTU - 8) : 12;
 
     if (payload_len <= max_payload) {
-        /* Single frame */
+        /* Single frame: use caller's flags directly (already contains SOF/EOF/DIR) */
         frame[0] = APP_PROTO_TYPE_CLI;
-        frame[1] = flags | APP_PROTO_FLAG_SOF | APP_PROTO_FLAG_EOF | APP_PROTO_FLAG_DIR_UP;
+        frame[1] = flags;
         frame[2] = s_ble_tx_seq++;
         frame[3] = payload_len;
         frame[4] = 0;
@@ -760,11 +760,6 @@ static void OnProtocolStdFrame(const proto_frame_t *frame)
           frame->src, frame->dst, frame->cmd, frame->len);
     if (frame->len > 1) {
         PrintHex("[SPI RX] DATA", frame->data, frame->len - 1);
-    }
-
-    /* Only handle frames destined to Wireless module */
-    if (frame->dst != MODULE_ID_WIRELESS) {
-        return;
     }
 
     /* Only handle frames destined to Wireless module */

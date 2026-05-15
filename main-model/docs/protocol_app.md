@@ -421,13 +421,13 @@ APP                                 CH585F
 
 1. APP 通过 BLE Write 发送 `MSG_TYPE_CLI_DATA` 帧
 2. CH585F 在 BLE 中断/任务中接收完整消息（重组后）
-3. CH585F 将完整 CLI 字符串通过 SPI 发送给 Core，使用统一协议：
+3. CH585F 将完整 CLI 字符串通过 SPI 发送给 Core，使用统一协议（V2.2 格式，已去除冗余基码）：
    ```
-   [AA][01][00][LEN][50][01][07][CLI数据...][A5][5A][FC][FD]
+   [AA][01][00][LEN][50][07][FLAGS][CLI数据...][A5][5A][FC][FD]
    ```
    - `CMD = 0x50`（扩展操作码基码）
-   - `DATA[0] = 0x01`（扩展码：基础操作码，保持与协议一致，实际在 BLE 侧已解包）
-   - `DATA[1] = 0x07`（扩展码：CLI_DATA）
+   - `DATA[0] = 0x07`（扩展码：CLI_DATA）
+   - `DATA[1] = FLAGS`（bit0=SOF, bit1=EOF）
    - `DATA[2..N]`：完整的 UTF-8 CLI 字符串
 4. Core 收到 `CMD_BT_EXT_CLI_DATA` 后，将数据喂入 `CLI_Process()`
 

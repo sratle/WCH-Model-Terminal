@@ -96,6 +96,21 @@ def parse_glyph_dsc(content: str) -> List[dict]:
     return entries
 
 
+def parse_font_metrics(content: str) -> dict:
+    """Parse line_height and base_line from LVGL font file"""
+    line_height_match = re.search(r'\.line_height\s*=\s*(\d+)', content)
+    base_line_match = re.search(r'\.base_line\s*=\s*(\d+)', content)
+    
+    line_height = int(line_height_match.group(1)) if line_height_match else 0
+    base_line = int(base_line_match.group(1)) if base_line_match else 0
+    
+    return {
+        'line_height': line_height,
+        'base_line': base_line,
+        'baseline_from_top': line_height - base_line
+    }
+
+
 def parse_cmaps(content: str) -> List[dict]:
     """Parse the cmaps array to get unicode to glyph_id mapping"""
     # Find the start of cmaps array
@@ -170,44 +185,50 @@ def parse_cmaps(content: str) -> List[dict]:
     return cmaps
 
 
-def build_glyph_table(bitmap: List[int], glyph_dsc: List[dict], cmaps: List[dict]) -> List[GlyphInfo]:
-    """Build a table of all glyphs with their unicode codepoints"""
+def build_glyph_table(bitmap: List[int], glyph_dsc: List[dict], cmaps: List[dict], baseline_from_top: int) -> List[GlyphInfo]:
+    """Build a table of all glyphs with their unicode codepoints
+    
+    LVGL renders glyphs at: glyph_y = line_top + baseline_from_top - box_h - ofs_y
+    MiniUI renders glyphs at: gy = y + baseline + y_offset
+    
+    For these to match (with baseline = baseline_from_top):
+        y_offset = -box_h - ofs_y
+    """
     glyphs = []
     
     for cmap in cmaps:
         if cmap['type'] == 'continuous':
-            # Continuous range: unicode = range_start + offset, glyph_id = glyph_id_start + offset
             for i in range(cmap['range_length']):
                 unicode = cmap['range_start'] + i
                 glyph_id = cmap['glyph_id_start'] + i
                 if glyph_id < len(glyph_dsc):
                     dsc = glyph_dsc[glyph_id]
-                    # Extract bitmap for this glyph
                     glyph_bitmap = extract_glyph_bitmap(bitmap, dsc)
+                    y_offset = -dsc['box_h'] - dsc['ofs_y']
                     glyphs.append(GlyphInfo(
                         unicode=unicode,
                         width=dsc['box_w'],
                         height=dsc['box_h'],
                         x_offset=dsc['ofs_x'],
-                        y_offset=dsc['ofs_y'],
-                        advance=(dsc['adv_w'] + 8) // 16,  # LVGL uses 16th of pixel
+                        y_offset=y_offset,
+                        advance=(dsc['adv_w'] + 8) // 16,
                         bitmap=glyph_bitmap,
                         bitmap_index=dsc['bitmap_index']
                     ))
         elif cmap['type'] == 'sparse' and cmap['unicode_list']:
-            # Sparse: unicode = range_start + unicode_list[i], glyph_id = glyph_id_start + i
             for i, offset in enumerate(cmap['unicode_list']):
                 unicode = cmap['range_start'] + offset
                 glyph_id = cmap['glyph_id_start'] + i
                 if glyph_id < len(glyph_dsc):
                     dsc = glyph_dsc[glyph_id]
                     glyph_bitmap = extract_glyph_bitmap(bitmap, dsc)
+                    y_offset = -dsc['box_h'] - dsc['ofs_y']
                     glyphs.append(GlyphInfo(
                         unicode=unicode,
                         width=dsc['box_w'],
                         height=dsc['box_h'],
                         x_offset=dsc['ofs_x'],
-                        y_offset=dsc['ofs_y'],
+                        y_offset=y_offset,
                         advance=(dsc['adv_w'] + 8) // 16,
                         bitmap=glyph_bitmap,
                         bitmap_index=dsc['bitmap_index']
@@ -225,35 +246,34 @@ def extract_glyph_bitmap(bitmap: List[int], dsc: dict) -> List[int]:
     if width == 0 or height == 0:
         return []
     
-    # Calculate bytes per row (aligned to byte boundary)
-    bits_per_row = width * bpp
-    bytes_per_row = (bits_per_row + 7) // 8
-    total_bytes = bytes_per_row * height
+    total_bits = width * bpp * height
+    total_bytes = (total_bits + 7) // 8
     
     start_idx = dsc['bitmap_index']
     end_idx = start_idx + total_bytes
     
     if end_idx > len(bitmap):
-        # Some fonts may have padding, adjust
         end_idx = len(bitmap)
     
     return bitmap[start_idx:end_idx]
 
 
 def convert_4bpp_to_1bpp(bitmap_4bpp: List[int], width: int, height: int) -> List[int]:
-    """Convert 4bpp bitmap to 1bpp (threshold at 50%)"""
+    """Convert 4bpp bitmap to 1bpp (threshold at 50%)
+    
+    LVGL stores 4bpp glyph bitmaps as a continuous bit stream
+    (no row padding), packed MSB-first within each byte.
+    """
     if not bitmap_4bpp or width == 0 or height == 0:
         return []
     
     result = []
     bit_idx = 0
-    current_byte = 0
     
     for row in range(height):
         for col in range(width):
-            # Get 4-bit pixel value
             byte_idx = bit_idx // 8
-            shift = 4 - (bit_idx % 8)  # 4bpp: high nibble first
+            shift = 4 - (bit_idx % 8)
             if shift < 0:
                 shift += 8
                 byte_idx += 1
@@ -263,10 +283,8 @@ def convert_4bpp_to_1bpp(bitmap_4bpp: List[int], width: int, height: int) -> Lis
             else:
                 pixel = 0
             
-            # Threshold at 8 (50% of 15)
             bit = 1 if pixel >= 8 else 0
             
-            # Pack into 1bpp (MSB first)
             byte_pos = (row * width + col) // 8
             bit_pos = 7 - ((row * width + col) % 8)
             
@@ -281,7 +299,43 @@ def convert_4bpp_to_1bpp(bitmap_4bpp: List[int], width: int, height: int) -> Lis
     return result
 
 
-def generate_miniui_font(glyphs: List[GlyphInfo], font_size: int, output_path: str, font_name: str):
+def convert_4bpp_to_1bpp_row_aligned(bitmap_4bpp: List[int], width: int, height: int) -> List[int]:
+    """Convert 4bpp bitmap to 1bpp with row-aligned byte packing.
+    
+    Each row starts at a byte boundary (compatible with ui_draw_icon).
+    """
+    if not bitmap_4bpp or width == 0 or height == 0:
+        return []
+    
+    bytes_per_row = (width + 7) // 8
+    result = [0] * (bytes_per_row * height)
+    bit_idx = 0
+    
+    for row in range(height):
+        for col in range(width):
+            byte_idx = bit_idx // 8
+            shift = 4 - (bit_idx % 8)
+            if shift < 0:
+                shift += 8
+                byte_idx += 1
+            
+            if byte_idx < len(bitmap_4bpp):
+                pixel = (bitmap_4bpp[byte_idx] >> shift) & 0x0F
+            else:
+                pixel = 0
+            
+            bit = 1 if pixel >= 8 else 0
+            
+            if bit:
+                row_byte_pos = row * bytes_per_row + col // 8
+                result[row_byte_pos] |= (0x80 >> (col % 8))
+            
+            bit_idx += 4
+    
+    return result
+
+
+def generate_miniui_font(glyphs: List[GlyphInfo], font_size: int, output_path: str, font_name: str, line_height: int, baseline_from_top: int):
     """Generate MiniUI font file"""
     # Filter ASCII glyphs (32-126) and special chars
     ascii_glyphs = [g for g in glyphs if 32 <= g.unicode <= 126]
@@ -310,7 +364,7 @@ def generate_miniui_font(glyphs: List[GlyphInfo], font_size: int, output_path: s
             if glyph.width == 0 or glyph.height == 0:
                 continue
             
-            # Convert 4bpp to 1bpp
+            # Convert 4bpp to 1bpp (continuous bit stream for draw_glyph)
             bitmap_1bpp = convert_4bpp_to_1bpp(glyph.bitmap, glyph.width, glyph.height)
             
             if not bitmap_1bpp:
@@ -354,17 +408,17 @@ def generate_miniui_font(glyphs: List[GlyphInfo], font_size: int, output_path: s
         
         f.write("};\n\n")
         
-        # Calculate font metrics
-        max_height = max(g.height for g in all_glyphs) if all_glyphs else font_size
-        baseline = font_size - 3  # Approximate baseline
+        # Font metrics from LVGL source
+        # baseline = distance from top of line to baseline
+        # height = line_height (includes ascent + descent + line gap)
         
         # Font descriptor
         f.write(f"/* Font descriptor */\n")
         f.write(f"const ui_font_t font_{font_name} = {{\n")
         f.write(f"    .glyphs = {font_name}_glyphs,\n")
         f.write(f"    .glyph_count = {len(all_glyphs)},\n")
-        f.write(f"    .height = {max_height},\n")
-        f.write(f"    .baseline = {baseline},\n")
+        f.write(f"    .height = {line_height},\n")
+        f.write(f"    .baseline = {baseline_from_top},\n")
         f.write(f"    .bpp = 1,\n")
         f.write(f"}};\n")
     
@@ -478,8 +532,8 @@ def generate_icon_bitmaps(glyphs: List[GlyphInfo], font_size: int, output_path: 
             if glyph.width == 0 or glyph.height == 0:
                 continue
             
-            # Convert 4bpp to 1bpp
-            bitmap_1bpp = convert_4bpp_to_1bpp(glyph.bitmap, glyph.width, glyph.height)
+            # Convert 4bpp to 1bpp (row-aligned for ui_draw_icon)
+            bitmap_1bpp = convert_4bpp_to_1bpp_row_aligned(glyph.bitmap, glyph.width, glyph.height)
             
             if not bitmap_1bpp:
                 continue
@@ -542,8 +596,11 @@ def main():
     cmaps = parse_cmaps(content)
     print(f"  CMAP entries: {len(cmaps)}")
     
+    metrics = parse_font_metrics(content)
+    print(f"  Line height: {metrics['line_height']}, Base line: {metrics['base_line']}, Baseline from top: {metrics['baseline_from_top']}")
+    
     # Build glyph table
-    glyphs = build_glyph_table(bitmap, glyph_dsc, cmaps)
+    glyphs = build_glyph_table(bitmap, glyph_dsc, cmaps, metrics['baseline_from_top'])
     print(f"  Total glyphs: {len(glyphs)}")
     
     # Categorize
@@ -558,7 +615,7 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Generate MiniUI font (ASCII only)
-    generate_miniui_font(glyphs, args.size, args.output_dir, font_name)
+    generate_miniui_font(glyphs, args.size, args.output_dir, font_name, metrics['line_height'], metrics['baseline_from_top'])
     
     # Generate icon bitmaps
     generate_icon_bitmaps(glyphs, args.size, args.output_dir)

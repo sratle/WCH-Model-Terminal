@@ -31,7 +31,8 @@
 
 typedef struct
 {
-    uint8_t enable; // CH585F enable
+    uint8_t enable;               /* CH585F enable */
+    volatile uint8_t nss_notify;  /* NSS falling-edge notify from CH585F: 1 = has data to read */
 } ch585f_t;
 
 // 初始化CH585F结构体，初始化SPI和CH585F沟通编号和设置

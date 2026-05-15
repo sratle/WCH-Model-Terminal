@@ -46,8 +46,9 @@ void SPI_Slave_Init(void)
     /* Preload idle byte for first transfer */
     SetFirstData(0x00);
 
-    /* Enable interrupts: first-byte + byte-end */
-    SPI0_ITCfg(ENABLE, SPI0_IT_FST_BYTE);
+    /* Enable interrupts: byte-end only (FST_BYTE can cause spurious triggers
+     * before actual clock starts, leading to FIFO misalignment) */
+    SPI0_ITCfg(DISABLE, SPI0_IT_FST_BYTE);
     SPI0_ITCfg(ENABLE, SPI0_IT_BYTE_END);
 
     /* Enable SPI0 IRQ in NVIC */
@@ -59,11 +60,25 @@ bool SPI_Slave_HasTxData(void)
     return !DataQueue_IsEmpty(&s_tx_queue);
 }
 
+/* Generate a ~10us low pulse on PB12 to notify Core (PE11 EXTI) */
+void SPI_Slave_NotifyMaster(void)
+{
+    GPIOB_ModeCfg(GPIO_Pin_12, GPIO_ModeOut_PP_5mA);
+    GPIOB_ResetBits(GPIO_Pin_12);
+    DelayUs(10);
+    GPIOB_ModeCfg(GPIO_Pin_12, GPIO_ModeIN_PU);
+}
+
 bool SPI_Slave_EnqueueTx(const uint8_t *data, uint16_t len)
 {
     uint16_t pushed;
+    uint8_t was_empty = DataQueue_IsEmpty(&s_tx_queue);
 
     pushed = DataQueue_PushBulk(&s_tx_queue, data, len);
+    if (was_empty && pushed > 0)
+    {
+        SPI_Slave_NotifyMaster();
+    }
     return (pushed == len);
 }
 
@@ -89,21 +104,21 @@ __INTERRUPT __HIGH_CODE void SPI0_IRQHandler(void)
     uint8_t rx_byte;
     uint8_t next_tx;
 
-    /* In slave mode, either FST_BYTE or BYTE_END may fire.
-     * Unified handling: read RX FIFO if data present, then preload next TX byte.
+    /* BYTE_END: one byte exchange completed in slave mode.
+     * Use SDK-provided SPI0_SlaveRecvByte to ensure correct RX timing.
      */
-    if (SPI0_GetITFlag(SPI0_IT_FST_BYTE) || SPI0_GetITFlag(SPI0_IT_BYTE_END)) {
+    if (SPI0_GetITFlag(SPI0_IT_BYTE_END)) {
         s_spi_irq_cnt++;
-        /* Read received byte directly (BYTE_END guarantees data in FIFO for slave) */
-        rx_byte = R8_SPI0_FIFO;
+
+        /* Receive byte via SDK function (handles RB_SPI_FIFO_DIR and FIFO count wait) */
+        rx_byte = SPI0_SlaveRecvByte();
         if (DataQueue_Push(&s_rx_queue, rx_byte)) {
             s_spi_rx_cnt++;
         }
 
-        /* Clear flags */
-        SPI0_ClearITFlag(SPI0_IT_FST_BYTE | SPI0_IT_BYTE_END);
+        SPI0_ClearITFlag(SPI0_IT_BYTE_END);
 
-        /* Load next TX byte for the next master clock cycle */
+        /* Preload next transmit byte into FIFO */
         if (DataQueue_Pop(&s_tx_queue, &next_tx)) {
             R8_SPI0_FIFO = next_tx;
         } else {

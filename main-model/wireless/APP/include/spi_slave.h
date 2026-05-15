@@ -7,8 +7,8 @@
 extern "C" {
 #endif
 
-#define SPI_SLAVE_RX_BUF_SIZE   512
-#define SPI_SLAVE_TX_BUF_SIZE   512
+#define SPI_SLAVE_RX_BUF_SIZE   1024
+#define SPI_SLAVE_TX_BUF_SIZE   1024
 
 /* SPI0 GPIO mapping for CH585F (adjust per hardware) */
 /* Default: PA12=SCK, PA13=MISO, PA14=MOSI, PA15=NSS (or other pins) */
@@ -19,6 +19,9 @@ void SPI_Slave_Init(void);
 
 /* Query if there's pending TX data */
 bool SPI_Slave_HasTxData(void);
+
+/* Generate a notify pulse on PB12 (NSS) to tell Core we have data */
+void SPI_Slave_NotifyMaster(void);
 
 /* Enqueue data to SPI TX buffer (called from main loop / task) */
 bool SPI_Slave_EnqueueTx(const uint8_t *data, uint16_t len);

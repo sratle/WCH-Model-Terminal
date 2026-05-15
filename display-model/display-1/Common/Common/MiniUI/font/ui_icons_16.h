@@ -1,5 +1,5 @@
-#ifndef __UI_ICONS_16_H
-#define __UI_ICONS_16_H
+#ifndef __UI_ICONS_H
+#define __UI_ICONS_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -7,248 +7,308 @@ extern "C" {
 
 #include <stdint.h>
 
-extern const uint8_t icon_audio_16_bitmap[];
-#define ICON_AUDIO_16_WIDTH  16
-#define ICON_AUDIO_16_HEIGHT 17
+/* AUDIO icon bitmap */
+extern const uint8_t icon_audio_bitmap[];
+#define ICON_AUDIO_WIDTH  16
+#define ICON_AUDIO_HEIGHT 17
 
-extern const uint8_t icon_video_16_bitmap[];
-#define ICON_VIDEO_16_WIDTH  16
-#define ICON_VIDEO_16_HEIGHT 12
+/* VIDEO icon bitmap */
+extern const uint8_t icon_video_bitmap[];
+#define ICON_VIDEO_WIDTH  16
+#define ICON_VIDEO_HEIGHT 12
 
-extern const uint8_t icon_list_16_bitmap[];
-#define ICON_LIST_16_WIDTH  16
-#define ICON_LIST_16_HEIGHT 14
+/* LIST icon bitmap */
+extern const uint8_t icon_list_bitmap[];
+#define ICON_LIST_WIDTH  16
+#define ICON_LIST_HEIGHT 14
 
-extern const uint8_t icon_ok_16_bitmap[];
-#define ICON_OK_16_WIDTH  16
-#define ICON_OK_16_HEIGHT 12
+/* OK icon bitmap */
+extern const uint8_t icon_ok_bitmap[];
+#define ICON_OK_WIDTH  16
+#define ICON_OK_HEIGHT 12
 
-extern const uint8_t icon_close_16_bitmap[];
-#define ICON_CLOSE_16_WIDTH  11
-#define ICON_CLOSE_16_HEIGHT 12
+/* CLOSE icon bitmap */
+extern const uint8_t icon_close_bitmap[];
+#define ICON_CLOSE_WIDTH  11
+#define ICON_CLOSE_HEIGHT 12
 
-extern const uint8_t icon_power_16_bitmap[];
-#define ICON_POWER_16_WIDTH  16
-#define ICON_POWER_16_HEIGHT 16
+/* POWER icon bitmap */
+extern const uint8_t icon_power_bitmap[];
+#define ICON_POWER_WIDTH  16
+#define ICON_POWER_HEIGHT 16
 
-extern const uint8_t icon_settings_16_bitmap[];
-#define ICON_SETTINGS_16_WIDTH  16
-#define ICON_SETTINGS_16_HEIGHT 16
+/* SETTINGS icon bitmap */
+extern const uint8_t icon_settings_bitmap[];
+#define ICON_SETTINGS_WIDTH  16
+#define ICON_SETTINGS_HEIGHT 16
 
-extern const uint8_t icon_home_16_bitmap[];
-#define ICON_HOME_16_WIDTH  18
-#define ICON_HOME_16_HEIGHT 14
+/* HOME icon bitmap */
+extern const uint8_t icon_home_bitmap[];
+#define ICON_HOME_WIDTH  18
+#define ICON_HOME_HEIGHT 14
 
-extern const uint8_t icon_download_16_bitmap[];
-#define ICON_DOWNLOAD_16_WIDTH  16
-#define ICON_DOWNLOAD_16_HEIGHT 16
+/* DOWNLOAD icon bitmap */
+extern const uint8_t icon_download_bitmap[];
+#define ICON_DOWNLOAD_WIDTH  16
+#define ICON_DOWNLOAD_HEIGHT 16
 
-extern const uint8_t icon_drive_16_bitmap[];
-#define ICON_DRIVE_16_WIDTH  18
-#define ICON_DRIVE_16_HEIGHT 12
+/* DRIVE icon bitmap */
+extern const uint8_t icon_drive_bitmap[];
+#define ICON_DRIVE_WIDTH  18
+#define ICON_DRIVE_HEIGHT 12
 
-extern const uint8_t icon_refresh_16_bitmap[];
-#define ICON_REFRESH_16_WIDTH  16
-#define ICON_REFRESH_16_HEIGHT 16
+/* REFRESH icon bitmap */
+extern const uint8_t icon_refresh_bitmap[];
+#define ICON_REFRESH_WIDTH  16
+#define ICON_REFRESH_HEIGHT 16
 
-extern const uint8_t icon_mute_16_bitmap[];
-#define ICON_MUTE_16_WIDTH  8
-#define ICON_MUTE_16_HEIGHT 14
+/* MUTE icon bitmap */
+extern const uint8_t icon_mute_bitmap[];
+#define ICON_MUTE_WIDTH  8
+#define ICON_MUTE_HEIGHT 14
 
-extern const uint8_t icon_volume_mid_16_bitmap[];
-#define ICON_VOLUME_MID_16_WIDTH  12
-#define ICON_VOLUME_MID_16_HEIGHT 14
+/* VOLUME_MID icon bitmap */
+extern const uint8_t icon_volume_mid_bitmap[];
+#define ICON_VOLUME_MID_WIDTH  12
+#define ICON_VOLUME_MID_HEIGHT 14
 
-extern const uint8_t icon_volume_max_16_bitmap[];
-#define ICON_VOLUME_MAX_16_WIDTH  18
-#define ICON_VOLUME_MAX_16_HEIGHT 16
+/* VOLUME_MAX icon bitmap */
+extern const uint8_t icon_volume_max_bitmap[];
+#define ICON_VOLUME_MAX_WIDTH  18
+#define ICON_VOLUME_MAX_HEIGHT 16
 
-extern const uint8_t icon_image_16_bitmap[];
-#define ICON_IMAGE_16_WIDTH  16
-#define ICON_IMAGE_16_HEIGHT 12
+/* IMAGE icon bitmap */
+extern const uint8_t icon_image_bitmap[];
+#define ICON_IMAGE_WIDTH  16
+#define ICON_IMAGE_HEIGHT 12
 
-extern const uint8_t icon_tint_16_bitmap[];
-#define ICON_TINT_16_WIDTH  11
-#define ICON_TINT_16_HEIGHT 16
+/* TINT icon bitmap */
+extern const uint8_t icon_tint_bitmap[];
+#define ICON_TINT_WIDTH  11
+#define ICON_TINT_HEIGHT 16
 
-extern const uint8_t icon_prev_16_bitmap[];
-#define ICON_PREV_16_WIDTH  10
-#define ICON_PREV_16_HEIGHT 16
+/* PREV icon bitmap */
+extern const uint8_t icon_prev_bitmap[];
+#define ICON_PREV_WIDTH  10
+#define ICON_PREV_HEIGHT 16
 
-extern const uint8_t icon_play_16_bitmap[];
-#define ICON_PLAY_16_WIDTH  14
-#define ICON_PLAY_16_HEIGHT 18
+/* PLAY icon bitmap */
+extern const uint8_t icon_play_bitmap[];
+#define ICON_PLAY_WIDTH  14
+#define ICON_PLAY_HEIGHT 18
 
-extern const uint8_t icon_pause_16_bitmap[];
-#define ICON_PAUSE_16_WIDTH  14
-#define ICON_PAUSE_16_HEIGHT 15
+/* PAUSE icon bitmap */
+extern const uint8_t icon_pause_bitmap[];
+#define ICON_PAUSE_WIDTH  14
+#define ICON_PAUSE_HEIGHT 15
 
-extern const uint8_t icon_stop_16_bitmap[];
-#define ICON_STOP_16_WIDTH  14
-#define ICON_STOP_16_HEIGHT 14
+/* STOP icon bitmap */
+extern const uint8_t icon_stop_bitmap[];
+#define ICON_STOP_WIDTH  14
+#define ICON_STOP_HEIGHT 14
 
-extern const uint8_t icon_next_16_bitmap[];
-#define ICON_NEXT_16_WIDTH  10
-#define ICON_NEXT_16_HEIGHT 16
+/* NEXT icon bitmap */
+extern const uint8_t icon_next_bitmap[];
+#define ICON_NEXT_WIDTH  10
+#define ICON_NEXT_HEIGHT 16
 
-extern const uint8_t icon_eject_16_bitmap[];
-#define ICON_EJECT_16_WIDTH  16
-#define ICON_EJECT_16_HEIGHT 14
+/* EJECT icon bitmap */
+extern const uint8_t icon_eject_bitmap[];
+#define ICON_EJECT_WIDTH  16
+#define ICON_EJECT_HEIGHT 14
 
-extern const uint8_t icon_left_16_bitmap[];
-#define ICON_LEFT_16_WIDTH  10
-#define ICON_LEFT_16_HEIGHT 14
+/* LEFT icon bitmap */
+extern const uint8_t icon_left_bitmap[];
+#define ICON_LEFT_WIDTH  10
+#define ICON_LEFT_HEIGHT 14
 
-extern const uint8_t icon_right_16_bitmap[];
-#define ICON_RIGHT_16_WIDTH  10
-#define ICON_RIGHT_16_HEIGHT 14
+/* RIGHT icon bitmap */
+extern const uint8_t icon_right_bitmap[];
+#define ICON_RIGHT_WIDTH  10
+#define ICON_RIGHT_HEIGHT 14
 
-extern const uint8_t icon_plus_16_bitmap[];
-#define ICON_PLUS_16_WIDTH  14
-#define ICON_PLUS_16_HEIGHT 14
+/* PLUS icon bitmap */
+extern const uint8_t icon_plus_bitmap[];
+#define ICON_PLUS_WIDTH  14
+#define ICON_PLUS_HEIGHT 14
 
-extern const uint8_t icon_minus_16_bitmap[];
-#define ICON_MINUS_16_WIDTH  14
-#define ICON_MINUS_16_HEIGHT 4
+/* MINUS icon bitmap */
+extern const uint8_t icon_minus_bitmap[];
+#define ICON_MINUS_WIDTH  14
+#define ICON_MINUS_HEIGHT 4
 
-extern const uint8_t icon_eye_open_16_bitmap[];
-#define ICON_EYE_OPEN_16_WIDTH  18
-#define ICON_EYE_OPEN_16_HEIGHT 12
+/* EYE_OPEN icon bitmap */
+extern const uint8_t icon_eye_open_bitmap[];
+#define ICON_EYE_OPEN_WIDTH  18
+#define ICON_EYE_OPEN_HEIGHT 12
 
-extern const uint8_t icon_eye_close_16_bitmap[];
-#define ICON_EYE_CLOSE_16_WIDTH  20
-#define ICON_EYE_CLOSE_16_HEIGHT 16
+/* EYE_CLOSE icon bitmap */
+extern const uint8_t icon_eye_close_bitmap[];
+#define ICON_EYE_CLOSE_WIDTH  20
+#define ICON_EYE_CLOSE_HEIGHT 16
 
-extern const uint8_t icon_warning_16_bitmap[];
-#define ICON_WARNING_16_WIDTH  20
-#define ICON_WARNING_16_HEIGHT 16
+/* WARNING icon bitmap */
+extern const uint8_t icon_warning_bitmap[];
+#define ICON_WARNING_WIDTH  20
+#define ICON_WARNING_HEIGHT 16
 
-extern const uint8_t icon_shuffle_16_bitmap[];
-#define ICON_SHUFFLE_16_WIDTH  16
-#define ICON_SHUFFLE_16_HEIGHT 16
+/* SHUFFLE icon bitmap */
+extern const uint8_t icon_shuffle_bitmap[];
+#define ICON_SHUFFLE_WIDTH  16
+#define ICON_SHUFFLE_HEIGHT 16
 
-extern const uint8_t icon_up_16_bitmap[];
-#define ICON_UP_16_WIDTH  14
-#define ICON_UP_16_HEIGHT 10
+/* UP icon bitmap */
+extern const uint8_t icon_up_bitmap[];
+#define ICON_UP_WIDTH  14
+#define ICON_UP_HEIGHT 10
 
-extern const uint8_t icon_down_16_bitmap[];
-#define ICON_DOWN_16_WIDTH  14
-#define ICON_DOWN_16_HEIGHT 10
+/* DOWN icon bitmap */
+extern const uint8_t icon_down_bitmap[];
+#define ICON_DOWN_WIDTH  14
+#define ICON_DOWN_HEIGHT 10
 
-extern const uint8_t icon_loop_16_bitmap[];
-#define ICON_LOOP_16_WIDTH  20
-#define ICON_LOOP_16_HEIGHT 14
+/* LOOP icon bitmap */
+extern const uint8_t icon_loop_bitmap[];
+#define ICON_LOOP_WIDTH  20
+#define ICON_LOOP_HEIGHT 14
 
-extern const uint8_t icon_directory_16_bitmap[];
-#define ICON_DIRECTORY_16_WIDTH  16
-#define ICON_DIRECTORY_16_HEIGHT 12
+/* DIRECTORY icon bitmap */
+extern const uint8_t icon_directory_bitmap[];
+#define ICON_DIRECTORY_WIDTH  16
+#define ICON_DIRECTORY_HEIGHT 12
 
-extern const uint8_t icon_upload_16_bitmap[];
-#define ICON_UPLOAD_16_WIDTH  16
-#define ICON_UPLOAD_16_HEIGHT 16
+/* UPLOAD icon bitmap */
+extern const uint8_t icon_upload_bitmap[];
+#define ICON_UPLOAD_WIDTH  16
+#define ICON_UPLOAD_HEIGHT 16
 
-extern const uint8_t icon_call_16_bitmap[];
-#define ICON_CALL_16_WIDTH  17
-#define ICON_CALL_16_HEIGHT 17
+/* CALL icon bitmap */
+extern const uint8_t icon_call_bitmap[];
+#define ICON_CALL_WIDTH  17
+#define ICON_CALL_HEIGHT 17
 
-extern const uint8_t icon_cut_16_bitmap[];
-#define ICON_CUT_16_WIDTH  15
-#define ICON_CUT_16_HEIGHT 14
+/* CUT icon bitmap */
+extern const uint8_t icon_cut_bitmap[];
+#define ICON_CUT_WIDTH  15
+#define ICON_CUT_HEIGHT 14
 
-extern const uint8_t icon_copy_16_bitmap[];
-#define ICON_COPY_16_WIDTH  14
-#define ICON_COPY_16_HEIGHT 16
+/* COPY icon bitmap */
+extern const uint8_t icon_copy_bitmap[];
+#define ICON_COPY_WIDTH  14
+#define ICON_COPY_HEIGHT 16
 
-extern const uint8_t icon_save_16_bitmap[];
-#define ICON_SAVE_16_WIDTH  14
-#define ICON_SAVE_16_HEIGHT 14
+/* SAVE icon bitmap */
+extern const uint8_t icon_save_bitmap[];
+#define ICON_SAVE_WIDTH  14
+#define ICON_SAVE_HEIGHT 14
 
-extern const uint8_t icon_bars_16_bitmap[];
-#define ICON_BARS_16_WIDTH  14
-#define ICON_BARS_16_HEIGHT 14
+/* BARS icon bitmap */
+extern const uint8_t icon_bars_bitmap[];
+#define ICON_BARS_WIDTH  14
+#define ICON_BARS_HEIGHT 14
 
-extern const uint8_t icon_envelope_16_bitmap[];
-#define ICON_ENVELOPE_16_WIDTH  16
-#define ICON_ENVELOPE_16_HEIGHT 12
+/* ENVELOPE icon bitmap */
+extern const uint8_t icon_envelope_bitmap[];
+#define ICON_ENVELOPE_WIDTH  16
+#define ICON_ENVELOPE_HEIGHT 12
 
-extern const uint8_t icon_charge_16_bitmap[];
-#define ICON_CHARGE_16_WIDTH  12
-#define ICON_CHARGE_16_HEIGHT 16
+/* CHARGE icon bitmap */
+extern const uint8_t icon_charge_bitmap[];
+#define ICON_CHARGE_WIDTH  12
+#define ICON_CHARGE_HEIGHT 16
 
-extern const uint8_t icon_paste_16_bitmap[];
-#define ICON_PASTE_16_WIDTH  14
-#define ICON_PASTE_16_HEIGHT 16
+/* PASTE icon bitmap */
+extern const uint8_t icon_paste_bitmap[];
+#define ICON_PASTE_WIDTH  14
+#define ICON_PASTE_HEIGHT 16
 
-extern const uint8_t icon_bell_16_bitmap[];
-#define ICON_BELL_16_WIDTH  14
-#define ICON_BELL_16_HEIGHT 16
+/* BELL icon bitmap */
+extern const uint8_t icon_bell_bitmap[];
+#define ICON_BELL_WIDTH  14
+#define ICON_BELL_HEIGHT 16
 
-extern const uint8_t icon_keyboard_16_bitmap[];
-#define ICON_KEYBOARD_16_WIDTH  18
-#define ICON_KEYBOARD_16_HEIGHT 12
+/* KEYBOARD icon bitmap */
+extern const uint8_t icon_keyboard_bitmap[];
+#define ICON_KEYBOARD_WIDTH  18
+#define ICON_KEYBOARD_HEIGHT 12
 
-extern const uint8_t icon_gps_16_bitmap[];
-#define ICON_GPS_16_WIDTH  18
-#define ICON_GPS_16_HEIGHT 18
+/* GPS icon bitmap */
+extern const uint8_t icon_gps_bitmap[];
+#define ICON_GPS_WIDTH  18
+#define ICON_GPS_HEIGHT 18
 
-extern const uint8_t icon_uf15b_16_bitmap[];
-#define ICON_UF15B_16_WIDTH  12
-#define ICON_UF15B_16_HEIGHT 16
+/* UF15B icon bitmap */
+extern const uint8_t icon_uf15b_bitmap[];
+#define ICON_UF15B_WIDTH  12
+#define ICON_UF15B_HEIGHT 16
 
-extern const uint8_t icon_wifi_16_bitmap[];
-#define ICON_WIFI_16_WIDTH  20
-#define ICON_WIFI_16_HEIGHT 15
+/* WIFI icon bitmap */
+extern const uint8_t icon_wifi_bitmap[];
+#define ICON_WIFI_WIDTH  20
+#define ICON_WIFI_HEIGHT 15
 
-extern const uint8_t icon_battery_full_16_bitmap[];
-#define ICON_BATTERY_FULL_16_WIDTH  20
-#define ICON_BATTERY_FULL_16_HEIGHT 10
+/* BATTERY_FULL icon bitmap */
+extern const uint8_t icon_battery_full_bitmap[];
+#define ICON_BATTERY_FULL_WIDTH  20
+#define ICON_BATTERY_FULL_HEIGHT 10
 
-extern const uint8_t icon_battery_3_16_bitmap[];
-#define ICON_BATTERY_3_16_WIDTH  20
-#define ICON_BATTERY_3_16_HEIGHT 10
+/* BATTERY_3 icon bitmap */
+extern const uint8_t icon_battery_3_bitmap[];
+#define ICON_BATTERY_3_WIDTH  20
+#define ICON_BATTERY_3_HEIGHT 10
 
-extern const uint8_t icon_battery_2_16_bitmap[];
-#define ICON_BATTERY_2_16_WIDTH  20
-#define ICON_BATTERY_2_16_HEIGHT 10
+/* BATTERY_2 icon bitmap */
+extern const uint8_t icon_battery_2_bitmap[];
+#define ICON_BATTERY_2_WIDTH  20
+#define ICON_BATTERY_2_HEIGHT 10
 
-extern const uint8_t icon_battery_1_16_bitmap[];
-#define ICON_BATTERY_1_16_WIDTH  20
-#define ICON_BATTERY_1_16_HEIGHT 10
+/* BATTERY_1 icon bitmap */
+extern const uint8_t icon_battery_1_bitmap[];
+#define ICON_BATTERY_1_WIDTH  20
+#define ICON_BATTERY_1_HEIGHT 10
 
-extern const uint8_t icon_battery_empty_16_bitmap[];
-#define ICON_BATTERY_EMPTY_16_WIDTH  20
-#define ICON_BATTERY_EMPTY_16_HEIGHT 10
+/* BATTERY_EMPTY icon bitmap */
+extern const uint8_t icon_battery_empty_bitmap[];
+#define ICON_BATTERY_EMPTY_WIDTH  20
+#define ICON_BATTERY_EMPTY_HEIGHT 10
 
-extern const uint8_t icon_usb_16_bitmap[];
-#define ICON_USB_16_WIDTH  21
-#define ICON_USB_16_HEIGHT 14
+/* USB icon bitmap */
+extern const uint8_t icon_usb_bitmap[];
+#define ICON_USB_WIDTH  21
+#define ICON_USB_HEIGHT 14
 
-extern const uint8_t icon_bluetooth_16_bitmap[];
-#define ICON_BLUETOOTH_16_WIDTH  12
-#define ICON_BLUETOOTH_16_HEIGHT 16
+/* BLUETOOTH icon bitmap */
+extern const uint8_t icon_bluetooth_bitmap[];
+#define ICON_BLUETOOTH_WIDTH  12
+#define ICON_BLUETOOTH_HEIGHT 16
 
-extern const uint8_t icon_trash_16_bitmap[];
-#define ICON_TRASH_16_WIDTH  14
-#define ICON_TRASH_16_HEIGHT 16
+/* TRASH icon bitmap */
+extern const uint8_t icon_trash_bitmap[];
+#define ICON_TRASH_WIDTH  14
+#define ICON_TRASH_HEIGHT 16
 
-extern const uint8_t icon_edit_16_bitmap[];
-#define ICON_EDIT_16_WIDTH  17
-#define ICON_EDIT_16_HEIGHT 17
+/* EDIT icon bitmap */
+extern const uint8_t icon_edit_bitmap[];
+#define ICON_EDIT_WIDTH  17
+#define ICON_EDIT_HEIGHT 17
 
-extern const uint8_t icon_backspace_16_bitmap[];
-#define ICON_BACKSPACE_16_WIDTH  20
-#define ICON_BACKSPACE_16_HEIGHT 12
+/* BACKSPACE icon bitmap */
+extern const uint8_t icon_backspace_bitmap[];
+#define ICON_BACKSPACE_WIDTH  20
+#define ICON_BACKSPACE_HEIGHT 12
 
-extern const uint8_t icon_sd_card_16_bitmap[];
-#define ICON_SD_CARD_16_WIDTH  12
-#define ICON_SD_CARD_16_HEIGHT 16
+/* SD_CARD icon bitmap */
+extern const uint8_t icon_sd_card_bitmap[];
+#define ICON_SD_CARD_WIDTH  12
+#define ICON_SD_CARD_HEIGHT 16
 
-extern const uint8_t icon_new_line_16_bitmap[];
-#define ICON_NEW_LINE_16_WIDTH  17
-#define ICON_NEW_LINE_16_HEIGHT 11
+/* NEW_LINE icon bitmap */
+extern const uint8_t icon_new_line_bitmap[];
+#define ICON_NEW_LINE_WIDTH  17
+#define ICON_NEW_LINE_HEIGHT 11
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __UI_ICONS_16_H */
+#endif /* __UI_ICONS_H */

@@ -551,7 +551,11 @@ void ui_draw_text_bg(int16_t x, int16_t y, const char *text,
             draw_glyph(cx, cy, glyph, font, color, bg);
             cx += glyph->advance;
         } else {
-            cx += font->height / 2;
+            int16_t box_size = font->height * 2 / 3;
+            int16_t box_y = cy - box_size;
+            ui_rect_t box = {cx, box_y, box_size, box_size};
+            ui_draw_rect(&box, color);
+            cx += box_size + 1;
         }
         text++;
     }
@@ -604,7 +608,7 @@ int16_t ui_text_width(const char *text, const ui_font_t *font)
     while (*text) {
         uint16_t unicode = (uint8_t)*text;
         const ui_glyph_t *glyph = find_glyph(font, unicode);
-        width += glyph ? glyph->advance : font->height / 2;
+        width += glyph ? glyph->advance : (font->height * 2 / 3 + 1);
         text++;
     }
     return width;

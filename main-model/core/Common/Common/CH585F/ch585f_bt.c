@@ -56,6 +56,18 @@ static uint16_t spi_tx_fifo_read(uint8_t *out, uint16_t max_len)
     return i;
 }
 
+static uint16_t spi_tx_fifo_count(void)
+{
+    if (s_spi_tx_head >= s_spi_tx_tail)
+    {
+        return s_spi_tx_head - s_spi_tx_tail;
+    }
+    else
+    {
+        return SPI_TX_FIFO_SIZE - s_spi_tx_tail + s_spi_tx_head;
+    }
+}
+
 static void CH585F_BT_SendFrame(uint8_t cmd, const uint8_t *data, uint8_t data_len);
 static void CH585F_BT_HandleConnEvt(const protocol_frame_t *frame);
 static void CH585F_BT_HandleExtFrame(const protocol_frame_t *frame);
@@ -91,7 +103,35 @@ void CH585F_BT_Poll(void)
     uint16_t i;
     uint16_t tx_len;
     uint8_t has_rx_data = 0;
-    uint8_t frame_ready = 0;
+    static uint16_t s_idle_cnt = 0;
+    uint8_t do_poll = 0;
+
+    /* 触发条件1：CH585F 通过 NSS 通知有数据 */
+    if (ch585f_g.nss_notify)
+    {
+        do_poll = 1;
+        ch585f_g.nss_notify = 0;
+    }
+
+    /* 触发条件2：Core 有下行数据待发 */
+    if (spi_tx_fifo_count() > 0)
+    {
+        do_poll = 1;
+    }
+
+    /* 触发条件3：定期保活（每 10ms 至少一次），防止通知丢失或死锁 */
+    if (++s_idle_cnt >= 10)
+    {
+        do_poll = 1;
+        s_idle_cnt = 0;
+    }
+
+    if (!do_poll)
+    {
+        return;
+    }
+
+    s_idle_cnt = 0;
 
     /* 从 TX FIFO 取待发送数据，不足补 0x00（dummy） */
     tx_len = spi_tx_fifo_read(tx_buf, CH585F_BT_POLL_SIZE);
@@ -103,19 +143,7 @@ void CH585F_BT_Poll(void)
     /* 全双工传输：发送 tx_buf 的同时接收 rx_buf */
     CH585F_SPI_Transfer(&ch585f_g, tx_buf, rx_buf, CH585F_BT_POLL_SIZE);
 
-    /* 调试：打印本次发送的内容 */
-    if (tx_len > 0)
-    {
-        printf("[BT POLL] TX [%d]: ", tx_len);
-        for (i = 0; i < tx_len && i < 16; i++)
-        {
-            printf("%02X ", tx_buf[i]);
-        }
-        if (tx_len > 16) printf("...");
-        printf("\r\n");
-    }
-
-    /* 调试：检查本轮是否读到非 0x00/0xFF 的有效数据 */
+    /* 调试：检查本轮是否读到非 0x00/0xFF 的有效数据，仅在有效数据时打印 */
     for (i = 0; i < CH585F_BT_POLL_SIZE; i++)
     {
         if (rx_buf[i] != 0x00 && rx_buf[i] != 0xFF)
@@ -127,6 +155,16 @@ void CH585F_BT_Poll(void)
 
     if (has_rx_data)
     {
+        if (tx_len > 0)
+        {
+            printf("[BT POLL] TX [%d]: ", tx_len);
+            for (i = 0; i < tx_len && i < 16; i++)
+            {
+                printf("%02X ", tx_buf[i]);
+            }
+            if (tx_len > 16) printf("...");
+            printf("\r\n");
+        }
         printf("[BT POLL] RX [%d]: ", CH585F_BT_POLL_SIZE);
         for (i = 0; i < CH585F_BT_POLL_SIZE; i++)
         {
@@ -135,44 +173,39 @@ void CH585F_BT_Poll(void)
         printf("\r\n");
     }
 
-    /* 解析接收到的数据 */
+    /* 解析接收到的数据。
+     * 注意：此处不可在帧就绪时 break，因为剩余字节已随本轮 SPI 传输接收，
+     * break 会导致它们被永久丢弃。Protocol_ResetRxCtx() 会将状态重置为
+     * WAIT_HEAD，因此循环可以继续解析下一帧。 */
     for (i = 0; i < CH585F_BT_POLL_SIZE; i++)
     {
         if (Protocol_ParseByte(&ch585f_bt_g.rx_ctx, rx_buf[i]))
         {
-            frame_ready = 1;
-            break;  /* 帧已就绪，剩余字节留给下一帧 */
+            s_rx_stuck_cnt = 0;
+            printf("[BT] Frame ready: cmd=0x%02X, len=%d, data[0]=0x%02X\r\n",
+                   ch585f_bt_g.rx_ctx.frame.cmd,
+                   ch585f_bt_g.rx_ctx.frame.len,
+                   ch585f_bt_g.rx_ctx.frame.data[0]);
+            CH585F_BT_HandleFrame();
+            Protocol_ResetRxCtx(&ch585f_bt_g.rx_ctx);
         }
     }
 
-    if (frame_ready)
+    /* 状态机卡住检测：不在 WAIT_HEAD 且连续多次没收到完整帧 */
+    if (ch585f_bt_g.rx_ctx.state != PROTO_STATE_WAIT_HEAD)
     {
-        s_rx_stuck_cnt = 0;
-        printf("[BT] Frame ready: cmd=0x%02X, len=%d, data[0]=0x%02X\r\n",
-               ch585f_bt_g.rx_ctx.frame.cmd,
-               ch585f_bt_g.rx_ctx.frame.len,
-               ch585f_bt_g.rx_ctx.frame.data[0]);
-        CH585F_BT_HandleFrame();
-        Protocol_ResetRxCtx(&ch585f_bt_g.rx_ctx);
+        s_rx_stuck_cnt++;
+        if (s_rx_stuck_cnt >= RX_STUCK_THRESHOLD)
+        {
+            printf("[BT] RX state machine stuck (state=%d, cnt=%d), force reset\r\n",
+                   ch585f_bt_g.rx_ctx.state, s_rx_stuck_cnt);
+            Protocol_ResetRxCtx(&ch585f_bt_g.rx_ctx);
+            s_rx_stuck_cnt = 0;
+        }
     }
     else
     {
-        /* 状态机卡住检测：不在 WAIT_HEAD 且连续多次没收到完整帧 */
-        if (ch585f_bt_g.rx_ctx.state != PROTO_STATE_WAIT_HEAD)
-        {
-            s_rx_stuck_cnt++;
-            if (s_rx_stuck_cnt >= RX_STUCK_THRESHOLD)
-            {
-                printf("[BT] RX state machine stuck (state=%d, cnt=%d), force reset\r\n",
-                       ch585f_bt_g.rx_ctx.state, s_rx_stuck_cnt);
-                Protocol_ResetRxCtx(&ch585f_bt_g.rx_ctx);
-                s_rx_stuck_cnt = 0;
-            }
-        }
-        else
-        {
-            s_rx_stuck_cnt = 0;
-        }
+        s_rx_stuck_cnt = 0;
     }
 }
 

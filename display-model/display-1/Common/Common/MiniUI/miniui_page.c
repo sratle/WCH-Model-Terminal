@@ -175,13 +175,25 @@ void ui_page_invalidate(const ui_rect_t *rect)
 
     if (r.w <= 0 || r.h <= 0) return;
 
+    int8_t merge_target = -1;
+
     for (uint8_t i = 0; i < s_dirty_list.count; i++) {
         if (rects_overlap(&r, &s_dirty_list.regions[i])) {
-            rect_merge(&r, &s_dirty_list.regions[i], &s_dirty_list.regions[i]);
-            rect_clamp_screen(&s_dirty_list.regions[i]);
-            return;
+            if (merge_target < 0) {
+                rect_merge(&r, &s_dirty_list.regions[i], &s_dirty_list.regions[i]);
+                rect_clamp_screen(&s_dirty_list.regions[i]);
+                merge_target = i;
+            } else {
+                rect_merge(&s_dirty_list.regions[merge_target], &s_dirty_list.regions[i], &s_dirty_list.regions[merge_target]);
+                rect_clamp_screen(&s_dirty_list.regions[merge_target]);
+                s_dirty_list.regions[i] = s_dirty_list.regions[s_dirty_list.count - 1];
+                s_dirty_list.count--;
+                i--;
+            }
         }
     }
+
+    if (merge_target >= 0) return;
 
     if (s_dirty_list.count < UI_MAX_DIRTY_REGIONS) {
         s_dirty_list.regions[s_dirty_list.count++] = r;
