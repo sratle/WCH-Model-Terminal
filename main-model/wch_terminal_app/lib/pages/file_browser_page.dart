@@ -27,19 +27,52 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
 
   IconData _fileIcon(FileItem item) {
     if (item.isDirectory) return Icons.folder;
-    final ext = item.name.split('.').last.toLowerCase();
+    final ext = item.name.contains('.') ? item.name.split('.').last.toLowerCase() : '';
     switch (ext) {
-      case 'wav': return Icons.music_note;
+      case 'wav':
+        return Icons.music_note;
       case 'txt':
       case 'md':
       case 'json':
       case 'c':
-      case 'h': return Icons.description;
+      case 'h':
+        return Icons.description;
       case 'bmp':
       case 'png':
-      case 'jpg': return Icons.image;
-      default: return Icons.insert_drive_file;
+      case 'jpg':
+        return Icons.image;
+      default:
+        return Icons.insert_drive_file;
     }
+  }
+
+  Color _fileIconColor(FileItem item) {
+    if (item.isDirectory) return Colors.amber.shade700;
+    final ext = item.name.contains('.') ? item.name.split('.').last.toLowerCase() : '';
+    switch (ext) {
+      case 'wav':
+        return Colors.deepPurple;
+      case 'txt':
+      case 'md':
+        return Colors.blue;
+      case 'json':
+        return Colors.orange;
+      case 'c':
+      case 'h':
+        return Colors.teal;
+      case 'bmp':
+      case 'png':
+      case 'jpg':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   void _showNeedConnection() {
@@ -60,25 +93,54 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
       return;
     }
 
-    final ext = item.name.split('.').last.toLowerCase();
+    final ext = item.name.contains('.') ? item.name.split('.').last.toLowerCase() : '';
 
     if (ext == 'wav') {
       if (mounted) {
         showModalBottomSheet(
           context: context,
           isScrollControlled: true,
+          useSafeArea: true,
           builder: (_) => MusicPlayerSheet(fileName: item.name),
         );
       }
       return;
     }
 
+    if (['bmp', 'png', 'jpg'].contains(ext)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('暂不支持打开图片文件 ${item.name}'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
     if (['txt', 'md', 'json', 'c', 'h'].contains(ext)) {
+      if (item.size != null && item.size! > AppConstants.maxEditableFileSize) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('文件过大（${_formatSize(item.size!)}），超过 20KB 限制，请在终端中查看'),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
       final content = await ref.read(fileProvider.notifier).getFileContent(item.name);
       if (content.length > AppConstants.maxEditableFileSize) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('文件过大，请在终端中编辑')),
+            SnackBar(
+              content: Text('文件过大（${_formatSize(content.length)}），超过 20KB 限制，请在终端中查看'),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 3),
+            ),
           );
         }
         return;
@@ -99,7 +161,10 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('无法打开 ${item.name}')),
+        SnackBar(
+          content: Text('暂不支持打开此类型文件 ${item.name}'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }
@@ -107,15 +172,67 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
   void _showContextMenu(FileItem item) {
     showModalBottomSheet(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
       builder: (context) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-              const Divider(),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(_fileIcon(item), color: _fileIconColor(item), size: 28),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        item.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('属性'),
+                onTap: () {
+                  Navigator.pop(context);
+                  if (!ref.read(isConnectedProvider)) {
+                    _showNeedConnection();
+                    return;
+                  }
+                  ref.read(fileProvider.notifier).stat(item.name).then((statText) {
+                    if (!mounted) return;
+                    showDialog(
+                      context: this.context,
+                      builder: (_) => AlertDialog(
+                        title: Text(item.name),
+                        content: SelectableText(statText),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(this.context),
+                            child: const Text('确定'),
+                          ),
+                        ],
+                      ),
+                    );
+                  });
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.copy),
                 title: const Text('复制'),
@@ -129,32 +246,6 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
                   if (newName != null && newName.isNotEmpty) {
                     await ref.read(fileProvider.notifier).copy(item.name, newName);
                   }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.info_outline),
-                title: const Text('属性'),
-                onTap: () {
-                  final ctx = context;
-                  Navigator.pop(ctx);
-                  if (!ref.read(isConnectedProvider)) {
-                    _showNeedConnection();
-                    return;
-                  }
-                  ref.read(fileProvider.notifier).stat(item.name).then((statText) {
-                    if (!mounted) return;
-                    if (!context.mounted) return;
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: Text(item.name),
-                        content: SelectableText(statText),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('确定')),
-                        ],
-                      ),
-                    );
-                  });
                 },
               ),
               if (!item.isDirectory)
@@ -174,8 +265,8 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
                   },
                 ),
               ListTile(
-                leading: const Icon(Icons.delete, color: Colors.red),
-                title: const Text('删除', style: TextStyle(color: Colors.red)),
+                leading: Icon(Icons.delete, color: Theme.of(context).colorScheme.error),
+                title: Text('删除', style: TextStyle(color: Theme.of(context).colorScheme.error)),
                 onTap: () async {
                   Navigator.pop(context);
                   if (!ref.read(isConnectedProvider)) {
@@ -183,13 +274,24 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
                     return;
                   }
                   final confirm = await showDialog<bool>(
-                    context: context,
+                    context: this.context,
                     builder: (_) => AlertDialog(
                       title: const Text('确认删除'),
-                      content: Text('确定要删除 ${item.name} 吗？'),
+                      content: Text(item.isDirectory
+                          ? '确定要删除文件夹 "${item.name}" 及其所有内容吗？'
+                          : '确定要删除文件 "${item.name}" 吗？'),
                       actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-                        TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('删除')),
+                        TextButton(
+                          onPressed: () => Navigator.pop(this.context, false),
+                          child: const Text('取消'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(this.context, true),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Theme.of(this.context).colorScheme.error,
+                          ),
+                          child: const Text('删除'),
+                        ),
                       ],
                     ),
                   );
@@ -198,6 +300,7 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
                   }
                 },
               ),
+              const SizedBox(height: 8),
             ],
           ),
         );
@@ -213,12 +316,18 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
         title: Text(title),
         content: TextField(
           controller: controller,
-          decoration: InputDecoration(hintText: hint),
+          decoration: InputDecoration(
+            hintText: hint,
+            border: const OutlineInputBorder(),
+          ),
           autofocus: true,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
           TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
             onPressed: () => Navigator.pop(context, controller.text.trim()),
             child: const Text('确定'),
           ),
@@ -227,35 +336,79 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
     );
   }
 
-  Widget _buildBreadcrumb(String path) {
+  bool _isRootPath(String path) {
+    final cleaned = path.replaceAll('\\', '').trim();
+    return cleaned.isEmpty;
+  }
+
+  Widget _buildBreadcrumb(String path, bool isRoot) {
     final parts = path.split('\\').where((p) => p.isNotEmpty).toList();
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () async => ref.read(fileProvider.notifier).goUp(),
-          ),
-          ...parts.asMap().entries.expand((entry) {
-            final idx = entry.key;
-            final part = entry.value;
-            return [
-              TextButton(
-                onPressed: () {
-                  if (!ref.read(isConnectedProvider)) {
-                    _showNeedConnection();
-                    return;
-                  }
-                  final target = '\\${parts.sublist(0, idx + 1).join('\\')}';
-                  ref.read(fileProvider.notifier).navigateToPath(target);
-                },
-                child: Text(part, style: const TextStyle(fontSize: 14)),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            IconButton(
+              icon: Icon(Icons.arrow_upward, size: 20),
+              tooltip: '上一级',
+              onPressed: isRoot
+                  ? null
+                  : () async {
+                      if (!ref.read(isConnectedProvider)) {
+                        _showNeedConnection();
+                        return;
+                      }
+                      await ref.read(fileProvider.notifier).goUp();
+                    },
+            ),
+            const SizedBox(width: 4),
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: isRoot
+                  ? null
+                  : () {
+                      if (!ref.read(isConnectedProvider)) {
+                        _showNeedConnection();
+                        return;
+                      }
+                      ref.read(fileProvider.notifier).navigateToPath('\\');
+                    },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Icon(Icons.home, size: 18, color: isRoot ? Colors.grey : null),
               ),
-              if (idx < parts.length - 1) const Text('\\', style: TextStyle(color: Colors.grey)),
-            ];
-          }),
-        ],
+            ),
+            ...parts.asMap().entries.expand((entry) {
+              final idx = entry.key;
+              final part = entry.value;
+              return [
+                Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade500),
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    if (!ref.read(isConnectedProvider)) {
+                      _showNeedConnection();
+                      return;
+                    }
+                    final target = '\\${parts.sublist(0, idx + 1).join('\\')}';
+                    ref.read(fileProvider.notifier).navigateToPath(target);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    child: Text(
+                      part,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: idx == parts.length - 1 ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                ),
+              ];
+            }),
+          ],
+        ),
       ),
     );
   }
@@ -294,6 +447,7 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
+            tooltip: '刷新',
             onPressed: () {
               if (!ref.read(isConnectedProvider)) {
                 _showNeedConnection();
@@ -306,45 +460,108 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
       ),
       body: fileState.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, _) => Center(child: Text('错误: $err')),
-        data: (dir) => Column(
-          children: [
-            _buildBreadcrumb(dir.path),
-            const Divider(height: 1),
-            Expanded(
-              child: RefreshIndicator(
-                onRefresh: () => ref.read(fileProvider.notifier).refresh(),
-                child: ListView.builder(
-                  itemCount: dir.items.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return ListTile(
-                        leading: const Icon(Icons.folder, color: Colors.amber),
-                        title: const Text('..'),
-                        onTap: () async {
-                        if (!ref.read(isConnectedProvider)) {
-                          _showNeedConnection();
-                          return;
-                        }
-                        await ref.read(fileProvider.notifier).goUp();
-                      },
-                      );
-                    }
-                    final item = dir.items[index - 1];
-                    return ListTile(
-                      leading: Icon(_fileIcon(item), color: item.isDirectory ? Colors.amber : null),
-                      title: Text(item.name),
-                      subtitle: item.size != null ? Text('${item.size} bytes') : null,
-                      onTap: () => _onItemTap(item),
-                      onLongPress: () => _showContextMenu(item),
-                    );
-                  },
-                ),
+        error: (err, _) => Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: Colors.grey.shade400),
+              const SizedBox(height: 16),
+              Text('错误: $err', style: const TextStyle(color: Colors.grey)),
+              const SizedBox(height: 16),
+              FilledButton.tonal(
+                onPressed: () => ref.read(fileProvider.notifier).refresh(),
+                child: const Text('重试'),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
+        data: (dir) {
+          final isRoot = _isRootPath(dir.path);
+          final sortedItems = List<FileItem>.from(dir.items);
+          sortedItems.sort((a, b) {
+            if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
+            return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          });
+
+          final itemCount = sortedItems.length + (isRoot ? 0 : 1);
+
+          return Column(
+            children: [
+              _buildBreadcrumb(dir.path, isRoot),
+              const Divider(height: 1),
+              Expanded(
+                child: itemCount == 0
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.folder_open, size: 64, color: Colors.grey.shade300),
+                            const SizedBox(height: 16),
+                            Text('空目录', style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: () => ref.read(fileProvider.notifier).refresh(),
+                        child: ListView.builder(
+                          itemCount: itemCount,
+                          itemBuilder: (context, index) {
+                            if (!isRoot && index == 0) {
+                              return ListTile(
+                                leading: Icon(Icons.folder, color: Colors.amber.shade300),
+                                title: const Text('..', style: TextStyle(color: Colors.grey)),
+                                subtitle: const Text('上一级目录'),
+                                onTap: () async {
+                                  if (!ref.read(isConnectedProvider)) {
+                                    _showNeedConnection();
+                                    return;
+                                  }
+                                  await ref.read(fileProvider.notifier).goUp();
+                                },
+                              );
+                            }
+                            final itemIndex = isRoot ? index : index - 1;
+                            final item = sortedItems[itemIndex];
+                            return _buildFileListItem(item);
+                          },
+                        ),
+                      ),
+              ),
+            ],
+          );
+        },
       ),
+    );
+  }
+
+  Widget _buildFileListItem(FileItem item) {
+    return ListTile(
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: _fileIconColor(item).withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(_fileIcon(item), color: _fileIconColor(item), size: 22),
+      ),
+      title: Text(
+        item.name,
+        style: TextStyle(
+          fontWeight: item.isDirectory ? FontWeight.w600 : FontWeight.normal,
+        ),
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: item.isDirectory
+          ? const Text('文件夹')
+          : item.size != null
+              ? Text(_formatSize(item.size!))
+              : null,
+      trailing: item.isDirectory
+          ? const Icon(Icons.chevron_right, size: 20)
+          : null,
+      onTap: () => _onItemTap(item),
+      onLongPress: () => _showContextMenu(item),
     );
   }
 }
