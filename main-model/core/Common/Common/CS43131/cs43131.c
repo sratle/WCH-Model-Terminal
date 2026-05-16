@@ -586,6 +586,10 @@ uint8_t Audio_IsPlaying(void)
  *********************************************************************/
 uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info)
 {
+    uint32_t pos;
+    uint32_t chunk_size;
+    uint8_t found_fmt = 0, found_data = 0;
+
     if (buf[0] != 'R' || buf[1] != 'I' || buf[2] != 'F' || buf[3] != 'F') {
         printf("WAV: not a RIFF file\r\n");
         return 1;
@@ -595,17 +599,41 @@ uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info)
         return 2;
     }
 
-    /* 标准 44 字节头解析 */
-    info->num_channels   = buf[22] | (buf[23] << 8);
-    info->sample_rate    = buf[24] | (buf[25] << 8) | (buf[26] << 16) | (buf[27] << 24);
-    info->bits_per_sample = buf[34] | (buf[35] << 8);
-    info->data_offset    = 44;
-    info->data_size      = buf[40] | (buf[41] << 8) | (buf[42] << 16) | (buf[43] << 24);
+    pos = 12;
+    while (pos + 8 <= 512) {
+        chunk_size = buf[pos + 4] | (buf[pos + 5] << 8) |
+                     (buf[pos + 6] << 16) | (buf[pos + 7] << 24);
+
+        if (buf[pos] == 'f' && buf[pos + 1] == 'm' && buf[pos + 2] == 't' && buf[pos + 3] == ' ') {
+            if (chunk_size >= 16 && pos + 24 <= 512) {
+                info->num_channels    = buf[pos + 10] | (buf[pos + 11] << 8);
+                info->sample_rate     = buf[pos + 12] | (buf[pos + 13] << 8) |
+                                        (buf[pos + 14] << 16) | (buf[pos + 15] << 24);
+                info->bits_per_sample = buf[pos + 22] | (buf[pos + 23] << 8);
+                found_fmt = 1;
+            }
+        } else if (buf[pos] == 'd' && buf[pos + 1] == 'a' && buf[pos + 2] == 't' && buf[pos + 3] == 'a') {
+            info->data_offset = pos + 8;
+            info->data_size   = chunk_size;
+            found_data = 1;
+        }
+
+        pos += 8 + ((chunk_size + 1) & ~1U);
+    }
+
+    if (!found_fmt) {
+        printf("WAV: fmt chunk not found\r\n");
+        return 3;
+    }
+    if (!found_data) {
+        printf("WAV: data chunk not found\r\n");
+        return 4;
+    }
 
     if (info->sample_rate != 44100 || info->bits_per_sample != 16 || info->num_channels != 2) {
         printf("WAV: unsupported format (SR=%lu, Bits=%u, Ch=%u)\r\n",
                info->sample_rate, info->bits_per_sample, info->num_channels);
-        return 3;
+        return 5;
     }
     return 0;
 }

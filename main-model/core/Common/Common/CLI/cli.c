@@ -601,6 +601,7 @@ static void CLI_Cmd_Playst(void)
 
     printf("Track: %s\r\n", (track && track[0]) ? track : "(none)");
     printf("Time:  %02lu:%02lu\r\n", min, sec);
+    printf("Volume: %d\r\n", Audio_GetVolume());
 }
 
 static void CLI_Cmd_Ver(void)
@@ -1345,7 +1346,15 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
     /* 启动流式播放，再保存曲目名（Audio_PlayWAV_Start 内部会调 Audio_PlayStop 清空名字） */
     Audio_PlayWAV_Start(&info);
     Audio_SetCurrentTrack(argv[1]);
-    printf("Playing: %s (%lu bytes audio data)\r\n", argv[1], info.data_size);
+    {
+        uint32_t byte_rate = info.sample_rate * info.num_channels * (info.bits_per_sample / 8);
+        uint32_t duration_sec = byte_rate > 0 ? info.data_size / byte_rate : 0;
+        uint32_t dur_min = duration_sec / 60;
+        uint32_t dur_s = duration_sec % 60;
+        printf("Playing: %s\r\n", argv[1]);
+        printf("Duration: %02lu:%02lu\r\n", dur_min, dur_s);
+        printf("Volume: %d\r\n", Audio_GetVolume());
+    }
 }
 
 /* ------------------------------------------------------------------------ */
