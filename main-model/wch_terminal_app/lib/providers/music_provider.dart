@@ -7,73 +7,119 @@ import 'cli_provider.dart';
 
 class MusicNotifier extends StateNotifier<MusicStatus> {
   final CliEngine _cli;
-  Timer? _pollTimer;
+  Timer? _positionTimer;
 
-  MusicNotifier(this._cli) : super(const MusicStatus(state: PlayerState.stopped));
+  MusicNotifier(this._cli)
+      : super(const MusicStatus(state: PlayerState.stopped));
 
-  void startPolling() {
-    stopPolling();
-    _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => refresh());
+  void _startPositionTick() {
+    _stopPositionTick();
+    _positionTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (state.state == PlayerState.playing) {
+        final newPos = (state.position ?? Duration.zero) + const Duration(seconds: 1);
+        if (state.duration != null && newPos >= state.duration!) {
+          _onTrackEnd();
+        } else {
+          state = state.copyWith(position: newPos);
+        }
+      }
+    });
   }
 
-  void stopPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = null;
+  void _stopPositionTick() {
+    _positionTimer?.cancel();
+    _positionTimer = null;
   }
 
-  Future<void> refresh() async {
-    final resp = await _cli.execute(CliCommands.playst());
-    if (resp.isSuccess) {
-      final status = MusicStatus.parsePlayst(resp.output);
-      if (status != null) state = status;
+  void _onTrackEnd() {
+    _stopPositionTick();
+    if (state.hasNext) {
+      playTrackAtIndex(state.currentIndex + 1);
+    } else {
+      state = state.copyWith(
+        state: PlayerState.stopped,
+        position: state.duration,
+      );
     }
   }
 
-  Future<void> play(String file) async {
-    await _cli.execute(CliCommands.play(file));
-    await refresh();
+  Future<void> playWithPlaylist(
+      String file, List<MusicTrack> playlist, int index) async {
+    state = state.copyWith(
+      playlist: playlist,
+      currentIndex: index,
+      state: PlayerState.playing,
+      position: Duration.zero,
+      duration: null,
+    );
+    final resp = await _cli.execute(CliCommands.play(file));
+    if (resp.isSuccess) {
+      final parsed = MusicStatus.parsePlayResponse(resp.output);
+      if (parsed != null) {
+        state = state.copyWith(
+          title: parsed.title ?? state.title,
+          duration: parsed.duration,
+          volume: parsed.volume,
+        );
+      }
+    }
+    _startPositionTick();
+  }
+
+  Future<void> playTrackAtIndex(int index) async {
+    if (index < 0 || index >= state.playlist.length) return;
+    final track = state.playlist[index];
+    state = state.copyWith(
+      currentIndex: index,
+      state: PlayerState.playing,
+      position: Duration.zero,
+      duration: null,
+    );
+    final resp = await _cli.execute(CliCommands.play(track.name));
+    if (resp.isSuccess) {
+      final parsed = MusicStatus.parsePlayResponse(resp.output);
+      if (parsed != null) {
+        state = state.copyWith(
+          title: parsed.title ?? state.title,
+          duration: parsed.duration,
+          volume: parsed.volume,
+        );
+      }
+    }
+    _startPositionTick();
   }
 
   Future<void> pause() async {
     await _cli.execute(CliCommands.pause());
+    _stopPositionTick();
     state = state.copyWith(state: PlayerState.paused);
   }
 
   Future<void> resume() async {
     await _cli.execute(CliCommands.resume());
     state = state.copyWith(state: PlayerState.playing);
+    _startPositionTick();
   }
 
   Future<void> setVolume(int level) async {
+    state = state.copyWith(volume: level);
     await _cli.execute(CliCommands.vol(level));
+  }
+
+  void stop() {
+    _stopPositionTick();
+    state = const MusicStatus(state: PlayerState.stopped);
   }
 
   @override
   void dispose() {
-    stopPolling();
+    _stopPositionTick();
     super.dispose();
   }
 }
 
-final musicProvider = StateNotifierProvider<MusicNotifier, MusicStatus>((ref) {
+final musicProvider =
+    StateNotifierProvider<MusicNotifier, MusicStatus>((ref) {
   final cli = ref.watch(cliEngineProvider);
   return MusicNotifier(cli);
 });
-
-extension MusicStatusCopy on MusicStatus {
-  MusicStatus copyWith({
-    PlayerState? state,
-    String? title,
-    String? filePath,
-    Duration? position,
-    int? volume,
-  }) {
-    return MusicStatus(
-      state: state ?? this.state,
-      title: title ?? this.title,
-      filePath: filePath ?? this.filePath,
-      position: position ?? this.position,
-      volume: volume ?? this.volume,
-    );
-  }
-}

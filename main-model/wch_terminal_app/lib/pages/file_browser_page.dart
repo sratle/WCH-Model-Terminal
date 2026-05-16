@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/state/file_state.dart';
+import '../core/state/music_state.dart';
 import '../providers/ble_provider.dart';
 import '../providers/file_provider.dart';
+import '../providers/music_provider.dart';
 import '../utils/constants.dart';
 import 'music_player_sheet.dart';
 import 'text_editor_page.dart';
@@ -89,7 +91,9 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
     }
 
     if (item.isDirectory) {
-      await ref.read(fileProvider.notifier).enterDirectory(item.name);
+      await ref
+          .read(fileProvider.notifier)
+          .enterDirectory(item.name);
       return;
     }
 
@@ -97,11 +101,35 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
 
     if (ext == 'wav') {
       if (mounted) {
+        final fsState = ref.read(fileProvider);
+        final dir = fsState.currentDir;
+        final wavTracks = <MusicTrack>[];
+        int wavIndex = -1;
+        if (dir != null) {
+          for (int i = 0; i < dir.items.length; i++) {
+            final fi = dir.items[i];
+            final fiExt = fi.name.contains('.')
+                ? fi.name.split('.').last.toLowerCase()
+                : '';
+            if (fiExt == 'wav') {
+              wavTracks.add(MusicTrack(
+                name: fi.name,
+              ));
+              if (fi.name == item.name) {
+                wavIndex = wavTracks.length - 1;
+              }
+            }
+          }
+        }
         showModalBottomSheet(
           context: context,
           isScrollControlled: true,
           useSafeArea: true,
-          builder: (_) => MusicPlayerSheet(fileName: item.name),
+          builder: (_) => MusicPlayerSheet(
+            fileName: item.name,
+            playlist: wavTracks,
+            initialIndex: wavIndex,
+          ),
         );
       }
       return;
@@ -336,11 +364,6 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
     );
   }
 
-  bool _isRootPath(String path) {
-    final cleaned = path.replaceAll('\\', '').trim();
-    return cleaned.isEmpty;
-  }
-
   Widget _buildBreadcrumb(String path, bool isRoot) {
     final parts = path.split('\\').where((p) => p.isNotEmpty).toList();
     return Container(
@@ -386,14 +409,16 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
                 Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade500),
                 InkWell(
                   borderRadius: BorderRadius.circular(8),
-                  onTap: () {
-                    if (!ref.read(isConnectedProvider)) {
-                      _showNeedConnection();
-                      return;
-                    }
-                    final target = '\\${parts.sublist(0, idx + 1).join('\\')}';
-                    ref.read(fileProvider.notifier).navigateToPath(target);
-                  },
+                  onTap: idx == parts.length - 1
+                      ? null
+                      : () {
+                          if (!ref.read(isConnectedProvider)) {
+                            _showNeedConnection();
+                            return;
+                          }
+                          final target = '\\${parts.sublist(0, idx + 1).join('\\')}';
+                          ref.read(fileProvider.notifier).navigateToPath(target);
+                        },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                     child: Text(
@@ -413,14 +438,135 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
     );
   }
 
+  Widget _buildDeviceToggle(FileSystemState fsState) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isSd = fsState.currentDevice == StorageDevice.sd;
+
+    return Container(
+      height: 36,
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildDeviceChip(
+            label: 'TF卡',
+            icon: Icons.sd_card,
+            selected: isSd,
+            onTap: fsState.isLoading
+                ? null
+                : () async {
+                    if (isSd) return;
+                    if (!ref.read(isConnectedProvider)) {
+                      _showNeedConnection();
+                      return;
+                    }
+                    final ok = await ref.read(fileProvider.notifier).switchDevice(StorageDevice.sd);
+                    if (!ok && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(fsState.error ?? '切换到TF卡失败'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+          ),
+          _buildDeviceChip(
+            label: 'U盘',
+            icon: Icons.usb,
+            selected: !isSd,
+            onTap: fsState.isLoading
+                ? null
+                : () async {
+                    if (!isSd) return;
+                    if (!ref.read(isConnectedProvider)) {
+                      _showNeedConnection();
+                      return;
+                    }
+                    final ok = await ref.read(fileProvider.notifier).switchDevice(StorageDevice.usb);
+                    if (!ok && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(fsState.error ?? '切换到U盘失败，设备可能不存在'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDeviceChip({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback? onTap,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? colorScheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: selected ? colorScheme.onPrimary : colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: selected ? colorScheme.onPrimary : colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final fileState = ref.watch(fileProvider);
+    final fsState = ref.watch(fileProvider);
+    final musicStatus = ref.watch(musicProvider);
+    final isMusicActive = musicStatus.state != PlayerState.stopped;
+    final dir = fsState.currentDir;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('资源管理器'),
         actions: [
+          _buildDeviceToggle(fsState),
+          const SizedBox(width: 8),
+          if (isMusicActive)
+            IconButton(
+              icon: const Icon(Icons.music_note),
+              tooltip: '音乐播放器',
+              onPressed: () {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  useSafeArea: true,
+                  builder: (_) => MusicPlayerSheet.resume(),
+                );
+              },
+            ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.add),
             onSelected: (value) async {
@@ -448,120 +594,129 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: '刷新',
-            onPressed: () {
-              if (!ref.read(isConnectedProvider)) {
-                _showNeedConnection();
-                return;
-              }
-              ref.read(fileProvider.notifier).refresh();
-            },
+            onPressed: fsState.isLoading
+                ? null
+                : () {
+                    if (!ref.read(isConnectedProvider)) {
+                      _showNeedConnection();
+                      return;
+                    }
+                    ref.read(fileProvider.notifier).refresh(force: true);
+                  },
           ),
         ],
       ),
-      body: fileState.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: Colors.grey.shade400),
-              const SizedBox(height: 16),
-              Text('错误: $err', style: const TextStyle(color: Colors.grey)),
-              const SizedBox(height: 16),
-              FilledButton.tonal(
-                onPressed: () => ref.read(fileProvider.notifier).refresh(),
-                child: const Text('重试'),
-              ),
-            ],
-          ),
+      body: _buildBody(fsState, dir, isMusicActive),
+    );
+  }
+
+  Widget _buildBody(FileSystemState fsState, DirectoryNode? dir, bool isMusicActive) {
+    if (fsState.isLoading && dir == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (fsState.error != null && dir == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 48, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            Text(fsState.error!, style: const TextStyle(color: Colors.grey)),
+            const SizedBox(height: 16),
+            FilledButton.tonal(
+              onPressed: () => ref.read(fileProvider.notifier).refresh(force: true),
+              child: const Text('重试'),
+            ),
+          ],
         ),
-        data: (dir) {
-          final isRoot = _isRootPath(dir.path);
-          final sortedItems = List<FileItem>.from(dir.items);
-          sortedItems.sort((a, b) {
-            if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
-            return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-          });
+      );
+    }
 
-          final itemCount = sortedItems.length + (isRoot ? 0 : 1);
+    if (dir == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.folder_open, size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            Text('空目录', style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
+          ],
+        ),
+      );
+    }
 
-          return Column(
-            children: [
-              _buildBreadcrumb(dir.path, isRoot),
-              const Divider(height: 1),
-              Expanded(
-                child: itemCount == 0
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.folder_open, size: 64, color: Colors.grey.shade300),
-                            const SizedBox(height: 16),
-                            Text('空目录', style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
-                          ],
-                        ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: () => ref.read(fileProvider.notifier).refresh(),
-                        child: ListView.builder(
-                          itemCount: itemCount,
-                          itemBuilder: (context, index) {
-                            if (!isRoot && index == 0) {
-                              return ListTile(
-                                leading: Icon(Icons.folder, color: Colors.amber.shade300),
-                                title: const Text('..', style: TextStyle(color: Colors.grey)),
-                                subtitle: const Text('上一级目录'),
-                                onTap: () async {
-                                  if (!ref.read(isConnectedProvider)) {
-                                    _showNeedConnection();
-                                    return;
-                                  }
-                                  await ref.read(fileProvider.notifier).goUp();
-                                },
-                              );
+    final isRoot = dir.isRoot;
+    final sortedItems = List<FileItem>.from(dir.items);
+    sortedItems.sort((a, b) {
+      if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+
+    final itemCount = sortedItems.length + (isRoot ? 0 : 1);
+
+    return Column(
+      children: [
+        _buildBreadcrumb(dir.path, isRoot),
+        if (fsState.isLoading)
+          const LinearProgressIndicator(minHeight: 2),
+        const Divider(height: 1),
+        Expanded(
+          child: itemCount == 0
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.folder_open, size: 64, color: Colors.grey.shade300),
+                      const SizedBox(height: 16),
+                      Text('空目录', style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: () => ref.read(fileProvider.notifier).refresh(force: true),
+                  child: ListView.builder(
+                    itemCount: itemCount,
+                    itemBuilder: (context, index) {
+                      if (!isRoot && index == 0) {
+                        return ListTile(
+                          leading: Icon(Icons.folder, color: Colors.amber.shade300),
+                          title: const Text('..', style: TextStyle(color: Colors.grey)),
+                          subtitle: const Text('上一级目录'),
+                          onTap: () async {
+                            if (!ref.read(isConnectedProvider)) {
+                              _showNeedConnection();
+                              return;
                             }
-                            final itemIndex = isRoot ? index : index - 1;
-                            final item = sortedItems[itemIndex];
-                            return _buildFileListItem(item);
+                            await ref.read(fileProvider.notifier).goUp();
                           },
-                        ),
-                      ),
-              ),
-            ],
-          );
-        },
-      ),
+                        );
+                      }
+                      final itemIndex = isRoot ? index : index - 1;
+                      final item = sortedItems[itemIndex];
+                      return _buildFileListItem(item);
+                    },
+                  ),
+                ),
+        ),
+      ],
     );
   }
 
   Widget _buildFileListItem(FileItem item) {
     return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: _fileIconColor(item).withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(_fileIcon(item), color: _fileIconColor(item), size: 22),
-      ),
-      title: Text(
-        item.name,
-        style: TextStyle(
-          fontWeight: item.isDirectory ? FontWeight.w600 : FontWeight.normal,
-        ),
-        overflow: TextOverflow.ellipsis,
-      ),
+      leading: Icon(_fileIcon(item), color: _fileIconColor(item)),
+      title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: item.isDirectory
-          ? const Text('文件夹')
+          ? null
           : item.size != null
               ? Text(_formatSize(item.size!))
               : null,
-      trailing: item.isDirectory
-          ? const Icon(Icons.chevron_right, size: 20)
-          : null,
+      trailing: IconButton(
+        icon: const Icon(Icons.more_vert, size: 20),
+        onPressed: () => _showContextMenu(item),
+      ),
       onTap: () => _onItemTap(item),
-      onLongPress: () => _showContextMenu(item),
     );
   }
 }

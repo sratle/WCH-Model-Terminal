@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/music_provider.dart';
@@ -6,8 +5,25 @@ import '../core/state/music_state.dart';
 
 class MusicPlayerSheet extends ConsumerStatefulWidget {
   final String fileName;
+  final List<MusicTrack>? playlist;
+  final int initialIndex;
+  final bool autoPlay;
 
-  const MusicPlayerSheet({super.key, required this.fileName});
+  const MusicPlayerSheet({
+    super.key,
+    required this.fileName,
+    this.playlist,
+    this.initialIndex = -1,
+    this.autoPlay = true,
+  });
+
+  factory MusicPlayerSheet.resume({Key? key}) {
+    return MusicPlayerSheet(
+      key: key,
+      fileName: '',
+      autoPlay: false,
+    );
+  }
 
   @override
   ConsumerState<MusicPlayerSheet> createState() => _MusicPlayerSheetState();
@@ -17,6 +33,7 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
     with SingleTickerProviderStateMixin {
   bool _hasStarted = false;
   late AnimationController _discAnimController;
+  bool _showPlaylist = false;
 
   @override
   void initState() {
@@ -27,8 +44,15 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
     );
     Future.microtask(() async {
       final music = ref.read(musicProvider.notifier);
-      await music.play(widget.fileName);
-      music.startPolling();
+      if (widget.autoPlay) {
+        final playlist = widget.playlist ?? const <MusicTrack>[];
+        final index = widget.initialIndex;
+        if (playlist.isNotEmpty && index >= 0) {
+          await music.playWithPlaylist(widget.fileName, playlist, index);
+        } else {
+          await music.playWithPlaylist(widget.fileName, const [], -1);
+        }
+      }
       if (mounted) setState(() => _hasStarted = true);
     });
   }
@@ -36,7 +60,6 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
   @override
   void dispose() {
     _discAnimController.dispose();
-    ref.read(musicProvider.notifier).stopPolling();
     super.dispose();
   }
 
@@ -58,6 +81,8 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
     final status = ref.watch(musicProvider);
     final colorScheme = Theme.of(context).colorScheme;
     final isPlaying = status.state == PlayerState.playing;
+    final playlist = status.playlist;
+    final currentIndex = status.currentIndex;
 
     if (isPlaying && !_discAnimController.isAnimating) {
       _discAnimController.repeat();
@@ -65,11 +90,15 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
       _discAnimController.stop();
     }
 
-    ref.listen(musicProvider, (_, next) {
-      if (_hasStarted && next.state == PlayerState.stopped && mounted) {
-        Navigator.of(context).pop();
+    ref.listen(musicProvider, (prev, next) {
+      if (_hasStarted && next.state == PlayerState.stopped && prev?.state != PlayerState.stopped) {
+        if (!next.hasNext) {
+          Navigator.of(context).pop();
+        }
       }
     });
+
+    final displayTitle = status.title ?? _displayName(widget.fileName.isEmpty ? (status.title ?? '') : widget.fileName);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.92,
@@ -118,53 +147,138 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
                         ),
                       ),
                     ),
-                    const SizedBox(width: 48),
+                    if (playlist.length > 1)
+                      IconButton(
+                        icon: Icon(
+                          _showPlaylist ? Icons.queue_music : Icons.queue_music_outlined,
+                        ),
+                        tooltip: '播放列表',
+                        onPressed: () => setState(() => _showPlaylist = !_showPlaylist),
+                      )
+                    else
+                      const SizedBox(width: 48),
                   ],
                 ),
               ),
               Expanded(
-                child: SingleChildScrollView(
-                  controller: scrollController,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 24),
-                        _buildDisc(colorScheme, isPlaying),
-                        const SizedBox(height: 36),
-                        Text(
-                          status.title ?? _displayName(widget.fileName),
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
+                child: _showPlaylist && playlist.length > 1
+                    ? _buildPlaylistView(playlist, currentIndex, colorScheme)
+                    : SingleChildScrollView(
+                        controller: scrollController,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 24),
+                              _buildDisc(colorScheme, isPlaying),
+                              const SizedBox(height: 36),
+                              Text(
+                                displayTitle,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineSmall
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          widget.fileName,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
+                              const SizedBox(height: 4),
+                              Text(
+                                widget.fileName.isNotEmpty ? widget.fileName : (status.title ?? ''),
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                textAlign: TextAlign.center,
                               ),
-                          textAlign: TextAlign.center,
+                              const SizedBox(height: 32),
+                              _buildProgressSection(status, colorScheme),
+                              const SizedBox(height: 16),
+                              _buildControls(status, colorScheme, isPlaying),
+                              const SizedBox(height: 28),
+                              _buildVolumeSection(status, colorScheme),
+                              const SizedBox(height: 24),
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 32),
-                        _buildProgressSection(status, colorScheme),
-                        const SizedBox(height: 16),
-                        _buildControls(status, colorScheme, isPlaying),
-                        const SizedBox(height: 28),
-                        _buildVolumeSection(status, colorScheme),
-                        const SizedBox(height: 24),
-                      ],
-                    ),
-                  ),
-                ),
+                      ),
               ),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildPlaylistView(
+      List<MusicTrack> playlist, int currentIndex, ColorScheme colorScheme) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Text(
+                '播放列表',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const Spacer(),
+              Text(
+                '${currentIndex + 1}/${playlist.length}',
+                style: TextStyle(
+                  color: colorScheme.onSurfaceVariant,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ListView.builder(
+            itemCount: playlist.length,
+            itemBuilder: (context, index) {
+              final track = playlist[index];
+              final isCurrent = index == currentIndex;
+              return ListTile(
+                leading: Icon(
+                  isCurrent ? Icons.music_note : Icons.audiotrack,
+                  color: isCurrent ? colorScheme.primary : null,
+                ),
+                title: Text(
+                  _displayName(track.name),
+                  style: TextStyle(
+                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                    color: isCurrent ? colorScheme.primary : null,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  track.name,
+                  style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: isCurrent
+                    ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colorScheme.primary,
+                        ),
+                      )
+                    : null,
+                onTap: () {
+                  ref.read(musicProvider.notifier).playTrackAtIndex(index);
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -225,7 +339,9 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
   }
 
   Widget _buildProgressSection(MusicStatus status, ColorScheme colorScheme) {
-    final positionSec = status.position?.inSeconds.toDouble() ?? 0;
+    final positionSec = status.position?.inSeconds.toDouble() ?? 0.0;
+    final durationSec = status.duration?.inSeconds.toDouble() ?? 0.0;
+    final maxVal = durationSec > 0 ? durationSec : (positionSec > 300 ? positionSec + 30 : 300.0);
 
     return Column(
       children: [
@@ -239,8 +355,8 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
             thumbColor: colorScheme.primary,
           ),
           child: Slider(
-            value: positionSec,
-            max: positionSec > 300 ? positionSec + 30 : 300,
+            value: positionSec.clamp(0.0, maxVal).toDouble(),
+            max: maxVal,
             onChanged: null,
           ),
         ),
@@ -257,7 +373,7 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
                 ),
               ),
               Text(
-                '--:--',
+                _formatDuration(status.duration),
                 style: TextStyle(
                   color: colorScheme.onSurfaceVariant,
                   fontSize: 12,
@@ -279,8 +395,13 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
           height: 56,
           child: IconButton.filledTonal(
             iconSize: 28,
-            icon: const Icon(Icons.replay_10),
-            onPressed: () {},
+            icon: Icon(
+              Icons.skip_previous,
+              color: status.hasPrev ? null : colorScheme.onSurface.withValues(alpha: 0.3),
+            ),
+            onPressed: status.hasPrev
+                ? () => ref.read(musicProvider.notifier).playTrackAtIndex(status.currentIndex - 1)
+                : null,
           ),
         ),
         const SizedBox(width: 20),
@@ -318,8 +439,13 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
           height: 56,
           child: IconButton.filledTonal(
             iconSize: 28,
-            icon: const Icon(Icons.forward_10),
-            onPressed: () {},
+            icon: Icon(
+              Icons.skip_next,
+              color: status.hasNext ? null : colorScheme.onSurface.withValues(alpha: 0.3),
+            ),
+            onPressed: status.hasNext
+                ? () => ref.read(musicProvider.notifier).playTrackAtIndex(status.currentIndex + 1)
+                : null,
           ),
         ),
       ],
@@ -327,7 +453,7 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
   }
 
   Widget _buildVolumeSection(MusicStatus status, ColorScheme colorScheme) {
-    final volume = (status.volume ?? 80).toDouble();
+    final volume = (status.volume ?? 60).toDouble();
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

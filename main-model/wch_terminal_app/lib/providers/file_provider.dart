@@ -4,53 +4,138 @@ import '../core/cli/cli_commands.dart';
 import '../core/state/file_state.dart';
 import 'cli_provider.dart';
 
-class FileNotifier extends StateNotifier<AsyncValue<DirectoryNode>> {
+class FileNotifier extends StateNotifier<FileSystemState> {
   final CliEngine _cli;
 
-  FileNotifier(this._cli) : super(const AsyncValue.loading());
+  FileNotifier(this._cli)
+      : super(const FileSystemState(currentPath: '\\'));
 
-  Future<void> refresh() async {
-    state = const AsyncValue.loading();
+  Future<bool> _cd(String path) async {
+    final resp = await _cli.execute(CliCommands.cd(path));
+    if (!resp.isSuccess) return false;
+    final output = resp.output.trim();
+    if (output.contains('failed')) return false;
+    return true;
+  }
+
+  Future<DirectoryNode?> _ls() async {
+    final pwdResp = await _cli.execute(CliCommands.pwd());
+    final path = pwdResp.output.replaceAll('\r', '').trim();
+
+    final lsResp = await _cli.execute(CliCommands.ls());
+    final items = FileItem.parseLsOutput(lsResp.output);
+
+    return DirectoryNode(path: path, items: items);
+  }
+
+  Future<void> _fetchAndCache() async {
+    state = state.copyWith(isLoading: true, error: null);
     try {
-      final pwdResp = await _cli.execute(CliCommands.pwd());
-      final path = pwdResp.output.trim();
-
-      final lsResp = await _cli.execute(CliCommands.ls());
-      final items = FileItem.parseLsOutput(lsResp.output);
-
-      state = AsyncValue.data(DirectoryNode(
-        path: path,
-        items: items,
-        parentPath: _getParentPath(path),
-      ));
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
+      final dir = await _ls();
+      if (dir != null) {
+        final newCache = Map<String, DirectoryNode>.from(state.cache);
+        newCache[dir.path] = dir;
+        state = state.copyWith(
+          currentPath: dir.path,
+          cache: newCache,
+          isLoading: false,
+        );
+      }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
 
-  Future<void> enterDirectory(String dirName) async {
-    await _cli.execute(CliCommands.cd(dirName));
-    await refresh();
+  Future<void> refresh({bool force = false}) async {
+    if (!force && state.cache.containsKey(state.currentPath)) {
+      final newCache = Map<String, DirectoryNode>.from(state.cache);
+      newCache.remove(state.currentPath);
+      state = state.copyWith(cache: newCache);
+    }
+    await _fetchAndCache();
   }
 
-  Future<void> goUp() async {
-    await _cli.execute(CliCommands.cd('..'));
-    await refresh();
+  Future<bool> enterDirectory(String dirName) async {
+    state = state.copyWith(isLoading: true, error: null);
+    final ok = await _cd(dirName);
+    if (!ok) {
+      state = state.copyWith(isLoading: false);
+      return false;
+    }
+    await _fetchAndCache();
+    return true;
   }
 
-  Future<void> navigateToPath(String path) async {
-    await _cli.execute(CliCommands.cd(path));
-    await refresh();
+  Future<bool> goUp() async {
+    state = state.copyWith(isLoading: true, error: null);
+    final ok = await _cd('..');
+    if (!ok) {
+      state = state.copyWith(isLoading: false);
+      return false;
+    }
+    await _fetchAndCache();
+    return true;
+  }
+
+  Future<bool> navigateToPath(String path) async {
+    state = state.copyWith(isLoading: true, error: null);
+    final ok = await _cd(path);
+    if (!ok) {
+      state = state.copyWith(isLoading: false);
+      return false;
+    }
+    if (state.cache.containsKey(path)) {
+      final pwdResp = await _cli.execute(CliCommands.pwd());
+      final newPath = pwdResp.output.replaceAll('\r', '').trim();
+      state = state.copyWith(currentPath: newPath, isLoading: false);
+      return true;
+    }
+    await _fetchAndCache();
+    return true;
+  }
+
+  Future<bool> switchDevice(StorageDevice device) async {
+    if (device == state.currentDevice) return true;
+    state = state.copyWith(isLoading: true, error: null);
+    final cmd = device == StorageDevice.usb ? 'usb' : 'sd';
+    final resp = await _cli.execute(CliCommands.deviceSwitch(cmd),
+        timeout: const Duration(seconds: 15));
+    if (!resp.isSuccess) {
+      state = state.copyWith(isLoading: false, error: '切换设备失败');
+      return false;
+    }
+    final output = resp.output;
+    if (output.contains('mount failed') ||
+        output.contains('not connected') ||
+        output.contains('not initialized') ||
+        output.contains('communication test failed')) {
+      state = state.copyWith(isLoading: false, error: '设备不存在或挂载失败');
+      return false;
+    }
+    final newCache = Map<String, DirectoryNode>.from(state.cache);
+    newCache.clear();
+    state = state.copyWith(
+      currentDevice: device,
+      cache: newCache,
+      currentPath: '\\',
+    );
+    await _fetchAndCache();
+    return true;
+  }
+
+  Future<String> queryDevice() async {
+    final resp = await _cli.execute(CliCommands.device());
+    return resp.output.trim();
   }
 
   Future<void> createFolder(String name) async {
     await _cli.execute(CliCommands.mkdir(name));
-    await refresh();
+    await refresh(force: true);
   }
 
   Future<void> createFile(String name) async {
     await _cli.execute(CliCommands.touch(name));
-    await refresh();
+    await refresh(force: true);
   }
 
   Future<void> delete(FileItem item) async {
@@ -59,17 +144,17 @@ class FileNotifier extends StateNotifier<AsyncValue<DirectoryNode>> {
     } else {
       await _cli.execute(CliCommands.rm(item.name));
     }
-    await refresh();
+    await refresh(force: true);
   }
 
   Future<void> copy(String src, String dst) async {
     await _cli.execute(CliCommands.cp(src, dst));
-    await refresh();
+    await refresh(force: true);
   }
 
   Future<void> rename(String oldName, String newName) async {
     await _cli.execute(CliCommands.mv(oldName, newName));
-    await refresh();
+    await refresh(force: true);
   }
 
   Future<void> writeFile(String name, String content) async {
@@ -93,15 +178,10 @@ class FileNotifier extends StateNotifier<AsyncValue<DirectoryNode>> {
     final resp = await _cli.execute(CliCommands.stat(name));
     return resp.output;
   }
-
-  String? _getParentPath(String path) {
-    final idx = path.lastIndexOf('\\');
-    if (idx <= 0) return null;
-    return path.substring(0, idx);
-  }
 }
 
-final fileProvider = StateNotifierProvider<FileNotifier, AsyncValue<DirectoryNode>>((ref) {
+final fileProvider =
+    StateNotifierProvider<FileNotifier, FileSystemState>((ref) {
   final cli = ref.watch(cliEngineProvider);
   return FileNotifier(cli);
 });
