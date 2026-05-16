@@ -250,7 +250,7 @@ void CH585F_BT_HandleFrame(void)
  *********************************************************************/
 static void CH585F_BT_SendFrame(uint8_t cmd, const uint8_t *data, uint8_t data_len)
 {
-    uint8_t len;
+    uint16_t len;
     uint16_t written;
 
     len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_WIRELESS, cmd,
@@ -442,7 +442,7 @@ static void CH585F_BT_HandleCliData(const protocol_frame_t *frame)
  *          DATA[1] = FLAGS (bit0=SOF, bit1=EOF)
  *          DATA[2..N] = CLI 原始数据
  *
- *          若输出超过单帧容量（253 字节），自动拆分为多帧。
+ *          若输出超过单帧容量（252 字节），自动拆分为多帧。
  *
  * @return  none
  *********************************************************************/
@@ -450,7 +450,6 @@ void CH585F_BT_SendCliData(uint8_t *data, uint16_t len)
 {
     uint8_t buf[PROTO_MAX_DATA_LEN];
     uint16_t offset = 0;
-    uint8_t chunk;
     uint8_t flags;
     uint16_t j;
 
@@ -474,8 +473,7 @@ void CH585F_BT_SendCliData(uint8_t *data, uint16_t len)
 
     while (offset < len)
     {
-        chunk = (uint8_t)(len - offset);
-        /* 每帧预留 2 字节给扩展码 + FLAGS，标准帧最大 payload 253 字节 */
+        uint16_t chunk = len - offset;
         if (chunk > CH585F_BT_STD_MAX_PAYLOAD)
         {
             chunk = CH585F_BT_STD_MAX_PAYLOAD;

@@ -305,7 +305,7 @@ uint16_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
     if (out_buf_len < total_len) {
         return 0;
     }
-    if (data_len > PROTO_DATA_MAX_LEN) {
+    if (data_len > 254) {
         return 0;
     }
 
@@ -366,7 +366,7 @@ uint16_t Protocol_PackAck(uint8_t src, uint8_t dst,
     uint16_t total_len = 9 + rsp_len;
     uint8_t i;
 
-    if (out_buf_len < total_len || rsp_len > PROTO_DATA_MAX_LEN - 1) {
+    if (out_buf_len < total_len || rsp_len > 252) {
         return 0;
     }
 

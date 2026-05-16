@@ -674,7 +674,7 @@ static void ProcessBleToSpi(const uint8_t *app_data, uint16_t len)
     /* Build SPI protocol frame: CMD_BT_EXT_CLI_DATA */
     /* DATA = [0x07][FLAGS][CLI_data...] */
 
-    if ((len + 2) <= PROTO_DATA_MAX_LEN) {
+    if ((len + 2) <= 254) {
         /* Single standard frame */
         data_buf[0] = CMD_BT_EXT_CLI_DATA;
         data_buf[1] = flags;
@@ -697,8 +697,8 @@ static void ProcessBleToSpi(const uint8_t *app_data, uint16_t len)
             uint16_t chunk = len - offset;
             uint8_t chunk_flags = 0;
 
-            if (chunk > (PROTO_DATA_MAX_LEN - 2)) {
-                chunk = PROTO_DATA_MAX_LEN - 2;
+            if (chunk > (254 - 2)) {
+                chunk = 254 - 2;
             }
 
             if (first) {

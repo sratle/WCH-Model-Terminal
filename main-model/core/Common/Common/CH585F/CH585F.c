@@ -6,22 +6,20 @@ extern ch585f_t ch585f_g;
 /* Private helper: assert NSS (PE11 output push-pull, drive low) */
 static void CH585F_NSS_Assert(void)
 {
-    GPIO_InitTypeDef GPIO_InitStructure = {0};
-    GPIO_InitStructure.GPIO_Pin = CH585F_SPI_NSS_PIN;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
-    GPIO_Init(CH585F_SPI_NSS_PORT, &GPIO_InitStructure);
+    EXTI->INTENR &= ~EXTI_Line11;
+    GPIOE->CFGHR = (GPIOE->CFGHR & ~(0x0F << 12)) | (0x01 << 12);
     GPIO_ResetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
+    ch585f_g.nss_notify = 0;
+    EXTI->INTFR = EXTI_Line11;
 }
 
 /* Private helper: release NSS (PE11 input pull-up, allow CH585F to pull it low) */
 static void CH585F_NSS_Release(void)
 {
-    GPIO_InitTypeDef GPIO_InitStructure = {0};
     GPIO_SetBits(CH585F_SPI_NSS_PORT, CH585F_SPI_NSS_PIN);
-    GPIO_InitStructure.GPIO_Pin = CH585F_SPI_NSS_PIN;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;
-    GPIO_Init(CH585F_SPI_NSS_PORT, &GPIO_InitStructure);
+    GPIOE->CFGHR = (GPIOE->CFGHR & ~(0x0F << 12)) | (0x08 << 12);
+    GPIOE->BSHR = GPIO_Pin_11;
+    EXTI->INTENR |= EXTI_Line11;
 }
 
 void CH585F_Init(ch585f_t *ch585f)

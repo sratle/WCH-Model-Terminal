@@ -4,6 +4,25 @@
  *                      - Mode 0 (CPOL=Low, CPHA=1Edge), 8-bit, MSB first
  *                      - Interrupt-driven RX/TX via FIFO
  *                      - Ring buffer TX/RX
+ *
+ *          CH585F SPI0 FIFO is half-duplex shared (RB_SPI_FIFO_DIR):
+ *            DIR=0  FIFO for TX (write R8_SPI0_FIFO to send)
+ *            DIR=1  FIFO for RX (read  R8_SPI0_FIFO to receive)
+ *
+ *          For full-duplex slave operation we must keep FIFO in TX
+ *          direction (DIR=0) so the next byte is always pre-loaded.
+ *          Received bytes are read from R8_SPI0_BUFFER which mirrors
+ *          the RX shift register without needing to flip FIFO_DIR.
+ *
+ *          ISR flow (per BYTE_END):
+ *            1. Read received byte from R8_SPI0_BUFFER (no DIR change)
+ *            2. Push RX byte into ring buffer
+ *            3. Pop next TX byte from ring buffer (or 0x00 idle)
+ *            4. Write TX byte into R8_SPI0_FIFO (DIR stays 0)
+ *
+ *          RB_SPI_AUTO_IF is enabled so that writing R8_SPI0_FIFO
+ *          automatically clears the BYTE_END flag, saving one
+ *          register write in the ISR hot path.
  *********************************************************************/
 
 #include "spi_slave.h"
@@ -23,35 +42,30 @@ static data_queue_t s_tx_queue;
 
 void SPI_Slave_Init(void)
 {
-    /* Initialize ring buffers */
     DataQueue_Init(&s_rx_queue, s_rx_buf, SPI_SLAVE_RX_BUF_SIZE);
     DataQueue_Init(&s_tx_queue, s_tx_buf, SPI_SLAVE_TX_BUF_SIZE);
 
-    /* Configure SPI0 GPIO pins (remap: PB12=SCS, PB13=SCK, PB14=MOSI, PB15=MISO)
-     * Enable remap first, then configure PB pins
-     */
     GPIOPinRemap(ENABLE, RB_PIN_SPI0);
-    GPIOB_ModeCfg(GPIO_Pin_12, GPIO_ModeIN_PU);      /* SCS:  input, pull-up */
-    GPIOB_ModeCfg(GPIO_Pin_13, GPIO_ModeIN_PU);      /* SCK:  input, pull-up */
-    GPIOB_ModeCfg(GPIO_Pin_14, GPIO_ModeIN_PU);      /* MOSI: input, pull-up */
-    GPIOB_ModeCfg(GPIO_Pin_15, GPIO_ModeOut_PP_5mA); /* MISO: output */
+    GPIOB_ModeCfg(GPIO_Pin_12, GPIO_ModeIN_PU);
+    GPIOB_ModeCfg(GPIO_Pin_13, GPIO_ModeIN_PU);
+    GPIOB_ModeCfg(GPIO_Pin_14, GPIO_ModeIN_PU);
+    GPIOB_ModeCfg(GPIO_Pin_15, GPIO_ModeOut_PP_5mA);
     GPIOBDigitalCfg(ENABLE, GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15);
 
-    /* Initialize SPI0 in slave mode */
-    SPI0_SlaveInit();
+    R8_SPI0_CTRL_MOD = RB_SPI_ALL_CLEAR;
+    R8_SPI0_CTRL_MOD = RB_SPI_MISO_OE | RB_SPI_MODE_SLAVE;
 
-    /* Set data mode: Mode 0, MSB first */
     SPI0_DataMode(Mode0_HighBitINFront);
 
-    /* Preload idle byte for first transfer */
+    R8_SPI0_CTRL_CFG |= RB_SPI_AUTO_IF;
+
+    R8_SPI0_CTRL_MOD &= ~RB_SPI_FIFO_DIR;
+
     SetFirstData(0x00);
 
-    /* Enable interrupts: byte-end only (FST_BYTE can cause spurious triggers
-     * before actual clock starts, leading to FIFO misalignment) */
     SPI0_ITCfg(DISABLE, SPI0_IT_FST_BYTE);
     SPI0_ITCfg(ENABLE, SPI0_IT_BYTE_END);
 
-    /* Enable SPI0 IRQ in NVIC */
     PFIC_EnableIRQ(SPI0_IRQn);
 }
 
@@ -60,12 +74,16 @@ bool SPI_Slave_HasTxData(void)
     return !DataQueue_IsEmpty(&s_tx_queue);
 }
 
-/* Generate a ~10us low pulse on PB12 to notify Core (PE11 EXTI) */
 void SPI_Slave_NotifyMaster(void)
 {
+    if (GPIOB_ReadPortPin(GPIO_Pin_12) == 0) {
+        return;
+    }
+
     GPIOB_ModeCfg(GPIO_Pin_12, GPIO_ModeOut_PP_5mA);
     GPIOB_ResetBits(GPIO_Pin_12);
     DelayUs(10);
+    GPIOB_SetBits(GPIO_Pin_12);
     GPIOB_ModeCfg(GPIO_Pin_12, GPIO_ModeIN_PU);
 }
 
@@ -104,25 +122,19 @@ __INTERRUPT __HIGH_CODE void SPI0_IRQHandler(void)
     uint8_t rx_byte;
     uint8_t next_tx;
 
-    /* BYTE_END: one byte exchange completed in slave mode.
-     * Use SDK-provided SPI0_SlaveRecvByte to ensure correct RX timing.
-     */
     if (SPI0_GetITFlag(SPI0_IT_BYTE_END)) {
         s_spi_irq_cnt++;
 
-        /* Receive byte via SDK function (handles RB_SPI_FIFO_DIR and FIFO count wait) */
-        rx_byte = SPI0_SlaveRecvByte();
+        rx_byte = R8_SPI0_BUFFER;
+
         if (DataQueue_Push(&s_rx_queue, rx_byte)) {
             s_spi_rx_cnt++;
         }
 
-        SPI0_ClearITFlag(SPI0_IT_BYTE_END);
-
-        /* Preload next transmit byte into FIFO */
         if (DataQueue_Pop(&s_tx_queue, &next_tx)) {
             R8_SPI0_FIFO = next_tx;
         } else {
-            R8_SPI0_FIFO = 0x00;  /* Idle byte */
+            R8_SPI0_FIFO = 0x00;
         }
     }
 }

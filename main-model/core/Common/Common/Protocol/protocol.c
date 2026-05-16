@@ -87,12 +87,12 @@ static void store_data_byte(protocol_rx_ctx_t *ctx, uint8_t byte)
  *
  * @return  Total bytes written; 0 on error.
  *********************************************************************/
-uint8_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
+uint16_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
                            const uint8_t *data, uint8_t data_len,
                            uint8_t *out_buf, uint16_t out_size)
 {
     uint8_t len_field;
-    uint8_t total_len;
+    uint16_t total_len;
 
     if (out_buf == NULL || out_size == 0)
         return 0;

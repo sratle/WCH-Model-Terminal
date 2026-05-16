@@ -322,7 +322,7 @@ void Protocol_ResetRxCtx(protocol_rx_ctx_t *ctx);
  *         LEN = 1 + data_len（包含CMD自身）
  *         TAIL = A5 5A FC FD
  */
-uint8_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
+uint16_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
                            const uint8_t *data, uint8_t data_len,
                            uint8_t *out_buf, uint16_t out_size);
 
