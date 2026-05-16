@@ -22,7 +22,8 @@ class FileNotifier extends StateNotifier<FileSystemState> {
     final pwdResp = await _cli.execute(CliCommands.pwd());
     final path = pwdResp.output.replaceAll('\r', '').trim();
 
-    final lsResp = await _cli.execute(CliCommands.ls());
+    final lsResp = await _cli.execute(CliCommands.ls(),
+        timeout: const Duration(seconds: 15));
     final items = FileItem.parseLsOutput(lsResp.output);
 
     return DirectoryNode(path: path, items: items);

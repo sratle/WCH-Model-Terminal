@@ -17,7 +17,9 @@ class MusicNotifier extends StateNotifier<MusicStatus> {
     _positionTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (state.state == PlayerState.playing) {
         final newPos = (state.position ?? Duration.zero) + const Duration(seconds: 1);
-        if (state.duration != null && newPos >= state.duration!) {
+        if (state.duration != null &&
+            state.duration! > Duration.zero &&
+            newPos >= state.duration!) {
           _onTrackEnd();
         } else {
           state = state.copyWith(position: newPos);

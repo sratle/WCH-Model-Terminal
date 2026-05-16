@@ -550,7 +550,6 @@ class _FileBrowserPageState extends ConsumerState<FileBrowserPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('资源管理器'),
         actions: [
           _buildDeviceToggle(fsState),
           const SizedBox(width: 8),
