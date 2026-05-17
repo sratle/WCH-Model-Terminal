@@ -9,12 +9,13 @@
 #include "Protocol/protocol.h"
 
 #define CH585F_BT_POLL_SIZE         128
-#define CH585F_BT_CLI_CAPTURE_SIZE  512
+#define CH585F_BT_CLI_CAPTURE_SIZE  2048
 #define CH585F_BT_CLI_ASSEMBLE_SIZE 512
 
-/* 标准帧单帧最大 payload（受 Protocol_PackFrame data_len ≤ 254 限制）
- * CLI_DATA 每帧需预留 2 字节给 ext_cmd + FLAGS，故实际 CLI 数据最大 252 字节/帧 */
-#define CH585F_BT_STD_MAX_PAYLOAD   252
+/* 标准帧单帧最大 payload
+ * 约束：Protocol_PackFrame 的 len_field = 1 + data_len，必须 < 0xFF（流式帧标识）
+ * data_len = chunk + 2（ext_cmd + FLAGS），故 chunk + 3 < 255 → chunk ≤ 251 */
+#define CH585F_BT_STD_MAX_PAYLOAD   251
 
 /* CLI_DATA FLAGS */
 #define CLI_FLAG_SOF                0x01    /* bit0: Start of Frame */

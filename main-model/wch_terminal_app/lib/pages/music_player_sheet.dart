@@ -98,7 +98,8 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
       }
     });
 
-    final displayTitle = status.title ?? _displayName(widget.fileName.isEmpty ? (status.title ?? '') : widget.fileName);
+    final currentFileName = status.title ?? (widget.fileName.isNotEmpty ? widget.fileName : '');
+    final displayTitle = _displayName(currentFileName);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.92,
@@ -184,7 +185,7 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                widget.fileName.isNotEmpty ? widget.fileName : (status.title ?? ''),
+                                currentFileName,
                                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                       color: colorScheme.onSurfaceVariant,
                                     ),
@@ -464,11 +465,15 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
       child: Row(
         children: [
           Icon(
-            volume == 0 ? Icons.volume_off : Icons.volume_mute,
+            volume == 0 ? Icons.volume_off : Icons.volume_up,
             size: 20,
             color: colorScheme.onSurfaceVariant,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
+          _volumeButton(Icons.remove, colorScheme, () {
+            final newVol = (volume - 5).clamp(0, 100).toInt();
+            ref.read(musicProvider.notifier).setVolume(newVol);
+          }),
           Expanded(
             child: SliderTheme(
               data: SliderThemeData(
@@ -489,13 +494,11 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          Icon(
-            Icons.volume_up,
-            size: 20,
-            color: colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 8),
+          _volumeButton(Icons.add, colorScheme, () {
+            final newVol = (volume + 5).clamp(0, 100).toInt();
+            ref.read(musicProvider.notifier).setVolume(newVol);
+          }),
+          const SizedBox(width: 4),
           SizedBox(
             width: 32,
             child: Text(
@@ -509,6 +512,22 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _volumeButton(IconData icon, ColorScheme colorScheme, VoidCallback onPressed) {
+    return SizedBox(
+      width: 32,
+      height: 32,
+      child: IconButton(
+        icon: Icon(icon, size: 18),
+        padding: EdgeInsets.zero,
+        style: IconButton.styleFrom(
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          foregroundColor: colorScheme.onSurfaceVariant,
+        ),
+        onPressed: onPressed,
       ),
     );
   }

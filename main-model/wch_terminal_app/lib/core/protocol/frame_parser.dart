@@ -1,28 +1,39 @@
 import 'dart:async';
 import 'frame_model.dart';
+import 'protocol_constants.dart';
 
 class FrameParser {
   final List<int> _buffer = [];
   int? _expectedSeq;
   Timer? _timeoutTimer;
+  int? _sofFlags;
+  int? _sofType;
 
   void Function(String)? onError;
 
   FrameModel? feed(FrameModel frame) {
-    // Check SOF
     if (frame.isSof) {
+      if (_expectedSeq != null && frame.type != ProtocolConstants.msgTypeCliData) {
+        return null;
+      }
       _buffer.clear();
       _buffer.addAll(frame.payload);
       _expectedSeq = (frame.seq + 1) & 0xFF;
+      _sofFlags = frame.flags;
+      _sofType = frame.type;
       _startTimeout();
       if (frame.isEof) {
         _cancelTimeout();
-        return _buildFrame(frame.type, frame.flags, frame.seq, _buffer);
+        _expectedSeq = null;
+        return _buildFrame(_sofType!, _sofFlags!, frame.seq, _buffer);
       }
       return null;
     }
 
-    // Middle or end frame
+    if (_expectedSeq != null && frame.type != ProtocolConstants.msgTypeCliData) {
+      return null;
+    }
+
     if (_expectedSeq == null) {
       onError?.call('Unexpected frame without SOF');
       return null;
@@ -32,6 +43,8 @@ class FrameParser {
       onError?.call('SEQ mismatch: expected $_expectedSeq, got ${frame.seq}');
       _buffer.clear();
       _expectedSeq = null;
+      _sofFlags = null;
+      _sofType = null;
       _cancelTimeout();
       return null;
     }
@@ -42,8 +55,12 @@ class FrameParser {
 
     if (frame.isEof) {
       _cancelTimeout();
-      // Reconstruct: use first frame's type/flags but with EOF set
-      return _buildFrame(frame.type, frame.flags | 0x02, frame.seq, _buffer);
+      final flags = _sofFlags! | FrameFlags.eof;
+      final result = _buildFrame(_sofType!, flags, frame.seq, _buffer);
+      _expectedSeq = null;
+      _sofFlags = null;
+      _sofType = null;
+      return result;
     }
 
     return null;
@@ -65,6 +82,8 @@ class FrameParser {
       onError?.call('Frame reassembly timeout');
       _buffer.clear();
       _expectedSeq = null;
+      _sofFlags = null;
+      _sofType = null;
     });
   }
 
@@ -76,6 +95,8 @@ class FrameParser {
   void reset() {
     _buffer.clear();
     _expectedSeq = null;
+    _sofFlags = null;
+    _sofType = null;
     _cancelTimeout();
   }
 }

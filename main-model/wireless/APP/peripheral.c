@@ -614,26 +614,26 @@ static bStatus_t AppProtoSendNotify(const uint8_t *payload, uint16_t payload_len
 
         status = Peripheral_SendToApp(frame, frame_len);
     } else {
-        /* Multi-frame: split payload */
+        /* Multi-frame: split payload
+         * Preserve original SOF/EOF from caller's flags:
+         * - SOF only on first BLE sub-frame if original had SOF
+         * - EOF only on last BLE sub-frame if original had EOF */
         uint16_t offset = 0;
         uint8_t first = 1;
 
         while (offset < payload_len) {
             uint16_t chunk = payload_len - offset;
-            uint8_t f;
+            uint8_t f = APP_PROTO_FLAG_DIR_UP;
 
             if (chunk > max_payload) {
                 chunk = max_payload;
             }
 
-            if (first && (offset + chunk >= payload_len)) {
-                f = APP_PROTO_FLAG_SOF | APP_PROTO_FLAG_EOF | APP_PROTO_FLAG_DIR_UP;
-            } else if (first) {
-                f = APP_PROTO_FLAG_SOF | APP_PROTO_FLAG_DIR_UP;
-            } else if (offset + chunk >= payload_len) {
-                f = APP_PROTO_FLAG_EOF | APP_PROTO_FLAG_DIR_UP;
-            } else {
-                f = APP_PROTO_FLAG_DIR_UP;
+            if (first && (flags & APP_PROTO_FLAG_SOF)) {
+                f |= APP_PROTO_FLAG_SOF;
+            }
+            if ((offset + chunk >= payload_len) && (flags & APP_PROTO_FLAG_EOF)) {
+                f |= APP_PROTO_FLAG_EOF;
             }
 
             frame[0] = APP_PROTO_TYPE_CLI;
