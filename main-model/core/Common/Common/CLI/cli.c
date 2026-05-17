@@ -257,8 +257,6 @@ static void CLI_Cmd_Mkdir(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
 
-    printf("[MKDIR-DEBUG] path=%s, is_short=%d\r\n", full_path, CLI_IsShortName(argv[1]));
-
     if (CLI_IsShortName(argv[1])) {
         status = CH378DirCreate((uint8_t*)full_path);
     } else {
@@ -284,14 +282,15 @@ static void CLI_Cmd_Touch(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
 
-    printf("[TOUCH-DEBUG] path=%s, is_short=%d\r\n", full_path, CLI_IsShortName(argv[1]));
-
     if (CLI_IsShortName(argv[1])) {
-        status = CH378_File_Create(&ch378_g, argv[1]);
+        status = CH378FileCreate((uint8_t*)full_path);
+        if (status == ERR_SUCCESS) {
+            CH378FileClose(1);
+        }
     } else {
         status = CLI_LFN_Operation(full_path, 1);
         if (status == ERR_SUCCESS) {
-            CH378FileClose(0);
+            CH378FileClose(1);
         }
     }
 
@@ -354,7 +353,6 @@ static uint8_t CLI_File_Append(const char *filename, const uint8_t *data, uint16
     if (status == ERR_MISS_FILE) {
         status = CH378FileCreate((uint8_t*)full_path);
         if (status != ERR_SUCCESS) return status;
-        CH378FileClose(0);
         status = CH378FileOpen((uint8_t*)full_path);
     }
     if (status != ERR_SUCCESS) return status;
@@ -428,7 +426,17 @@ static void CLI_Cmd_Echo(uint8_t argc, char **argv)
                 printf("echo: append failed (status=%02X)\r\n", status);
             }
         } else {
-            status = CH378_File_Write(&ch378_g, argv[redirect_idx + 1], (const uint8_t*)text_buf, pos);
+            char full_path[CH378_MAX_PATH_LEN];
+            CH378_Path_Join(ch378_current_path, argv[redirect_idx + 1], full_path, sizeof(full_path));
+            status = CH378FileCreate((uint8_t*)full_path);
+            if (status == ERR_SUCCESS) {
+                CH378FileClose(1);
+                status = CH378FileOpen((uint8_t*)full_path);
+                if (status == ERR_SUCCESS) {
+                    status = CH378ByteWrite((uint8_t*)text_buf, pos, NULL);
+                    CH378FileClose(1);
+                }
+            }
             if (status == ERR_SUCCESS) {
                 printf("Wrote %d bytes to %s\r\n", pos, argv[redirect_idx + 1]);
             } else {
@@ -453,6 +461,7 @@ static void CLI_Cmd_RmRecursive(const char *dir)
     uint8_t i;
     char subdirs[CLI_MAX_ENTRIES][14];
     uint8_t subdir_cnt = 0;
+    char full_path[CH378_MAX_PATH_LEN];
 
     /* 进入目标目录 */
     if (CH378_Dir_Enter(&ch378_g, dir) != ERR_SUCCESS) {
@@ -466,7 +475,8 @@ static void CLI_Cmd_RmRecursive(const char *dir)
     /* 删除所有文件，同时记录子目录名 */
     for (i = 0; i < g_cli_entries.count; i++) {
         if (!g_cli_entries.is_dir[i]) {
-            CH378_File_Delete(&ch378_g, g_cli_entries.names[i]);
+            CH378_Path_Join(ch378_current_path, g_cli_entries.names[i], full_path, sizeof(full_path));
+            CH378FileErase((uint8_t*)full_path);
         } else {
             if (subdir_cnt < CLI_MAX_ENTRIES) {
                 strncpy(subdirs[subdir_cnt], g_cli_entries.names[i], 13);
@@ -495,7 +505,10 @@ static void CLI_Cmd_Rm(uint8_t argc, char **argv)
     }
 
     if (argc >= 3 && strcmp(argv[1], "-rf") == 0) {
+        char full_path[CH378_MAX_PATH_LEN];
         const char *dir = argv[2];
+
+        CH378_Path_Join(ch378_current_path, dir, full_path, sizeof(full_path));
 
         /* 递归清空目录内所有文件（包括子目录中的文件） */
         CLI_Cmd_RmRecursive(dir);
@@ -503,7 +516,7 @@ static void CLI_Cmd_Rm(uint8_t argc, char **argv)
         /* 尝试删除目录本身。
          * CH378 的 CMD0H_FILE_ERASE 官方注释明确说明"对目录则等待"，
          * 即不支持删除目录，此步骤预期会失败。 */
-        status = CH378FileErase((uint8_t*)dir);
+        status = CH378FileErase((uint8_t*)full_path);
         if (status == ERR_SUCCESS) {
             printf("rm -rf: removed '%s'\r\n", dir);
         } else {
@@ -514,7 +527,7 @@ static void CLI_Cmd_Rm(uint8_t argc, char **argv)
         CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
 
         if (CLI_IsShortName(argv[1])) {
-            status = CH378_File_Delete(&ch378_g, argv[1]);
+            status = CH378FileErase((uint8_t*)full_path);
         } else {
             status = CLI_LFN_Operation(full_path, 3);
         }
@@ -835,7 +848,7 @@ static void CLI_Cmd_Cp(uint8_t argc, char **argv)
         printf("cp: cannot create '%s'\r\n", argv[2]);
         return;
     }
-    CH378FileClose(0);
+    CH378FileClose(1);
 
     /* Copy loop */
     while (1) {

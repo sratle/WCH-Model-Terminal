@@ -466,9 +466,26 @@ uint8_t CH378ByteRead(uint8_t *buf, uint16_t ReqCount, uint16_t *RealCount)
 uint8_t CH378ByteWrite(uint8_t *buf, uint16_t ReqCount, uint16_t *RealCount)
 {
     uint8_t s;
+    uint16_t l;
 
-    CH378WriteBlock(buf, ReqCount);
+    /* 先将数据写入CH378内部缓冲区偏移0处（与官方EVT一致） */
+    xWriteCH378Cmd(CMD40_WR_HOST_OFS_DATA);
+    xWriteCH378Data(0x00);  /* offset low */
+    xWriteCH378Data(0x00);  /* offset high */
+    xWriteCH378Data((uint8_t)ReqCount);   /* len low */
+    xWriteCH378Data((uint8_t)(ReqCount >> 8));  /* len high */
+    if (ReqCount)
+    {
+        l = ReqCount;
+        do
+        {
+            xWriteCH378Data(*buf);
+            buf++;
+        } while (--l);
+    }
+    xEndCH378Cmd();
 
+    /* 发送字节写入命令 */
     xWriteCH378Cmd(CMD2H_BYTE_WRITE);
     xWriteCH378Data((uint8_t)ReqCount);
     xWriteCH378Data((uint8_t)(ReqCount >> 8));
@@ -1066,7 +1083,7 @@ uint8_t CH378_File_Create(ch378_t *ch378, const char *filename)
 
     status = CH378FileCreate((uint8_t*)full_path);
     if (status == ERR_SUCCESS) {
-        CH378FileClose(0);
+        CH378FileClose(1);
     }
 
     return status;
@@ -1150,6 +1167,12 @@ uint8_t CH378_File_Write(ch378_t *ch378, const char *filename, const uint8_t *bu
     } else if (status != ERR_SUCCESS) {
         printf("File open failed, status=%02X\r\n", status);
         return status;
+    }
+
+    /* 打开已有文件时需要先清空内容（覆盖写入语义） */
+    if (status == ERR_SUCCESS) {
+        CH378SetFileSize(0);
+        CH378ByteLocate(0);
     }
 
     while (total_write < len) {
