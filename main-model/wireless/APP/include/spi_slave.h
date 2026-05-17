@@ -7,8 +7,8 @@
 extern "C" {
 #endif
 
-#define SPI_SLAVE_RX_BUF_SIZE   1024
-#define SPI_SLAVE_TX_BUF_SIZE   1024
+#define SPI_SLAVE_RX_BUF_SIZE   20480
+#define SPI_SLAVE_TX_BUF_SIZE   20480
 
 /* SPI0 GPIO mapping for CH585F (adjust per hardware) */
 /* Default: PA12=SCK, PA13=MISO, PA14=MOSI, PA15=NSS (or other pins) */
@@ -35,6 +35,7 @@ uint16_t SPI_Slave_RxCount(void);
 /* Debug counters for SPI ISR */
 uint32_t SPI_Slave_GetIrqCount(void);
 uint32_t SPI_Slave_GetRxCountTotal(void);
+uint32_t SPI_Slave_GetRxDropCount(void);
 void SPI_Slave_ClearCounters(void);
 
 /* SPI0 Interrupt Handler */

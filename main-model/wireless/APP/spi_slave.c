@@ -116,6 +116,7 @@ uint16_t SPI_Slave_RxCount(void)
 
 static volatile uint32_t s_spi_irq_cnt = 0;
 static volatile uint32_t s_spi_rx_cnt = 0;
+static volatile uint32_t s_spi_rx_drop = 0;
 
 __INTERRUPT __HIGH_CODE void SPI0_IRQHandler(void)
 {
@@ -129,6 +130,8 @@ __INTERRUPT __HIGH_CODE void SPI0_IRQHandler(void)
 
         if (DataQueue_Push(&s_rx_queue, rx_byte)) {
             s_spi_rx_cnt++;
+        } else {
+            s_spi_rx_drop++;
         }
 
         if (DataQueue_Pop(&s_tx_queue, &next_tx)) {
@@ -149,8 +152,14 @@ uint32_t SPI_Slave_GetRxCountTotal(void)
     return s_spi_rx_cnt;
 }
 
+uint32_t SPI_Slave_GetRxDropCount(void)
+{
+    return s_spi_rx_drop;
+}
+
 void SPI_Slave_ClearCounters(void)
 {
     s_spi_irq_cnt = 0;
     s_spi_rx_cnt = 0;
+    s_spi_rx_drop = 0;
 }

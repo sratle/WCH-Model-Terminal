@@ -267,7 +267,7 @@ uint16_t Peripheral_ProcessEvent(uint8_t task_id, uint16_t events)
 
     if (events & SBP_SPI_PROCESS_EVT) {
         ProcessSpiRxData();
-        tmos_start_task(Peripheral_TaskID, SBP_SPI_PROCESS_EVT, 5);
+        tmos_start_task(Peripheral_TaskID, SBP_SPI_PROCESS_EVT, 1);
         return (events ^ SBP_SPI_PROCESS_EVT);
     }
 
@@ -731,13 +731,20 @@ static void ProcessSpiRxData(void)
 {
     uint8_t rx_byte;
     static uint32_t last_rx = 0;
+    static uint32_t last_drop = 0;
     uint32_t rx_cnt = SPI_Slave_GetRxCountTotal();
+    uint32_t drop_cnt = SPI_Slave_GetRxDropCount();
 
     while (SPI_Slave_DequeueRx(&rx_byte, 1) == 1) {
         Protocol_ParseByte(rx_byte);
     }
 
-    /* Only print when new data received and processed */
+    if (drop_cnt != last_drop) {
+        PRINT("[SPI] RX overflow! dropped %lu bytes (total drop: %lu)\n",
+              drop_cnt - last_drop, drop_cnt);
+        last_drop = drop_cnt;
+    }
+
     if (rx_cnt != last_rx) {
         uint16_t queue_cnt = SPI_Slave_RxCount();
         if (queue_cnt > 200) {
