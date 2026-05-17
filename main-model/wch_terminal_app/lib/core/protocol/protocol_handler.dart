@@ -8,24 +8,29 @@ import 'protocol_constants.dart';
 class ProtocolHandler {
   final FrameParser _parser = FrameParser();
   int _txSeq = 0;
-  int maxPayloadSize = 12; // Default for MTU=23 (23-11=12)
+  int maxPayloadSize = 12;
+
+  void Function(FrameModel)? onTimeoutFrame;
 
   ProtocolHandler() {
     _parser.onError = (err) {
-      // TODO: log error
+      print('[PH] FrameParser error: $err');
+    };
+    _parser.onTimeoutFrame = (frame) {
+      print('[PH] timeout frame delivered: ${frame.payload.length} bytes');
+      onTimeoutFrame?.call(frame);
     };
   }
 
   List<List<int>> encodeCliData(String text) {
-    // Ensure command ends with \r\n for CLI compatibility
     var cmd = text;
     if (!cmd.endsWith('\r\n')) {
       if (cmd.endsWith('\n')) {
-        cmd = cmd.substring(0, cmd.length - 1) + '\r\n';
+        cmd = '${cmd.substring(0, cmd.length - 1)}\r\n';
       } else if (cmd.endsWith('\r')) {
-        cmd = cmd + '\n';
+        cmd = '$cmd\n';
       } else {
-        cmd = cmd + '\r\n';
+        cmd = '$cmd\r\n';
       }
     }
     final payload = Uint8List.fromList(cmd.codeUnits);
@@ -49,7 +54,7 @@ class ProtocolHandler {
   List<int> encodeHeartbeat() {
     return FrameModel(
       type: ProtocolConstants.msgTypeHeartbeat,
-      flags: 0x03, // SOF + EOF
+      flags: 0x03,
       seq: 0,
       len: 0,
       payload: [],

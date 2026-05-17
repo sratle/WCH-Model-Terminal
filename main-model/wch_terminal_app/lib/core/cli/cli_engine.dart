@@ -4,6 +4,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../ble/ble_manager.dart';
 import '../protocol/protocol_handler.dart';
 import '../protocol/protocol_constants.dart';
+import '../protocol/frame_model.dart';
 import 'cli_response.dart';
 
 class _PendingCommand {
@@ -44,7 +45,7 @@ class CliEngine {
         _stopHeartbeat();
       }
     });
-    // If already connected, start immediately
+    _protocol.onTimeoutFrame = _onTimeoutFrame;
     if (_ble.isConnected) {
       _startHeartbeat();
       _updateMtu();
@@ -79,7 +80,6 @@ class CliEngine {
     final message = _protocol.decodeFrame(data);
     if (message == null) return;
 
-    // Heartbeat response
     if (message.type == ProtocolConstants.msgTypeHeartbeat && message.isDirUp) {
       _heartbeatMissed = 0;
       return;
@@ -87,6 +87,7 @@ class CliEngine {
 
     if (message.type == ProtocolConstants.msgTypeCliData && message.isDirUp) {
       final text = utf8.decode(message.payload, allowMalformed: true);
+      print('[CLI] data: type=CLI isEof=${message.isEof} payloadLen=${message.payload.length} textLen=${text.length} pending=${_pending.length}');
 
       if (_pending.isNotEmpty) {
         final pending = _pending.first;
@@ -94,10 +95,30 @@ class CliEngine {
 
         if (message.isEof) {
           _pending.removeAt(0);
+          final total = pending.buffer.length;
+          print('[CLI] command complete: "${pending.command}" totalLen=$total');
           pending.completer.complete(
             CliResponse.success(pending.command, pending.buffer.toString()),
           );
         }
+      } else {
+        _outputController.add(text);
+      }
+    }
+  }
+
+  void _onTimeoutFrame(FrameModel frame) {
+    if (frame.type == ProtocolConstants.msgTypeCliData && frame.isDirUp) {
+      final text = utf8.decode(frame.payload, allowMalformed: true);
+      print('[CLI] timeout frame: payloadLen=${frame.payload.length} pending=${_pending.length}');
+      if (_pending.isNotEmpty) {
+        final pending = _pending.first;
+        pending.buffer.write(text);
+        _pending.removeAt(0);
+        print('[CLI] timeout deliver: "${pending.command}" totalLen=${pending.buffer.length}');
+        pending.completer.complete(
+          CliResponse.success(pending.command, pending.buffer.toString()),
+        );
       } else {
         _outputController.add(text);
       }

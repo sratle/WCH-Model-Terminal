@@ -10,11 +10,19 @@ class FrameParser {
   int? _sofType;
 
   void Function(String)? onError;
+  void Function(FrameModel)? onTimeoutFrame;
 
   FrameModel? feed(FrameModel frame) {
+    final flagStr = 'S${frame.isSof ? 1 : 0}E${frame.isEof ? 1 : 0}D${frame.isDirUp ? 1 : 0}';
+    print('[FP] recv: type=0x${frame.type.toRadixString(16)} flags=0x${frame.flags.toRadixString(16)}($flagStr) seq=${frame.seq} len=${frame.payload.length} expectSeq=$_expectedSeq bufLen=${_buffer.length}');
+
     if (frame.isSof) {
       if (_expectedSeq != null && frame.type != ProtocolConstants.msgTypeCliData) {
+        print('[FP] ignore non-CLI SOF during reassembly');
         return null;
+      }
+      if (_expectedSeq != null && frame.type == ProtocolConstants.msgTypeCliData) {
+        _deliverTimeoutFrame();
       }
       _buffer.clear();
       _buffer.addAll(frame.payload);
@@ -25,27 +33,25 @@ class FrameParser {
       if (frame.isEof) {
         _cancelTimeout();
         _expectedSeq = null;
+        print('[FP] single-frame complete: ${_buffer.length} bytes');
         return _buildFrame(_sofType!, _sofFlags!, frame.seq, _buffer);
       }
       return null;
     }
 
     if (_expectedSeq != null && frame.type != ProtocolConstants.msgTypeCliData) {
+      print('[FP] ignore non-CLI frame during reassembly');
       return null;
     }
 
     if (_expectedSeq == null) {
-      onError?.call('Unexpected frame without SOF');
+      onError?.call('Unexpected frame without SOF: seq=${frame.seq} flags=0x${frame.flags.toRadixString(16)}');
       return null;
     }
 
     if (frame.seq != _expectedSeq) {
       onError?.call('SEQ mismatch: expected $_expectedSeq, got ${frame.seq}');
-      _buffer.clear();
-      _expectedSeq = null;
-      _sofFlags = null;
-      _sofType = null;
-      _cancelTimeout();
+      _deliverTimeoutFrame();
       return null;
     }
 
@@ -57,6 +63,7 @@ class FrameParser {
       _cancelTimeout();
       final flags = _sofFlags! | FrameFlags.eof;
       final result = _buildFrame(_sofType!, flags, frame.seq, _buffer);
+      print('[FP] multi-frame complete: ${_buffer.length} bytes');
       _expectedSeq = null;
       _sofFlags = null;
       _sofType = null;
@@ -64,6 +71,20 @@ class FrameParser {
     }
 
     return null;
+  }
+
+  void _deliverTimeoutFrame() {
+    if (_buffer.isNotEmpty && _sofType != null && _sofFlags != null) {
+      final flags = _sofFlags! | FrameFlags.eof;
+      final result = _buildFrame(_sofType!, flags, 0, _buffer);
+      print('[FP] timeout deliver: ${_buffer.length} bytes (EOF was missing)');
+      onTimeoutFrame?.call(result);
+    }
+    _buffer.clear();
+    _expectedSeq = null;
+    _sofFlags = null;
+    _sofType = null;
+    _cancelTimeout();
   }
 
   FrameModel _buildFrame(int type, int flags, int seq, List<int> payload) {
@@ -78,12 +99,9 @@ class FrameParser {
 
   void _startTimeout() {
     _cancelTimeout();
-    _timeoutTimer = Timer(const Duration(milliseconds: 2000), () {
+    _timeoutTimer = Timer(const Duration(milliseconds: 1500), () {
+      _deliverTimeoutFrame();
       onError?.call('Frame reassembly timeout');
-      _buffer.clear();
-      _expectedSeq = null;
-      _sofFlags = null;
-      _sofType = null;
     });
   }
 
