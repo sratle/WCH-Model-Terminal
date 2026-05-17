@@ -93,6 +93,16 @@ static uint8_t  s_ble_tx_seq = 0;
 static uint8_t  s_spi_fwd_buf[SPI_FWD_BUF_SIZE];
 static uint16_t s_spi_fwd_len = 0;
 
+/* BLE TX queue for throttled notification sending */
+#define BLE_TX_QUEUE_SIZE       4096
+static uint8_t  s_ble_tx_queue[BLE_TX_QUEUE_SIZE];
+static uint16_t s_ble_tx_head = 0;
+static uint16_t s_ble_tx_tail = 0;
+static uint8_t  s_ble_tx_sending = 0;
+
+#define BLE_NOTIFY_DELAY        16  /* ~100ms between notifications */
+#define BLE_NOTIFY_RETRY_DELAY  48  /* ~300ms on send failure */
+
 /*********************************************************************
  * LOCAL FUNCTIONS
  */
@@ -120,6 +130,94 @@ static void AppProtoResetReasm(void);
 static void AppProtoHandleFrame(const uint8_t *frame, uint16_t frame_len);
 static bStatus_t AppProtoSendNotify(const uint8_t *payload, uint16_t payload_len,
                                      uint8_t flags);
+
+static uint16_t ble_tx_queue_count(void)
+{
+    if (s_ble_tx_head >= s_ble_tx_tail)
+        return s_ble_tx_head - s_ble_tx_tail;
+    else
+        return BLE_TX_QUEUE_SIZE - s_ble_tx_tail + s_ble_tx_head;
+}
+
+static uint16_t ble_tx_queue_push(const uint8_t *data, uint16_t len)
+{
+    uint16_t i;
+    for (i = 0; i < len; i++) {
+        uint16_t next = (s_ble_tx_head + 1) % BLE_TX_QUEUE_SIZE;
+        if (next == s_ble_tx_tail) break;
+        s_ble_tx_queue[s_ble_tx_head] = data[i];
+        s_ble_tx_head = next;
+    }
+    return i;
+}
+
+static uint16_t ble_tx_queue_pop(uint8_t *out, uint16_t max_len)
+{
+    uint16_t i;
+    for (i = 0; i < max_len; i++) {
+        if (s_ble_tx_tail == s_ble_tx_head) break;
+        out[i] = s_ble_tx_queue[s_ble_tx_tail];
+        s_ble_tx_tail = (s_ble_tx_tail + 1) % BLE_TX_QUEUE_SIZE;
+    }
+    return i;
+}
+
+static void BleTxQueueProcess(void)
+{
+    uint8_t frame[256];
+    uint16_t frame_len;
+    uint8_t hdr;
+    uint16_t saved_tail;
+
+    if (ble_tx_queue_count() < 2) {
+        s_ble_tx_sending = 0;
+        return;
+    }
+
+    hdr = s_ble_tx_queue[s_ble_tx_tail];
+    if (hdr == 0 || ble_tx_queue_count() < (uint16_t)(1 + hdr)) {
+        s_ble_tx_sending = 0;
+        return;
+    }
+
+    saved_tail = s_ble_tx_tail;
+    s_ble_tx_tail = (s_ble_tx_tail + 1) % BLE_TX_QUEUE_SIZE;
+    frame_len = hdr;
+    for (uint16_t i = 0; i < frame_len; i++) {
+        frame[i] = s_ble_tx_queue[s_ble_tx_tail];
+        s_ble_tx_tail = (s_ble_tx_tail + 1) % BLE_TX_QUEUE_SIZE;
+    }
+
+    bStatus_t status = Peripheral_SendToApp(frame, frame_len);
+    if (status != SUCCESS) {
+        s_ble_tx_tail = saved_tail;
+        PRINT("[BLE TX] Queue send err=%02X, retry in %d ms\n", status,
+              BLE_NOTIFY_RETRY_DELAY * 6);
+        tmos_start_task(Peripheral_TaskID, SBP_BLE_NOTIFY_EVT, BLE_NOTIFY_RETRY_DELAY);
+        s_ble_tx_sending = 1;
+        return;
+    }
+
+    if (ble_tx_queue_count() >= 2) {
+        tmos_start_task(Peripheral_TaskID, SBP_BLE_NOTIFY_EVT, BLE_NOTIFY_DELAY);
+        s_ble_tx_sending = 1;
+    } else {
+        s_ble_tx_sending = 0;
+    }
+}
+
+static void BleTxQueueEnqueue(const uint8_t *frame, uint16_t frame_len)
+{
+    uint8_t hdr[1];
+    hdr[0] = (uint8_t)frame_len;
+    ble_tx_queue_push(hdr, 1);
+    ble_tx_queue_push(frame, frame_len);
+
+    if (!s_ble_tx_sending) {
+        s_ble_tx_sending = 1;
+        tmos_start_task(Peripheral_TaskID, SBP_BLE_NOTIFY_EVT, 1);
+    }
+}
 
 /*********************************************************************
  * PROFILE CALLBACKS
@@ -272,7 +370,7 @@ uint16_t Peripheral_ProcessEvent(uint8_t task_id, uint16_t events)
     }
 
     if (events & SBP_BLE_NOTIFY_EVT) {
-        /* Process pending BLE notifications if any */
+        BleTxQueueProcess();
         return (events ^ SBP_BLE_NOTIFY_EVT);
     }
 
@@ -595,7 +693,6 @@ static bStatus_t AppProtoSendNotify(const uint8_t *payload, uint16_t payload_len
     uint8_t frame[256];
     uint16_t frame_len;
     uint8_t max_payload;
-    bStatus_t status = SUCCESS;
 
     PRINT("[BRIDGE] SPI->BLE: payload=%d bytes flags=%02X\n", payload_len, flags);
     PrintHex("[BRIDGE] SPI->BLE data", payload, payload_len);
@@ -603,7 +700,6 @@ static bStatus_t AppProtoSendNotify(const uint8_t *payload, uint16_t payload_len
     max_payload = (peripheralMTU > 8) ? (peripheralMTU - 8) : 12;
 
     if (payload_len <= max_payload) {
-        /* Single frame: use caller's flags directly (already contains SOF/EOF/DIR) */
         frame[0] = APP_PROTO_TYPE_CLI;
         frame[1] = flags;
         frame[2] = s_ble_tx_seq++;
@@ -612,12 +708,8 @@ static bStatus_t AppProtoSendNotify(const uint8_t *payload, uint16_t payload_len
         tmos_memcpy(frame + 5, payload, payload_len);
         frame_len = 5 + payload_len;
 
-        status = Peripheral_SendToApp(frame, frame_len);
+        BleTxQueueEnqueue(frame, frame_len);
     } else {
-        /* Multi-frame: split payload
-         * Preserve original SOF/EOF from caller's flags:
-         * - SOF only on first BLE sub-frame if original had SOF
-         * - EOF only on last BLE sub-frame if original had EOF */
         uint16_t offset = 0;
         uint8_t first = 1;
 
@@ -644,17 +736,14 @@ static bStatus_t AppProtoSendNotify(const uint8_t *payload, uint16_t payload_len
             tmos_memcpy(frame + 5, payload + offset, chunk);
             frame_len = 5 + chunk;
 
-            status = Peripheral_SendToApp(frame, frame_len);
-            if (status != SUCCESS) {
-                break;
-            }
+            BleTxQueueEnqueue(frame, frame_len);
 
             offset += chunk;
             first = 0;
         }
     }
 
-    return status;
+    return SUCCESS;
 }
 
 /*********************************************************************
