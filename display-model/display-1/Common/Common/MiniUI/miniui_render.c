@@ -554,7 +554,7 @@ void ui_draw_text_bg(int16_t x, int16_t y, const char *text,
             int16_t box_size = font->height * 2 / 3;
             int16_t box_y = cy - box_size;
             ui_rect_t box = {cx, box_y, box_size, box_size};
-            ui_draw_rect(&box, color);
+            ui_draw_rect(&box, color, UI_COLOR_TRANSPARENT, 0);
             cx += box_size + 1;
         }
         text++;

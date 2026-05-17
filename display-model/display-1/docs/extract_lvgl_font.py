@@ -524,7 +524,7 @@ def generate_icon_bitmaps(glyphs: List[GlyphInfo], font_size: int, output_path: 
         f.write("* File Name          : ui_icons.c\n")
         f.write(f"* Description        : FontAwesome icon bitmaps {font_size}px. 1bpp format.\n")
         f.write("********************************************************************************/\n")
-        f.write('#include "ui_icons.h"\n\n')
+        f.write(f'#include "ui_icons_{font_size}.h"\n\n')
         
         for glyph in icon_glyphs:
             name = icon_names.get(glyph.unicode, f"U{glyph.unicode:04X}")
@@ -539,7 +539,7 @@ def generate_icon_bitmaps(glyphs: List[GlyphInfo], font_size: int, output_path: 
                 continue
             
             f.write(f"/* {name} ({glyph.width}x{glyph.height}) */\n")
-            f.write(f"const uint8_t icon_{name.lower()}_bitmap[] = {{\n    ")
+            f.write(f"const uint8_t icon_{name.lower()}_{font_size}_bitmap[] = {{\n    ")
             
             for i, b in enumerate(bitmap_1bpp):
                 if i > 0 and i % 12 == 0:
@@ -550,8 +550,8 @@ def generate_icon_bitmaps(glyphs: List[GlyphInfo], font_size: int, output_path: 
     
     # Generate .h file
     with open(h_file, 'w') as f:
-        f.write("#ifndef __UI_ICONS_H\n")
-        f.write("#define __UI_ICONS_H\n\n")
+        f.write(f"#ifndef __UI_ICONS_{font_size}_H\n")
+        f.write(f"#define __UI_ICONS_{font_size}_H\n\n")
         f.write("#ifdef __cplusplus\n")
         f.write("extern \"C\" {\n")
         f.write("#endif\n\n")
@@ -560,14 +560,14 @@ def generate_icon_bitmaps(glyphs: List[GlyphInfo], font_size: int, output_path: 
         for glyph in icon_glyphs:
             name = icon_names.get(glyph.unicode, f"U{glyph.unicode:04X}")
             f.write(f"/* {name} icon bitmap */\n")
-            f.write(f"extern const uint8_t icon_{name.lower()}_bitmap[];\n")
-            f.write(f"#define ICON_{name}_WIDTH  {glyph.width}\n")
-            f.write(f"#define ICON_{name}_HEIGHT {glyph.height}\n\n")
+            f.write(f"extern const uint8_t icon_{name.lower()}_{font_size}_bitmap[];\n")
+            f.write(f"#define ICON_{name}_{font_size}_WIDTH  {glyph.width}\n")
+            f.write(f"#define ICON_{name}_{font_size}_HEIGHT {glyph.height}\n\n")
         
         f.write("#ifdef __cplusplus\n")
         f.write("}\n")
         f.write("#endif\n\n")
-        f.write("#endif /* __UI_ICONS_H */\n")
+        f.write(f"#endif /* __UI_ICONS_{font_size}_H */\n")
     
     print(f"Generated icon bitmaps: {c_file} ({len(icon_glyphs)} icons)")
 
