@@ -35,13 +35,26 @@ class MusicNotifier extends StateNotifier<MusicStatus> {
 
   void _onTrackEnd() {
     _stopPositionTick();
-    if (state.hasNext) {
-      playTrackAtIndex(state.currentIndex + 1);
-    } else {
-      state = state.copyWith(
-        state: PlayerState.stopped,
-        position: state.duration,
-      );
+    switch (state.playMode) {
+      case PlayMode.singleLoop:
+        playTrackAtIndex(state.currentIndex);
+        break;
+      case PlayMode.sequential:
+        if (state.hasNext) {
+          playTrackAtIndex(state.currentIndex + 1);
+        } else {
+          state = state.copyWith(
+            state: PlayerState.stopped,
+            position: state.duration,
+          );
+        }
+        break;
+      case PlayMode.singlePlay:
+        state = state.copyWith(
+          state: PlayerState.stopped,
+          position: state.duration,
+        );
+        break;
     }
   }
 
@@ -106,6 +119,10 @@ class MusicNotifier extends StateNotifier<MusicStatus> {
   Future<void> setVolume(int level) async {
     state = state.copyWith(volume: level);
     await _cli.execute(CliCommands.vol(level));
+  }
+
+  void setPlayMode(PlayMode mode) {
+    state = state.copyWith(playMode: mode);
   }
 
   void stop() {

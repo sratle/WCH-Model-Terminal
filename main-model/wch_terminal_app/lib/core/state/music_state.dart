@@ -1,5 +1,7 @@
 enum PlayerState { stopped, playing, paused }
 
+enum PlayMode { singleLoop, sequential, singlePlay }
+
 class MusicTrack {
   final String name;
   const MusicTrack({required this.name});
@@ -13,6 +15,7 @@ class MusicStatus {
   final int? volume;
   final List<MusicTrack> playlist;
   final int currentIndex;
+  final PlayMode playMode;
 
   const MusicStatus({
     required this.state,
@@ -22,6 +25,7 @@ class MusicStatus {
     this.volume,
     this.playlist = const [],
     this.currentIndex = -1,
+    this.playMode = PlayMode.sequential,
   });
 
   bool get hasPlaylist => playlist.length > 1 && currentIndex >= 0;
@@ -68,6 +72,7 @@ class MusicStatus {
     int? volume,
     List<MusicTrack>? playlist,
     int? currentIndex,
+    PlayMode? playMode,
   }) {
     return MusicStatus(
       state: state ?? this.state,
@@ -77,6 +82,7 @@ class MusicStatus {
       volume: volume ?? this.volume,
       playlist: playlist ?? this.playlist,
       currentIndex: currentIndex ?? this.currentIndex,
+      playMode: playMode ?? this.playMode,
     );
   }
 }

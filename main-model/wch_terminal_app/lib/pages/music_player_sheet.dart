@@ -392,10 +392,28 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         SizedBox(
-          width: 56,
-          height: 56,
+          width: 40,
+          height: 40,
+          child: IconButton(
+            icon: Icon(_playModeIcon(status.playMode), size: 20),
+            padding: EdgeInsets.zero,
+            style: IconButton.styleFrom(
+              foregroundColor: colorScheme.onSurfaceVariant,
+            ),
+            onPressed: () {
+              final modes = PlayMode.values;
+              final nextIndex = (modes.indexOf(status.playMode) + 1) % modes.length;
+              ref.read(musicProvider.notifier).setPlayMode(modes[nextIndex]);
+            },
+          ),
+        ),
+        const SizedBox(width: 4),
+        SizedBox(
+          width: 48,
+          height: 48,
           child: IconButton.filledTonal(
-            iconSize: 28,
+            iconSize: 24,
+            padding: EdgeInsets.zero,
             icon: Icon(
               Icons.skip_previous,
               color: status.hasPrev ? null : colorScheme.onSurface.withValues(alpha: 0.3),
@@ -405,8 +423,10 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
                 : null,
           ),
         ),
-        const SizedBox(width: 20),
+        const SizedBox(width: 16),
         Container(
+          width: 56,
+          height: 56,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: colorScheme.primary,
@@ -419,7 +439,8 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
             ],
           ),
           child: IconButton(
-            iconSize: 40,
+            iconSize: 36,
+            padding: EdgeInsets.zero,
             icon: Icon(
               isPlaying ? Icons.pause : Icons.play_arrow,
               color: colorScheme.onPrimary,
@@ -434,12 +455,13 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
             },
           ),
         ),
-        const SizedBox(width: 20),
+        const SizedBox(width: 16),
         SizedBox(
-          width: 56,
-          height: 56,
+          width: 48,
+          height: 48,
           child: IconButton.filledTonal(
-            iconSize: 28,
+            iconSize: 24,
+            padding: EdgeInsets.zero,
             icon: Icon(
               Icons.skip_next,
               color: status.hasNext ? null : colorScheme.onSurface.withValues(alpha: 0.3),
@@ -449,8 +471,36 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
                 : null,
           ),
         ),
+        const SizedBox(width: 4),
+        SizedBox(
+          width: 40,
+          height: 40,
+          child: IconButton(
+            icon: const Icon(Icons.playlist_play, size: 20),
+            padding: EdgeInsets.zero,
+            style: IconButton.styleFrom(
+              foregroundColor: status.playlist.length > 1
+                  ? colorScheme.onSurfaceVariant
+                  : colorScheme.onSurface.withValues(alpha: 0.3),
+            ),
+            onPressed: status.playlist.length > 1
+                ? () => setState(() => _showPlaylist = !_showPlaylist)
+                : null,
+          ),
+        ),
       ],
     );
+  }
+
+  IconData _playModeIcon(PlayMode mode) {
+    switch (mode) {
+      case PlayMode.singleLoop:
+        return Icons.repeat_one;
+      case PlayMode.sequential:
+        return Icons.repeat;
+      case PlayMode.singlePlay:
+        return Icons.looks_one;
+    }
   }
 
   Widget _buildVolumeSection(MusicStatus status, ColorScheme colorScheme) {
