@@ -64,9 +64,30 @@ static ui_label_t lbl_comm_ver[4];
 static ui_label_t lbl_disp_ver[3];
 static ui_label_t lbl_stor_ver[3];
 
-static ui_widget_t *s_models_widgets[2];
+static ui_widget_t *s_models_widgets[6];
 
 static bool s_models_inited = false;
+
+static void update_models_widgets(void)
+{
+    uint8_t tab = ui_tabview_get_active(&tabview);
+    s_models_widgets[0] = (ui_widget_t *)&lbl_title;
+    s_models_widgets[1] = (ui_widget_t *)&tabview;
+
+    ui_card_t *cards = NULL;
+    int count = 0;
+    switch (tab) {
+    case 0: cards = card_comm; count = 4; break;
+    case 1: cards = card_disp; count = 3; break;
+    case 2: cards = card_stor; count = 3; break;
+    default: break;
+    }
+
+    for (int i = 0; i < count; i++) {
+        s_models_widgets[2 + i] = (ui_widget_t *)&cards[i];
+    }
+    ui_page_set_widgets(&page_models, s_models_widgets, 2 + count);
+}
 
 /*=============================================================================
  *  Tab Change Handler
@@ -76,6 +97,7 @@ static void models_tab_change(ui_widget_t *w, uint8_t tab)
 {
     (void)w;
     (void)tab;
+    update_models_widgets();
     ui_page_invalidate_all();
 }
 
@@ -171,7 +193,6 @@ void ui_models_init(void)
 
     s_models_widgets[0] = (ui_widget_t *)&lbl_title;
     s_models_widgets[1] = (ui_widget_t *)&tabview;
-
     ui_page_set_widgets(&page_models, s_models_widgets, 2);
     ui_page_set_callbacks(&page_models, ui_models_enter, NULL, ui_models_draw, NULL);
 
@@ -190,6 +211,7 @@ void ui_models_enter(ui_page_t *page)
         init_tab_cards(s_display_modules, card_disp, lbl_disp_name, dot_disp, lbl_disp_ver, 3, cx, cy);
         init_tab_cards(s_storage_modules, card_stor, lbl_stor_name, dot_stor, lbl_stor_ver, 3, cx, cy);
 
+        update_models_widgets();
         s_models_inited = true;
     }
 }

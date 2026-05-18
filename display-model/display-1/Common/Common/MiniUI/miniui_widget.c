@@ -141,11 +141,36 @@ static void button_event_cb(ui_widget_t *w, ui_event_t *e)
         w->flags |= UI_WIDGET_FLAG_PRESSED;
         ui_widget_invalidate(w);
         break;
+    case UI_EVENT_DRAG:
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            if (!ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
+                w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+                ui_widget_invalidate(w);
+            }
+        } else {
+            if (ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
+                w->flags |= UI_WIDGET_FLAG_PRESSED;
+                ui_widget_invalidate(w);
+            }
+        }
+        break;
     case UI_EVENT_RELEASE:
         if (w->flags & UI_WIDGET_FLAG_PRESSED) {
             w->flags &= ~UI_WIDGET_FLAG_PRESSED;
             ui_widget_invalidate(w);
-            if (btn->on_click) btn->on_click(w);
+            if (ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
+                if (btn->on_click) btn->on_click(w);
+            }
+        }
+        break;
+    case UI_EVENT_SWIPE_UP:
+    case UI_EVENT_SWIPE_DOWN:
+    case UI_EVENT_SWIPE_LEFT:
+    case UI_EVENT_SWIPE_RIGHT:
+    case UI_EVENT_PRESS_CANCEL:
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            ui_widget_invalidate(w);
         }
         break;
     default:
@@ -206,18 +231,29 @@ static void icon_button_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
         ui_draw_fill_rect(&w->rect, bg);
     }
 
-    if (btn->icon_bitmap) {
-        int16_t icon_y = w->rect.y + 8;
+    if (btn->icon_bitmap && btn->text && btn->font) {
+        int16_t gap = 4;
+        int16_t total_h = btn->icon_h + gap + btn->font->height;
+        int16_t icon_y = w->rect.y + (w->rect.h - total_h) / 2;
         int16_t icon_x = w->rect.x + (w->rect.w - btn->icon_w) / 2;
         ui_draw_icon(icon_x, icon_y, btn->icon_bitmap, btn->icon_w, btn->icon_h, btn->icon_color);
-    }
-
-    if (btn->text && btn->font) {
         ui_rect_t text_rect = {
             w->rect.x,
-            w->rect.y + w->rect.h - btn->font->height - 6,
+            icon_y + btn->icon_h + gap,
             w->rect.w,
             btn->font->height + 4
+        };
+        ui_draw_text_in_rect(&text_rect, btn->text, btn->font, btn->text_color, 1);
+    } else if (btn->icon_bitmap) {
+        int16_t icon_y = w->rect.y + (w->rect.h - btn->icon_h) / 2;
+        int16_t icon_x = w->rect.x + (w->rect.w - btn->icon_w) / 2;
+        ui_draw_icon(icon_x, icon_y, btn->icon_bitmap, btn->icon_w, btn->icon_h, btn->icon_color);
+    } else if (btn->text && btn->font) {
+        ui_rect_t text_rect = {
+            w->rect.x,
+            w->rect.y,
+            w->rect.w,
+            w->rect.h
         };
         ui_draw_text_in_rect(&text_rect, btn->text, btn->font, btn->text_color, 1);
     }
@@ -232,11 +268,36 @@ static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
         w->flags |= UI_WIDGET_FLAG_PRESSED;
         ui_widget_invalidate(w);
         break;
+    case UI_EVENT_DRAG:
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            if (!ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
+                w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+                ui_widget_invalidate(w);
+            }
+        } else {
+            if (ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
+                w->flags |= UI_WIDGET_FLAG_PRESSED;
+                ui_widget_invalidate(w);
+            }
+        }
+        break;
     case UI_EVENT_RELEASE:
         if (w->flags & UI_WIDGET_FLAG_PRESSED) {
             w->flags &= ~UI_WIDGET_FLAG_PRESSED;
             ui_widget_invalidate(w);
-            if (btn->on_click) btn->on_click(w);
+            if (ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
+                if (btn->on_click) btn->on_click(w);
+            }
+        }
+        break;
+    case UI_EVENT_SWIPE_UP:
+    case UI_EVENT_SWIPE_DOWN:
+    case UI_EVENT_SWIPE_LEFT:
+    case UI_EVENT_SWIPE_RIGHT:
+    case UI_EVENT_PRESS_CANCEL:
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            ui_widget_invalidate(w);
         }
         break;
     default:
@@ -322,6 +383,13 @@ static void slider_event_cb(ui_widget_t *w, ui_event_t *e)
     case UI_EVENT_RELEASE:
         slider->dragging = false;
         break;
+    case UI_EVENT_SWIPE_UP:
+    case UI_EVENT_SWIPE_DOWN:
+    case UI_EVENT_SWIPE_LEFT:
+    case UI_EVENT_SWIPE_RIGHT:
+    case UI_EVENT_PRESS_CANCEL:
+        slider->dragging = false;
+        break;
     default:
         break;
     }
@@ -371,7 +439,13 @@ static void switch_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
     int16_t track_r = track_h / 2;
 
     ui_rect_t track = {w->rect.x, track_y, w->rect.w, track_h};
-    ui_color_t track_color = sw->state ? sw->track_on_color : sw->track_off_color;
+    bool pressed = (w->flags & UI_WIDGET_FLAG_PRESSED) != 0;
+    ui_color_t track_color;
+    if (pressed) {
+        track_color = sw->state ? sw->track_off_color : sw->track_on_color;
+    } else {
+        track_color = sw->state ? sw->track_on_color : sw->track_off_color;
+    }
     ui_draw_fill_round_rect(&track, track_r, track_color);
 
     int16_t knob_r = track_h / 2 - 2;
@@ -384,10 +458,36 @@ static void switch_event_cb(ui_widget_t *w, ui_event_t *e)
 {
     ui_switch_t *sw = (ui_switch_t *)w;
 
-    if (e->type == UI_EVENT_PRESS || e->type == UI_EVENT_KEY_OK) {
+    switch (e->type) {
+    case UI_EVENT_PRESS:
+        w->flags |= UI_WIDGET_FLAG_PRESSED;
+        ui_widget_invalidate(w);
+        break;
+    case UI_EVENT_RELEASE:
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            sw->state = !sw->state;
+            ui_widget_invalidate(w);
+            if (sw->on_toggle) sw->on_toggle(w, sw->state);
+        }
+        break;
+    case UI_EVENT_KEY_OK:
         sw->state = !sw->state;
         ui_widget_invalidate(w);
         if (sw->on_toggle) sw->on_toggle(w, sw->state);
+        break;
+    case UI_EVENT_SWIPE_UP:
+    case UI_EVENT_SWIPE_DOWN:
+    case UI_EVENT_SWIPE_LEFT:
+    case UI_EVENT_SWIPE_RIGHT:
+    case UI_EVENT_PRESS_CANCEL:
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            ui_widget_invalidate(w);
+        }
+        break;
+    default:
+        break;
     }
 }
 
@@ -425,12 +525,18 @@ static void progress_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
 {
     ui_progress_t *prog = (ui_progress_t *)w;
 
-    ui_draw_fill_round_rect(&w->rect, w->rect.h / 2, prog->track_color);
+    int16_t track_r = w->rect.h / 2;
+    ui_draw_fill_round_rect(&w->rect, track_r, prog->track_color);
 
     int16_t fill_w = (int32_t)(prog->value - prog->min) * w->rect.w / (prog->max - prog->min);
     if (fill_w > 0) {
+        if (fill_w > w->rect.w) fill_w = w->rect.w;
+        int16_t fill_r = track_r;
+        if (fill_w < fill_r * 2) {
+            fill_r = fill_w / 2;
+        }
         ui_rect_t fill = {w->rect.x, w->rect.y, fill_w, w->rect.h};
-        ui_draw_fill_round_rect(&fill, w->rect.h / 2, prog->fill_color);
+        ui_draw_fill_round_rect(&fill, fill_r, prog->fill_color);
     }
 }
 
@@ -483,16 +589,65 @@ static void card_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
     }
 }
 
+static void card_event_cb(ui_widget_t *w, ui_event_t *e)
+{
+    ui_card_t *card = (ui_card_t *)w;
+
+    switch (e->type) {
+    case UI_EVENT_PRESS: {
+        card->active_child = -1;
+        for (uint16_t i = 0; i < card->child_count; i++) {
+            if (card->children[i] && ui_widget_hit_test(card->children[i], e->pos.x, e->pos.y)) {
+                card->active_child = (int16_t)i;
+                ui_widget_event(card->children[i], e);
+                break;
+            }
+        }
+        break;
+    }
+    case UI_EVENT_DRAG:
+        if (card->active_child >= 0 && card->active_child < (int16_t)card->child_count) {
+            ui_widget_event(card->children[card->active_child], e);
+        }
+        break;
+    case UI_EVENT_RELEASE:
+        if (card->active_child >= 0 && card->active_child < (int16_t)card->child_count) {
+            ui_widget_event(card->children[card->active_child], e);
+            card->active_child = -1;
+        }
+        break;
+    case UI_EVENT_SWIPE_UP:
+    case UI_EVENT_SWIPE_DOWN:
+    case UI_EVENT_SWIPE_LEFT:
+    case UI_EVENT_SWIPE_RIGHT:
+    case UI_EVENT_PRESS_CANCEL:
+        if (card->active_child >= 0 && card->active_child < (int16_t)card->child_count) {
+            ui_widget_event(card->children[card->active_child], e);
+            card->active_child = -1;
+        }
+        break;
+    default:
+        for (uint16_t i = 0; i < card->child_count; i++) {
+            if (card->children[i]) {
+                ui_widget_event(card->children[i], e);
+            }
+        }
+        break;
+    }
+}
+
 void ui_card_init(ui_card_t *card, const ui_rect_t *rect)
 {
     if (!card) return;
     ui_widget_init(&card->base, rect);
     card->base.draw_cb = card_draw_cb;
+    card->base.event_cb = card_event_cb;
     card->base.bg_color = UI_COLOR_BG_CARD;
     card->radius = 8;
     card->border_color = UI_COLOR_LIGHT_GRAY;
     card->border_width = 0;
     card->child_count = 0;
+    card->active_child = -1;
 }
 
 void ui_card_add_child(ui_card_t *card, ui_widget_t *child)
@@ -539,11 +694,51 @@ static void list_item_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
     }
 }
 
+static void list_item_event_cb(ui_widget_t *w, ui_event_t *e)
+{
+    ui_list_item_t *item = (ui_list_item_t *)w;
+    if (!item->control) return;
+
+    switch (e->type) {
+    case UI_EVENT_PRESS:
+        if (ui_widget_hit_test(item->control, e->pos.x, e->pos.y)) {
+            item->control_active = true;
+            ui_widget_event(item->control, e);
+        }
+        break;
+    case UI_EVENT_DRAG:
+        if (item->control_active) {
+            ui_widget_event(item->control, e);
+        }
+        break;
+    case UI_EVENT_RELEASE:
+        if (item->control_active) {
+            item->control_active = false;
+            ui_widget_event(item->control, e);
+        }
+        break;
+    case UI_EVENT_SWIPE_UP:
+    case UI_EVENT_SWIPE_DOWN:
+    case UI_EVENT_SWIPE_LEFT:
+    case UI_EVENT_SWIPE_RIGHT:
+    case UI_EVENT_PRESS_CANCEL:
+        if (item->control_active) {
+            item->control_active = false;
+            ui_widget_event(item->control, e);
+        }
+        break;
+    default:
+        ui_widget_event(item->control, e);
+        break;
+    }
+}
+
 void ui_list_item_init(ui_list_item_t *item, const ui_rect_t *rect, const char *title, const ui_font_t *font)
 {
     if (!item) return;
     ui_widget_init(&item->base, rect);
     item->base.draw_cb = list_item_draw_cb;
+    item->base.event_cb = list_item_event_cb;
     item->base.bg_color = UI_COLOR_BG_CARD;
     item->title = title ? title : "";
     item->font = font;
@@ -551,6 +746,7 @@ void ui_list_item_init(ui_list_item_t *item, const ui_rect_t *rect, const char *
     item->control = NULL;
     item->show_divider = true;
     item->divider_color = UI_COLOR_LIGHT_GRAY;
+    item->control_active = false;
 }
 
 void ui_list_item_set_control(ui_list_item_t *item, ui_widget_t *control)

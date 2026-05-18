@@ -31,6 +31,7 @@ ui_page_t *app_lights_get_page(void);
 ui_page_t *app_irrange_get_page(void);
 ui_page_t *app_ebook_get_page(void);
 ui_page_t *app_emusic_get_page(void);
+ui_page_t *app_terminal_get_page(void);
 
 #ifdef __cplusplus
 }

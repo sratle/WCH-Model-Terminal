@@ -91,6 +91,12 @@ void UI_Tick(void)
             ui_widget_event(capture, e);
             if (e->type == UI_EVENT_RELEASE) {
                 ui_input_set_capture(NULL);
+            } else if (e->type == UI_EVENT_SWIPE_UP || e->type == UI_EVENT_SWIPE_DOWN ||
+                       e->type == UI_EVENT_SWIPE_LEFT || e->type == UI_EVENT_SWIPE_RIGHT) {
+                ui_event_t cancel_e = *e;
+                cancel_e.type = UI_EVENT_PRESS_CANCEL;
+                ui_widget_event(capture, &cancel_e);
+                ui_input_set_capture(NULL);
             }
         } else {
             bool handled = false;

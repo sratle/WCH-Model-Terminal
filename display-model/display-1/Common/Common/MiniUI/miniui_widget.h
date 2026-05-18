@@ -168,6 +168,7 @@ typedef struct {
     int16_t border_width;
     ui_widget_t *children[UI_CARD_MAX_CHILDREN];
     uint16_t child_count;
+    int16_t active_child;
 } ui_card_t;
 
 void ui_card_init(ui_card_t *card, const ui_rect_t *rect);
@@ -185,6 +186,7 @@ typedef struct {
     ui_widget_t *control;
     bool show_divider;
     ui_color_t divider_color;
+    bool control_active;
 } ui_list_item_t;
 
 void ui_list_item_init(ui_list_item_t *item, const ui_rect_t *rect, const char *title, const ui_font_t *font);

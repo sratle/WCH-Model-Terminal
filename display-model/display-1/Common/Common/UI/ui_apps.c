@@ -4,7 +4,7 @@
 * Version            : V3.0.0
 * Date               : 2025/04/20
 * Description        : Apps page implementation.
-*                      15 apps with pagination (3x4 per page, 2 pages).
+*                      16 apps in a single 4x4 grid (no pagination needed).
 ********************************************************************************/
 #include "ui_apps.h"
 #include "ui_main.h"
@@ -14,15 +14,15 @@
  *  App Grid Configuration
  *=============================================================================*/
 
-#define APPS_GRID_COLS       3
+#define APPS_GRID_COLS       4
 #define APPS_GRID_ROWS       4
 #define APPS_PER_PAGE        (APPS_GRID_COLS * APPS_GRID_ROWS)
-#define APP_BTN_W            150
+#define APP_BTN_W            128
 #define APP_BTN_H            90
-#define APP_BTN_GAP_X        20
-#define APP_BTN_GAP_Y        16
+#define APP_BTN_GAP_X        14
+#define APP_BTN_GAP_Y        12
 #define APPS_GRID_TOP        70
-#define APPS_TOTAL           15
+#define APPS_TOTAL           16
 #define APPS_PAGE_COUNT      ((APPS_TOTAL + APPS_PER_PAGE - 1) / APPS_PER_PAGE)
 
 /*=============================================================================
@@ -53,6 +53,7 @@ static const app_entry_t s_apps[APPS_TOTAL] = {
     {"IRRange",     icon_gps_16_bitmap,         ICON_GPS_16_WIDTH,         ICON_GPS_16_HEIGHT,         app_irrange_get_page},
     {"EBook",       icon_list_16_bitmap,        ICON_LIST_16_WIDTH,        ICON_LIST_16_HEIGHT,        app_ebook_get_page},
     {"EMusic",      icon_volume_max_16_bitmap,  ICON_VOLUME_MAX_16_WIDTH,  ICON_VOLUME_MAX_16_HEIGHT,  app_emusic_get_page},
+    {"Terminal",    icon_keyboard_16_bitmap,    ICON_KEYBOARD_16_WIDTH,    ICON_KEYBOARD_16_HEIGHT,    app_terminal_get_page},
 };
 
 /*=============================================================================
@@ -76,8 +77,8 @@ static char s_page_text[8];
 
 static void apps_update_grid(void)
 {
-    int16_t cx = SIDEBAR_WIDTH + 30;
-    int16_t grid_x_start = cx;
+    int16_t cx = SIDEBAR_WIDTH + 20;
+    int16_t grid_x_start = cx + 10;
     int16_t grid_y_start = APPS_GRID_TOP;
     int page_offset = s_current_page * APPS_PER_PAGE;
 

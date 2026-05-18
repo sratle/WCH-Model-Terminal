@@ -4,7 +4,7 @@
 * Version            : V3.0.0
 * Date               : 2025/04/20
 * Description        : Apps page header.
-*                      15 apps with pagination (3x4 per page).
+*                      16 apps in a single 4x4 grid (no pagination needed).
 ********************************************************************************/
 #ifndef __UI_APPS_H
 #define __UI_APPS_H

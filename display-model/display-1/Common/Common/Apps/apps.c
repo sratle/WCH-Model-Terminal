@@ -21,6 +21,7 @@
 #include "app_irrange.h"
 #include "app_ebook.h"
 #include "app_emusic.h"
+#include "app_terminal.h"
 
 void apps_init_all(void)
 {
@@ -39,4 +40,5 @@ void apps_init_all(void)
     app_irrange_init();
     app_ebook_init();
     app_emusic_init();
+    app_terminal_init();
 }

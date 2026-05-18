@@ -263,7 +263,7 @@ lcd/
 │   │   ├── UI/                 (新增目录) UI 框架与主界面（每个 APP/GAME 为独立页面）
 │   │   │   ├── ui_main.c/h     (新增) 主界面框架：侧边栏导航(Home/Apps/Games/Models/Settings)、页面切换管理
 │   │   │   ├── ui_home.c/h     (新增) 首页：日期时间、模块状态、系统状态栏
-│   │   │   ├── ui_apps.c/h     (新增) 应用界面：15个应用3x4翻页网格、应用启动器
+│   │   │   ├── ui_apps.c/h     (新增) 应用界面：16个应用4x4单页网格、应用启动器
 │   │   │   ├── ui_models.c/h   (新增) 模块界面：Tab 视图、模块状态卡片
 │   │   │   ├── ui_settings.c/h (新增) 设置界面：设置项列表、控件绑定
 │   │   │   ├── ui_games.c/h    (新增) 游戏界面：4个游戏单页网格、游戏启动器
@@ -288,7 +288,8 @@ lcd/
 │   │   │   ├── app_lights.c/h      (新增) 灯效控制：颜色选择、模式切换、亮度调节
 │   │   │   ├── app_irrange.c/h     (新增) 红外测距：实时距离显示、历史数据
 │   │   │   ├── app_ebook.c/h       (新增) 电子书阅读：翻页、书签、目录、字体设置
-│   │   │   └── app_emusic.c/h      (新增) 电子音乐/合成器：键盘、音色选择、录制
+│   │   │   ├── app_emusic.c/h      (新增) 电子音乐/合成器：键盘、音色选择、录制
+│   │   │   └── app_terminal.c/h    (新增) 终端：键盘输入指令、命令解析与执行、串口交互
 │   │   ├── Touch/              (新增目录) 电容触摸屏驱动
 │   │   │   ├── touch_ctp.c     (新增) I2C2 触摸屏初始化、触摸坐标读取、手势识别
 │   │   │   └── touch_ctp.h     (新增) 触摸接口声明、触摸事件结构体
@@ -357,6 +358,7 @@ lcd/
 | `Common/Common/Apps/app_irrange.c/h` | 红外测距UI：实时距离数字显示、历史数据曲线、单位切换。 |
 | `Common/Common/Apps/app_ebook.c/h` | 电子书阅读UI：文本渲染、翻页动画、书签、目录跳转、字体设置。 |
 | `Common/Common/Apps/app_emusic.c/h` | 电子音乐/合成器UI：虚拟键盘、音色选择、录制/播放控制。 |
+| `Common/Common/Apps/app_terminal.c/h` | 终端UI：键盘输入指令、命令解析与执行、历史记录、串口交互。 |
 | `Common/Common/UART/uart_module.c` | 初始化 USART1（PA9/PA10），实现与核心模块的数据收发；解析核心模块发来的键盘/鼠标数据，转换为统一 UI 输入事件；封装本地触摸事件上报给核心模块。 |
 | `Common/Common/UART/uart_module.h` | 声明 UART 初始化、发送、接收接口；定义协议命令宏和数据结构。 |
 | `Common/Common/Touch/touch_ctp.c` | 初始化 I2C2（PB10/PB11）和电容触摸屏控制器；读取触摸坐标和压力值；将触摸事件注入 MiniUI 输入系统（滑动/点击手势识别）。 |
@@ -461,6 +463,7 @@ lcd/
 | IR Range | `LV_SYMBOL_GPS` | 红外测距（显示距离数据） |
 | E-book | `LV_SYMBOL_BOOK` | 电子书阅读器 |
 | E-music | `LV_SYMBOL_MUSIC` | 电子音乐/合成器 |
+| Terminal | `LV_SYMBOL_KEYBOARD` | 终端（键盘输入指令并执行） |
 
 每个应用显示为**图标按钮**（80×80px，圆角 16px，主色调背景，白色图标）+ 下方文字标签。
 点击应用后，通过 UART 发送指令给核心模块，核心模块执行相应功能。
