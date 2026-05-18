@@ -50,7 +50,7 @@ int main(void)
 
 	while(1)
 	{
-		printf("V5F running...\r\n");
-		Delay_Ms(1000);
+		Touch_Scan();
+		UI_Tick();
 	}
 }

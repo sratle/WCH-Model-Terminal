@@ -53,7 +53,7 @@ static void SoftI2C_SDA_In(void)
 {
     GPIO_InitTypeDef GPIO_InitStructure = {0};
     GPIO_InitStructure.GPIO_Pin = SOFT_I2C_SDA_PIN;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;
     GPIO_Init(SOFT_I2C_SDA_PORT, &GPIO_InitStructure);
 }
 
@@ -61,7 +61,7 @@ void SoftI2C_Init(void)
 {
     GPIO_InitTypeDef GPIO_InitStructure = {0};
 
-    RCC_HB2PeriphClockCmd(RCC_HB2Periph_GPIOC, ENABLE);
+    RCC_HB2PeriphClockCmd(RCC_HB2Periph_GPIOB, ENABLE);
 
     GPIO_InitStructure.GPIO_Pin = SOFT_I2C_SCL_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;

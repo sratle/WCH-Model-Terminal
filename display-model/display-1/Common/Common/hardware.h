@@ -20,8 +20,8 @@
 #include "ch32h417.h"
 #include "debug.h"
 
-/* MiniUI display port */
 #include "MiniUI/miniui.h"
+#include "Touch/touch_driver.h"
 
 void Hardware_V3F_Init(void);
 void Hardware_V5F_Init(void);

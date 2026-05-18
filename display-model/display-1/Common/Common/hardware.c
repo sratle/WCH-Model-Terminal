@@ -26,13 +26,8 @@ void Hardware_V3F_Init(void)
 
 void Hardware_V5F_Init(void)
 {
-    /* Initialize LCD display subsystem:
-     *   - FMC Bank1 NORSRAM (8080 mode for SSD1963)
-     *   - LCD panel control signals (PA4 MODE, PA5 L/R, PA6 U/D, PA7 RESET)
-     *   - SSD1963 display controller (PLL, timing, GRAM)
-     *   - MiniUI lightweight UI framework
-     */
     printf("[Hardware_V5F_Init] start\r\n");
+    Touch_Init();
     UI_Init();
     printf("[Hardware_V5F_Init] done\r\n");
 }
