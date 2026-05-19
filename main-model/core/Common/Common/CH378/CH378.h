@@ -218,6 +218,7 @@ uint32_t CH378_File_GetSize(ch378_t *ch378, const char *filename);
 /* 路径工具（供 CLI 等外部模块使用） */
 /* ======================================================================== */
 extern char ch378_current_path[];
+extern char ch378_current_path_sfn[];
 void CH378_Path_Join(const char *base, const char *name, char *out, uint16_t out_len);
 
 /* ======================================================================== */

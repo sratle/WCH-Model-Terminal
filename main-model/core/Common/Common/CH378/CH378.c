@@ -903,6 +903,7 @@ void CH378_Edit_File(ch378_t *ch378, uint8_t *file_name, uint8_t *wbuf, uint32_t
 /************************* 高级文件资源管理器 API *************************/
 
 char ch378_current_path[CH378_MAX_PATH_LEN] = "\\";
+char ch378_current_path_sfn[CH378_MAX_PATH_LEN] = "\\";
 
 /* 辅助：拼接基础路径和名称，生成绝对路径 */
 void CH378_Path_Join(const char *base, const char *name, char *out, uint16_t out_len)
@@ -930,15 +931,94 @@ void CH378_Path_Join(const char *base, const char *name, char *out, uint16_t out
     }
 }
 
-/* ------------------------------------------------------------------------ */
-/* 目录导航 */
-/* ------------------------------------------------------------------------ */
+/* 在当前目录（ch378_current_path_sfn）中查找指定长文件名对应的短文件名。
+ * 采用两步法：先枚举收集所有短文件名，再逐个打开获取 LFN 进行匹配，
+ * 避免在枚举过程中打开文件导致枚举状态被破坏。 */
+static uint8_t CH378_Find_SFN_By_LFN(const char *lfn_target, char *sfn_out, uint16_t sfn_out_len)
+{
+    uint8_t int_status;
+    uint8_t dir_buf[32];
+    uint8_t name_str[14];
+    uint16_t name_len;
+    FAT_DIR_INFO *pDir;
+    char search_path[CH378_MAX_PATH_LEN];
+    /* 最多收集 64 个短文件名 */
+    char entries[64][14];
+    uint8_t entry_cnt = 0;
+    uint8_t i;
+    uint8_t found = 0;
+
+    CH378_Path_Join(ch378_current_path_sfn, "*", search_path, sizeof(search_path));
+
+    /* 第一步：枚举当前目录，收集所有短文件名 */
+    int_status = CH378FileOpen((uint8_t*)search_path);
+    if (int_status != USB_INT_DISK_READ) {
+        return int_status;
+    }
+
+    while (int_status == USB_INT_DISK_READ && entry_cnt < 64) {
+        name_len = CH378ReadReqBlock(dir_buf);
+
+        if (name_len == sizeof(FAT_DIR_INFO)) {
+            pDir = (FAT_DIR_INFO *)dir_buf;
+            if (pDir->DIR_Attr != 0x0F && pDir->DIR_Attr != 0x08 && dir_buf[0] != 0xE5) {
+                FormatShortName(pDir->DIR_Name, name_str);
+                if (strcmp((char*)name_str, ".") != 0 && strcmp((char*)name_str, "..") != 0) {
+                    strncpy(entries[entry_cnt], (char*)name_str, 13);
+                    entries[entry_cnt][13] = '\0';
+                    entry_cnt++;
+                }
+            }
+        }
+
+        xWriteCH378Cmd(CMD0H_FILE_ENUM_GO);
+        xEndCH378Cmd();
+        int_status = CH378_Wait_Interrupt();
+    }
+
+    CH378FileClose(0);
+
+    /* 第二步：逐个打开获取 LFN，查找匹配 */
+    for (i = 0; i < entry_cnt && !found; i++) {
+        uint8_t open_status;
+        char item_path[CH378_MAX_PATH_LEN];
+        uint8_t lfn_buf[512];
+
+        CH378_Path_Join(ch378_current_path_sfn, entries[i], item_path, sizeof(item_path));
+        open_status = CH378FileOpen((uint8_t*)item_path);
+        if (open_status == ERR_SUCCESS || open_status == ERR_OPEN_DIR) {
+            uint8_t lfn_status = CH378SendCmdWaitInt(CMD10_GET_LONG_FILE_NAME);
+            if (lfn_status == ERR_SUCCESS) {
+                uint16_t lfn_len = CH378ReadReqBlock(lfn_buf);
+                if (lfn_len >= 2 && lfn_len <= 512 && (lfn_len % 2) == 0) {
+                    uint16_t j;
+                    char lfn_ascii[256];
+                    for (j = 0; j < 255 && (j * 2 + 1) < lfn_len; j++) {
+                        lfn_ascii[j] = lfn_buf[j * 2];
+                    }
+                    lfn_ascii[j] = '\0';
+
+                    if (strcmp(lfn_ascii, lfn_target) == 0) {
+                        strncpy(sfn_out, entries[i], sfn_out_len - 1);
+                        sfn_out[sfn_out_len - 1] = '\0';
+                        found = 1;
+                    }
+                }
+            }
+            CH378FileClose(0);
+        }
+    }
+
+    return found ? ERR_SUCCESS : ERR_MISS_FILE;
+}
 
 uint8_t CH378_Dir_Enter(ch378_t *ch378, const char *dir_name)
 {
     char full_path[CH378_MAX_PATH_LEN];
+    char sfn_path[CH378_MAX_PATH_LEN];
     uint8_t status;
     uint8_t unicode_name[512];
+    uint8_t short_name[14];
 
     if (ch378->enable != 1 || ch378->now_device == 0x00) {
         printf("CH378 not ready\r\n");
@@ -951,10 +1031,13 @@ uint8_t CH378_Dir_Enter(ch378_t *ch378, const char *dir_name)
     if (status == ERR_OPEN_DIR) {
         strncpy(ch378_current_path, full_path, CH378_MAX_PATH_LEN - 1);
         ch378_current_path[CH378_MAX_PATH_LEN - 1] = '\0';
+        CH378_Path_Join(ch378_current_path_sfn, dir_name, sfn_path, sizeof(sfn_path));
+        strncpy(ch378_current_path_sfn, sfn_path, CH378_MAX_PATH_LEN - 1);
+        ch378_current_path_sfn[CH378_MAX_PATH_LEN - 1] = '\0';
         return ERR_SUCCESS;
     }
 
-    if (status == ERR_MISS_FILE) {
+    if (status == ERR_MISS_FILE || status == ERR_MISS_DIR) {
         uint16_t i = 0;
         const char *p = dir_name;
         while (*p && i < sizeof(unicode_name) - 2) {
@@ -964,10 +1047,30 @@ uint8_t CH378_Dir_Enter(ch378_t *ch378, const char *dir_name)
         unicode_name[i++] = 0;
         unicode_name[i++] = 0;
 
+        /* 通过枚举父目录查找目标目录的短文件名，再进入 */
+        if (CH378_Find_SFN_By_LFN(dir_name, (char*)short_name, sizeof(short_name)) == ERR_SUCCESS) {
+            CH378_Path_Join(ch378_current_path_sfn, (char*)short_name, sfn_path, sizeof(sfn_path));
+            strncpy(ch378_current_path_sfn, sfn_path, CH378_MAX_PATH_LEN - 1);
+            ch378_current_path_sfn[CH378_MAX_PATH_LEN - 1] = '\0';
+
+            status = CH378FileOpen((uint8_t*)sfn_path);
+            if (status == ERR_OPEN_DIR) {
+                CH378FileClose(0);
+                strncpy(ch378_current_path, full_path, CH378_MAX_PATH_LEN - 1);
+                ch378_current_path[CH378_MAX_PATH_LEN - 1] = '\0';
+                return ERR_SUCCESS;
+            }
+        }
+
+        /* 回退：直接用长文件名打开目录 */
         status = CH378_Open_Long_Name((uint8_t*)full_path, unicode_name);
         if (status == ERR_OPEN_DIR) {
+            CH378FileClose(0);
             strncpy(ch378_current_path, full_path, CH378_MAX_PATH_LEN - 1);
             ch378_current_path[CH378_MAX_PATH_LEN - 1] = '\0';
+            CH378_Path_Join(ch378_current_path_sfn, dir_name, sfn_path, sizeof(sfn_path));
+            strncpy(ch378_current_path_sfn, sfn_path, CH378_MAX_PATH_LEN - 1);
+            ch378_current_path_sfn[CH378_MAX_PATH_LEN - 1] = '\0';
             return ERR_SUCCESS;
         }
     }
@@ -980,35 +1083,51 @@ uint8_t CH378_Dir_Go_Root(ch378_t *ch378)
     (void)ch378;
     ch378_current_path[0] = '\\';
     ch378_current_path[1] = '\0';
+    ch378_current_path_sfn[0] = '\\';
+    ch378_current_path_sfn[1] = '\0';
     return ERR_SUCCESS;
 }
 
 uint8_t CH378_Dir_Go_Parent(ch378_t *ch378)
 {
-    uint16_t len = strlen(ch378_current_path);
+    uint16_t len;
 
     (void)ch378;
 
-    if (len <= 1) {
+    if (strlen(ch378_current_path) <= 1) {
         return ERR_MISS_DIR;
     }
 
-    /* 去掉末尾的反斜杠 */
+    /* 更新显示路径 */
+    len = strlen(ch378_current_path);
     while (len > 0 && ch378_current_path[len - 1] == '\\') {
         ch378_current_path[len - 1] = '\0';
         len--;
     }
-
-    /* 回退到上一级反斜杠 */
     while (len > 0 && ch378_current_path[len - 1] != '\\') {
         len--;
     }
-
     if (len == 0) {
         ch378_current_path[0] = '\\';
         ch378_current_path[1] = '\0';
     } else {
         ch378_current_path[len] = '\0';
+    }
+
+    /* 更新短路径 */
+    len = strlen(ch378_current_path_sfn);
+    while (len > 0 && ch378_current_path_sfn[len - 1] == '\\') {
+        ch378_current_path_sfn[len - 1] = '\0';
+        len--;
+    }
+    while (len > 0 && ch378_current_path_sfn[len - 1] != '\\') {
+        len--;
+    }
+    if (len == 0) {
+        ch378_current_path_sfn[0] = '\\';
+        ch378_current_path_sfn[1] = '\0';
+    } else {
+        ch378_current_path_sfn[len] = '\0';
     }
 
     return ERR_SUCCESS;
@@ -1038,11 +1157,11 @@ void CH378_Dir_List(ch378_t *ch378, ch378_dir_callback_t callback)
         return;
     }
 
-    path_len = strlen(ch378_current_path);
+    path_len = strlen(ch378_current_path_sfn);
     if (path_len >= sizeof(search_path)) {
         return;
     }
-    strcpy(search_path, ch378_current_path);
+    strcpy(search_path, ch378_current_path_sfn);
 
     if (path_len > 0 && search_path[path_len - 1] == '\\') {
         if (path_len + 1 < sizeof(search_path)) {
@@ -1098,7 +1217,7 @@ uint8_t CH378_File_Create(ch378_t *ch378, const char *filename)
         return ERR_DISK_DISCON;
     }
 
-    CH378_Path_Join(ch378_current_path, filename, full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, filename, full_path, sizeof(full_path));
 
     status = CH378FileCreate((uint8_t*)full_path);
     if (status == ERR_SUCCESS) {
@@ -1117,7 +1236,7 @@ uint8_t CH378_File_Delete(ch378_t *ch378, const char *filename)
         return ERR_DISK_DISCON;
     }
 
-    CH378_Path_Join(ch378_current_path, filename, full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, filename, full_path, sizeof(full_path));
 
     return CH378FileErase((uint8_t*)full_path);
 }
@@ -1135,7 +1254,7 @@ uint32_t CH378_File_Read(ch378_t *ch378, const char *filename, uint8_t *buf, uin
         return 0;
     }
 
-    CH378_Path_Join(ch378_current_path, filename, full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, filename, full_path, sizeof(full_path));
 
     status = CH378FileOpen((uint8_t*)full_path);
     if (status != ERR_SUCCESS) {
@@ -1173,7 +1292,7 @@ uint8_t CH378_File_Write(ch378_t *ch378, const char *filename, const uint8_t *bu
         return ERR_PARAMETER_ERROR;
     }
 
-    CH378_Path_Join(ch378_current_path, filename, full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, filename, full_path, sizeof(full_path));
 
     /* 先尝试打开已有文件，不存在则创建 */
     status = CH378FileOpen((uint8_t*)full_path);
@@ -1219,7 +1338,7 @@ uint32_t CH378_File_GetSize(ch378_t *ch378, const char *filename)
         return 0;
     }
 
-    CH378_Path_Join(ch378_current_path, filename, full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, filename, full_path, sizeof(full_path));
 
     status = CH378FileOpen((uint8_t*)full_path);
     if (status == ERR_SUCCESS) {

@@ -269,6 +269,9 @@ void SSD1963_Init(void)
     SSD1963_WriteCmd(SSD1963_SET_DEEP_SLEEP);
     SSD1963_WriteData(0x00);
 
+    /* Ensure BGR output order (D3=1) for correct color on this LCD panel */
+    SSD1963_WriteReg(SSD1963_SET_ADDRESS_MODE, 0x08);
+
     /* 14. Configure SSD1963 internal GPIO */
     SSD1963_WriteCmd(SSD1963_SET_GPIO_CONF);
     SSD1963_WriteData(0x0F);   /* GPIO0~3 as outputs */
@@ -331,8 +334,8 @@ bool SSD1963_SelfTest(void)
     } else {
         printf("[OK]\r\n");
     }
-    /* Restore default */
-    SSD1963_WriteReg(SSD1963_SET_ADDRESS_MODE, 0x00);
+    /* Restore default: BGR mode (D3=1) to match LCD panel wiring */
+    SSD1963_WriteReg(SSD1963_SET_ADDRESS_MODE, 0x08);
 
     /* Test 4: Read DDB (0xA1) - 5 parameters total.
      * In 8-bit read mode we only fetch the first byte: SSL[15:8] = 0x01.

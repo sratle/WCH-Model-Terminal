@@ -354,7 +354,7 @@ static void slider_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
     }
 
     int16_t knob_x = w->rect.x + 10 + fill_w;
-    int16_t knob_r = 8;
+    int16_t knob_r = 6;
     ui_draw_fill_circle(knob_x, track_y + track_h / 2, knob_r, slider->knob_color);
 }
 
@@ -406,7 +406,7 @@ void ui_slider_init(ui_slider_t *slider, const ui_rect_t *rect, int16_t min, int
     slider->value = value;
     slider->track_color = UI_COLOR_LIGHT_GRAY;
     slider->fill_color = UI_COLOR_PRIMARY;
-    slider->knob_color = UI_COLOR_WHITE;
+    slider->knob_color = UI_COLOR_ACCENT;
     slider->dragging = false;
     slider->on_change = NULL;
 }

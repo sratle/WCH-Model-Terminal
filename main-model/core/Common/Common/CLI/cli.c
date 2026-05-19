@@ -166,7 +166,7 @@ static void CLI_Cmd_Ls(void)
     for (i = 0; i < g_cli_entries.count; i++) {
         char full_path[CH378_MAX_PATH_LEN];
 
-        CH378_Path_Join(ch378_current_path, g_cli_entries.names[i], full_path, sizeof(full_path));
+        CH378_Path_Join(ch378_current_path_sfn, g_cli_entries.names[i], full_path, sizeof(full_path));
 
         /* 获取长文件名（LFN）；CH378 CMD10_GET_LONG_FILE_NAME 返回的 lfn_len 精确可靠，
          * 但数据末尾不含 00 00 终止符，需严格按返回长度解析。 */
@@ -255,7 +255,7 @@ static void CLI_Cmd_Mkdir(uint8_t argc, char **argv)
         return;
     }
 
-    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(argv[1])) {
         status = CH378DirCreate((uint8_t*)full_path);
@@ -280,7 +280,7 @@ static void CLI_Cmd_Touch(uint8_t argc, char **argv)
         return;
     }
 
-    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(argv[1])) {
         status = CH378FileCreate((uint8_t*)full_path);
@@ -314,7 +314,7 @@ static void CLI_Cmd_Cat(uint8_t argc, char **argv)
         return;
     }
 
-    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(argv[1])) {
         status = CH378FileOpen((uint8_t*)full_path);
@@ -347,7 +347,7 @@ static uint8_t CLI_File_Append(const char *filename, const uint8_t *data, uint16
     uint16_t real_len;
     uint32_t fsize;
 
-    CH378_Path_Join(ch378_current_path, filename, full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, filename, full_path, sizeof(full_path));
 
     status = CH378FileOpen((uint8_t*)full_path);
     if (status == ERR_MISS_FILE) {
@@ -427,7 +427,7 @@ static void CLI_Cmd_Echo(uint8_t argc, char **argv)
             }
         } else {
             char full_path[CH378_MAX_PATH_LEN];
-            CH378_Path_Join(ch378_current_path, argv[redirect_idx + 1], full_path, sizeof(full_path));
+            CH378_Path_Join(ch378_current_path_sfn, argv[redirect_idx + 1], full_path, sizeof(full_path));
             status = CH378FileCreate((uint8_t*)full_path);
             if (status == ERR_SUCCESS) {
                 CH378FileClose(1);
@@ -475,7 +475,7 @@ static void CLI_Cmd_RmRecursive(const char *dir)
     /* 删除所有文件，同时记录子目录名 */
     for (i = 0; i < g_cli_entries.count; i++) {
         if (!g_cli_entries.is_dir[i]) {
-            CH378_Path_Join(ch378_current_path, g_cli_entries.names[i], full_path, sizeof(full_path));
+            CH378_Path_Join(ch378_current_path_sfn, g_cli_entries.names[i], full_path, sizeof(full_path));
             CH378FileErase((uint8_t*)full_path);
         } else {
             if (subdir_cnt < CLI_MAX_ENTRIES) {
@@ -508,7 +508,7 @@ static void CLI_Cmd_Rm(uint8_t argc, char **argv)
         char full_path[CH378_MAX_PATH_LEN];
         const char *dir = argv[2];
 
-        CH378_Path_Join(ch378_current_path, dir, full_path, sizeof(full_path));
+        CH378_Path_Join(ch378_current_path_sfn, dir, full_path, sizeof(full_path));
 
         /* 递归清空目录内所有文件（包括子目录中的文件） */
         CLI_Cmd_RmRecursive(dir);
@@ -524,7 +524,7 @@ static void CLI_Cmd_Rm(uint8_t argc, char **argv)
         }
     } else {
         char full_path[CH378_MAX_PATH_LEN];
-        CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+        CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
         if (CLI_IsShortName(argv[1])) {
             status = CH378FileErase((uint8_t*)full_path);
@@ -661,7 +661,7 @@ static void CLI_Cmd_Hexdump(uint8_t argc, char **argv)
         return;
     }
 
-    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(argv[1])) {
         status = CH378FileOpen((uint8_t*)full_path);
@@ -714,7 +714,7 @@ static void CLI_Cmd_Head(uint8_t argc, char **argv)
         if (n == 0) n = 256;
     }
 
-    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(argv[1])) {
         status = CH378FileOpen((uint8_t*)full_path);
@@ -761,7 +761,7 @@ static void CLI_Cmd_Tail(uint8_t argc, char **argv)
         if (n == 0) n = 256;
     }
 
-    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(argv[1])) {
         status = CH378FileOpen((uint8_t*)full_path);
@@ -813,8 +813,8 @@ static void CLI_Cmd_Cp(uint8_t argc, char **argv)
         return;
     }
 
-    CH378_Path_Join(ch378_current_path, argv[1], src_path, sizeof(src_path));
-    CH378_Path_Join(ch378_current_path, argv[2], dst_path, sizeof(dst_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], src_path, sizeof(src_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[2], dst_path, sizeof(dst_path));
 
     src_lfn = !CLI_IsShortName(argv[1]);
     dst_lfn = !CLI_IsShortName(argv[2]);
@@ -1142,7 +1142,7 @@ static void CLI_Cmd_Stat(uint8_t argc, char **argv)
         return;
     }
 
-    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(argv[1])) {
         status = CH378FileOpen((uint8_t*)full_path);
@@ -1214,7 +1214,7 @@ static void CLI_Cmd_Mv(uint8_t argc, char **argv)
         return;
     }
 
-    CH378_Path_Join(ch378_current_path, argv[1], src_path, sizeof(src_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], src_path, sizeof(src_path));
 
     /* 打开源文件/目录 */
     status = CH378FileOpen((uint8_t*)src_path);
@@ -1283,7 +1283,7 @@ static void CLI_Cmd_Chmod(uint8_t argc, char **argv)
 
     attr = (uint8_t)strtol(argv[2], NULL, 16);
 
-    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(argv[1])) {
         status = CH378FileOpen((uint8_t*)full_path);
@@ -1321,7 +1321,7 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
     /* 停止当前播放 */
     Audio_PlayStop();
 
-    CH378_Path_Join(ch378_current_path, argv[1], full_path, sizeof(full_path));
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     /* 打开文件（支持长文件名，逻辑同 cat） */
     if (CLI_IsShortName(argv[1])) {
