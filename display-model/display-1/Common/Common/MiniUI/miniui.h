@@ -46,6 +46,7 @@ extern "C" {
 void UI_Init(void);
 void UI_Tick(void);
 void UI_FullRefresh(void);
+uint32_t ui_get_real_ms(void);
 
 #ifdef __cplusplus
 }

@@ -280,9 +280,8 @@ void SSD1963_Init(void)
     SSD1963_WriteCmd(SSD1963_SET_GPIO_VALUE);
     SSD1963_WriteData(0x01);   /* GPIO0 = 1 */
 
-    /* 15. Configure PWM backlight */
-    printf("[SSD1963_Init] configure backlight\r\n");
-    SSD1963_SetBacklight(140);   /* 100% duty for maximum brightness */
+    /* 15. PWM backlight configured by settings module after init */
+    printf("[SSD1963_Init] backlight will be set by settings_init()\r\n");
 
     /* 16. Communication self-test */
     SSD1963_SelfTest();

@@ -7,6 +7,7 @@
 ********************************************************************************/
 #include "miniui.h"
 #include "debug.h"
+#include "../settings.h"
 #include "../UI/ui_main.h"
 #include "../UI/ui_home.h"
 #include "../UI/ui_apps.h"
@@ -19,7 +20,25 @@
 #include "../SSD1963/ssd1963.h"
 #include "../SSD1963/lcd_config.h"
 
-#define UI_TICK_MS  33
+#define UI_TICK_MS  10
+
+/* Cycle-to-millisecond conversion for real-time measurements */
+static uint32_t s_cycles_per_ms = 0;
+
+/*=============================================================================
+ *  Real-Time Millisecond Counter (via RISC-V mcycle CSR)
+ *=============================================================================*/
+
+static void ui_cycle_timer_init(void)
+{
+    s_cycles_per_ms = SystemCoreClock / 1000;
+    if (s_cycles_per_ms == 0) s_cycles_per_ms = 400000;
+}
+
+uint32_t ui_get_real_ms(void)
+{
+    return __get_UCYCLE() / s_cycles_per_ms;
+}
 
 /*=============================================================================
  *  UI System Initialization
@@ -38,6 +57,9 @@ void UI_Init(void)
     printf("[UI_Init] -> SSD1963_Init()\r\n");
     SSD1963_Init();
 
+    printf("[UI_Init] -> settings_init()\r\n");
+    settings_init();
+
     printf("[UI_Init] -> ui_render_init()\r\n");
     ui_render_init();
     printf("[UI_Init] -> ui_page_init()\r\n");
@@ -46,6 +68,9 @@ void UI_Init(void)
     ui_input_init();
     printf("[UI_Init] -> ui_anim_init()\r\n");
     ui_anim_init();
+
+    printf("[UI_Init] -> ui_cycle_timer_init()\r\n");
+    ui_cycle_timer_init();
 
     ui_page_set_sidebar_callbacks(ui_main_draw_sidebar, ui_main_handle_event);
     ui_page_set_sidebar_width(SIDEBAR_WIDTH);
@@ -162,6 +187,13 @@ void UI_Tick(void)
     }
 
     ui_anim_tick(UI_TICK_MS);
+
+    /* Auto-refresh game pages every frame */
+    ui_page_t *draw_page = ui_page_current();
+    if (draw_page && (draw_page->flags & UI_PAGE_FLAG_GAME)) {
+        ui_page_invalidate_all();
+    }
+
     ui_page_draw();
 }
 

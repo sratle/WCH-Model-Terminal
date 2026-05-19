@@ -272,7 +272,9 @@ lcd/
 │   │   │   ├── game_tetris.c/h (新增) 俄罗斯方块游戏
 │   │   │   ├── game_2048.c/h   (新增) 2048 游戏
 │   │   │   ├── game_snake.c/h  (新增) 贪吃蛇游戏
-│   │   │   └── game_breakout.c/h (新增) 打砖块游戏
+│   │   │   ├── game_breakout.c/h (新增) 打砖块游戏
+│   │   │   ├── game_airplane.c/h (新增) 飞机大战
+│   │   │   └── game_touchball.c/h (新增) Touch Ball
 │   │   ├── Apps/               (新增目录) 系统应用UI（每个应用为独立页面，通过UART与核心模块交互）
 │   │   │   ├── app_music.c/h       (新增) 音乐播放：播放控制、进度条、播放列表
 │   │   │   ├── app_file.c/h        (新增) 文件管理：目录浏览、文件列表、操作菜单
@@ -343,6 +345,8 @@ lcd/
 | `Common/Common/Games/game_2048.c/h` | 2048 游戏：网格逻辑、数字方块渲染、滑动合并、分数计算。 |
 | `Common/Common/Games/game_snake.c/h` | 贪吃蛇：蛇身移动、食物生成、碰撞检测、分数计算。 |
 | `Common/Common/Games/game_breakout.c/h` | 打砖块：挡板控制、球体物理、砖块消除、关卡管理。 |
+| `Common/Common/Games/game_airplane.c/h` | 飞机大战：玩家操控飞机击打敌机躲避子弹获取分数。 |
+| `Common/Common/Games/game_touchball.c/h` | Touch Ball：点击飞行小球扣除血量获取分数，显示帧率。 |
 | `Common/Common/Apps/app_music.c/h` | 音乐播放UI：播放/暂停/切歌控制、进度条、音量调节、播放列表。 |
 | `Common/Common/Apps/app_file.c/h` | 文件管理UI：目录浏览、文件列表、新建/删除/重命名操作。 |
 | `Common/Common/Apps/app_editor.c/h` | 文档编辑UI：文本输入区、简单排版、保存/打开。 |
@@ -476,6 +480,8 @@ lcd/
 | 2048 | `LV_SYMBOL_PLAY` | 2048 数字合成，滑动手势控制 |
 | Snake | `LV_SYMBOL_PLAY` | 贪吃蛇，触屏方向键控制 |
 | Breakout | `LV_SYMBOL_PLAY` | 打砖块，触屏滑动控制挡板 |
+| Airplane | `LV_SYMBOL_UP` | 飞机大战，触屏/键盘操控飞机击打敌机躲避子弹 |
+| Touch Ball | `LV_SYMBOL_OK` | 点击飞行小球扣除血量获取分数，显示帧率 |
 
 游戏界面为全屏或接近全屏，通过内容区顶部返回按钮回到应用列表。
 
@@ -576,6 +582,8 @@ lcd/
 | `game_2048.c/h` | 2048 游戏逻辑和渲染 |
 | `game_snake.c/h` | 贪吃蛇游戏逻辑和渲染 |
 | `game_breakout.c/h` | 打砖块游戏逻辑和渲染 |
+| `game_airplane.c/h` | 飞机大战游戏逻辑和渲染 |
+| `game_touchball.c/h` | Touch Ball 游戏逻辑和渲染 |
 
 ## 九、实施步骤概要
 

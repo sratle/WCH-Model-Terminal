@@ -125,6 +125,7 @@ typedef struct ui_page ui_page_t;
 /* Page flags */
 #define UI_PAGE_FLAG_FULLSCREEN    (1 << 0)
 #define UI_PAGE_FLAG_HAS_BACK      (1 << 1)
+#define UI_PAGE_FLAG_GAME          (1 << 2)  /* Auto-invalidate every frame for games */
 
 /*=============================================================================
  *  Animation Type (Forward Declaration)

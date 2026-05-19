@@ -6,7 +6,7 @@
 #define TOUCH_X_RESOLUTION  800
 #define TOUCH_Y_RESOLUTION  480
 #define TOUCH_MAX_POINTS    5
-#define TOUCH_DEBOUNCE_FRAMES  3
+#define TOUCH_DEBOUNCE_FRAMES  20
 
 static bool s_touch_initialized = false;
 static bool s_last_pressed = false;

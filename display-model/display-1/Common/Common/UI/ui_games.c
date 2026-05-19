@@ -9,6 +9,8 @@
 #include "ui_games.h"
 #include "ui_main.h"
 #include "../Games/games.h"
+#include "../Games/game_airplane.h"
+#include "../Games/game_touchball.h"
 
 /*=============================================================================
  *  Game Grid Configuration
@@ -21,7 +23,7 @@
 #define GAME_BTN_GAP_X       20
 #define GAME_BTN_GAP_Y       16
 #define GAME_GRID_TOP        70
-#define GAME_TOTAL           4
+#define GAME_TOTAL           6
 
 /*=============================================================================
  *  Game Entry Data
@@ -36,10 +38,12 @@ typedef struct {
 } game_entry_t;
 
 static const game_entry_t s_games[GAME_TOTAL] = {
-    {"Tetris",   icon_shuffle_16_bitmap,  ICON_SHUFFLE_16_WIDTH,  ICON_SHUFFLE_16_HEIGHT,  game_tetris_get_page},
-    {"2048",     icon_copy_16_bitmap,     ICON_COPY_16_WIDTH,     ICON_COPY_16_HEIGHT,     game_2048_get_page},
-    {"Snake",    icon_loop_16_bitmap,     ICON_LOOP_16_WIDTH,     ICON_LOOP_16_HEIGHT,     game_snake_get_page},
-    {"Breakout", icon_play_16_bitmap,     ICON_PLAY_16_WIDTH,     ICON_PLAY_16_HEIGHT,     game_breakout_get_page},
+    {"Tetris",     icon_shuffle_16_bitmap,  ICON_SHUFFLE_16_WIDTH,  ICON_SHUFFLE_16_HEIGHT,  game_tetris_get_page},
+    {"2048",       icon_copy_16_bitmap,     ICON_COPY_16_WIDTH,     ICON_COPY_16_HEIGHT,     game_2048_get_page},
+    {"Snake",      icon_loop_16_bitmap,     ICON_LOOP_16_WIDTH,     ICON_LOOP_16_HEIGHT,     game_snake_get_page},
+    {"Breakout",   icon_play_16_bitmap,     ICON_PLAY_16_WIDTH,     ICON_PLAY_16_HEIGHT,     game_breakout_get_page},
+    {"Airplane",   icon_up_16_bitmap,       ICON_UP_16_WIDTH,       ICON_UP_16_HEIGHT,       game_airplane_get_page},
+    {"Touch Ball", icon_ok_16_bitmap,       ICON_OK_16_WIDTH,       ICON_OK_16_HEIGHT,       game_touchball_get_page},
 };
 
 /*=============================================================================

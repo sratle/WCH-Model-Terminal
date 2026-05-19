@@ -282,9 +282,6 @@ void SOFT8080_Clear(uint16_t color)
         SOFT8080_SetData(color);
         WR_LOW(); /* WR low  */
         __NOP();
-        // __NOP(); __NOP(); __NOP(); __NOP();
-        // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
         WR_HIGH();   /* WR high */
     }
 

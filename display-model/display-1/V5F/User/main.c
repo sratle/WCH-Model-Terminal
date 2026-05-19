@@ -52,5 +52,7 @@ int main(void)
 	{
 		Touch_Scan();
 		UI_Tick();
+		// 1ms delay是必须的，如果不加这个，容易出现触摸更新过快的问题
+		Delay_Ms(1);
 	}
 }

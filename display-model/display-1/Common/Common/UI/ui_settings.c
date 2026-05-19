@@ -9,6 +9,7 @@
 #include "ui_settings.h"
 #include "ui_main.h"
 #include "../SSD1963/ssd1963.h"
+#include "../settings.h"
 
 /*=============================================================================
  *  Settings Item Configuration
@@ -43,7 +44,8 @@ static ui_widget_t *s_settings_widgets[5];
 static void brightness_change(ui_widget_t *w, int16_t value)
 {
     (void)w;
-    SSD1963_SetBacklight((uint8_t)value);
+    g_settings.backlight = (uint8_t)value;
+    SSD1963_SetBacklight(g_settings.backlight);
 }
 
 static void volume_change(ui_widget_t *w, int16_t value)
@@ -96,7 +98,7 @@ void ui_settings_init(void)
     ui_rect_t item_rect = {cx, item_y, item_w, SETTINGS_ITEM_H};
     ui_list_item_init(&item_brightness, &item_rect, "Brightness", &font_montserrat_12);
     ui_rect_t sl_rect = {cx + item_w - 160, item_y + 15, 150, 20};
-    ui_slider_init(&slider_brightness, &sl_rect, 50, 150, 100);
+    ui_slider_init(&slider_brightness, &sl_rect, 50, 150, (int16_t)g_settings.backlight);
     ui_slider_set_callback(&slider_brightness, brightness_change);
     ui_list_item_set_control(&item_brightness, (ui_widget_t *)&slider_brightness);
 
