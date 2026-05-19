@@ -6,12 +6,14 @@
 #define TOUCH_X_RESOLUTION  800
 #define TOUCH_Y_RESOLUTION  480
 #define TOUCH_MAX_POINTS    5
-#define TOUCH_DEBOUNCE_FRAMES  20
+#define TOUCH_DEBOUNCE_FRAMES  10
+#define TOUCH_SCAN_DIVIDER      2       /* Scan touch every N frames */
 
 static bool s_touch_initialized = false;
 static bool s_last_pressed = false;
 static Touch_Point_t s_last_point = {0, 0, false};
 static uint8_t s_debounce_counter = 0;
+static uint8_t s_scan_counter = 0;
 
 void Touch_Init(void)
 {
@@ -38,6 +40,11 @@ void Touch_Init(void)
 void Touch_Scan(void)
 {
     if (!s_touch_initialized) return;
+
+    /* Only perform I2C read every TOUCH_SCAN_DIVIDER frames to reduce overhead */
+    s_scan_counter++;
+    if (s_scan_counter < TOUCH_SCAN_DIVIDER) return;
+    s_scan_counter = 0;
 
     GT911_TouchPoint_t points[TOUCH_MAX_POINTS];
     uint8_t touch_count = 0;

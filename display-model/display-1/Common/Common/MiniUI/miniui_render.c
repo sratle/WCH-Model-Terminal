@@ -222,11 +222,7 @@ void ui_draw_hline(int16_t x, int16_t y, int16_t w, ui_color_t color)
     if (len <= 0) return;
 
     gram_set_window(x1, y, x2 - 1, y);
-
-    for (int16_t i = 0; i < len; i++) {
-        g_line_buf[i] = color;
-    }
-    s_driver.write_buffer(g_line_buf, (uint32_t)len);
+    SSD1963_FillColor((uint32_t)len, color);
     g_gram_x = x2;
     g_gram_y = y;
 }
@@ -242,9 +238,7 @@ void ui_draw_vline(int16_t x, int16_t y, int16_t h, ui_color_t color)
     if (len <= 0) return;
 
     gram_set_window(x, y1, x, y2 - 1);
-    while (len--) {
-        s_driver.write_data16(color);
-    }
+    SSD1963_FillColor((uint32_t)len, color);
     g_gram_x = x + 1;
     g_gram_y = y2 - 1;
 }
@@ -276,16 +270,8 @@ void ui_draw_fill_rect(const ui_rect_t *rect, ui_color_t color)
     if (!rect_intersect(rect, &g_clip_rect, &r)) return;
     if (r.w <= 0 || r.h <= 0) return;
 
-    for (int16_t i = 0; i < r.w; i++) {
-        g_line_buf[i] = color;
-    }
-
     gram_set_window(r.x, r.y, r.x + r.w - 1, r.y + r.h - 1);
-
-    uint32_t row_count = (uint32_t)r.h;
-    while (row_count--) {
-        s_driver.write_buffer(g_line_buf, (uint32_t)r.w);
-    }
+    SSD1963_FillColor((uint32_t)r.w * (uint32_t)r.h, color);
     g_gram_x = r.x + r.w;
     g_gram_y = r.y + r.h - 1;
 }

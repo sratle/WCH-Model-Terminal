@@ -95,29 +95,17 @@ void FMC_Driver_Init(void)
     GPIO_PinAFConfig(GPIOE, GPIO_PinSource14, GPIO_AF12);
     GPIO_PinAFConfig(GPIOE, GPIO_PinSource15, GPIO_AF12);
 
-    /*-------------------------------------------------------------------------
-     *  FMC NORSRAM Timing
-     *  Values taken from the verified CH32H417 ATK-MD0280 example.
-     *  User confirmed HCLK = 100MHz (1 cycle = 10ns).
-     *  Read cycle: ~150ns address + 150ns data = 300ns+ (very safe).
-     *  Write cycle: ~30ns data setup (may be tight; increase to 0x05 if unstable).
-     *------------------------------------------------------------------------*/
-    readWriteTiming.FMC_AddressSetupTime = 0x0F;
-    readWriteTiming.FMC_AddressHoldTime = 0x03;
-    readWriteTiming.FMC_DataSetupTime = 0x0F;
+    readWriteTiming.FMC_AddressSetupTime = 0x0;
+    readWriteTiming.FMC_AddressHoldTime = 0x00;
+    readWriteTiming.FMC_DataSetupTime = 0x01;
     readWriteTiming.FMC_BusTurnAroundDuration = 0x00;
     readWriteTiming.FMC_CLKDivision = 0x00;
     readWriteTiming.FMC_DataLatency = 0x00;
     readWriteTiming.FMC_AccessMode = FMC_AccessMode_A;
 
-    /* Write timing aligned with WCH official ATK-MD0280 example (lcd.c):
-     *  ADDSET=0x00, DATAST=0x03, BUSTURN=0x00 => 5 HCLK cycles per write
-     *  At 100MHz HCLK: 50ns per write, ~19ms for full 800x480 fill.
-     *  SSD1963 8080 spec: t_PWLW min 12ns, t_AS min 1ns, t_AH min 2ns.
-     *  All comfortably met at 50ns cycle time. */
     writeTiming.FMC_AddressSetupTime = 0x00;
     writeTiming.FMC_AddressHoldTime = 0x00;
-    writeTiming.FMC_DataSetupTime = 0x03;
+    writeTiming.FMC_DataSetupTime = 0x01;
     writeTiming.FMC_BusTurnAroundDuration = 0x00;
     writeTiming.FMC_AccessMode = FMC_AccessMode_A;
 

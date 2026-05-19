@@ -102,16 +102,18 @@ void SSD1963_WriteBuffer(const uint16_t *buf, uint32_t len)
     }
 }
 
+void SSD1963_FillColor(uint32_t count, uint16_t color)
+{
+    volatile uint16_t *data_reg = &SSD1963_DATA;
+    while (count--) {
+        *data_reg = color;
+    }
+}
+
 void SSD1963_Clear(uint16_t color)
 {
-    uint32_t i;
-    uint32_t total = (uint32_t)800 * 480;
-
     SSD1963_SetWindow(0, 0, 800 - 1, 480 - 1);
-
-    for (i = 0; i < total; i++) {
-        SSD1963_DATA = color;
-    }
+    SSD1963_FillColor((uint32_t)800 * 480, color);
 }
 
 /*=============================================================================
@@ -186,17 +188,6 @@ void SSD1963_Init(void)
     SSD1963_WriteCmd(SSD1963_SET_PLL);
     SSD1963_WriteData(0x03);
     Delay_Ms(12);
-
-    /* 5a. Verify PLL lock status (0xE4, bit2 = 1 when locked) */
-    {
-        uint16_t pll = SSD1963_ReadReg(SSD1963_GET_PLL_STATUS);
-        printf("[SSD1963_Init] PLL status (0xE4) = 0x%04X ", pll);
-        if ((pll & 0x0004) == 0) {
-            printf("[FAIL: PLL not locked]\r\n");
-        } else {
-            printf("[OK]\r\n");
-        }
-    }
 
     /* 6. Software reset after PLL lock */
     SSD1963_WriteCmd(SSD1963_SOFT_RESET);
@@ -279,22 +270,7 @@ void SSD1963_Init(void)
     SSD1963_WriteCmd(SSD1963_EXIT_SLEEP_MODE);
     Delay_Ms(10);
     SSD1963_WriteCmd(SSD1963_SET_DISPLAY_ON);
-
-    /* 12a. Verify power mode (0x0A)
-     *      Datasheet: D7=0, D6=A6(Idle), D5=A5(Partial), D4=A4(Sleep),
-     *                 D3=A3(Normal), D2=A2(Display), D1=0, D0=0.
-     *      Expected: A4=1(SleepOut) | A3=1(NormalOn) | A2=1(DisplayOn) = 0x1C
-     */
-    {
-        uint16_t pwr = SSD1963_ReadReg(SSD1963_GET_POWER_MODE);
-        printf("[SSD1963_Init] Power mode (0x0A) = 0x%04X ", pwr);
-        if ((pwr & 0x00FF) == 0x1C) {
-            printf("[OK]\r\n");
-        } else {
-            printf("[WARN: expected 0x1C]\r\n");
-        }
-    }
-
+    
     /* 13. Disable deep sleep */
     SSD1963_WriteCmd(SSD1963_SET_DEEP_SLEEP);
     SSD1963_WriteData(0x00);
