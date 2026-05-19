@@ -931,6 +931,19 @@ void CH378_Path_Join(const char *base, const char *name, char *out, uint16_t out
     }
 }
 
+/* 不区分大小写的字符串比较 */
+static uint8_t StrCaseEq(const char *a, const char *b)
+{
+    while (*a && *b) {
+        char ca = *a++;
+        char cb = *b++;
+        if (ca >= 'a' && ca <= 'z') ca -= 32;
+        if (cb >= 'a' && cb <= 'z') cb -= 32;
+        if (ca != cb) return 0;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
 /* 在当前目录（ch378_current_path_sfn）中查找指定长文件名对应的短文件名。
  * 采用两步法：先枚举收集所有短文件名，再逐个打开获取 LFN 进行匹配，
  * 避免在枚举过程中打开文件导致枚举状态被破坏。 */
@@ -998,11 +1011,18 @@ static uint8_t CH378_Find_SFN_By_LFN(const char *lfn_target, char *sfn_out, uint
                     }
                     lfn_ascii[j] = '\0';
 
-                    if (strcmp(lfn_ascii, lfn_target) == 0) {
+                    if (StrCaseEq(lfn_ascii, lfn_target)) {
                         strncpy(sfn_out, entries[i], sfn_out_len - 1);
                         sfn_out[sfn_out_len - 1] = '\0';
                         found = 1;
                     }
+                }
+            } else {
+                /* 没有 LFN（纯短文件名），直接比较短文件名 */
+                if (StrCaseEq(entries[i], lfn_target)) {
+                    strncpy(sfn_out, entries[i], sfn_out_len - 1);
+                    sfn_out[sfn_out_len - 1] = '\0';
+                    found = 1;
                 }
             }
             CH378FileClose(0);
