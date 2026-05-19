@@ -8,7 +8,7 @@
 *                      Timing values derived from verified CH32H417 example.
 ********************************************************************************/
 #include "ssd1963.h"
-#include "../FMC/soft_8080.h"
+#include "../FMC/fmc_driver.h"
 #include "ch32h417_gpio.h"
 #include "ch32h417_rcc.h"
 #include "debug.h"
@@ -37,40 +37,80 @@
 #define SSD_VPS (SSD_VER_BACK_PORCH)
 
 /*=============================================================================
- *  Low-Level Access (forward to SOFT8080)
+ *  Low-Level Access (via FMC 8080)
+ *  FMC Bank1 NORSRAM1: CMD @ 0x60000000, DATA @ 0x60000004
+ *  Writing to CMD_ADDR asserts RS=0 (command phase).
+ *  Writing to DATA_ADDR asserts RS=1 (data phase).
+ *  FMC auto-generates WR/CS timing, no manual GPIO toggling needed.
  *=============================================================================*/
-void SSD1963_WriteCmd(uint16_t cmd)   { SOFT8080_WriteCmd(cmd); }
-void SSD1963_WriteData(uint16_t data) { SOFT8080_WriteData(data); }
-uint16_t SSD1963_ReadData(void)       { return SOFT8080_ReadData(); }
-void SSD1963_WriteReg(uint16_t reg, uint16_t val) { SOFT8080_WriteReg(reg, val); }
-uint16_t SSD1963_ReadReg(uint16_t reg)            { return SOFT8080_ReadReg(reg); }
+void SSD1963_WriteCmd(uint16_t cmd)   { SSD1963_CMD = cmd; }
+void SSD1963_WriteData(uint16_t data) { SSD1963_DATA = data; }
+
+uint16_t SSD1963_ReadData(void)
+{
+    return SSD1963_DATA;
+}
+
+void SSD1963_WriteReg(uint16_t reg, uint16_t val)
+{
+    SSD1963_CMD = reg;
+    SSD1963_DATA = val;
+}
+
+uint16_t SSD1963_ReadReg(uint16_t reg)
+{
+    SSD1963_CMD = reg;
+    __NOP();
+    return SSD1963_ReadData();
+}
 
 /*=============================================================================
- *  Window and GRAM Access (forward to SOFT8080)
+ *  Window and GRAM Access (via FMC 8080)
  *=============================================================================*/
 void SSD1963_SetWindow(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
 {
-    SOFT8080_SetWindow(x1, y1, x2, y2);
+    SSD1963_CMD = 0x2A;
+    SSD1963_DATA = (x1 >> 8) & 0xFF;
+    SSD1963_DATA = x1 & 0xFF;
+    SSD1963_DATA = (x2 >> 8) & 0xFF;
+    SSD1963_DATA = x2 & 0xFF;
+
+    SSD1963_CMD = 0x2B;
+    SSD1963_DATA = (y1 >> 8) & 0xFF;
+    SSD1963_DATA = y1 & 0xFF;
+    SSD1963_DATA = (y2 >> 8) & 0xFF;
+    SSD1963_DATA = y2 & 0xFF;
+
+    SSD1963_CMD = 0x2C;
 }
 
 void SSD1963_WriteData16(uint16_t data)
 {
-    SOFT8080_WriteData16(data);
+    SSD1963_DATA = data;
 }
 
 void SSD1963_WriteData16Fast(uint16_t data)
 {
-    SOFT8080_WriteData16Fast(data);
+    SSD1963_DATA = data;
 }
 
 void SSD1963_WriteBuffer(const uint16_t *buf, uint32_t len)
 {
-    SOFT8080_WriteBuffer(buf, len);
+    while (len--) {
+        SSD1963_DATA = *buf++;
+    }
 }
 
 void SSD1963_Clear(uint16_t color)
 {
-    SOFT8080_Clear(color);
+    uint32_t i;
+    uint32_t total = (uint32_t)800 * 480;
+
+    SSD1963_SetWindow(0, 0, 800 - 1, 480 - 1);
+
+    for (i = 0; i < total; i++) {
+        SSD1963_DATA = color;
+    }
 }
 
 /*=============================================================================
@@ -110,26 +150,15 @@ void SSD1963_Init(void)
 {
     printf("[SSD1963_Init] start\r\n");
 
-    /* 1. Initialize PA0 (SSD1963 RESET) since FMC_Driver_Init is no longer called */
-    {
-        GPIO_InitTypeDef gpio = {0};
-        RCC_HB2PeriphClockCmd(RCC_HB2Periph_GPIOA, ENABLE);
-        gpio.GPIO_Pin = GPIO_Pin_0;
-        gpio.GPIO_Mode = GPIO_Mode_Out_PP;
-        gpio.GPIO_Speed = GPIO_Speed_Very_High;
-        GPIO_Init(GPIOA, &gpio);
-        GPIO_SetBits(GPIOA, GPIO_Pin_0);
-    }
+    /* 1. Initialize FMC Bank1 NORSRAM 8080 interface (also inits PA0 RESET pin) */
+    FMC_Driver_Init();
 
-    /* 1a. Hardware reset */
+    /* 1a. Hardware reset SSD1963 via PA0 */
     printf("[SSD1963_Init] hardware reset\r\n");
     GPIO_ResetBits(GPIOA, GPIO_Pin_0);
     Delay_Ms(10);
     GPIO_SetBits(GPIOA, GPIO_Pin_0);
     Delay_Ms(5);
-
-    /* 1b. Initialize software 8080 GPIO interface */
-    SOFT8080_Init();
 
     /* 2. Software reset */
     SSD1963_WriteCmd(SSD1963_SOFT_RESET);
