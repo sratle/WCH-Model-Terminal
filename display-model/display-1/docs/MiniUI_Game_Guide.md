@@ -127,6 +127,8 @@ if (s_tb.need_full_redraw) {
 
 **坑**：不要使用 `ui_screen_clear` 清屏——它会用白色填充整个屏幕（包括 sidebar 区域），导致 sidebar 文字被覆盖。`ui_page_invalidate_all()` 已足够触发完整重绘。
 
+**坑**：游戏 `on_draw` 中如果调用了 `ui_render_set_clip`，必须在函数结束前调用 `ui_render_reset_clip()`。否则 clip 状态残留，下一帧 `ui_page_draw` 绘制 sidebar 和标题栏时会被裁剪掉，导致残留内容无法被覆盖。
+
 ---
 
 ## 4. 触摸事件

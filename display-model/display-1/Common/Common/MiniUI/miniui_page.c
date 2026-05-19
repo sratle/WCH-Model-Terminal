@@ -253,6 +253,7 @@ void ui_page_draw(void)
         }
         if (sidebar_dirty) {
             ui_rect_t full_sidebar = {0, 0, s_sidebar_width, UI_SCREEN_HEIGHT};
+            ui_render_set_clip(&full_sidebar);
             s_sidebar_draw(&full_sidebar);
         }
     }

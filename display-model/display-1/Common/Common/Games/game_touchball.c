@@ -663,6 +663,7 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
 
     /* Clear dirty list after processing */
     ui_page_clear_dirty();
+    ui_render_reset_clip();
 }
 
 /*=============================================================================
