@@ -585,6 +585,14 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
         ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
         ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
 
+        /* Draw widgets (back button, title label) on title bar */
+        ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
+        for (uint16_t j = 0; j < page->widget_count; j++) {
+            if (page->widgets[j]) {
+                ui_widget_draw(page->widgets[j], &full);
+            }
+        }
+
         /* Game area background */
         ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
                           UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
@@ -606,28 +614,37 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
     }
 
     /* Partial redraw: only redraw the dirty regions we marked */
+    /* First pass: erase all dirty regions with background */
     for (uint8_t i = 0; i < dl->count; i++) {
         const ui_rect_t *d = &dl->regions[i];
-
-        /* Skip title bar area (handled by widgets) */
         if (d->y + d->h <= APP_TITLE_BAR_H) continue;
 
-        /* Clip to game area */
         ui_rect_t clip = *d;
         if (clip.y < APP_TITLE_BAR_H) {
             clip.h -= (APP_TITLE_BAR_H - clip.y);
             clip.y = APP_TITLE_BAR_H;
         }
-
         if (clip.w <= 0 || clip.h <= 0) continue;
 
-        /* Set clip region so circle drawing is properly clipped */
-        ui_render_set_clip(&clip);
-
-        /* Erase with background */
         ui_draw_fill_rect(&clip, UI_COLOR_BG_MAIN);
+    }
 
-        /* Redraw balls that overlap this region */
+    /* Second pass: redraw balls without clip (so they draw completely).
+     * Balls may slightly exceed dirty regions, but that's fine since
+     * the background was already erased in the first pass. */
+    ui_render_reset_clip();
+
+    for (uint8_t i = 0; i < dl->count; i++) {
+        const ui_rect_t *d = &dl->regions[i];
+        if (d->y + d->h <= APP_TITLE_BAR_H) continue;
+
+        ui_rect_t clip = *d;
+        if (clip.y < APP_TITLE_BAR_H) {
+            clip.h -= (APP_TITLE_BAR_H - clip.y);
+            clip.y = APP_TITLE_BAR_H;
+        }
+        if (clip.w <= 0 || clip.h <= 0) continue;
+
         tb_draw_balls_in_rect(&clip);
 
         /* Redraw HUD if it overlaps */
@@ -641,9 +658,6 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
             tb_draw_gameover();
         }
     }
-
-    /* Reset clip to full screen */
-    ui_render_reset_clip();
 
     /* Clear dirty list after processing */
     ui_page_clear_dirty();

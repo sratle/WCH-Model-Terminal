@@ -48,12 +48,32 @@ int main(void)
 	HSEM_ReleaseOneSem(HSEM_ID0, 0);
 
 	Hardware_V5F_Init();
-	
+
+	/* Frame rate limiter: target 60 FPS (16.67ms per frame) */
+	uint32_t cycles_per_ms = SystemCoreClock / 1000;
+	uint32_t frame_cycles = cycles_per_ms * 16;  /* ~16ms = 60fps */
+	uint32_t last_frame = __get_UCYCLE();
+
 	while(1)
 	{
 		Touch_Scan();
 		UI_Tick();
-		// 请勿删除这一个延时！！！
-		Delay_Ms(1);
+
+		/* Frame rate limiting to ~60 FPS */
+		uint32_t now = __get_UCYCLE();
+		uint32_t elapsed = now - last_frame;
+
+		if (elapsed < frame_cycles) {
+			/* Frame finished early, delay to hit 60fps */
+			uint32_t remaining_ms = (frame_cycles - elapsed) / cycles_per_ms;
+			if (remaining_ms > 0) {
+				Delay_Ms(remaining_ms);
+			}
+		} else {
+			/* Frame took longer than 16ms, just delay 1ms minimum */
+			Delay_Ms(1);
+		}
+
+		last_frame = __get_UCYCLE();
 	}
 }
