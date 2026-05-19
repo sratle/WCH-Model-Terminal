@@ -105,7 +105,19 @@ void SSD1963_WriteBuffer(const uint16_t *buf, uint32_t len)
 void SSD1963_FillColor(uint32_t count, uint16_t color)
 {
     volatile uint16_t *data_reg = &SSD1963_DATA;
-    while (count--) {
+    uint32_t count8 = count / 8;
+    uint32_t rem = count % 8;
+    while (count8--) {
+        *data_reg = color;
+        *data_reg = color;
+        *data_reg = color;
+        *data_reg = color;
+        *data_reg = color;
+        *data_reg = color;
+        *data_reg = color;
+        *data_reg = color;
+    }
+    while (rem--) {
         *data_reg = color;
     }
 }

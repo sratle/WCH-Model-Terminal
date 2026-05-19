@@ -25,6 +25,7 @@
 
 #include "debug.h"
 #include "hardware.h"
+#include "../Common/SSD1963/ssd1963.h"
 
 /*********************************************************************
  * @fn      main
@@ -47,11 +48,12 @@ int main(void)
 	HSEM_ReleaseOneSem(HSEM_ID0, 0);
 
 	Hardware_V5F_Init();
-
+	
 	while(1)
 	{
 		Touch_Scan();
 		UI_Tick();
+		// 请勿删除这一个延时！！！
 		Delay_Ms(1);
 	}
 }

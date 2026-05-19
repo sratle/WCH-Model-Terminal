@@ -217,6 +217,16 @@ void ui_page_invalidate_all(void)
     s_dirty_list.count = 1;
 }
 
+const ui_dirty_list_t *ui_page_get_dirty_list(void)
+{
+    return &s_dirty_list;
+}
+
+void ui_page_clear_dirty(void)
+{
+    s_dirty_list.count = 0;
+}
+
 /*=============================================================================
  *  Page Drawing
  *=============================================================================*/

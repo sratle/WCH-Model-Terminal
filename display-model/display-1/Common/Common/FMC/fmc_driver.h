@@ -36,5 +36,4 @@ void FMC_Driver_Init(void);
 #ifdef __cplusplus
 }
 #endif
-
 #endif /* __FMC_DRIVER_H */

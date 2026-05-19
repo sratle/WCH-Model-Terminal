@@ -62,6 +62,8 @@ bool ui_page_can_go_back(void);
 ui_page_t* ui_page_current(void);
 void ui_page_invalidate(const ui_rect_t *rect);
 void ui_page_invalidate_all(void);
+const ui_dirty_list_t *ui_page_get_dirty_list(void);
+void ui_page_clear_dirty(void);
 void ui_page_draw(void);
 
 /*=============================================================================

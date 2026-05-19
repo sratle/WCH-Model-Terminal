@@ -188,10 +188,17 @@ void UI_Tick(void)
 
     ui_anim_tick(UI_TICK_MS);
 
-    /* Auto-refresh game pages every frame */
+    /* Auto-refresh game pages: call draw callback every frame.
+     * Games manage their own dirty regions via ui_page_invalidate().
+     * We skip ui_page_draw for games since we handle drawing here. */
     ui_page_t *draw_page = ui_page_current();
     if (draw_page && (draw_page->flags & UI_PAGE_FLAG_GAME)) {
-        ui_page_invalidate_all();
+        if (draw_page->on_draw) {
+            ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
+            draw_page->on_draw(draw_page, &full);
+        }
+        /* Skip ui_page_draw - game already drew what it needed */
+        return;
     }
 
     ui_page_draw();

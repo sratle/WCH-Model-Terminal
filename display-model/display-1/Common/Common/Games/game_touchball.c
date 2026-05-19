@@ -58,6 +58,7 @@ typedef struct {
     int16_t r;
     bool active;
     ui_color_t color;
+    int16_t prev_x, prev_y;  /* Previous frame position (fixed-point) for dirty tracking */
 } tb_ball_t;
 
 typedef struct {
@@ -72,6 +73,11 @@ typedef struct {
     uint32_t fps_last_ms;
     int fps_frame_cnt;
     int fps_value;
+
+    /* Dirty tracking: which areas need redraw */
+    bool need_full_redraw;    /* State change: redraw everything */
+    bool hud_dirty;           /* Score/HP/FPS text changed */
+    bool fps_dirty;           /* FPS text only changed */
 
     /* Text buffers for HUD */
     char buf_score[16];
@@ -88,6 +94,37 @@ static ui_app_page_t s_game_touchball;
 static ui_widget_t s_touch_area;
 static ui_widget_t *s_tb_widgets[3];
 static tb_state_t s_tb;
+
+/*=============================================================================
+ *  Dirty Region Helpers
+ *=============================================================================*/
+
+/* Mark a ball's bounding box as dirty (with margin for highlight circle) */
+static void tb_invalidate_ball(int16_t bx, int16_t by, int16_t r)
+{
+    int16_t margin = r + r / 3 + 2;  /* ball + highlight radius + padding */
+    ui_rect_t rect = {
+        TB_AREA_X + bx - margin,
+        TB_AREA_Y + by - margin,
+        margin * 2,
+        margin * 2
+    };
+    ui_page_invalidate(&rect);
+}
+
+/* Mark HUD bar as dirty */
+static void tb_invalidate_hud(void)
+{
+    ui_rect_t hud = {TB_AREA_X, TB_AREA_Y + TB_AREA_H - 32, TB_AREA_W, 32};
+    ui_page_invalidate(&hud);
+}
+
+/* Check if two rectangles overlap */
+static bool tb_rects_overlap(const ui_rect_t *a, const ui_rect_t *b)
+{
+    return (a->x < b->x + b->w && a->x + a->w > b->x &&
+            a->y < b->y + b->h && a->y + a->h > b->y);
+}
 
 /*=============================================================================
  *  Simple Integer to ASCII (no snprintf dependency)
@@ -275,6 +312,11 @@ static void tb_spawn_ball(void)
     b->r = r;
     b->active = true;
     b->color = s_ball_colors[tb_rng_range(0, TB_NUM_COLORS - 1)];
+    b->prev_x = b->x;
+    b->prev_y = b->y;
+
+    /* Mark spawn position as dirty */
+    tb_invalidate_ball(b->x >> 4, b->y >> 4, r);
 }
 
 static void tb_update(void)
@@ -294,6 +336,7 @@ static void tb_update(void)
         s_tb.fps_frame_cnt = 0;
         s_tb.fps_last_ms = now;
         tb_update_fps_text();
+        s_tb.fps_dirty = true;
     }
 
     /* Spawn timer */
@@ -303,10 +346,14 @@ static void tb_update(void)
         s_tb.spawn_timer = TB_SPAWN_INTERVAL;
     }
 
-    /* Update balls */
+    /* Update balls and mark dirty regions */
     for (int i = 0; i < TB_MAX_BALLS; i++) {
         tb_ball_t *b = &s_tb.balls[i];
         if (!b->active) continue;
+
+        /* Save old position for dirty tracking */
+        b->prev_x = b->x;
+        b->prev_y = b->y;
 
         b->x += b->vx;
         b->y += b->vy;
@@ -314,18 +361,32 @@ static void tb_update(void)
         int16_t bx = b->x >> 4;
         int16_t by = b->y >> 4;
 
-        /* Check if ball flew off screen (generous margin) */
+        /* Mark old position dirty (to erase) */
+        tb_invalidate_ball(b->prev_x >> 4, b->prev_y >> 4, b->r);
+        /* Mark new position dirty (to draw) */
+        tb_invalidate_ball(bx, by, b->r);
+
+        /* Check if ball flew off screen */
         if (bx < -b->r * 3 || bx > TB_AREA_W + b->r * 3 ||
             by < -b->r * 3 || by > TB_AREA_H + b->r * 3) {
             b->active = false;
             s_tb.hp -= TB_HP_LOSS_MISS;
+            s_tb.hud_dirty = true;
             if (s_tb.hp <= 0) {
                 s_tb.hp = 0;
                 s_tb.state = TB_STATE_GAMEOVER;
                 tb_update_gameover_text();
+                s_tb.need_full_redraw = true;
             }
             tb_update_hp_text();
         }
+    }
+
+    /* Mark HUD dirty if FPS or score/HP changed */
+    if (s_tb.fps_dirty || s_tb.hud_dirty) {
+        tb_invalidate_hud();
+        s_tb.fps_dirty = false;
+        s_tb.hud_dirty = false;
     }
 }
 
@@ -336,11 +397,13 @@ static void tb_on_press(int16_t x, int16_t y)
 
     if (s_tb.state == TB_STATE_IDLE) {
         tb_start_game();
+        s_tb.need_full_redraw = true;
         return;
     }
 
     if (s_tb.state == TB_STATE_GAMEOVER) {
         tb_start_game();
+        s_tb.need_full_redraw = true;
         return;
     }
 
@@ -360,10 +423,12 @@ static void tb_on_press(int16_t x, int16_t y)
         int32_t r_sq = (int32_t)b->r * b->r;
 
         if (dist_sq <= r_sq) {
-            /* Hit! */
+            /* Hit! Mark ball area dirty before deactivating */
+            tb_invalidate_ball(bx, by, b->r);
             b->active = false;
             s_tb.score += TB_SCORE_PER_HIT;
             tb_update_score_text();
+            s_tb.hud_dirty = true;
             break; /* Only hit one ball per tap */
         }
     }
@@ -373,16 +438,24 @@ static void tb_on_press(int16_t x, int16_t y)
  *  Drawing
  *=============================================================================*/
 
-static void tb_draw_balls(void)
+static void tb_draw_ball_at(int16_t bx, int16_t by, int16_t r, ui_color_t color)
+{
+    ui_draw_fill_circle(bx, by, r, color);
+    ui_draw_fill_circle(bx - r / 4, by - r / 4, r / 3, UI_COLOR_WHITE);
+}
+
+static void tb_draw_balls_in_rect(const ui_rect_t *clip)
 {
     for (int i = 0; i < TB_MAX_BALLS; i++) {
         tb_ball_t *b = &s_tb.balls[i];
         if (!b->active) continue;
         int16_t bx = TB_AREA_X + (b->x >> 4);
         int16_t by = TB_AREA_Y + (b->y >> 4);
-        ui_draw_fill_circle(bx, by, b->r, b->color);
-        /* White highlight for depth */
-        ui_draw_fill_circle(bx - b->r / 4, by - b->r / 4, b->r / 3, UI_COLOR_WHITE);
+        int16_t margin = b->r + b->r / 3 + 2;
+        ui_rect_t ball_rect = {bx - margin, by - margin, margin * 2, margin * 2};
+        if (tb_rects_overlap(&ball_rect, clip)) {
+            tb_draw_ball_at(bx, by, b->r, b->color);
+        }
     }
 }
 
@@ -454,23 +527,23 @@ static void tb_draw_gameover(void)
                          UI_COLOR_SECONDARY, 1);
 }
 
-static void tb_draw_game_area(void)
+static void tb_draw_game_area(const ui_rect_t *clip)
 {
-    /* Game area already cleared by tb_game_draw's full-screen fill;
-     * no need to clear again here. */
-
     switch (s_tb.state) {
         case TB_STATE_IDLE:
             tb_draw_idle_screen();
             break;
 
         case TB_STATE_PLAYING:
-            tb_draw_balls();
+            /* Erase dirty area with background, then draw balls on top */
+            ui_draw_fill_rect(clip, UI_COLOR_BG_MAIN);
+            tb_draw_balls_in_rect(clip);
             tb_draw_hud();
             break;
 
         case TB_STATE_GAMEOVER:
-            tb_draw_balls();  /* Keep last frame balls visible behind overlay */
+            ui_draw_fill_rect(clip, UI_COLOR_BG_MAIN);
+            tb_draw_balls_in_rect(clip);
             tb_draw_hud();
             tb_draw_gameover();
             break;
@@ -493,6 +566,7 @@ static void tb_game_enter(ui_page_t *page)
 {
     (void)page;
     tb_reset();
+    s_tb.need_full_redraw = true;
 }
 
 static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
@@ -500,16 +574,79 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
     (void)page;
     (void)dirty;
 
-    /* Standard title bar background (widgets will draw on top) */
-    ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-    ui_draw_fill_rect(&full, UI_COLOR_BG_MAIN);
-
-    ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
-    ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
-
-    /* Game logic + drawing */
+    /* Game logic update (marks dirty regions via ui_page_invalidate) */
     tb_update();
-    tb_draw_game_area();
+
+    /* Full redraw on state change */
+    if (s_tb.need_full_redraw) {
+        s_tb.need_full_redraw = false;
+
+        /* Title bar */
+        ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
+        ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
+
+        /* Game area background */
+        ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
+                          UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
+        ui_draw_fill_rect(&area, UI_COLOR_BG_MAIN);
+
+        tb_draw_game_area(&area);
+        ui_page_clear_dirty();
+        return;
+    }
+
+    /* No dirty regions? Nothing to redraw */
+    const ui_dirty_list_t *dl = ui_page_get_dirty_list();
+    if (dl->count == 0) return;
+
+    /* For IDLE state, no animation needed - skip partial redraw */
+    if (s_tb.state == TB_STATE_IDLE) {
+        ui_page_clear_dirty();
+        return;
+    }
+
+    /* Partial redraw: only redraw the dirty regions we marked */
+    for (uint8_t i = 0; i < dl->count; i++) {
+        const ui_rect_t *d = &dl->regions[i];
+
+        /* Skip title bar area (handled by widgets) */
+        if (d->y + d->h <= APP_TITLE_BAR_H) continue;
+
+        /* Clip to game area */
+        ui_rect_t clip = *d;
+        if (clip.y < APP_TITLE_BAR_H) {
+            clip.h -= (APP_TITLE_BAR_H - clip.y);
+            clip.y = APP_TITLE_BAR_H;
+        }
+
+        if (clip.w <= 0 || clip.h <= 0) continue;
+
+        /* Set clip region so circle drawing is properly clipped */
+        ui_render_set_clip(&clip);
+
+        /* Erase with background */
+        ui_draw_fill_rect(&clip, UI_COLOR_BG_MAIN);
+
+        /* Redraw balls that overlap this region */
+        tb_draw_balls_in_rect(&clip);
+
+        /* Redraw HUD if it overlaps */
+        ui_rect_t hud = {TB_AREA_X, TB_AREA_Y + TB_AREA_H - 32, TB_AREA_W, 32};
+        if (tb_rects_overlap(&clip, &hud)) {
+            tb_draw_hud();
+        }
+
+        /* Redraw gameover overlay if needed */
+        if (s_tb.state == TB_STATE_GAMEOVER) {
+            tb_draw_gameover();
+        }
+    }
+
+    /* Reset clip to full screen */
+    ui_render_reset_clip();
+
+    /* Clear dirty list after processing */
+    ui_page_clear_dirty();
 }
 
 /*=============================================================================
@@ -520,7 +657,9 @@ void game_touchball_init(void)
 {
     ui_app_page_init(&s_game_touchball, "Touch Ball", 0x205);
 
-    /* Mark as game page for auto frame refresh */
+    /* UI_PAGE_FLAG_GAME: enables continuous frame updates for game pages.
+     * Our draw callback manages dirty regions internally - it only redraws
+     * what changed, not the full screen. */
     s_game_touchball.page.flags |= UI_PAGE_FLAG_GAME;
 
     /* Create full-screen touch area widget to capture game-area presses */
