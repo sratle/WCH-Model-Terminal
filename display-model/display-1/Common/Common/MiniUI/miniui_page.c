@@ -130,6 +130,8 @@ void ui_page_pop(void)
     ui_page_t *prev = s_page_stack[s_stack_top];
     if (prev && prev->on_enter) prev->on_enter(prev);
 
+    /* Full invalidate to ensure previous page redraws everything,
+     * covering any content drawn by fullscreen/game pages */
     ui_page_invalidate_all();
 }
 

@@ -629,10 +629,12 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
         ui_draw_fill_rect(&clip, UI_COLOR_BG_MAIN);
     }
 
-    /* Second pass: redraw balls without clip (so they draw completely).
+    /* Second pass: redraw balls clipped to game area (below title bar).
      * Balls may slightly exceed dirty regions, but that's fine since
      * the background was already erased in the first pass. */
-    ui_render_reset_clip();
+    ui_rect_t game_area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
+                           UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
+    ui_render_set_clip(&game_area);
 
     for (uint8_t i = 0; i < dl->count; i++) {
         const ui_rect_t *d = &dl->regions[i];

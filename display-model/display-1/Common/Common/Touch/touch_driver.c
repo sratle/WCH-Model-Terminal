@@ -7,7 +7,7 @@
 #define TOUCH_Y_RESOLUTION  480
 #define TOUCH_MAX_POINTS    5
 #define TOUCH_DEBOUNCE_FRAMES  2
-#define TOUCH_SCAN_DIVIDER      2       /* Scan touch every N frames */
+#define TOUCH_SCAN_DIVIDER      1       /* Scan touch every N frames */
 
 static bool s_touch_initialized = false;
 static bool s_last_pressed = false;
