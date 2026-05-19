@@ -52,6 +52,5 @@ int main(void)
 	{
 		Touch_Scan();
 		UI_Tick();
-		Delay_Ms(10);
 	}
 }
