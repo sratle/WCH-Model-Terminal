@@ -789,8 +789,15 @@ static void tabview_event_cb(ui_widget_t *w, ui_event_t *e)
 {
     ui_tabview_t *tv = (ui_tabview_t *)w;
 
-    if (e->type == UI_EVENT_PRESS || e->type == UI_EVENT_RELEASE) {
+    switch (e->type) {
+    case UI_EVENT_PRESS:
         if (e->pos.y >= w->rect.y && e->pos.y < w->rect.y + TAB_BAR_HEIGHT) {
+            w->flags |= UI_WIDGET_FLAG_PRESSED;
+        }
+        break;
+    case UI_EVENT_RELEASE:
+        if ((w->flags & UI_WIDGET_FLAG_PRESSED) &&
+            e->pos.y >= w->rect.y && e->pos.y < w->rect.y + TAB_BAR_HEIGHT) {
             int16_t tab_w = w->rect.w / tv->tab_count;
             int16_t idx = (e->pos.x - w->rect.x) / tab_w;
             if (idx >= 0 && idx < tv->tab_count && idx != tv->active_tab) {
@@ -799,6 +806,17 @@ static void tabview_event_cb(ui_widget_t *w, ui_event_t *e)
                 if (tv->on_tab_change) tv->on_tab_change(w, tv->active_tab);
             }
         }
+        w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+        break;
+    case UI_EVENT_PRESS_CANCEL:
+    case UI_EVENT_SWIPE_UP:
+    case UI_EVENT_SWIPE_DOWN:
+    case UI_EVENT_SWIPE_LEFT:
+    case UI_EVENT_SWIPE_RIGHT:
+        w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+        break;
+    default:
+        break;
     }
 }
 

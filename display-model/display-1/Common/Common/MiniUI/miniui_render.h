@@ -41,6 +41,7 @@ typedef struct {
 } ui_display_driver_t;
 
 void ui_render_set_driver(const ui_display_driver_t *driver);
+void ui_render_gram_invalidate(void);
 
 /*=============================================================================
  *  Line Buffer API (for efficient dirty-rect row-by-row rendering)

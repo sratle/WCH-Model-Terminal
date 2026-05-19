@@ -6,10 +6,12 @@
 #define TOUCH_X_RESOLUTION  800
 #define TOUCH_Y_RESOLUTION  480
 #define TOUCH_MAX_POINTS    5
+#define TOUCH_DEBOUNCE_FRAMES  3
 
 static bool s_touch_initialized = false;
 static bool s_last_pressed = false;
 static Touch_Point_t s_last_point = {0, 0, false};
+static uint8_t s_debounce_counter = 0;
 
 void Touch_Init(void)
 {
@@ -47,17 +49,20 @@ void Touch_Scan(void)
         s_last_point.x = points[0].x;
         s_last_point.y = points[0].y;
         s_last_point.pressed = true;
-        // printf("[Touch] PRESS (%d, %d)\r\n", points[0].x, points[0].y);
+        s_debounce_counter = 0;
         ui_input_touch_raw(true, points[0].x, points[0].y);
     } else {
         if (s_last_pressed) {
-            // printf("[Touch] RELEASE (%d, %d)\r\n", s_last_point.x, s_last_point.y);
-            ui_input_touch_raw(false, s_last_point.x, s_last_point.y);
+            s_debounce_counter++;
+            if (s_debounce_counter >= TOUCH_DEBOUNCE_FRAMES) {
+                ui_input_touch_raw(false, s_last_point.x, s_last_point.y);
+                s_last_point.pressed = false;
+                s_debounce_counter = 0;
+            }
         }
-        s_last_point.pressed = false;
     }
 
-    s_last_pressed = (touch_count > 0);
+    s_last_pressed = (touch_count > 0) || (s_debounce_counter > 0);
 }
 
 bool Touch_GetPoint(Touch_Point_t *point)

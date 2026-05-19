@@ -10,6 +10,5 @@
 #include "CH378/CH378.h"
 #include "CH585F/ch585f.h"
 #include "Display/display.h"
-#include "Ethernet/ethernet.h"
 
 #endif

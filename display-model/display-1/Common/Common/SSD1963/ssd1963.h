@@ -94,6 +94,7 @@ bool SSD1963_SelfTest(void);
 /* Window / GRAM access */
 void SSD1963_SetWindow(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
 void SSD1963_WriteData16(uint16_t data);
+void SSD1963_WriteData16Fast(uint16_t data);
 void SSD1963_WriteBuffer(const uint16_t *buf, uint32_t len);
 void SSD1963_Clear(uint16_t color);
 

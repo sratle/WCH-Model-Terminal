@@ -58,6 +58,11 @@ void SSD1963_WriteData16(uint16_t data)
     SOFT8080_WriteData16(data);
 }
 
+void SSD1963_WriteData16Fast(uint16_t data)
+{
+    SOFT8080_WriteData16Fast(data);
+}
+
 void SSD1963_WriteBuffer(const uint16_t *buf, uint32_t len)
 {
     SOFT8080_WriteBuffer(buf, len);

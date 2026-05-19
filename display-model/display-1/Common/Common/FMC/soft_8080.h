@@ -33,6 +33,7 @@ uint16_t SOFT8080_ReadReg(uint16_t reg);
 /* Window / GRAM access */
 void SOFT8080_SetWindow(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
 void SOFT8080_WriteData16(uint16_t data);
+void SOFT8080_WriteData16Fast(uint16_t data);
 void SOFT8080_WriteBuffer(const uint16_t *buf, uint32_t len);
 void SOFT8080_Clear(uint16_t color);
 

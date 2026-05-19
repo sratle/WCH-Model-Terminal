@@ -938,6 +938,7 @@ uint8_t CH378_Dir_Enter(ch378_t *ch378, const char *dir_name)
 {
     char full_path[CH378_MAX_PATH_LEN];
     uint8_t status;
+    uint8_t unicode_name[512];
 
     if (ch378->enable != 1 || ch378->now_device == 0x00) {
         printf("CH378 not ready\r\n");
@@ -951,6 +952,24 @@ uint8_t CH378_Dir_Enter(ch378_t *ch378, const char *dir_name)
         strncpy(ch378_current_path, full_path, CH378_MAX_PATH_LEN - 1);
         ch378_current_path[CH378_MAX_PATH_LEN - 1] = '\0';
         return ERR_SUCCESS;
+    }
+
+    if (status == ERR_MISS_FILE) {
+        uint16_t i = 0;
+        const char *p = dir_name;
+        while (*p && i < sizeof(unicode_name) - 2) {
+            unicode_name[i++] = (uint8_t)*p++;
+            unicode_name[i++] = 0;
+        }
+        unicode_name[i++] = 0;
+        unicode_name[i++] = 0;
+
+        status = CH378_Open_Long_Name((uint8_t*)full_path, unicode_name);
+        if (status == ERR_OPEN_DIR) {
+            strncpy(ch378_current_path, full_path, CH378_MAX_PATH_LEN - 1);
+            ch378_current_path[CH378_MAX_PATH_LEN - 1] = '\0';
+            return ERR_SUCCESS;
+        }
     }
 
     return status;

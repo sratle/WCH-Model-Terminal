@@ -41,6 +41,38 @@ static ui_color_t g_line_buf[UI_SCREEN_WIDTH];
 
 static ui_rect_t g_clip_rect = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
 
+static int16_t g_gram_x = -1;
+static int16_t g_gram_y = -1;
+static bool g_gram_valid = false;
+
+static void gram_set_window(int16_t x1, int16_t y1, int16_t x2, int16_t y2)
+{
+    s_driver.set_window((uint16_t)x1, (uint16_t)y1, (uint16_t)x2, (uint16_t)y2);
+    g_gram_x = x1;
+    g_gram_y = y1;
+    g_gram_valid = true;
+}
+
+static void gram_write_pixel(int16_t x, int16_t y, ui_color_t color)
+{
+    if (g_gram_valid && g_gram_x == x && g_gram_y == y) {
+        s_driver.write_data16(color);
+        g_gram_x++;
+    } else {
+        gram_set_window(x, y, UI_SCREEN_WIDTH - 1, y);
+        s_driver.write_data16(color);
+        g_gram_x = x + 1;
+        g_gram_y = y;
+    }
+}
+
+void ui_render_gram_invalidate(void)
+{
+    g_gram_valid = false;
+    g_gram_x = -1;
+    g_gram_y = -1;
+}
+
 /*=============================================================================
  *  Helper Functions
 *=============================================================================*/
@@ -105,9 +137,10 @@ void ui_render_flush_line(int16_t y, int16_t x_start, int16_t width)
     if (x_start + width > UI_SCREEN_WIDTH) width = UI_SCREEN_WIDTH - x_start;
     if (width <= 0) return;
 
-    s_driver.set_window((uint16_t)x_start, (uint16_t)y,
-                      (uint16_t)(x_start + width - 1), (uint16_t)y);
+    gram_set_window(x_start, y, x_start + width - 1, y);
     s_driver.write_buffer(&g_line_buf[x_start], (uint32_t)width);
+    g_gram_x = x_start + width;
+    g_gram_y = y;
 }
 
 void ui_render_fill_line_buf(int16_t x_start, int16_t width, ui_color_t color)
@@ -143,6 +176,7 @@ void ui_render_set_clip(const ui_rect_t *rect)
     if (rect) {
         g_clip_rect = *rect;
     }
+    ui_render_gram_invalidate();
 }
 
 void ui_render_get_clip(ui_rect_t *rect)
@@ -174,8 +208,7 @@ void ui_draw_pixel(int16_t x, int16_t y, ui_color_t color)
         y < g_clip_rect.y || y >= g_clip_rect.y + g_clip_rect.h) {
         return;
     }
-    s_driver.set_window((uint16_t)x, (uint16_t)y, (uint16_t)x, (uint16_t)y);
-    s_driver.write_data16(color);
+    gram_write_pixel(x, y, color);
 }
 
 void ui_draw_hline(int16_t x, int16_t y, int16_t w, ui_color_t color)
@@ -188,12 +221,14 @@ void ui_draw_hline(int16_t x, int16_t y, int16_t w, ui_color_t color)
     int16_t len = x2 - x1;
     if (len <= 0) return;
 
-    s_driver.set_window((uint16_t)x1, (uint16_t)y, (uint16_t)(x2 - 1), (uint16_t)y);
+    gram_set_window(x1, y, x2 - 1, y);
 
     for (int16_t i = 0; i < len; i++) {
         g_line_buf[i] = color;
     }
     s_driver.write_buffer(g_line_buf, (uint32_t)len);
+    g_gram_x = x2;
+    g_gram_y = y;
 }
 
 void ui_draw_vline(int16_t x, int16_t y, int16_t h, ui_color_t color)
@@ -206,10 +241,12 @@ void ui_draw_vline(int16_t x, int16_t y, int16_t h, ui_color_t color)
     int16_t len = y2 - y1;
     if (len <= 0) return;
 
-    s_driver.set_window((uint16_t)x, (uint16_t)y1, (uint16_t)x, (uint16_t)(y2 - 1));
+    gram_set_window(x, y1, x, y2 - 1);
     while (len--) {
         s_driver.write_data16(color);
     }
+    g_gram_x = x + 1;
+    g_gram_y = y2 - 1;
 }
 
 void ui_draw_line(int16_t x1, int16_t y1, int16_t x2, int16_t y2, ui_color_t color)
@@ -243,13 +280,14 @@ void ui_draw_fill_rect(const ui_rect_t *rect, ui_color_t color)
         g_line_buf[i] = color;
     }
 
-    s_driver.set_window((uint16_t)r.x, (uint16_t)r.y,
-                      (uint16_t)(r.x + r.w - 1), (uint16_t)(r.y + r.h - 1));
+    gram_set_window(r.x, r.y, r.x + r.w - 1, r.y + r.h - 1);
 
     uint32_t row_count = (uint32_t)r.h;
     while (row_count--) {
         s_driver.write_buffer(g_line_buf, (uint32_t)r.w);
     }
+    g_gram_x = r.x + r.w;
+    g_gram_y = r.y + r.h - 1;
 }
 
 void ui_draw_rect_border(const ui_rect_t *rect, ui_color_t color, int16_t thickness)
@@ -456,10 +494,17 @@ void ui_draw_icon(int16_t x, int16_t y, const uint8_t *bitmap,
     if (!bitmap) return;
 
     for (int16_t row = 0; row < h; row++) {
+        int16_t py = y + row;
+        if (py < g_clip_rect.y || py >= g_clip_rect.y + g_clip_rect.h) continue;
+
         uint16_t byte_idx = row * ((w + 7) / 8);
+
         for (int16_t col = 0; col < w; col++) {
             if (bitmap[byte_idx + col / 8] & (0x80 >> (col % 8))) {
-                ui_draw_pixel(x + col, y + row, color);
+                int16_t px = x + col;
+                if (px >= g_clip_rect.x && px < g_clip_rect.x + g_clip_rect.w) {
+                    gram_write_pixel(px, py, color);
+                }
             }
         }
     }
@@ -482,9 +527,16 @@ static const ui_glyph_t* find_glyph(const ui_font_t *font, uint16_t unicode)
 {
     if (!font || !font->glyphs) return NULL;
 
-    for (uint16_t i = 0; i < font->glyph_count; i++) {
-        if (font->glyphs[i].unicode == unicode) {
-            return &font->glyphs[i];
+    int16_t lo = 0, hi = (int16_t)font->glyph_count - 1;
+    while (lo <= hi) {
+        int16_t mid = (lo + hi) / 2;
+        if (font->glyphs[mid].unicode == unicode) {
+            return &font->glyphs[mid];
+        }
+        if (font->glyphs[mid].unicode < unicode) {
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
         }
     }
     return NULL;
@@ -499,33 +551,59 @@ static void draw_glyph(int16_t x, int16_t y, const ui_glyph_t *glyph,
     uint8_t mask = (1 << bpp) - 1;
     uint32_t bit_idx = 0;
 
-    for (uint16_t row = 0; row < glyph->height; row++) {
-        for (uint16_t col = 0; col < glyph->width; col++) {
-            uint32_t byte_idx = bit_idx / 8;
-            uint32_t shift = 8 - bpp - (bit_idx % 8);
-            uint8_t alpha = (glyph->bitmap[byte_idx] >> shift) & mask;
+    int16_t x1 = ui_max(gx, g_clip_rect.x);
+    int16_t x2 = ui_min(gx + glyph->width, g_clip_rect.x + g_clip_rect.w);
 
-            if (bpp == 1) {
-                if (alpha) {
-                    ui_draw_pixel(gx + col, gy + row, color);
-                } else if (bg != UI_COLOR_TRANSPARENT) {
-                    ui_draw_pixel(gx + col, gy + row, bg);
-                }
-            } else {
-                if (alpha > 0) {
-                    if (bg == UI_COLOR_TRANSPARENT) {
-                        ui_draw_pixel(gx + col, gy + row, color);
-                    } else {
-                        uint8_t a8 = (uint16_t)alpha * 255 / mask;
-                        ui_color_t blended = ui_color_blend(color, bg, a8);
-                        ui_draw_pixel(gx + col, gy + row, blended);
-                    }
-                } else if (bg != UI_COLOR_TRANSPARENT) {
-                    ui_draw_pixel(gx + col, gy + row, bg);
-                }
-            }
-            bit_idx += bpp;
+    for (uint16_t row = 0; row < glyph->height; row++) {
+        int16_t py = gy + row;
+        if (py < g_clip_rect.y || py >= g_clip_rect.y + g_clip_rect.h) {
+            bit_idx += bpp * glyph->width;
+            continue;
         }
+
+        if (bg != UI_COLOR_TRANSPARENT && x1 < x2) {
+            for (int16_t col = x1; col < x2; col++) {
+                g_line_buf[col] = bg;
+            }
+
+            uint32_t row_bit_idx = bit_idx + (uint32_t)(x1 - gx) * bpp;
+            for (int16_t col = x1 - gx; col < x2 - gx; col++) {
+                uint32_t byte_idx = row_bit_idx / 8;
+                uint32_t shift = 8 - bpp - (row_bit_idx % 8);
+                uint8_t alpha = (glyph->bitmap[byte_idx] >> shift) & mask;
+
+                if (bpp == 1) {
+                    if (alpha) g_line_buf[gx + col] = color;
+                } else {
+                    if (alpha > 0) {
+                        uint8_t a8 = (uint16_t)alpha * 255 / mask;
+                        g_line_buf[gx + col] = ui_color_blend(color, bg, a8);
+                    }
+                }
+                row_bit_idx += bpp;
+            }
+
+            gram_set_window(x1, py, x2 - 1, py);
+            s_driver.write_buffer(&g_line_buf[x1], (uint32_t)(x2 - x1));
+            g_gram_x = x2;
+            g_gram_y = py;
+        } else {
+            for (uint16_t col = 0; col < glyph->width; col++) {
+                uint32_t byte_idx = bit_idx / 8;
+                uint32_t shift = 8 - bpp - (bit_idx % 8);
+                uint8_t alpha = (glyph->bitmap[byte_idx] >> shift) & mask;
+
+                if (alpha > 0) {
+                    int16_t px = gx + col;
+                    if (px >= g_clip_rect.x && px < g_clip_rect.x + g_clip_rect.w) {
+                        gram_write_pixel(px, py, color);
+                    }
+                }
+                bit_idx += bpp;
+            }
+            continue;
+        }
+        bit_idx += bpp * glyph->width;
     }
 }
 
@@ -621,11 +699,13 @@ int16_t ui_text_width(const char *text, const ui_font_t *font)
 void ui_screen_clear(ui_color_t color)
 {
     s_driver.clear(color);
+    ui_render_gram_invalidate();
 }
 
 void ui_full_refresh(void)
 {
     s_driver.clear(UI_COLOR_BG_MAIN);
+    ui_render_gram_invalidate();
 }
 
 void ui_flush_region(const ui_rect_t *rect)

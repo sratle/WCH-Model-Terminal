@@ -18,28 +18,45 @@
 #define PE_DATA_MASK  (GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10 | GPIO_Pin_11 | GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15)
 
 /*=============================================================================
- *  Inline helpers: set/read 16-bit data on D0-D15
+ *  Lookup tables for fast data pin mapping
+ *  GPIOD: D0->PD14, D1->PD15, D2->PD0, D3->PD1, D13->PD8, D14->PD9, D15->PD10
+ *  GPIOE: D4->PE7 .. D12->PE15
  *===========================================================================*/
+static const uint16_t s_lut_pd_lo[16] = {
+    0x0000, 0x4000, 0x8000, 0xC000,
+    0x0001, 0x4001, 0x8001, 0xC001,
+    0x0002, 0x4002, 0x8002, 0xC002,
+    0x0003, 0x4003, 0x8003, 0xC003,
+};
+
+static const uint16_t s_lut_pd_hi[8] = {
+    0x0000, 0x0100, 0x0200, 0x0300,
+    0x0400, 0x0500, 0x0600, 0x0700,
+};
+
+static const uint16_t s_lut_pe_lo[16] = {
+    0x0000, 0x0080, 0x0100, 0x0180,
+    0x0200, 0x0280, 0x0300, 0x0380,
+    0x0400, 0x0480, 0x0500, 0x0580,
+    0x0600, 0x0680, 0x0700, 0x0780,
+};
+
+static const uint16_t s_lut_pe_hi[16] = {
+    0x0000, 0x0800, 0x1000, 0x1800,
+    0x2000, 0x2800, 0x3000, 0x3800,
+    0x4000, 0x4800, 0x5000, 0x5800,
+    0x6000, 0x6800, 0x7000, 0x7800,
+};
+
 static inline void SOFT8080_SetData(uint16_t data)
 {
-    uint32_t out_d = GPIOD->OUTDR & ~PD_DATA_MASK;
-    uint32_t out_e = GPIOE->OUTDR & ~PE_DATA_MASK;
-
-    /* D0-D3, D13-D15 on GPIOD — pure bit-masking, no branches */
-    out_d |= ((data & 0x0001) << 14);   /* D0  -> PD14 */
-    out_d |= ((data & 0x0002) << 14);   /* D1  -> PD15 */
-    out_d |= ((data & 0x0004) >> 2);    /* D2  -> PD0  */
-    out_d |= ((data & 0x0008) >> 2);    /* D3  -> PD1  */
-    out_d |= ((data & 0x2000) >> 5);    /* D13 -> PD8  */
-    out_d |= ((data & 0x4000) >> 5);    /* D14 -> PD9  */
-    out_d |= ((data & 0x8000) >> 5);    /* D15 -> PD10 */
-
-    /* D4-D12 on GPIOE */
-    out_e |= ((data & 0x00F0) << 3);    /* D4-D7  -> PE7-PE10  */
-    out_e |= ((data & 0x1F00) << 3);    /* D8-D12 -> PE11-PE15 */
-
-    GPIOD->OUTDR = out_d;
-    GPIOE->OUTDR = out_e;
+    GPIOD->OUTDR = (GPIOD->OUTDR & ~PD_DATA_MASK)
+                 | s_lut_pd_lo[data & 0x0F]
+                 | s_lut_pd_hi[(data >> 13) & 0x07];
+    uint16_t pe = s_lut_pe_lo[(data >> 4) & 0x0F]
+                | s_lut_pe_hi[(data >> 8) & 0x0F];
+    if (data & 0x1000) pe |= 0x8000;
+    GPIOE->OUTDR = (GPIOE->OUTDR & ~PE_DATA_MASK) | pe;
 }
 
 static inline uint16_t SOFT8080_GetData(void)
@@ -120,30 +137,24 @@ void SOFT8080_Init(void)
  *===========================================================================*/
 void SOFT8080_WriteCmd(uint16_t cmd)
 {
-    CS_LOW();     /* CS low  */
-    RS_LOW();     /* RS low (command) */
+    CS_LOW();
+    RS_LOW();
     SOFT8080_SetData(cmd);
-    WR_LOW();     /* WR low  */
+    WR_LOW();
     __NOP();
-    // __NOP(); __NOP(); __NOP(); __NOP();
-    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    WR_HIGH();       /* WR high */
-    CS_HIGH();       /* CS high */
+    WR_HIGH();
+    CS_HIGH();
 }
 
 void SOFT8080_WriteData(uint16_t data)
 {
-    CS_LOW();     /* CS low  */
-    RS_HIGH();       /* RS high (data) */
+    CS_LOW();
+    RS_HIGH();
     SOFT8080_SetData(data);
-    WR_LOW();     /* WR low  */
+    WR_LOW();
     __NOP();
-    // __NOP(); __NOP(); __NOP(); __NOP();
-    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    WR_HIGH();       /* WR high */
-    CS_HIGH();       /* CS high */
+    WR_HIGH();
+    CS_HIGH();
 }
 
 uint16_t SOFT8080_ReadData(void)
@@ -225,36 +236,36 @@ void SOFT8080_SetWindow(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
 
 void SOFT8080_WriteData16(uint16_t data)
 {
-    /* Optimized single-pixel write with CS kept low.
-     * Assumes caller has already set window and issued 0x2C. */
-    CS_LOW();     /* CS low  */
-    RS_HIGH();       /* RS high */
+    CS_LOW();
+    RS_HIGH();
     SOFT8080_SetData(data);
-    WR_LOW();     /* WR low  */
+    WR_LOW();
     __NOP();
-    // __NOP(); __NOP(); __NOP(); __NOP();
-    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-    WR_HIGH();       /* WR high */
-    CS_HIGH();       /* CS high */
+    WR_HIGH();
+    CS_HIGH();
+}
+
+void SOFT8080_WriteData16Fast(uint16_t data)
+{
+    SOFT8080_SetData(data);
+    WR_LOW();
+    __NOP();
+    WR_HIGH();
 }
 
 void SOFT8080_WriteBuffer(const uint16_t *buf, uint32_t len)
 {
-    RS_HIGH();       /* RS=1    */
-    CS_LOW();     /* CS low  */
+    RS_HIGH();
+    CS_LOW();
 
     while (len--) {
         SOFT8080_SetData(*buf++);
-        WR_LOW(); /* WR low  */
+        WR_LOW();
         __NOP();
-        // __NOP(); __NOP(); __NOP(); __NOP();
-        // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        // __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-        WR_HIGH();   /* WR high */
+        WR_HIGH();
     }
 
-    CS_HIGH();       /* CS high */
+    CS_HIGH();
 }
 
 void SOFT8080_Clear(uint16_t color)
