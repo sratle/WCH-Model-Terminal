@@ -8,6 +8,7 @@
 ********************************************************************************/
 #include "miniui_input.h"
 #include "miniui_page.h"
+#include "miniui_render.h"
 #include "debug.h"
 #include <string.h>
 

@@ -891,3 +891,143 @@ void ui_status_dot_set_state(ui_status_dot_t *dot, bool online)
     dot->online = online;
     ui_widget_invalidate(&dot->base);
 }
+
+/*=============================================================================
+ *  Dialog Widget Implementation (Modal Popup)
+ *=============================================================================*/
+
+#define DLG_CARD_W      400
+#define DLG_CARD_H      240
+#define DLG_CARD_X      ((UI_SCREEN_WIDTH - DLG_CARD_W) / 2)
+#define DLG_CARD_Y      ((UI_SCREEN_HEIGHT - DLG_CARD_H) / 2)
+
+#define DLG_BTN_W       140
+#define DLG_BTN_H       36
+#define DLG_BTN_Y       (DLG_CARD_Y + DLG_CARD_H - 54)
+#define DLG_ACCEPT_X    (DLG_CARD_X + DLG_CARD_W - 24 - DLG_BTN_W)
+#define DLG_CANCEL_X    (DLG_CARD_X + 24)
+
+static void dialog_bg_event_cb(ui_widget_t *w, ui_event_t *e)
+{
+    (void)w;
+    if (e->type == UI_EVENT_PRESS) {
+        ui_page_pop();
+    }
+}
+
+static void dialog_draw_cb(ui_page_t *page, ui_rect_t *dirty)
+{
+    (void)dirty;
+    ui_dialog_t *dlg = (ui_dialog_t *)page;
+
+    /* Dimmed fullscreen background */
+    ui_rect_t bg_rect = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
+    ui_draw_fill_rect(&bg_rect, UI_COLOR_DARK_GRAY);
+
+    /* White rounded card */
+    ui_rect_t card = {DLG_CARD_X, DLG_CARD_Y, DLG_CARD_W, DLG_CARD_H};
+    ui_draw_fill_round_rect(&card, 16, UI_COLOR_BG_CARD);
+
+    /* Message text with '\n' line break support */
+    if (dlg->message) {
+        int16_t x = DLG_CARD_X + 24;
+        int16_t y = DLG_CARD_Y + 70;
+        int16_t max_y = DLG_BTN_Y - 10;
+        const char *p = dlg->message;
+
+        while (*p && y < max_y) {
+            const char *line_start = p;
+            while (*p && *p != '\n') p++;
+
+            uint16_t len = p - line_start;
+            if (len > 0) {
+                char buf[64];
+                if (len > 63) len = 63;
+                memcpy(buf, line_start, len);
+                buf[len] = '\0';
+                ui_draw_text(x, y, buf, &font_montserrat_12, UI_COLOR_TEXT_PRIMARY);
+            }
+            y += 20;
+            if (*p == '\n') p++;
+        }
+    }
+}
+
+static void dialog_accept_click(ui_widget_t *w)
+{
+    ui_dialog_t *dlg = (ui_dialog_t *)w->user_data;
+    if (dlg && dlg->on_accept) dlg->on_accept();
+    ui_page_pop();
+}
+
+static void dialog_cancel_click(ui_widget_t *w)
+{
+    ui_dialog_t *dlg = (ui_dialog_t *)w->user_data;
+    if (dlg && dlg->on_cancel) dlg->on_cancel();
+    ui_page_pop();
+}
+
+void ui_dialog_init(ui_dialog_t *dlg)
+{
+    if (!dlg) return;
+    memset(dlg, 0, sizeof(ui_dialog_t));
+
+    ui_page_struct_init_fullscreen(&dlg->page, "Dialog", 0xFF);
+
+    /* Fullscreen transparent background catcher (lowest z-order) */
+    ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
+    ui_widget_init(&dlg->bg, &full);
+    dlg->bg.event_cb = dialog_bg_event_cb;
+    dlg->bg.bg_color = UI_COLOR_TRANSPARENT;
+
+    /* Title label */
+    ui_rect_t title_rect = {DLG_CARD_X + 24, DLG_CARD_Y + 24, DLG_CARD_W - 48, 28};
+    ui_label_init(&dlg->lbl_title, &title_rect, "", &font_montserrat_16);
+    ui_label_set_color(&dlg->lbl_title, UI_COLOR_TEXT_PRIMARY);
+    ui_label_set_align(&dlg->lbl_title, 1);
+
+    /* Accept button (right) */
+    ui_rect_t accept_rect = {DLG_ACCEPT_X, DLG_BTN_Y, DLG_BTN_W, DLG_BTN_H};
+    ui_button_init(&dlg->btn_accept, &accept_rect, "Accept", &font_montserrat_12);
+    dlg->btn_accept.base.user_data = dlg;
+    ui_button_set_callback(&dlg->btn_accept, dialog_accept_click);
+    ui_button_set_colors(&dlg->btn_accept, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
+
+    /* Cancel button (left) */
+    ui_rect_t cancel_rect = {DLG_CANCEL_X, DLG_BTN_Y, DLG_BTN_W, DLG_BTN_H};
+    ui_button_init(&dlg->btn_cancel, &cancel_rect, "Cancel", &font_montserrat_12);
+    dlg->btn_cancel.base.user_data = dlg;
+    ui_button_set_callback(&dlg->btn_cancel, dialog_cancel_click);
+    ui_button_set_colors(&dlg->btn_cancel, UI_COLOR_LIGHT_GRAY, UI_COLOR_GRAY, UI_COLOR_TEXT_PRIMARY);
+
+    dlg->widgets[0] = (ui_widget_t *)&dlg->bg;
+    dlg->widgets[1] = (ui_widget_t *)&dlg->lbl_title;
+    dlg->widgets[2] = (ui_widget_t *)&dlg->btn_cancel;
+    dlg->widgets[3] = (ui_widget_t *)&dlg->btn_accept;
+
+    ui_page_set_widgets(&dlg->page, dlg->widgets, 4);
+    ui_page_set_callbacks(&dlg->page, NULL, NULL, dialog_draw_cb, NULL);
+}
+
+void ui_dialog_show(ui_dialog_t *dlg, const char *title, const char *message,
+                    void (*on_accept)(void), void (*on_cancel)(void))
+{
+    if (!dlg) return;
+
+    dlg->title = title;
+    dlg->message = message;
+    dlg->on_accept = on_accept;
+    dlg->on_cancel = on_cancel;
+
+    if (title) {
+        ui_label_set_text(&dlg->lbl_title, title);
+    }
+
+    ui_page_push(&dlg->page);
+}
+
+void ui_dialog_close(ui_dialog_t *dlg)
+{
+    (void)dlg;
+    ui_page_pop();
+}

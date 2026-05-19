@@ -14,7 +14,6 @@ extern "C" {
 #endif
 
 #include "miniui_types.h"
-#include "miniui_widget.h"
 
 /*=============================================================================
  *  Page Stack Configuration

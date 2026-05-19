@@ -7,6 +7,8 @@
 *                      Page stack, navigation, and dirty region tracking.
 ********************************************************************************/
 #include "miniui_page.h"
+#include "miniui_widget.h"
+#include "miniui_render.h"
 #include "debug.h"
 #include <string.h>
 

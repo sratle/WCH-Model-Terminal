@@ -8,6 +8,7 @@
 ********************************************************************************/
 #include "ui_settings.h"
 #include "ui_main.h"
+#include "../SSD1963/ssd1963.h"
 
 /*=============================================================================
  *  Settings Item Configuration
@@ -25,21 +26,15 @@ static ui_label_t lbl_title;
 
 static ui_list_item_t item_brightness;
 static ui_list_item_t item_volume;
-static ui_list_item_t item_wifi;
-static ui_list_item_t item_bt;
-static ui_list_item_t item_touch_beep;
 static ui_list_item_t item_auto_off;
 static ui_list_item_t item_about;
 
 static ui_slider_t slider_brightness;
 static ui_slider_t slider_volume;
-static ui_switch_t switch_wifi;
-static ui_switch_t switch_bt;
-static ui_switch_t switch_beep;
 static ui_slider_t slider_auto_off;
 static ui_button_t btn_about;
 
-static ui_widget_t *s_settings_widgets[8];
+static ui_widget_t *s_settings_widgets[5];
 
 /*=============================================================================
  *  Settings Callbacks
@@ -48,7 +43,7 @@ static ui_widget_t *s_settings_widgets[8];
 static void brightness_change(ui_widget_t *w, int16_t value)
 {
     (void)w;
-    (void)value;
+    SSD1963_SetBacklight((uint8_t)value);
 }
 
 static void volume_change(ui_widget_t *w, int16_t value)
@@ -57,33 +52,20 @@ static void volume_change(ui_widget_t *w, int16_t value)
     (void)value;
 }
 
-static void wifi_toggle(ui_widget_t *w, bool state)
-{
-    (void)w;
-    (void)state;
-}
-
-static void bt_toggle(ui_widget_t *w, bool state)
-{
-    (void)w;
-    (void)state;
-}
-
-static void beep_toggle(ui_widget_t *w, bool state)
-{
-    (void)w;
-    (void)state;
-}
-
 static void auto_off_change(ui_widget_t *w, int16_t value)
 {
     (void)w;
     (void)value;
 }
 
+static ui_dialog_t dlg_about;
+
 static void about_click(ui_widget_t *w)
 {
     (void)w;
+    ui_dialog_show(&dlg_about, "About",
+                   "WCH Model Terminal\n2026@ELAB\nShen Xingyi\nZhang ZhiCheng\nHuang Yuchun",
+                   NULL, NULL);
 }
 
 /*=============================================================================
@@ -114,7 +96,7 @@ void ui_settings_init(void)
     ui_rect_t item_rect = {cx, item_y, item_w, SETTINGS_ITEM_H};
     ui_list_item_init(&item_brightness, &item_rect, "Brightness", &font_montserrat_12);
     ui_rect_t sl_rect = {cx + item_w - 160, item_y + 15, 150, 20};
-    ui_slider_init(&slider_brightness, &sl_rect, 0, 100, 70);
+    ui_slider_init(&slider_brightness, &sl_rect, 50, 150, 100);
     ui_slider_set_callback(&slider_brightness, brightness_change);
     ui_list_item_set_control(&item_brightness, (ui_widget_t *)&slider_brightness);
 
@@ -125,30 +107,6 @@ void ui_settings_init(void)
     ui_slider_init(&slider_volume, &sl_rect, 0, 100, 50);
     ui_slider_set_callback(&slider_volume, volume_change);
     ui_list_item_set_control(&item_volume, (ui_widget_t *)&slider_volume);
-
-    item_y += SETTINGS_ITEM_H;
-    item_rect.y = item_y;
-    ui_list_item_init(&item_wifi, &item_rect, "WiFi", &font_montserrat_12);
-    ui_rect_t sw_rect = {cx + item_w - 60, item_y + 10, 50, 30};
-    ui_switch_init(&switch_wifi, &sw_rect, false);
-    ui_switch_set_callback(&switch_wifi, wifi_toggle);
-    ui_list_item_set_control(&item_wifi, (ui_widget_t *)&switch_wifi);
-
-    item_y += SETTINGS_ITEM_H;
-    item_rect.y = item_y;
-    ui_list_item_init(&item_bt, &item_rect, "Bluetooth", &font_montserrat_12);
-    sw_rect.y = item_y + 10;
-    ui_switch_init(&switch_bt, &sw_rect, true);
-    ui_switch_set_callback(&switch_bt, bt_toggle);
-    ui_list_item_set_control(&item_bt, (ui_widget_t *)&switch_bt);
-
-    item_y += SETTINGS_ITEM_H;
-    item_rect.y = item_y;
-    ui_list_item_init(&item_touch_beep, &item_rect, "Touch Beep", &font_montserrat_12);
-    sw_rect.y = item_y + 10;
-    ui_switch_init(&switch_beep, &sw_rect, true);
-    ui_switch_set_callback(&switch_beep, beep_toggle);
-    ui_list_item_set_control(&item_touch_beep, (ui_widget_t *)&switch_beep);
 
     item_y += SETTINGS_ITEM_H;
     item_rect.y = item_y;
@@ -168,16 +126,15 @@ void ui_settings_init(void)
     ui_button_set_colors(&btn_about, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
     ui_list_item_set_control(&item_about, (ui_widget_t *)&btn_about);
 
+    ui_dialog_init(&dlg_about);
+
     s_settings_widgets[0] = (ui_widget_t *)&lbl_title;
     s_settings_widgets[1] = (ui_widget_t *)&item_brightness;
     s_settings_widgets[2] = (ui_widget_t *)&item_volume;
-    s_settings_widgets[3] = (ui_widget_t *)&item_wifi;
-    s_settings_widgets[4] = (ui_widget_t *)&item_bt;
-    s_settings_widgets[5] = (ui_widget_t *)&item_touch_beep;
-    s_settings_widgets[6] = (ui_widget_t *)&item_auto_off;
-    s_settings_widgets[7] = (ui_widget_t *)&item_about;
+    s_settings_widgets[3] = (ui_widget_t *)&item_auto_off;
+    s_settings_widgets[4] = (ui_widget_t *)&item_about;
 
-    ui_page_set_widgets(&page_settings, s_settings_widgets, 8);
+    ui_page_set_widgets(&page_settings, s_settings_widgets, 5);
     ui_page_set_callbacks(&page_settings, ui_settings_enter, NULL, ui_settings_draw, NULL);
 }
 

@@ -20,8 +20,8 @@ extern "C" {
 #include "miniui_types.h"
 #include "miniui_color.h"
 #include "miniui_render.h"
-#include "miniui_widget.h"
 #include "miniui_page.h"
+#include "miniui_widget.h"
 #include "miniui_input.h"
 #include "miniui_anim.h"
 

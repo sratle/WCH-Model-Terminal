@@ -231,6 +231,30 @@ typedef struct {
 void ui_status_dot_init(ui_status_dot_t *dot, const ui_rect_t *rect, bool online);
 void ui_status_dot_set_state(ui_status_dot_t *dot, bool online);
 
+/*=============================================================================
+ *  Dialog Widget (Modal Popup)
+ *=============================================================================*/
+
+typedef struct {
+    ui_page_t page;
+    const char *title;
+    const char *message;
+    void (*on_accept)(void);
+    void (*on_cancel)(void);
+
+    /* internal widgets */
+    ui_widget_t bg;
+    ui_label_t lbl_title;
+    ui_button_t btn_accept;
+    ui_button_t btn_cancel;
+    ui_widget_t *widgets[4];
+} ui_dialog_t;
+
+void ui_dialog_init(ui_dialog_t *dlg);
+void ui_dialog_show(ui_dialog_t *dlg, const char *title, const char *message,
+                    void (*on_accept)(void), void (*on_cancel)(void));
+void ui_dialog_close(ui_dialog_t *dlg);
+
 #ifdef __cplusplus
 }
 #endif
