@@ -110,17 +110,15 @@ void FMC_Driver_Init(void)
     readWriteTiming.FMC_DataLatency = 0x00;
     readWriteTiming.FMC_AccessMode = FMC_AccessMode_A;
 
-    /* Write timing tuned to SSD1963 8080 spec (HCLK=100MHz, 1cycle=10ns):
-     *  t_CS  min 2ns  -> AddressSetup=0x01 (10ns)
-     *  t_PWLW min 12ns -> DataSetup=0x03 (30ns)
-     *  t_CSH min 3ns   -> BusTurnAround=0x01 (10ns)
-     *  t_AS  min 1ns   -> covered by AddressSetup
-     *  t_AH  min 2ns   -> covered by BusTurnAround
-     */
-    writeTiming.FMC_AddressSetupTime = 0x01;
+    /* Write timing aligned with WCH official ATK-MD0280 example (lcd.c):
+     *  ADDSET=0x00, DATAST=0x03, BUSTURN=0x00 => 5 HCLK cycles per write
+     *  At 100MHz HCLK: 50ns per write, ~19ms for full 800x480 fill.
+     *  SSD1963 8080 spec: t_PWLW min 12ns, t_AS min 1ns, t_AH min 2ns.
+     *  All comfortably met at 50ns cycle time. */
+    writeTiming.FMC_AddressSetupTime = 0x00;
     writeTiming.FMC_AddressHoldTime = 0x00;
     writeTiming.FMC_DataSetupTime = 0x03;
-    writeTiming.FMC_BusTurnAroundDuration = 0x01;
+    writeTiming.FMC_BusTurnAroundDuration = 0x00;
     writeTiming.FMC_AccessMode = FMC_AccessMode_A;
 
     FMC_NORSRAMInitStructure.FMC_Bank = FMC_Bank1_NORSRAM1;

@@ -96,8 +96,9 @@ void SSD1963_WriteData16Fast(uint16_t data)
 
 void SSD1963_WriteBuffer(const uint16_t *buf, uint32_t len)
 {
+    volatile uint16_t *data_reg = &SSD1963_DATA;
     while (len--) {
-        SSD1963_DATA = *buf++;
+        *data_reg = *buf++;
     }
 }
 
@@ -312,8 +313,8 @@ void SSD1963_Init(void)
     /* 15. PWM backlight configured by settings module after init */
     printf("[SSD1963_Init] backlight will be set by settings_init()\r\n");
 
-    /* 16. Communication self-test */
-    SSD1963_SelfTest();
+    // /* 16. Communication self-test */
+    // SSD1963_SelfTest();
 
     printf("[SSD1963_Init] done\r\n");
 }

@@ -456,9 +456,8 @@ static void tb_draw_gameover(void)
 
 static void tb_draw_game_area(void)
 {
-    /* Clear game area background */
-    ui_rect_t area = {TB_AREA_X, TB_AREA_Y, TB_AREA_W, TB_AREA_H};
-    ui_draw_fill_rect(&area, UI_COLOR_BG_MAIN);
+    /* Game area already cleared by tb_game_draw's full-screen fill;
+     * no need to clear again here. */
 
     switch (s_tb.state) {
         case TB_STATE_IDLE:
