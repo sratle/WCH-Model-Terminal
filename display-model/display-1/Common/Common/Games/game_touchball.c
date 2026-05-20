@@ -619,6 +619,8 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
      * before the ball is redrawn, which causes flickering. */
     ui_rect_t game_area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
                            UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
+    ui_rect_t hud = {TB_AREA_X, TB_AREA_Y + TB_AREA_H - 32, TB_AREA_W, 32};
+    bool hud_needs_redraw = false;
 
     for (uint8_t i = 0; i < dl->count; i++) {
         const ui_rect_t *d = &dl->regions[i];
@@ -640,20 +642,25 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
         ui_render_set_clip(&game_area);
         tb_draw_balls_in_rect(&clip);
 
-        /* Redraw HUD if it overlaps: erase HUD area first, then redraw,
-         * same pattern as ball erase+redraw to prevent flickering */
-        ui_rect_t hud = {TB_AREA_X, TB_AREA_Y + TB_AREA_H - 32, TB_AREA_W, 32};
+        /* Check if this dirty region overlaps HUD - defer HUD redraw
+         * to after the loop to avoid erasing+redrawing HUD multiple
+         * times per frame (which causes flickering) */
         if (tb_rects_overlap(&clip, &hud)) {
-            ui_render_set_clip(&hud);
-            ui_draw_fill_rect(&hud, UI_HEX(0xE8E8E8));
-            ui_render_set_clip(&game_area);
-            tb_draw_hud();
+            hud_needs_redraw = true;
         }
 
         /* Redraw gameover overlay if needed */
         if (s_tb.state == TB_STATE_GAMEOVER) {
             tb_draw_gameover();
         }
+    }
+
+    /* Single HUD redraw at the end: erase + redraw once per frame */
+    if (hud_needs_redraw) {
+        ui_render_set_clip(&hud);
+        ui_draw_fill_rect(&hud, UI_HEX(0xE8E8E8));
+        ui_render_set_clip(&game_area);
+        tb_draw_hud();
     }
 
     /* Clear dirty list after processing */

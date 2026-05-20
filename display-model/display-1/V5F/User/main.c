@@ -52,9 +52,9 @@ int main(void)
 	/* Initialize TE (Tearing Effect) sync: PB8 connected to SSD1963 TE pin */
 	SSD1963_TE_Init();
 
-	/* Frame rate limiter: target 30 FPS (33.333ms per frame) */
+	/* Frame rate limiter: target 25 FPS (40ms per frame) */
 	uint32_t cycles_per_ms = SystemCoreClock / 1000;
-	uint32_t frame_cycles = cycles_per_ms * 33;  /* ~33.333ms = 30fps */
+	uint32_t frame_cycles = cycles_per_ms * 40;  /* ~40ms = 25fps */
 	uint32_t last_frame = __get_UCYCLE();
 
 	while(1)
@@ -72,18 +72,18 @@ int main(void)
 
 		UI_Tick();
 
-		/* Frame rate limiting to ~30 FPS */
+		/* Frame rate limiting to ~25 FPS */
 		uint32_t now = __get_UCYCLE();
 		uint32_t elapsed = now - last_frame;
 
 		if (elapsed < frame_cycles) {
-			/* Frame finished early, delay to hit 30fps */
+			/* Frame finished early, delay to hit 25fps */
 			uint32_t remaining_ms = (frame_cycles - elapsed) / cycles_per_ms;
 			if (remaining_ms > 0) {
 				Delay_Ms(remaining_ms);
 			}
 		} else {
-			/* Frame took longer than 33.333ms, just delay 1ms minimum */
+			/* Frame took longer than 40ms, just delay 1ms minimum */
 			Delay_Ms(1);
 		}
 
