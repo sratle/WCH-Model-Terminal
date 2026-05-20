@@ -17,9 +17,9 @@
 #define TB_MAX_BALLS        6       /* Max balls on screen */
 #define TB_SPAWN_INTERVAL   35      /* Frames between spawns (~0.35s @ 100fps) */
 #define TB_INIT_HP          10
-#define TB_BALL_MIN_R       14
-#define TB_BALL_MAX_R       24
-#define TB_BALL_MIN_SPEED   2
+#define TB_BALL_MIN_R       20
+#define TB_BALL_MAX_R       36
+#define TB_BALL_MIN_SPEED   3
 #define TB_BALL_MAX_SPEED   5
 #define TB_SCORE_PER_HIT    10
 #define TB_HP_LOSS_MISS     1
