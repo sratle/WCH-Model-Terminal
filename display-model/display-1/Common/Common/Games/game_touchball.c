@@ -613,28 +613,12 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
         return;
     }
 
-    /* Partial redraw: only redraw the dirty regions we marked */
-    /* First pass: erase all dirty regions with background */
-    for (uint8_t i = 0; i < dl->count; i++) {
-        const ui_rect_t *d = &dl->regions[i];
-        if (d->y + d->h <= APP_TITLE_BAR_H) continue;
-
-        ui_rect_t clip = *d;
-        if (clip.y < APP_TITLE_BAR_H) {
-            clip.h -= (APP_TITLE_BAR_H - clip.y);
-            clip.y = APP_TITLE_BAR_H;
-        }
-        if (clip.w <= 0 || clip.h <= 0) continue;
-
-        ui_draw_fill_rect(&clip, UI_COLOR_BG_MAIN);
-    }
-
-    /* Second pass: redraw balls clipped to game area (below title bar).
-     * Balls may slightly exceed dirty regions, but that's fine since
-     * the background was already erased in the first pass. */
+    /* Partial redraw: process each dirty region completely (erase + redraw)
+     * in one pass to minimize the gap between erase and redraw.
+     * This prevents the LCD from scanning a region after erase but
+     * before the ball is redrawn, which causes flickering. */
     ui_rect_t game_area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
                            UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-    ui_render_set_clip(&game_area);
 
     for (uint8_t i = 0; i < dl->count; i++) {
         const ui_rect_t *d = &dl->regions[i];
@@ -647,11 +631,22 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
         }
         if (clip.w <= 0 || clip.h <= 0) continue;
 
+        /* Erase background within dirty region */
+        ui_render_set_clip(&clip);
+        ui_draw_fill_rect(&clip, UI_COLOR_BG_MAIN);
+
+        /* Redraw ball with game-area clip (so ball draws completely,
+         * not clipped to the dirty region edge) */
+        ui_render_set_clip(&game_area);
         tb_draw_balls_in_rect(&clip);
 
-        /* Redraw HUD if it overlaps */
+        /* Redraw HUD if it overlaps: erase HUD area first, then redraw,
+         * same pattern as ball erase+redraw to prevent flickering */
         ui_rect_t hud = {TB_AREA_X, TB_AREA_Y + TB_AREA_H - 32, TB_AREA_W, 32};
         if (tb_rects_overlap(&clip, &hud)) {
+            ui_render_set_clip(&hud);
+            ui_draw_fill_rect(&hud, UI_HEX(0xE8E8E8));
+            ui_render_set_clip(&game_area);
             tb_draw_hud();
         }
 

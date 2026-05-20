@@ -49,6 +49,9 @@ int main(void)
 
 	Hardware_V5F_Init();
 
+	/* Initialize TE (Tearing Effect) sync: PB8 connected to SSD1963 TE pin */
+	SSD1963_TE_Init();
+
 	/* Frame rate limiter: target 30 FPS (33.333ms per frame) */
 	uint32_t cycles_per_ms = SystemCoreClock / 1000;
 	uint32_t frame_cycles = cycles_per_ms * 33;  /* ~33.333ms = 30fps */
@@ -56,7 +59,17 @@ int main(void)
 
 	while(1)
 	{
+		/* Scan touch first (I2C communication, no GRAM writes).
+		 * Do this BEFORE VSYNC wait so drawing starts right at
+		 * the blanking period, not after I2C delay. */
 		Touch_Scan();
+
+		/* Wait for VSYNC right before drawing to prevent tearing.
+		 * TE goes high at start of vertical blanking period.
+		 * Drawing starts immediately in blanking, so LCD scan never
+		 * catches a partially-updated frame. */
+		SSD1963_WaitVSync();
+
 		UI_Tick();
 
 		/* Frame rate limiting to ~30 FPS */

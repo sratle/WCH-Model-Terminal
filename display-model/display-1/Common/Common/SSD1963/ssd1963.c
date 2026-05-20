@@ -301,10 +301,56 @@ void SSD1963_Init(void)
     /* 15. PWM backlight configured by settings module after init */
     printf("[SSD1963_Init] backlight will be set by settings_init()\r\n");
 
+    /* 16. Enable Tearing Effect (TE) output on SSD1963 TE pin (connected to PB8).
+     * Command 0x35 with parameter bit[0]=1: TE pulses at vertical blanking.
+     * This allows MCU to sync writes to the VSYNC period, preventing tearing. */
+    SSD1963_WriteCmd(SSD1963_SET_TEAR_ON);
+    SSD1963_WriteData(0x00);   /* bit0=0: TE only during V-blanking (not H-blanking) */
+
     // /* 16. Communication self-test */
     // SSD1963_SelfTest();
 
     printf("[SSD1963_Init] done\r\n");
+}
+
+/*=============================================================================
+ *  VSYNC / Tearing Effect Synchronization
+ *  PB8 is connected to SSD1963 TE pin.
+ *  TE goes high at the start of vertical blanking period.
+ *  By waiting for TE rising edge before writing, we avoid tearing.
+ *=============================================================================*/
+
+void SSD1963_TE_Init(void)
+{
+    GPIO_InitTypeDef GPIO_InitStructure = {0};
+    RCC_HB2PeriphClockCmd(RCC_HB2Periph_GPIOB, ENABLE);
+
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    GPIO_Init(GPIOB, &GPIO_InitStructure);
+
+    printf("[SSD1963_TE_Init] PB8 configured as TE input\r\n");
+}
+
+bool SSD1963_TE_IsHigh(void)
+{
+    return (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_8) != Bit_RESET);
+}
+
+void SSD1963_WaitVSync(void)
+{
+    uint32_t timeout = 100000;  /* ~1ms timeout at 100MHz */
+
+    /* Wait for TE to go low first (ensure we catch the next rising edge) */
+    while (SSD1963_TE_IsHigh()) {
+        if (--timeout == 0) return;
+    }
+
+    /* Wait for TE rising edge = start of vertical blanking */
+    timeout = 100000;
+    while (!SSD1963_TE_IsHigh()) {
+        if (--timeout == 0) return;
+    }
 }
 
 /*=============================================================================

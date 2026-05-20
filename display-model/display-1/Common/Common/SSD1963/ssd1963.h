@@ -102,6 +102,11 @@ void SSD1963_Clear(uint16_t color);
 /* Backlight control (SSD1963 internal PWM) */
 void SSD1963_SetBacklight(uint8_t pwm);
 
+/* VSYNC / Tearing Effect synchronization */
+void SSD1963_TE_Init(void);       /* Configure PB8 as TE input */
+bool SSD1963_TE_IsHigh(void);     /* Read TE pin state */
+void SSD1963_WaitVSync(void);     /* Wait for next VSYNC (TE rising edge) */
+
 #ifdef __cplusplus
 }
 #endif
