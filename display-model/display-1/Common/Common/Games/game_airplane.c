@@ -21,14 +21,14 @@
 
 #define AP_PLAYER_HP        100
 #define AP_ENEMY_HP         50
-#define AP_ENEMY_HP_PHASE2  70
+#define AP_ENEMY_HP_PHASE2  60
 #define AP_BULLET_DAMAGE    10
 #define AP_SCORE_DODGE      1
 #define AP_SCORE_KILL       50
 #define AP_SCORE_ESCAPE     -100  /* Enemy escaped off screen */
 #define AP_TIME_LIMIT_SEC   180
 
-#define AP_SPAWN_INTERVAL   90
+#define AP_SPAWN_INTERVAL   80
 #define AP_PLAYER_FIRE_INTERVAL  5
 #define AP_ENEMY_FIRE_INTERVAL   60
 #define AP_ENEMY_FIRE_INTERVAL_P2 50  /* Phase 2: faster fire */
@@ -48,8 +48,8 @@
 #define AP_HUD_H            28
 
 /* Plane sizes */
-#define AP_PLAYER_W         45
-#define AP_PLAYER_H         45
+#define AP_PLAYER_W         35
+#define AP_PLAYER_H         35
 #define AP_ENEMY_W          26
 #define AP_ENEMY_H          26
 #define AP_BULLET_W         4
@@ -643,12 +643,12 @@ static void ap_draw_player(int16_t cx, int16_t cy)
     int16_t y = AP_AREA_Y + cy;
     ui_color_t body = UI_HEX(0x4A90D9);
     ui_color_t wing = UI_HEX(0x357ABD);
-    ui_draw_fill_circle(x, y - 9, 7, body);
-    ui_draw_fill_circle(x, y, 10, body);
-    ui_draw_fill_circle(x - 12, y + 6, 6, wing);
-    ui_draw_fill_circle(x + 12, y + 6, 6, wing);
-    ui_draw_fill_circle(x, y - 19, 4, UI_HEX(0x5BA3E6));
-    ui_draw_fill_circle(x, y + 14, 4, wing);
+    ui_draw_fill_circle(x, y - 7, 6, body);
+    ui_draw_fill_circle(x, y, 8, body);
+    ui_draw_fill_circle(x - 9, y + 5, 5, wing);
+    ui_draw_fill_circle(x + 9, y + 5, 5, wing);
+    ui_draw_fill_circle(x, y - 15, 4, UI_HEX(0x5BA3E6));
+    ui_draw_fill_circle(x, y + 12, 4, wing);
 }
 
 static void ap_draw_enemy(int16_t cx, int16_t cy, int16_t hp, int16_t max_hp)
