@@ -31,12 +31,12 @@
 #define AP_SPAWN_INTERVAL   80
 #define AP_PLAYER_FIRE_INTERVAL  5
 #define AP_ENEMY_FIRE_INTERVAL   60
-#define AP_ENEMY_FIRE_INTERVAL_P2 50  /* Phase 2: faster fire */
+#define AP_ENEMY_FIRE_INTERVAL_P2 45  /* Phase 2: faster fire */
 
 #define AP_PLAYER_SPEED     16
-#define AP_P_BULLET_SPEED   6
-#define AP_E_BULLET_SPEED   3
-#define AP_E_BULLET_SPEED_P2 4  /* Phase 2: faster bullets */
+#define AP_P_BULLET_SPEED   8
+#define AP_E_BULLET_SPEED   4
+#define AP_E_BULLET_SPEED_P2 6  /* Phase 2: faster bullets */
 #define AP_ENEMY_SPEED      1
 
 #define AP_PHASE2_SCORE     1000  /* Score threshold for phase 2 */
