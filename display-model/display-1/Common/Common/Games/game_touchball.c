@@ -622,7 +622,7 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
     ui_rect_t hud = {TB_AREA_X, TB_AREA_Y + TB_AREA_H - 32, TB_AREA_W, 32};
     bool hud_needs_redraw = false;
 
-    for (uint8_t i = 0; i < dl->count; i++) {
+    for (uint16_t i = 0; i < dl->count; i++) {
         const ui_rect_t *d = &dl->regions[i];
         if (d->y + d->h <= APP_TITLE_BAR_H) continue;
 

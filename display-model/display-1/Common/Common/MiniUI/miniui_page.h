@@ -20,7 +20,7 @@ extern "C" {
  *=============================================================================*/
 
 #define UI_PAGE_STACK_DEPTH     16
-#define UI_MAX_DIRTY_REGIONS    8
+#define UI_MAX_DIRTY_REGIONS    256
 
 /*=============================================================================
  *  Page Structure
@@ -46,7 +46,7 @@ struct ui_page {
 
 typedef struct {
     ui_rect_t regions[UI_MAX_DIRTY_REGIONS];
-    uint8_t count;
+    uint16_t count;
 } ui_dirty_list_t;
 
 /*=============================================================================

@@ -179,9 +179,9 @@ void ui_page_invalidate(const ui_rect_t *rect)
 
     if (r.w <= 0 || r.h <= 0) return;
 
-    int8_t merge_target = -1;
+    int16_t merge_target = -1;
 
-    for (uint8_t i = 0; i < s_dirty_list.count; i++) {
+    for (uint16_t i = 0; i < s_dirty_list.count; i++) {
         if (rects_overlap(&r, &s_dirty_list.regions[i])) {
             if (merge_target < 0) {
                 rect_merge(&r, &s_dirty_list.regions[i], &s_dirty_list.regions[i]);
@@ -245,7 +245,7 @@ void ui_page_draw(void)
     if (s_sidebar_draw && !is_fullscreen) {
         ui_rect_t sidebar_rect = {0, 0, s_sidebar_width, UI_SCREEN_HEIGHT};
         bool sidebar_dirty = false;
-        for (uint8_t i = 0; i < s_dirty_list.count; i++) {
+        for (uint16_t i = 0; i < s_dirty_list.count; i++) {
             if (rects_overlap(&s_dirty_list.regions[i], &sidebar_rect)) {
                 sidebar_dirty = true;
                 break;
@@ -258,7 +258,7 @@ void ui_page_draw(void)
         }
     }
 
-    for (uint8_t i = 0; i < s_dirty_list.count; i++) {
+    for (uint16_t i = 0; i < s_dirty_list.count; i++) {
         ui_rect_t *dirty = &s_dirty_list.regions[i];
 
         ui_render_set_clip(dirty);
