@@ -17,10 +17,11 @@
 
 #define AP_MAX_ENEMIES      5
 #define AP_MAX_P_BULLETS    20
-#define AP_MAX_E_BULLETS    30
+#define AP_MAX_E_BULLETS    50
 
 #define AP_PLAYER_HP        100
 #define AP_ENEMY_HP         50
+#define AP_ENEMY_HP_PHASE2  70
 #define AP_BULLET_DAMAGE    10
 #define AP_SCORE_DODGE      1
 #define AP_SCORE_KILL       50
@@ -30,11 +31,15 @@
 #define AP_SPAWN_INTERVAL   90
 #define AP_PLAYER_FIRE_INTERVAL  5
 #define AP_ENEMY_FIRE_INTERVAL   60
+#define AP_ENEMY_FIRE_INTERVAL_P2 50  /* Phase 2: faster fire */
 
 #define AP_PLAYER_SPEED     16
 #define AP_P_BULLET_SPEED   6
 #define AP_E_BULLET_SPEED   3
+#define AP_E_BULLET_SPEED_P2 4  /* Phase 2: faster bullets */
 #define AP_ENEMY_SPEED      1
+
+#define AP_PHASE2_SCORE     1000  /* Score threshold for phase 2 */
 
 #define AP_AREA_X           0
 #define AP_AREA_Y           APP_TITLE_BAR_H
@@ -43,8 +48,8 @@
 #define AP_HUD_H            28
 
 /* Plane sizes */
-#define AP_PLAYER_W         30
-#define AP_PLAYER_H         30
+#define AP_PLAYER_W         45
+#define AP_PLAYER_H         45
 #define AP_ENEMY_W          26
 #define AP_ENEMY_H          26
 #define AP_BULLET_W         4
@@ -72,6 +77,8 @@ typedef struct {
 
 typedef struct {
     int16_t x, y;           /* Center position (game-area relative) */
+    int16_t dx;             /* Horizontal speed (0 = straight, +/- for diagonal) */
+    int16_t speed;          /* Vertical speed */
     bool active;
     int16_t prev_x, prev_y;
 } ap_bullet_t;
@@ -357,8 +364,10 @@ static void ap_spawn_enemy(void)
     e->y = AP_HUD_H + AP_ENEMY_H;  /* Spawn below HUD */
     e->prev_x = e->x;
     e->prev_y = e->y;
-    e->hp = AP_ENEMY_HP;
-    e->fire_timer = ap_rng_range(20, AP_ENEMY_FIRE_INTERVAL);
+    e->hp = (s_ap.score >= AP_PHASE2_SCORE) ? AP_ENEMY_HP_PHASE2 : AP_ENEMY_HP;
+    e->fire_timer = ap_rng_range(20, (s_ap.score >= AP_PHASE2_SCORE)
+                                       ? AP_ENEMY_FIRE_INTERVAL_P2
+                                       : AP_ENEMY_FIRE_INTERVAL);
     e->active = true;
 }
 
@@ -373,6 +382,8 @@ static void ap_fire_player(void)
     ap_bullet_t *b = &s_ap.p_bullets[slot];
     b->x = s_ap.player_x;
     b->y = s_ap.player_y - AP_PLAYER_H / 2;
+    b->dx = 0;
+    b->speed = AP_P_BULLET_SPEED;
     b->prev_x = b->x;
     b->prev_y = b->y;
     b->active = true;
@@ -380,18 +391,61 @@ static void ap_fire_player(void)
 
 static void ap_fire_enemy(ap_enemy_t *e)
 {
+    bool phase2 = s_ap.score >= AP_PHASE2_SCORE;
+    int16_t e_speed = phase2 ? AP_E_BULLET_SPEED_P2 : AP_E_BULLET_SPEED;
+
+    /* Straight bullet */
     int slot = -1;
     for (int i = 0; i < AP_MAX_E_BULLETS; i++) {
         if (!s_ap.e_bullets[i].active) { slot = i; break; }
     }
     if (slot < 0) return;
-
     ap_bullet_t *b = &s_ap.e_bullets[slot];
     b->x = e->x;
     b->y = e->y + AP_ENEMY_H / 2;
+    b->dx = 0;
+    b->speed = e_speed;
     b->prev_x = b->x;
     b->prev_y = b->y;
     b->active = true;
+
+    if (!phase2) return;
+
+    /* Phase 2: additional bullets at ±30 degrees */
+    /* At 30°, dx/dy ≈ tan(30°) ≈ 0.577, so dx ≈ e_speed * 0.577 */
+    int16_t diag_dx = (int16_t)(e_speed * 3 / 5);  /* ≈ 0.6 * speed */
+
+    /* Left bullet */
+    slot = -1;
+    for (int i = 0; i < AP_MAX_E_BULLETS; i++) {
+        if (!s_ap.e_bullets[i].active) { slot = i; break; }
+    }
+    if (slot >= 0) {
+        b = &s_ap.e_bullets[slot];
+        b->x = e->x;
+        b->y = e->y + AP_ENEMY_H / 2;
+        b->dx = -diag_dx;
+        b->speed = e_speed;
+        b->prev_x = b->x;
+        b->prev_y = b->y;
+        b->active = true;
+    }
+
+    /* Right bullet */
+    slot = -1;
+    for (int i = 0; i < AP_MAX_E_BULLETS; i++) {
+        if (!s_ap.e_bullets[i].active) { slot = i; break; }
+    }
+    if (slot >= 0) {
+        b = &s_ap.e_bullets[slot];
+        b->x = e->x;
+        b->y = e->y + AP_ENEMY_H / 2;
+        b->dx = diag_dx;
+        b->speed = e_speed;
+        b->prev_x = b->x;
+        b->prev_y = b->y;
+        b->active = true;
+    }
 }
 
 static void ap_end_game(void)
@@ -476,7 +530,9 @@ static void ap_update(void)
         e->fire_timer--;
         if (e->fire_timer <= 0) {
             ap_fire_enemy(e);
-            e->fire_timer = AP_ENEMY_FIRE_INTERVAL;
+            e->fire_timer = (s_ap.score >= AP_PHASE2_SCORE)
+                            ? AP_ENEMY_FIRE_INTERVAL_P2
+                            : AP_ENEMY_FIRE_INTERVAL;
         }
 
         if (e->y > AP_AREA_H + AP_ENEMY_H) {
@@ -496,7 +552,7 @@ static void ap_update(void)
         if (!b->active) continue;
         b->prev_x = b->x;
         b->prev_y = b->y;
-        b->y -= AP_P_BULLET_SPEED;
+        b->y -= b->speed;
         if (b->y < AP_HUD_H - AP_BULLET_H) { /* Deactivate when entering HUD */
             b->active = false;
             ap_inv_bullet(b->prev_x, b->prev_y, b->prev_x, b->prev_y);
@@ -529,9 +585,11 @@ static void ap_update(void)
         if (!b->active) continue;
         b->prev_x = b->x;
         b->prev_y = b->y;
-        b->y += AP_E_BULLET_SPEED;
+        b->y += b->speed;
+        b->x += b->dx;
 
-        if (b->y > AP_AREA_H + AP_BULLET_H) {
+        if (b->y > AP_AREA_H + AP_BULLET_H ||
+            b->x < -AP_BULLET_W || b->x > AP_AREA_W + AP_BULLET_W) {
             b->active = false;
             s_ap.score += AP_SCORE_DODGE;
             ap_update_score_text();
@@ -585,12 +643,12 @@ static void ap_draw_player(int16_t cx, int16_t cy)
     int16_t y = AP_AREA_Y + cy;
     ui_color_t body = UI_HEX(0x4A90D9);
     ui_color_t wing = UI_HEX(0x357ABD);
-    ui_draw_fill_circle(x, y - 6, 5, body);
-    ui_draw_fill_circle(x, y, 7, body);
-    ui_draw_fill_circle(x - 8, y + 4, 4, wing);
-    ui_draw_fill_circle(x + 8, y + 4, 4, wing);
-    ui_draw_fill_circle(x, y - 13, 3, UI_HEX(0x5BA3E6));
-    ui_draw_fill_circle(x, y + 10, 3, wing);
+    ui_draw_fill_circle(x, y - 9, 7, body);
+    ui_draw_fill_circle(x, y, 10, body);
+    ui_draw_fill_circle(x - 12, y + 6, 6, wing);
+    ui_draw_fill_circle(x + 12, y + 6, 6, wing);
+    ui_draw_fill_circle(x, y - 19, 4, UI_HEX(0x5BA3E6));
+    ui_draw_fill_circle(x, y + 14, 4, wing);
 }
 
 static void ap_draw_enemy(int16_t cx, int16_t cy, int16_t hp, int16_t max_hp)
@@ -640,9 +698,15 @@ static void ap_draw_hud(void)
                  s_ap.buf_hp, &font_montserrat_12,
                  s_ap.hp <= 30 ? UI_HEX(0xE74C3C) : UI_COLOR_WHITE);
 
-    int16_t score_w = ui_text_width(s_ap.buf_score, &font_montserrat_12);
+    /* Score + phase indicator */
+    const char *phase = (s_ap.score >= AP_PHASE2_SCORE) ? " P2" : "";
+    char buf[24];
+    ap_strcpy(buf, s_ap.buf_score);
+    ap_strcat(buf, phase);
+    int16_t score_w = ui_text_width(buf, &font_montserrat_12);
     ui_draw_text(AP_AREA_X + AP_AREA_W - score_w - 12, AP_AREA_Y + 7,
-                 s_ap.buf_score, &font_montserrat_12, UI_HEX(0xF1C40F));
+                 buf, &font_montserrat_12,
+                 s_ap.score >= AP_PHASE2_SCORE ? UI_HEX(0xE74C3C) : UI_HEX(0xF1C40F));
 }
 
 static void ap_draw_idle_screen(void)
@@ -728,7 +792,8 @@ static void ap_draw_entities_in_clip(const ui_rect_t *clip)
                         AP_AREA_Y + e->y - AP_ENEMY_H/2 - AP_HP_BAR_H - 3,
                         AP_ENEMY_W, AP_ENEMY_H + AP_HP_BAR_H + 3};
         if (ap_rects_overlap(&er, clip))
-            ap_draw_enemy(e->x, e->y, e->hp, AP_ENEMY_HP);
+            ap_draw_enemy(e->x, e->y, e->hp,
+                          e->hp > AP_ENEMY_HP ? AP_ENEMY_HP_PHASE2 : AP_ENEMY_HP);
     }
 
     /* Player */
