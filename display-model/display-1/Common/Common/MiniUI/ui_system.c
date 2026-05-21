@@ -108,6 +108,9 @@ void UI_Init(void)
 
 void UI_Tick(void)
 {
+    /* Check for hold events before polling */
+    ui_input_check_hold();
+
     ui_event_t *e = ui_input_poll();
     while (e) {
         ui_widget_t *capture = ui_input_get_capture();

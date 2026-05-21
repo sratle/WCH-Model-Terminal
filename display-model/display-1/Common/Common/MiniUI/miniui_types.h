@@ -91,6 +91,7 @@ typedef enum {
     UI_EVENT_KEY_OK,
     UI_EVENT_KEY_BACK,
     UI_EVENT_PRESS_CANCEL,
+    UI_EVENT_HOLD,
 } ui_event_type_t;
 
 /* Event structure */

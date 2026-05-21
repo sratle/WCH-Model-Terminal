@@ -9,6 +9,7 @@
 #include "miniui_input.h"
 #include "miniui_page.h"
 #include "miniui_render.h"
+#include "miniui.h"
 #include "debug.h"
 #include <string.h>
 
@@ -79,6 +80,9 @@ void ui_input_touch_raw(bool pressed, int16_t x, int16_t y)
             s_input_state.touch_pos.y = y;
             s_input_state.touch_start.x = x;
             s_input_state.touch_start.y = y;
+            s_input_state.touch_press_time = ui_get_real_ms();
+            s_input_state.touch_hold_active = false;
+            s_input_state.touch_last_hold_time = 0;
 
             e.type = UI_EVENT_PRESS;
             e.pos.x = x;
@@ -108,6 +112,7 @@ void ui_input_touch_raw(bool pressed, int16_t x, int16_t y)
             int16_t abs_dy = (dy < 0) ? -dy : dy;
 
             s_input_state.touch_pressed = false;
+            s_input_state.touch_hold_active = false;
 
             if (abs_dx > UI_SWIPE_THRESHOLD || abs_dy > UI_SWIPE_THRESHOLD) {
                 if (abs_dx > abs_dy) {
@@ -231,4 +236,55 @@ void ui_input_set_capture(ui_widget_t *widget)
 ui_widget_t* ui_input_get_capture(void)
 {
     return s_input_state.capture_widget;
+}
+
+/*=============================================================================
+ *  Hold Event Detection
+ *
+ *  Called every UI tick. If touch is pressed and held without significant
+ *  movement, generates UI_EVENT_HOLD events at regular intervals.
+ *=============================================================================*/
+
+void ui_input_check_hold(void)
+{
+    if (!s_input_state.touch_pressed) return;
+
+    uint32_t now = ui_get_real_ms();
+    uint32_t elapsed = now - s_input_state.touch_press_time;
+
+    /* Check if finger hasn't moved too far from press start */
+    int16_t dx = s_input_state.touch_pos.x - s_input_state.touch_start.x;
+    int16_t dy = s_input_state.touch_pos.y - s_input_state.touch_start.y;
+    int16_t abs_dx = (dx < 0) ? -dx : dx;
+    int16_t abs_dy = (dy < 0) ? -dy : dy;
+    if (abs_dx > UI_SWIPE_THRESHOLD || abs_dy > UI_SWIPE_THRESHOLD) return;
+
+    if (!s_input_state.touch_hold_active) {
+        /* Waiting for initial hold delay */
+        if (elapsed >= UI_HOLD_DELAY_MS) {
+            s_input_state.touch_hold_active = true;
+            s_input_state.touch_last_hold_time = now;
+
+            ui_event_t e;
+            e.type = UI_EVENT_HOLD;
+            e.source = UI_INPUT_TOUCH;
+            e.pos = s_input_state.touch_pos;
+            e.delta.x = 0;
+            e.delta.y = 0;
+            queue_push(&e);
+        }
+    } else {
+        /* Repeating hold events */
+        if (now - s_input_state.touch_last_hold_time >= UI_HOLD_REPEAT_MS) {
+            s_input_state.touch_last_hold_time = now;
+
+            ui_event_t e;
+            e.type = UI_EVENT_HOLD;
+            e.source = UI_INPUT_TOUCH;
+            e.pos = s_input_state.touch_pos;
+            e.delta.x = 0;
+            e.delta.y = 0;
+            queue_push(&e);
+        }
+    }
 }

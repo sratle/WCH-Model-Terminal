@@ -481,18 +481,6 @@ static void tet_inv_board(void)
     ui_page_invalidate(&r);
 }
 
-/* Invalidate a range of rows (for line clear animation) */
-static void tet_inv_rows(int start_row, int count)
-{
-    ui_rect_t r = {
-        TET_GRID_X,
-        TET_GRID_Y + start_row * TET_CELL,
-        TET_COLS * TET_CELL,
-        count * TET_CELL
-    };
-    ui_page_invalidate(&r);
-}
-
 /*=============================================================================
  *  Drawing
  *=============================================================================*/

@@ -20,6 +20,8 @@ extern "C" {
  *=============================================================================*/
 
 #define UI_SWIPE_THRESHOLD      30
+#define UI_HOLD_DELAY_MS        400     /* Time before first HOLD event */
+#define UI_HOLD_REPEAT_MS       80      /* Interval between repeated HOLD events */
 #define UI_INPUT_QUEUE_SIZE     8
 
 /*=============================================================================
@@ -30,6 +32,9 @@ typedef struct {
     bool touch_pressed;
     ui_point_t touch_pos;
     ui_point_t touch_start;
+    uint32_t touch_press_time;     /* ms when touch was pressed */
+    uint32_t touch_last_hold_time; /* ms when last HOLD event was sent */
+    bool touch_hold_active;        /* true after first HOLD event sent */
     bool mouse_present;
     ui_point_t mouse_pos;
     bool mouse_pressed;
@@ -46,6 +51,7 @@ void ui_input_touch_raw(bool pressed, int16_t x, int16_t y);
 void ui_input_mouse_raw(int16_t dx, int16_t dy, bool left_pressed);
 void ui_input_keyboard_raw(uint8_t key_code);
 ui_event_t* ui_input_poll(void);
+void ui_input_check_hold(void);
 const ui_input_state_t* ui_input_get_state(void);
 void ui_input_set_focus(ui_widget_t *widget);
 void ui_input_set_capture(ui_widget_t *widget);
