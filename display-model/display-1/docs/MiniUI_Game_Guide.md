@@ -38,9 +38,11 @@ s_game_mygame.page.flags |= UI_PAGE_FLAG_GAME;  // 必须！
 
 ## 2. 局部刷新（Dirty Rect）机制
 
-### 核心原则：只标记变化的区域
+### 核心原则：只标记变化的区域，尽量避免全刷
 
 全屏刷新（800x480 = 384K像素）在 FMC CPU 模式下需要 ~107ms（7 FPS）。局部刷新只重绘变化区域，可将数据量降低 90%+。
+
+**尽量使用局刷**：全刷（`need_full_redraw = true`）应仅用于状态切换（开始游戏、游戏结束等），游戏正常运行时应该始终使用局刷。即使相机移动、多个实体同时运动，也可以通过精确标记脏区域来避免全刷。脏区域数量多一些没关系（最多 8 个，超出会退化为全刷），标记多一点比漏标导致残影要好。
 
 ### 游戏页面的特殊刷新流程
 
@@ -153,6 +155,81 @@ if (s_tb.need_full_redraw) {
 ---
 
 ## 4. 触摸事件
+
+### 多点触控支持
+
+MiniUI 框架支持最多 5 点同时触控（`UI_MAX_TOUCH_POINTS = 5`）。触摸驱动（GT911）会为每个触点分配唯一的 track_id，并通过 `ui_input_touch_multi_raw` 生成独立的多点触控事件。
+
+**多点触控事件类型**：
+```c
+UI_EVENT_TOUCH_DOWN   // 新手指按下，e->touch_id 为触点编号 (0-4)
+UI_EVENT_TOUCH_MOVE   // 手指移动
+UI_EVENT_TOUCH_UP     // 手指抬起
+```
+
+**与旧事件的关系**：
+- `ui_input_touch_raw` 仍然生成旧事件（`UI_EVENT_PRESS/RELEASE/DRAG`），只跟踪第一个触点
+- `ui_input_touch_multi_raw` 生成新的多点触控事件，跟踪所有触点
+- 旧事件用于兼容不需要多点触控的游戏和 UI，新事件用于需要同时按多个按钮的游戏
+
+**多点触控事件分发**：
+- 多点触控事件**绕过 capture 机制**，广播给页面的所有 widget
+- 这确保多个手指可以同时操作不同的 UI 元素（如同时按方向键和跳跃键）
+- 旧的 `UI_EVENT_PRESS` 仍会设置 capture，但不影响多点触控事件
+
+### 需要多点触控的游戏实现模式
+
+对于需要同时按多个按钮的游戏（如 Contra），使用以下模式：
+
+```c
+/* 每个触点跟踪它按下的按钮（位掩码） */
+static uint8_t s_touch_btns[UI_MAX_TOUCH_POINTS];
+
+/* 检测屏幕坐标对应哪个按钮 */
+#define BTN_LEFT   (1 << 0)
+#define BTN_RIGHT  (1 << 1)
+#define BTN_JUMP   (1 << 2)
+#define BTN_SHOOT  (1 << 3)
+
+static uint8_t hit_test(int16_t x, int16_t y) {
+    uint8_t mask = 0;
+    if (in_dpad_left(x, y))  mask |= BTN_LEFT;
+    if (in_dpad_right(x, y)) mask |= BTN_RIGHT;
+    if (in_btn_jump(x, y))   mask |= BTN_JUMP;
+    if (in_btn_shoot(x, y))  mask |= BTN_SHOOT;
+    return mask;
+}
+
+/* 从所有触点重新计算输入状态 */
+static void recalc_inputs(void) {
+    uint8_t combined = 0;
+    for (int i = 0; i < UI_MAX_TOUCH_POINTS; i++)
+        combined |= s_touch_btns[i];
+    s_game.input_left  = (combined & BTN_LEFT)  != 0;
+    s_game.input_right = (combined & BTN_RIGHT) != 0;
+    s_game.input_jump  = (combined & BTN_JUMP)  != 0;
+    s_game.input_shoot = (combined & BTN_SHOOT) != 0;
+}
+
+/* 事件处理 */
+static void touch_event(ui_widget_t *w, ui_event_t *e) {
+    if (e->type == UI_EVENT_TOUCH_DOWN) {
+        s_touch_btns[e->touch_id] = hit_test(e->pos.x, e->pos.y);
+        recalc_inputs();
+    } else if (e->type == UI_EVENT_TOUCH_MOVE) {
+        s_touch_btns[e->touch_id] = hit_test(e->pos.x, e->pos.y);
+        recalc_inputs();
+    } else if (e->type == UI_EVENT_TOUCH_UP) {
+        s_touch_btns[e->touch_id] = 0;
+        recalc_inputs();
+    }
+}
+```
+
+**关键点**：
+- 每个触点独立跟踪它按下的按钮
+- 一个触点抬起时，只清除该触点的按钮，不影响其他触点按着的按钮
+- `recalc_inputs` 用 OR 合并所有触点的按钮状态，确保只要有一个触点按着某按钮，该按钮就保持激活
 
 ### 去抖时间不能太长
 
@@ -330,13 +407,104 @@ if (hud_needs_redraw) {
 
 **解决方案**：标记脏区域时，确保包含物体的完整边界（包括圆角、阴影等），宁可多标一些也不要少标。
 
-### 8.4 clip 残留
+**常见残影场景及修复**：
+
+1. **实体被消灭时**：实体被消灭（`active = false`）后，`prev_x/prev_y` 是上一帧的位置，但实体在当前帧移动了，碰撞位置（`x/y`）与上一帧位置不同。需要同时标记 `prev` 位置和当前位置：
+```c
+if (!e->active && (e->prev_x != 0 || e->prev_y != 0)) {
+    // 标记上一帧位置
+    inv_world_rect(e->prev_x, e->prev_y, w, h, prev_camera);
+    // 标记碰撞位置（当前位置）
+    inv_world_rect(e->x, e->y, w, h, camera);
+}
+```
+
+2. **无敌闪烁时**：玩家被击中后进入无敌状态，每帧闪烁（可见/不可见交替）。即使位置没变，可见性变化也需要重绘：
+```c
+if (s_game.invincible > 0) {
+    inv_player(s_game.px, s_game.py, s_game.camera_x);
+}
+```
+
+3. **提前 return 导致脏区域未标记**：在碰撞检测中调用 `player_die()` 后直接 `return`，跳过了末尾的脏区域标记代码。必须在 `return` 前手动标记旧位置：
+```c
+if (bullet_hit_player) {
+    inv_bullet(b, camera);  // 标记子弹消失位置
+    player_die();           // 内部标记玩家旧位置和新位置
+    return;                 // 跳过后续脏区域标记
+}
+```
+
+### 8.4 相机移动时的局刷策略
+
+**核心原则**：相机移动时不要全刷，而是标记所有移动元素的旧位置和新位置。
+
+当相机移动时，所有世界坐标的物体在屏幕上的位置都会改变。但背景（天空）是均匀的，擦除脏区域后用天空色填充即可正确恢复。
+
+**标记策略**：
+
+1. **边缘条**：相机滚动时新出现的屏幕边缘区域
+2. **平台**：在旧相机偏移和新相机偏移下各标记一次
+3. **视差背景（山脉等）**：在旧偏移和新偏移下各标记一次
+4. **所有实体**：旧位置（旧相机偏移）+ 新位置（新相机偏移）
+5. **HUD**：仅在数据变化时标记
+
+```c
+if (camera_x != prev_camera_x) {
+    // 1. 边缘条
+    int16_t dx = camera_x - prev_camera_x;
+    if (dx > 0) inv_rect(SCREEN_W - dx, AREA_Y, dx, AREA_H);
+    else        inv_rect(0, AREA_Y, -dx, AREA_H);
+
+    // 2. 平台（旧+新偏移）
+    for (each platform p) {
+        inv_world_rect_at(p->x, p->y, p->w, p->h, prev_camera_x);
+        inv_world_rect_at(p->x, p->y, p->w, p->h, camera_x);
+    }
+
+    // 3. 视差背景（旧+新偏移）
+    // ... 根据具体视差系数计算 ...
+
+    // 4. 实体旧位置 + 新位置
+    inv_player(prev_px, prev_py, prev_camera_x);
+    inv_player(px, py, camera_x);
+    // ... enemies, bullets, particles 同理 ...
+
+    // 5. HUD 仅在数据变化时
+    if (hud_dirty) inv_hud();
+
+    return;  // 跳过常规脏区域标记
+}
+```
+
+**不要标记的内容**：
+- 标题栏（不受相机移动影响）
+- 控制按钮（不受相机移动影响，除非输入状态变化）
+- 静态 UI 元素
+
+**脏区域裁剪**：`inv_world_rect_at` 应将坐标裁剪到游戏区域内，避免脏区域扩展到标题栏：
+```c
+static void inv_world_rect_at(int16_t wx, int16_t wy, int16_t w, int16_t h, int16_t cam_x) {
+    int16_t sx = wx - cam_x;
+    int16_t sy = wy + AREA_Y;
+    if (sx + w <= 0 || sx >= AREA_W) return;
+    if (sy + h <= AREA_Y || sy >= SCREEN_H) return;
+    if (sx < 0) { w += sx; sx = 0; }
+    if (sy < AREA_Y) { h -= (AREA_Y - sy); sy = AREA_Y; }
+    ui_rect_t r = {sx, sy, w, h};
+    ui_page_invalidate(&r);
+}
+```
+
+**局刷绘制时需包含背景元素**：`draw_entities_in_clip` 必须绘制所有可能与脏区域重叠的元素，包括视差背景（山脉）、装饰（星星）、平台等，否则这些元素在脏区域内会消失。
+
+### 8.5 clip 残留
 
 **坑**：`on_draw` 中调用了 `ui_render_set_clip` 但忘记在函数末尾调用 `ui_render_reset_clip`，导致下一帧 `ui_page_draw` 绘制 sidebar 和标题栏时被裁剪掉，返回上一页后出现残留。
 
 **解决方案**：`on_draw` 函数末尾必须调用 `ui_render_reset_clip()`。
 
-### 8.5 VSYNC 等待位置
+### 8.6 VSYNC 等待位置
 
 **坑**：`SSD1963_WaitVSync()` 放在 `Touch_Scan()` 之前，Touch_Scan 的 I2C 通信耗时 1-2ms，等开始绘制时消隐期已经过了，VSYNC 同步失效。
 
@@ -350,7 +518,7 @@ while(1) {
 }
 ```
 
-### 8.6 TE 信号超时保护
+### 8.7 TE 信号超时保护
 
 **坑**：如果 TE 引脚未连接或 SSD1963 未正确配置，`SSD1963_WaitVSync()` 会死等。
 

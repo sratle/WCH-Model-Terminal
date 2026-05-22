@@ -264,12 +264,15 @@ GT911_Status_t GT911_ReadTouch(GT911_TouchPoint_t *points, uint8_t *touch_count)
         }
         if (*touch_count != 0) {
             for (uint8_t i = 0; i < *touch_count; i++) {
-                uint16_t addr = GT911_POINT1_X_ADDR + (i * 8);
-                uint8_t buf[4];
-                result = gt911_i2c_read(gt911_addr, addr, buf, 4);
+                /* Each point: track_id(1) + x(2) + y(2) + size(2) + reserved(1) = 8 bytes */
+                /* Base address for point i: 0x814F + i*8 for track_id */
+                uint16_t base_addr = 0x814F + (i * 8);
+                uint8_t buf[5];
+                result = gt911_i2c_read(gt911_addr, base_addr, buf, 5);
                 if (result != GT911_OK) return result;
-                points[i].x = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
-                points[i].y = (uint16_t)buf[2] | ((uint16_t)buf[3] << 8);
+                points[i].track_id = buf[0];
+                points[i].x = (uint16_t)buf[1] | ((uint16_t)buf[2] << 8);
+                points[i].y = (uint16_t)buf[3] | ((uint16_t)buf[4] << 8);
             }
         }
         gt911_set_status(0);

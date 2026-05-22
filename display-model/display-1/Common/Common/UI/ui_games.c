@@ -11,6 +11,8 @@
 #include "../Games/games.h"
 #include "../Games/game_airplane.h"
 #include "../Games/game_touchball.h"
+#include "../Games/game_minesweeper.h"
+#include "../Games/game_contra.h"
 
 /*=============================================================================
  *  Game Grid Configuration
@@ -23,7 +25,7 @@
 #define GAME_BTN_GAP_X       20
 #define GAME_BTN_GAP_Y       16
 #define GAME_GRID_TOP        70
-#define GAME_TOTAL           6
+#define GAME_TOTAL           8
 
 /*=============================================================================
  *  Game Entry Data
@@ -44,6 +46,8 @@ static const game_entry_t s_games[GAME_TOTAL] = {
     {"Breakout",   icon_play_16_bitmap,     ICON_PLAY_16_WIDTH,     ICON_PLAY_16_HEIGHT,     game_breakout_get_page},
     {"Airplane",   icon_up_16_bitmap,       ICON_UP_16_WIDTH,       ICON_UP_16_HEIGHT,       game_airplane_get_page},
     {"Touch Ball", icon_ok_16_bitmap,       ICON_OK_16_WIDTH,       ICON_OK_16_HEIGHT,       game_touchball_get_page},
+    {"MineSweeper",icon_warning_16_bitmap,  ICON_WARNING_16_WIDTH,  ICON_WARNING_16_HEIGHT,  game_minesweeper_get_page},
+    {"Contra",     icon_play_16_bitmap,     ICON_PLAY_16_WIDTH,     ICON_PLAY_16_HEIGHT,     game_contra_get_page},
 };
 
 /*=============================================================================

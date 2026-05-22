@@ -125,6 +125,19 @@ void UI_Tick(void)
                 cancel_e.type = UI_EVENT_PRESS_CANCEL;
                 ui_widget_event(capture, &cancel_e);
                 ui_input_set_capture(NULL);
+            } else if (e->type == UI_EVENT_TOUCH_DOWN || e->type == UI_EVENT_TOUCH_UP ||
+                       e->type == UI_EVENT_TOUCH_MOVE) {
+                /* Multi-touch events bypass capture - broadcast to all widgets
+                 * so multiple fingers can interact with different UI elements.
+                 * Don't release capture though - legacy single-touch may still need it. */
+                ui_page_t *page = ui_page_current();
+                if (page) {
+                    for (uint16_t i = 0; i < page->widget_count; i++) {
+                        if (page->widgets[i]) {
+                            ui_widget_event(page->widgets[i], e);
+                        }
+                    }
+                }
             }
         } else {
             bool handled = false;

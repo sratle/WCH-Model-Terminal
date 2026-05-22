@@ -22,7 +22,8 @@ extern "C" {
 #define UI_SWIPE_THRESHOLD      30
 #define UI_HOLD_DELAY_MS        400     /* Time before first HOLD event */
 #define UI_HOLD_REPEAT_MS       80      /* Interval between repeated HOLD events */
-#define UI_INPUT_QUEUE_SIZE     8
+#define UI_INPUT_QUEUE_SIZE     16
+#define UI_MAX_TOUCH_POINTS     5
 
 /*=============================================================================
  *  Input State
@@ -40,6 +41,15 @@ typedef struct {
     bool mouse_pressed;
     ui_widget_t *focused_widget;
     ui_widget_t *capture_widget;
+    /* Multi-touch tracking */
+    struct {
+        bool active;
+        ui_point_t pos;
+        ui_point_t start;
+        uint32_t press_time;
+        uint32_t last_hold_time;
+        bool hold_active;
+    } touches[UI_MAX_TOUCH_POINTS];
 } ui_input_state_t;
 
 /*=============================================================================
@@ -48,6 +58,7 @@ typedef struct {
 
 void ui_input_init(void);
 void ui_input_touch_raw(bool pressed, int16_t x, int16_t y);
+void ui_input_touch_multi_raw(uint8_t touch_id, bool pressed, int16_t x, int16_t y);
 void ui_input_mouse_raw(int16_t dx, int16_t dy, bool left_pressed);
 void ui_input_keyboard_raw(uint8_t key_code);
 ui_event_t* ui_input_poll(void);

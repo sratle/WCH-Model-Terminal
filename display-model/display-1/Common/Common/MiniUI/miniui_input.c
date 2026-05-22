@@ -61,6 +61,10 @@ void ui_input_init(void)
     s_queue_count = 0;
     s_input_state.mouse_pos.x = UI_SCREEN_WIDTH / 2;
     s_input_state.mouse_pos.y = UI_SCREEN_HEIGHT / 2;
+    /* Initialize multi-touch state */
+    for (int i = 0; i < UI_MAX_TOUCH_POINTS; i++) {
+        s_input_state.touches[i].active = false;
+    }
     printf("[ui_input_init] done\r\n");
 }
 
@@ -72,6 +76,7 @@ void ui_input_touch_raw(bool pressed, int16_t x, int16_t y)
 {
     ui_event_t e;
     e.source = UI_INPUT_TOUCH;
+    e.touch_id = UI_TOUCH_ID_NONE;
 
     if (pressed) {
         if (!s_input_state.touch_pressed) {
@@ -136,6 +141,66 @@ void ui_input_touch_raw(bool pressed, int16_t x, int16_t y)
 }
 
 /*=============================================================================
+ *  Multi-Touch Input Processing
+ *
+ *  Tracks up to UI_MAX_TOUCH_POINTS simultaneous touch points.
+ *  Generates UI_EVENT_TOUCH_DOWN / TOUCH_UP / TOUCH_MOVE events with touch_id.
+ *=============================================================================*/
+
+void ui_input_touch_multi_raw(uint8_t touch_id, bool pressed, int16_t x, int16_t y)
+{
+    if (touch_id >= UI_MAX_TOUCH_POINTS) return;
+
+    ui_event_t e;
+    e.source = UI_INPUT_TOUCH;
+    e.touch_id = touch_id;
+    e.delta.x = 0;
+    e.delta.y = 0;
+
+    if (pressed) {
+        if (!s_input_state.touches[touch_id].active) {
+            /* New finger down */
+            s_input_state.touches[touch_id].active = true;
+            s_input_state.touches[touch_id].pos.x = x;
+            s_input_state.touches[touch_id].pos.y = y;
+            s_input_state.touches[touch_id].start.x = x;
+            s_input_state.touches[touch_id].start.y = y;
+            s_input_state.touches[touch_id].press_time = ui_get_real_ms();
+            s_input_state.touches[touch_id].hold_active = false;
+            s_input_state.touches[touch_id].last_hold_time = 0;
+
+            e.type = UI_EVENT_TOUCH_DOWN;
+            e.pos.x = x;
+            e.pos.y = y;
+            queue_push(&e);
+        } else {
+            /* Finger moved */
+            int16_t dx = x - s_input_state.touches[touch_id].pos.x;
+            int16_t dy = y - s_input_state.touches[touch_id].pos.y;
+            s_input_state.touches[touch_id].pos.x = x;
+            s_input_state.touches[touch_id].pos.y = y;
+
+            e.type = UI_EVENT_TOUCH_MOVE;
+            e.pos.x = x;
+            e.pos.y = y;
+            e.delta.x = dx;
+            e.delta.y = dy;
+            queue_push(&e);
+        }
+    } else {
+        if (s_input_state.touches[touch_id].active) {
+            s_input_state.touches[touch_id].active = false;
+            s_input_state.touches[touch_id].hold_active = false;
+
+            e.type = UI_EVENT_TOUCH_UP;
+            e.pos.x = s_input_state.touches[touch_id].pos.x;
+            e.pos.y = s_input_state.touches[touch_id].pos.y;
+            queue_push(&e);
+        }
+    }
+}
+
+/*=============================================================================
  *  Mouse Input Processing
  *=============================================================================*/
 
@@ -143,6 +208,7 @@ void ui_input_mouse_raw(int16_t dx, int16_t dy, bool left_pressed)
 {
     ui_event_t e;
     e.source = UI_INPUT_MOUSE;
+    e.touch_id = UI_TOUCH_ID_NONE;
 
     s_input_state.mouse_pos.x += dx;
     s_input_state.mouse_pos.y += dy;
@@ -189,6 +255,7 @@ void ui_input_keyboard_raw(uint8_t key_code)
     e.pos.y = 0;
     e.delta.x = 0;
     e.delta.y = 0;
+    e.touch_id = UI_TOUCH_ID_NONE;
 
     switch (key_code) {
         case UI_KEY_UP:    e.type = UI_EVENT_KEY_UP; break;

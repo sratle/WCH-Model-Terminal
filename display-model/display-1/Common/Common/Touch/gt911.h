@@ -57,6 +57,7 @@ typedef struct {
 typedef struct {
     uint16_t x;
     uint16_t y;
+    uint8_t track_id;   /* GT911 track ID for multi-touch identification */
 } GT911_TouchPoint_t;
 
 GT911_Status_t GT911_Init(GT911_Config_t config);

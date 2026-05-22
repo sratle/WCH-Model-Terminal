@@ -92,7 +92,12 @@ typedef enum {
     UI_EVENT_KEY_BACK,
     UI_EVENT_PRESS_CANCEL,
     UI_EVENT_HOLD,
+    UI_EVENT_TOUCH_DOWN,    /* Multi-touch: new finger touched */
+    UI_EVENT_TOUCH_UP,      /* Multi-touch: finger lifted */
+    UI_EVENT_TOUCH_MOVE,    /* Multi-touch: finger moved */
 } ui_event_type_t;
+
+#define UI_TOUCH_ID_NONE  0xFF
 
 /* Event structure */
 typedef struct {
@@ -100,6 +105,7 @@ typedef struct {
     ui_input_source_t source;
     ui_point_t pos;
     ui_point_t delta;
+    uint8_t touch_id;      /* Touch point ID for multi-touch (0-4), UI_TOUCH_ID_NONE for single-touch events */
 } ui_event_t;
 
 /*=============================================================================
