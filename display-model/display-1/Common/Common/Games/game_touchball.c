@@ -574,9 +574,10 @@ static void tb_game_draw(ui_page_t *page, ui_rect_t *dirty)
     (void)page;
     (void)dirty;
 
-    /* Title bar background is drawn by ui_app_page_draw.
-     * Here we only draw game-area content. Drawing primitives
-     * automatically clip to the current target row. */
+    /* Title bar background (game overrides on_draw, so must draw it here) */
+    ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
+    ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
+
     tb_draw_game_area(dirty);
 }
 

@@ -66,6 +66,19 @@ void ui_widget_draw(ui_widget_t *w, ui_rect_t *dirty)
 void ui_widget_event(ui_widget_t *w, ui_event_t *e)
 {
     if (!w || !(w->flags & UI_WIDGET_FLAG_ENABLED)) return;
+
+    /* Filter broadcast DOWN/UP pointer events: only deliver if the touch
+     * position is inside the widget.  This prevents multi-touch broadcasts
+     * from falsely triggering PRESSED state or actions on widgets that
+     * the user didn't actually touch.
+     *
+     * The capture widget receives events through a separate path in UI_Tick
+     * and is not affected by this filter. */
+    if ((e->type == UI_EVENT_DOWN || e->type == UI_EVENT_UP) &&
+        (e->source == UI_INPUT_TOUCH || e->source == UI_INPUT_MOUSE)) {
+        if (!ui_widget_hit_test(w, e->pos.x, e->pos.y)) return;
+    }
+
     if (w->event_cb) w->event_cb(w, e);
 }
 

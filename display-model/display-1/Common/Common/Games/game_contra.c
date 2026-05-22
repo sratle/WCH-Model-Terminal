@@ -44,6 +44,7 @@
 /* Level dimensions */
 #define CT_LEVEL_WIDTH      5000
 #define CT_GROUND_Y         380     /* Ground surface Y (game-area relative) */
+#define CT_GROUND_GAP_W     100     /* Width of gaps between ground segments */
 #define CT_CAMERA_MARGIN    200     /* Camera follows player within this margin */
 
 /* Game area */
@@ -204,6 +205,9 @@ static ui_widget_t s_btn_up, s_btn_down, s_btn_left, s_btn_right;
 static ui_widget_t s_btn_jump, s_btn_shoot;
 static ui_widget_t *s_ct_widgets[9];
 static ct_game_t s_ct;
+
+/* Ground gap X positions (between ground segments). Must match ct_build_level(). */
+static const int16_t ct_ground_gaps[] = {1200, 2500, 3800};
 
 /*=============================================================================
  *  Helpers
@@ -899,44 +903,49 @@ static void ct_update(void)
     }
 
     /* --- Mark dirty regions for partial refresh --- */
-    /* Camera scroll: mark old and new positions of all visible elements.
-       Background (sky) is uniform so erasing dirty regions with sky color is correct. */
     if (s_ct.camera_x != s_ct.prev_camera_x) {
-        /* Mark the left/right edge strip revealed by scrolling */
+        /* Camera scroll: precisely mark only visible elements at old and new
+         * positions.  FMC pixel transmission cost >> computation cost, so
+         * precise marking (few visible platforms) beats full-area redraw. */
+
+        /* Edge strip: newly revealed area from scrolling */
         int16_t dx = s_ct.camera_x - s_ct.prev_camera_x;
         if (dx > 0) {
-            /* Scrolled right: new area on the right edge */
             ui_rect_t edge = {CT_AREA_W - dx, CT_AREA_Y, dx, CT_AREA_H};
             ui_page_invalidate(&edge);
         } else {
-            /* Scrolled left: new area on the left edge */
             ui_rect_t edge = {0, CT_AREA_Y, -dx, CT_AREA_H};
             ui_page_invalidate(&edge);
         }
 
-        /* Mark platforms at old and new camera offsets */
+        /* Visible platforms at old and new camera offsets.
+         * Ground segments are ALWAYS skipped: horizontally uniform, scroll
+         * doesn't change appearance.  Gaps between ground segments (100px)
+         * are only invalidated when entering/leaving the visible area.
+         * Elevated platforms use standard old+new invalidation. */
         for (int i = 0; i < s_ct.platform_count; i++) {
             ct_platform_t *p = &s_ct.platforms[i];
+            if (p->y == CT_GROUND_Y) continue;  /* ground: always skip */
             ct_inv_world_rect_at(p->x, p->y, p->w, p->h, s_ct.prev_camera_x);
             ct_inv_world_rect_at(p->x, p->y, p->w, p->h, s_ct.camera_x);
         }
 
-        /* Mark mountains (parallax) at old and new offsets */
-        {
-            int16_t old_m_offset = s_ct.prev_camera_x / 3;
-            int16_t new_m_offset = s_ct.camera_x / 3;
-            for (int i = 0; i < 8; i++) {
-                int16_t old_mx = i * 200 - (old_m_offset % 200);
-                int16_t new_mx = i * 200 - (new_m_offset % 200);
-                int16_t mh = 40 + (i * 37) % 60;
-                ui_rect_t old_mr = {old_mx, CT_AREA_Y + CT_GROUND_Y - mh - 20, 120, mh};
-                ui_rect_t new_mr = {new_mx, CT_AREA_Y + CT_GROUND_Y - mh - 20, 120, mh};
-                ui_page_invalidate(&old_mr);
-                ui_page_invalidate(&new_mr);
+        /* Gap regions: only invalidate when gap enters/leaves visible area.
+         * A gap fully on-screen at both offsets just shifts (uniform ground),
+         * so no visual change. Only the edge transition needs refresh. */
+        for (int i = 0; i < 3; i++) {
+            int16_t gx = ct_ground_gaps[i];
+            int16_t old_sx = gx - s_ct.prev_camera_x;
+            int16_t new_sx = gx - s_ct.camera_x;
+            bool old_on = old_sx < CT_AREA_W && old_sx + CT_GROUND_GAP_W > 0;
+            bool new_on = new_sx < CT_AREA_W && new_sx + CT_GROUND_GAP_W > 0;
+            if (old_on != new_on) {
+                ct_inv_world_rect_at(gx, CT_GROUND_Y, CT_GROUND_GAP_W, 60, s_ct.prev_camera_x);
+                ct_inv_world_rect_at(gx, CT_GROUND_Y, CT_GROUND_GAP_W, 60, s_ct.camera_x);
             }
         }
 
-        /* Mark old positions of all entities at old camera offset */
+        /* Entities at old camera offset (their previous screen position) */
         ct_inv_player(s_ct.prev_px, s_ct.prev_py, s_ct.prev_crouching, s_ct.prev_camera_x);
         for (int i = 0; i < CT_MAX_ENEMIES; i++) {
             ct_enemy_t *e = &s_ct.enemies[i];
@@ -968,7 +977,7 @@ static void ct_update(void)
             }
         }
 
-        /* Mark new positions of all entities at new camera offset */
+        /* Entities at new camera offset (their current screen position) */
         ct_inv_player(s_ct.px, s_ct.py, s_ct.crouching, s_ct.camera_x);
         for (int i = 0; i < CT_MAX_ENEMIES; i++) {
             ct_enemy_t *e = &s_ct.enemies[i];
@@ -989,7 +998,6 @@ static void ct_update(void)
             }
         }
 
-        /* HUD only if dirty (score/lives changed) */
         if (s_ct.hud_dirty) {
             ct_inv_hud();
         }
@@ -1116,10 +1124,9 @@ static void ct_draw_game(void)
         ui_draw_pixel(sx, sy, UI_HEX(0x555577));
     }
 
-    /* Mountains in background (parallax) */
-    int16_t m_offset = s_ct.camera_x / 3;
+    /* Mountains in background (static — no parallax, reduces dirty regions during camera scroll) */
     for (int i = 0; i < 8; i++) {
-        int16_t mx = i * 200 - (m_offset % 200);
+        int16_t mx = (i * 200 + 50) % CT_AREA_W;
         int16_t mh = 40 + (i * 37) % 60;
         ui_rect_t mr = {mx, CT_AREA_Y + CT_GROUND_Y - mh - 20, 120, mh};
         ui_draw_fill_rect(&mr, UI_HEX(0x1F3044));
@@ -1536,6 +1543,10 @@ static void ct_game_draw(ui_page_t *page, ui_rect_t *dirty)
     (void)page;
     (void)dirty;
 
+    /* Title bar background */
+    ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
+    ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
+
     if (s_ct.state == CT_STATE_IDLE) {
         ct_draw_game();
         ct_draw_idle_overlay();
@@ -1596,18 +1607,16 @@ void game_contra_init(void)
     s_btn_shoot.bg_color = UI_COLOR_TRANSPARENT;
     s_btn_shoot.event_cb = ct_btn_shoot_event;
 
-    /* Widget order: high index = high priority for events */
+    /* Widget list: touch_area handles ALL game input via per-touch multi-touch
+     * tracking (s_touch_btns[]). The individual button widgets (s_btn_left etc.)
+     * are removed because their simple DOWN=true/UP=false handlers conflict with
+     * the multi-touch system, causing input interruption when pressing multiple
+     * buttons simultaneously (e.g., move + jump). */
     s_ct_widgets[0] = &s_touch_area;
-    s_ct_widgets[1] = &s_btn_up;
-    s_ct_widgets[2] = &s_btn_down;
-    s_ct_widgets[3] = &s_btn_left;
-    s_ct_widgets[4] = &s_btn_right;
-    s_ct_widgets[5] = &s_btn_jump;
-    s_ct_widgets[6] = &s_btn_shoot;
-    s_ct_widgets[7] = (ui_widget_t *)&s_game_ct.lbl_title;
-    s_ct_widgets[8] = (ui_widget_t *)&s_game_ct.btn_back;
+    s_ct_widgets[1] = (ui_widget_t *)&s_game_ct.lbl_title;
+    s_ct_widgets[2] = (ui_widget_t *)&s_game_ct.btn_back;
 
-    ui_page_set_widgets(&s_game_ct.page, s_ct_widgets, 9);
+    ui_page_set_widgets(&s_game_ct.page, s_ct_widgets, 3);
     ui_page_set_callbacks(&s_game_ct.page, ct_game_enter, NULL,
                           ct_game_draw, NULL);
     ui_page_set_update_cb(&s_game_ct.page, ct_game_update);

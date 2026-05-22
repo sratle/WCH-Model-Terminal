@@ -138,16 +138,24 @@ void UI_Tick(void)
     ui_event_t *e = ui_input_poll();
     while (e) {
         ui_widget_t *capture = ui_input_get_capture();
+        ui_page_t *page_before = ui_page_current();  /* Track page changes */
 
         if (capture) {
             /* Capture widget receives all events until release/cancel */
             ui_widget_event(capture, e);
 
+            /* If the event handler triggered a page change (e.g. ui_page_push
+             * inside a button's on_click), skip all further processing for this
+             * event. The old capture widget was on the old page; broadcasting or
+             * setting capture on the new page would cause spurious interactions. */
+            if (ui_page_current() != page_before) {
+                e = ui_input_poll();
+                continue;
+            }
+
             /* Release capture on UP or swipe (pointer events) */
             if (e->type == UI_EVENT_UP || e->type == UI_EVENT_CLICK ||
                 e->type == UI_EVENT_DOUBLE_CLICK) {
-                /* Only release if the event's touch_id matches capture's touch_id,
-                 * or it's a non-touch event */
                 if (e->touch_id == ui_input_get_capture_touch_id() ||
                     e->source != UI_INPUT_TOUCH) {
                     ui_input_set_capture(NULL, UI_TOUCH_ID_NONE);
@@ -160,12 +168,11 @@ void UI_Tick(void)
                 ui_input_set_capture(NULL, UI_TOUCH_ID_NONE);
             }
 
-            /* Multi-touch: broadcast DOWN/MOVE/UP to all widgets for
-             * multi-finger interaction (e.g., game buttons) */
+            /* Multi-touch: broadcast DOWN/UP (NOT MOVE) to all widgets for
+             * multi-finger interaction (e.g., game buttons). */
             if (e->source == UI_INPUT_TOUCH &&
                 e->touch_id != ui_input_get_capture_touch_id() &&
-                (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_UP ||
-                 e->type == UI_EVENT_MOVE)) {
+                (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_UP)) {
                 ui_page_t *page = ui_page_current();
                 if (page) {
                     for (uint16_t i = 0; i < page->widget_count; i++) {
@@ -210,6 +217,10 @@ void UI_Tick(void)
                         if (page->widgets[i] &&
                             ui_widget_hit_test(page->widgets[i], e->pos.x, e->pos.y)) {
                             ui_widget_event(page->widgets[i], e);
+
+                            /* Skip capture if page changed during event handling */
+                            if (ui_page_current() != page) break;
+
                             if (e->type == UI_EVENT_DOWN) {
                                 ui_input_set_capture(page->widgets[i],
                                     e->source == UI_INPUT_TOUCH ? e->touch_id : UI_TOUCH_ID_NONE);

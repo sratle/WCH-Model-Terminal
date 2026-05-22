@@ -147,69 +147,6 @@ typedef struct {
 } mine_game_t;
 
 /*=============================================================================
- *  Double-Click Detection
- *=============================================================================*/
-
-#define DOUBLE_CLICK_INTERVAL_MS  400   /* Max time between two clicks */
-#define DOUBLE_CLICK_MOVE_PX      10    /* Max pixel movement between clicks */
-
-typedef struct {
-    bool pending;              /* True if first click received, waiting for second */
-    int16_t x;                 /* X position of first click */
-    int16_t y;                 /* Y position of first click */
-    uint32_t time_ms;          /* Timestamp of first click */
-} dbl_click_state_t;
-
-static dbl_click_state_t s_dbl_click;
-
-/* Check if a RELEASE event qualifies as a double-click.
- * Returns true if this is a double-click, false if it's a single-click.
- * For single-click: starts the double-click timer.
- * For double-click: clears the timer. */
-static bool mine_check_double_click(int16_t x, int16_t y)
-{
-    uint32_t now = ui_get_real_ms();
-
-    if (s_dbl_click.pending) {
-        int16_t dx = x - s_dbl_click.x;
-        int16_t dy = y - s_dbl_click.y;
-        if (dx < 0) dx = -dx;
-        if (dy < 0) dy = -dy;
-
-        if (dx <= DOUBLE_CLICK_MOVE_PX && dy <= DOUBLE_CLICK_MOVE_PX &&
-            now - s_dbl_click.time_ms <= DOUBLE_CLICK_INTERVAL_MS) {
-            /* Double click detected */
-            s_dbl_click.pending = false;
-            return true;
-        }
-    }
-
-    /* Start new double-click window */
-    s_dbl_click.pending = true;
-    s_dbl_click.x = x;
-    s_dbl_click.y = y;
-    s_dbl_click.time_ms = now;
-    return false;
-}
-
-/* Cancel pending double-click (e.g. after a long press or swipe) */
-static void mine_cancel_double_click(void)
-{
-    s_dbl_click.pending = false;
-}
-
-/* Check if a pending single-click has expired (called each frame) */
-static bool mine_single_click_expired(void)
-{
-    if (!s_dbl_click.pending) return false;
-    uint32_t now = ui_get_real_ms();
-    if (now - s_dbl_click.time_ms > DOUBLE_CLICK_INTERVAL_MS) {
-        s_dbl_click.pending = false;
-        return true;
-    }
-    return false;
-}
-
 /*=============================================================================
  *  Static Data
  *=============================================================================*/
@@ -505,7 +442,6 @@ static void mine_start_game(mine_mode_t mode)
 
     mine_update_texts();
     ui_page_invalidate_all();
-    mine_cancel_double_click();
 }
 
 static void mine_restart(void)
@@ -764,10 +700,7 @@ static void mine_draw_lose_overlay(void)
  *  Input Handling
  *=============================================================================*/
 
-/* Pending single-click action (delayed for double-click detection) */
-static bool s_pending_single_click = false;
-static int s_pending_row, s_pending_col;
-static bool s_hold_active = false;       /* True after first HOLD, cleared on RELEASE */
+static bool s_hold_active = false;       /* True after first LONG_PRESS, cleared on UP */
 
 static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
 {
@@ -777,8 +710,6 @@ static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
         /* Long press = flag */
         if (!s_hold_active) {
             s_hold_active = true;
-            mine_cancel_double_click();
-            s_pending_single_click = false;
 
             int row, col;
             if (mine_pixel_to_cell(e->pos.x, e->pos.y, &row, &col)) {
@@ -789,25 +720,9 @@ static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
         }
     } else if (e->type == UI_EVENT_UP) {
         s_hold_active = false;
-        /* Check for double-click */
-        int row, col;
-        if (mine_pixel_to_cell(e->pos.x, e->pos.y, &row, &col)) {
-            if (s_mine.state == MINE_STATE_PLAYING) {
-                if (mine_check_double_click(e->pos.x, e->pos.y)) {
-                    /* Double click = reveal */
-                    s_pending_single_click = false;
-                    mine_reveal_cell(row, col);
-                } else {
-                    /* First click: queue as pending single-click */
-                    s_pending_single_click = true;
-                    s_pending_row = row;
-                    s_pending_col = col;
-                }
-            }
-        }
+        /* Do NOT reveal on UP. Reveal only happens on DOUBLE_CLICK. */
     } else if (e->type == UI_EVENT_DOUBLE_CLICK) {
         /* Double click = reveal */
-        s_pending_single_click = false;
         int row, col;
         if (mine_pixel_to_cell(e->pos.x, e->pos.y, &row, &col)) {
             if (s_mine.state == MINE_STATE_PLAYING) {
@@ -815,21 +730,12 @@ static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
             }
         }
     } else if (e->type == UI_EVENT_CLICK) {
-        /* Single click = reveal (if not flagged) */
-        s_pending_single_click = false;
-        int row, col;
-        if (mine_pixel_to_cell(e->pos.x, e->pos.y, &row, &col)) {
-            if (s_mine.state == MINE_STATE_PLAYING) {
-                mine_reveal_cell(row, col);
-            }
-        }
+        /* Single click does NOT reveal; only double-click reveals. */
     } else if (e->type == UI_EVENT_SWIPE_UP ||
                e->type == UI_EVENT_SWIPE_DOWN ||
                e->type == UI_EVENT_SWIPE_LEFT ||
                e->type == UI_EVENT_SWIPE_RIGHT) {
-        /* Swipe cancels pending click */
-        mine_cancel_double_click();
-        s_pending_single_click = false;
+        /* Swipe — no action */
     } else if (e->type == UI_EVENT_KEY_OK) {
         /* Keyboard OK = start/restart */
         if (s_mine.state == MINE_STATE_IDLE) {
@@ -875,19 +781,12 @@ static void mine_game_enter(ui_page_t *page)
     s_mine.state = MINE_STATE_IDLE;
     mine_update_texts();
     ui_page_invalidate_all();
-    mine_cancel_double_click();
-    s_pending_single_click = false;
 }
 
 /* Per-frame game logic update (timer) */
 static void mine_game_update(ui_page_t *page)
 {
     (void)page;
-
-    /* Clear expired single-click (no action on single click) */
-    if (s_pending_single_click && mine_single_click_expired()) {
-        s_pending_single_click = false;
-    }
 
     /* Update timer (frame-based, 25 FPS) */
     if (s_mine.state == MINE_STATE_PLAYING && !s_mine.first_click) {
@@ -907,6 +806,10 @@ static void mine_game_draw(ui_page_t *page, ui_rect_t *dirty)
 {
     (void)page;
     (void)dirty;
+
+    /* Title bar background */
+    ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
+    ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
 
     /* Game area background */
     ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,

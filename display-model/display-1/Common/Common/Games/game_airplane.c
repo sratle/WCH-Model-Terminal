@@ -861,6 +861,10 @@ static void ap_game_draw(ui_page_t *page, ui_rect_t *dirty)
     (void)page;
     (void)dirty;
 
+    /* Title bar background */
+    ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
+    ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
+
     /* Game area background */
     ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
                       UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
