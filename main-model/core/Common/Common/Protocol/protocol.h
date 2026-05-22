@@ -48,8 +48,8 @@
 #define CMD_DISP_MUSIC_CONTROL          0x1B
 #define CMD_DISP_MUSIC_STATUS           0x1C
 #define CMD_DISP_VOLUME_CONTROL         0x1D
-#define CMD_DISP_ETHERNET_STATUS        0x1E
-#define CMD_DISP_FACTORY_RESET          0x1F
+#define CMD_DISP_FACTORY_RESET          0x1E
+/* 0x1F 预留 */
 
 /* ============================================================================
  * Display 扩展操作码 (CMD = 0x10, DATA[0] 为子命令)
@@ -65,28 +65,102 @@
 #define CMD_DISP_EXT_FILE_SAVE          0x09
 #define CMD_DISP_EXT_FILE_OPERATION     0x0A
 #define CMD_DISP_EXT_PLAY_MUSIC         0x0B
-#define CMD_DISP_EXT_BT_SCAN            0x0C
-#define CMD_DISP_EXT_BT_DEVICE_LIST     0x0D
-#define CMD_DISP_EXT_BT_CONNECT         0x0E
-#define CMD_DISP_EXT_BT_STATUS          0x0F
-#define CMD_DISP_EXT_FP_STATUS          0x10
-#define CMD_DISP_EXT_NFC_TAG            0x11
-#define CMD_DISP_EXT_HEALTH_DATA        0x12
-#define CMD_DISP_EXT_POWER_STATUS       0x13
-#define CMD_DISP_EXT_IR_RANGE_REQ       0x14
-#define CMD_DISP_EXT_IR_RANGE_DATA      0x15
-#define CMD_DISP_EXT_SAVE_CONFIG        0x16
-#define CMD_DISP_EXT_LOAD_CONFIG        0x17
-#define CMD_DISP_EXT_CONFIG_RESULT      0x18
-#define CMD_DISP_EXT_SET_RGB_MODE       0x19
-#define CMD_DISP_EXT_BULK_TRANSFER      0x1A
-#define CMD_DISP_EXT_SUBDISP_CONTENT    0x1B
-#define CMD_DISP_EXT_SUBDISP_CONFIG     0x1C
-#define CMD_DISP_EXT_SCREEN_WAKEUP      0x1D
-#define CMD_DISP_EXT_SCREEN_SLEEP       0x1E
-#define CMD_DISP_EXT_ERROR_REPORT       0x1F
-#define CMD_DISP_EXT_REPORT_EVENT       0x20
-#define CMD_DISP_EXT_REQUEST_DATA       0x21
+#define CMD_DISP_EXT_BT_EVENT           0x0C
+#define CMD_DISP_EXT_BT_CONTROL         0x0D
+#define CMD_DISP_EXT_SUBMODEL_EVENT     0x0E
+#define CMD_DISP_EXT_POWER_EVENT        0x0F
+#define CMD_DISP_EXT_SAVE_CONFIG        0x10
+#define CMD_DISP_EXT_LOAD_CONFIG        0x11
+#define CMD_DISP_EXT_CONFIG_RESULT      0x12
+#define CMD_DISP_EXT_SET_RGB_MODE       0x13
+#define CMD_DISP_EXT_BULK_TRANSFER      0x14
+#define CMD_DISP_EXT_SUBDISP_CONTENT    0x15
+#define CMD_DISP_EXT_SUBDISP_CONFIG     0x16
+#define CMD_DISP_EXT_ERROR_REPORT       0x17
+
+/* ---- 输入事件设备类型 (CMD_DISP_INPUT_EVENT DATA[0]) ---- */
+#define INPUT_DEV_KEYBOARD              0x00
+#define INPUT_DEV_MOUSE                 0x01
+#define INPUT_DEV_TOUCH                 0x02
+#define INPUT_DEV_CORE_KEY              0x03
+
+/* ---- Core 按键标识 (INPUT_DEV_CORE_KEY DATA[2]) ---- */
+#define CORE_KEY_PLUS                   0x01
+#define CORE_KEY_SUB                    0x02
+#define CORE_KEY_ENTER                  0x03
+
+/* ---- Core 按键事件 (INPUT_DEV_CORE_KEY DATA[1]) ---- */
+#define CORE_KEY_EVT_RELEASE            0x00
+#define CORE_KEY_EVT_PRESS              0x01
+#define CORE_KEY_EVT_LONG_PRESS         0x02
+
+/* ---- 音乐控制类型 (CMD_DISP_MUSIC_CONTROL DATA[0]) ---- */
+#define MUSIC_CTRL_TOGGLE               0x00
+#define MUSIC_CTRL_PLAY                 0x01
+#define MUSIC_CTRL_PAUSE                0x02
+#define MUSIC_CTRL_STOP                 0x03
+#define MUSIC_CTRL_PREV                 0x04
+#define MUSIC_CTRL_NEXT                 0x05
+#define MUSIC_CTRL_SEEK_FWD             0x06
+#define MUSIC_CTRL_SEEK_BACK            0x07
+#define MUSIC_CTRL_SET_MODE             0x08
+
+/* ---- 播放模式 (MUSIC_CTRL_SET_MODE DATA[1]) ---- */
+#define MUSIC_MODE_SINGLE              0x00
+#define MUSIC_MODE_SEQUENCE             0x01
+#define MUSIC_MODE_SHUFFLE              0x02
+
+/* ---- 播放状态 (CMD_DISP_MUSIC_STATUS DATA[0]) ---- */
+#define MUSIC_STATE_IDLE                0x00
+#define MUSIC_STATE_PLAYING             0x01
+#define MUSIC_STATE_PAUSED              0x02
+#define MUSIC_STATE_STOPPED             0x03
+
+/* ---- 音量控制操作 (CMD_DISP_VOLUME_CONTROL DATA[0]) ---- */
+#define VOLUME_OP_SET                   0x00
+#define VOLUME_OP_GET                   0x01
+
+/* ---- 屏幕控制类型 (CMD_DISP_SCREEN_CONTROL DATA[0]) ---- */
+#define SCREEN_CTRL_SLEEP               0x00
+#define SCREEN_CTRL_WAKEUP              0x01
+#define SCREEN_CTRL_SET_TIMEOUT         0x02
+#define SCREEN_CTRL_GET_TIMEOUT         0x03
+
+/* ---- 蓝牙事件类型 (CMD_DISP_EXT_BT_EVENT DATA[1]) ---- */
+#define BT_EVT_CONNECTED                0x00
+#define BT_EVT_DISCONNECTED             0x01
+#define BT_EVT_CONN_FAILED              0x02
+#define BT_EVT_SCAN_RESULT              0x03
+#define BT_EVT_SCAN_COMPLETE            0x04
+#define BT_EVT_PAIR_RESULT              0x05
+
+/* ---- 蓝牙控制类型 (CMD_DISP_EXT_BT_CONTROL DATA[1]) ---- */
+#define BT_CTRL_SCAN_START              0x00
+#define BT_CTRL_SCAN_STOP               0x01
+#define BT_CTRL_CONNECT                 0x02
+#define BT_CTRL_DISCONNECT              0x03
+#define BT_CTRL_DISCONNECT_ALL          0x04
+#define BT_CTRL_SET_DISCOVERABLE        0x05
+
+/* ---- Submodel 子类型 (CMD_DISP_EXT_SUBMODEL_EVENT DATA[1]) ---- */
+#define SUBMODEL_TYPE_FINGERPRINT       0x01
+#define SUBMODEL_TYPE_HEALTH            0x02
+#define SUBMODEL_TYPE_NFC               0x03
+#define SUBMODEL_TYPE_TOUCH_RING        0x04
+#define SUBMODEL_TYPE_RGB               0x05
+#define SUBMODEL_TYPE_INFRARED          0x06
+#define SUBMODEL_TYPE_SUB_DISPLAY       0x07
+
+/* ---- 电源事件类型 (CMD_DISP_EXT_POWER_EVENT DATA[1]) ---- */
+#define POWER_EVT_STATUS_CHANGE         0x00
+#define POWER_EVT_CHARGE                0x01
+#define POWER_EVT_ALARM                 0x02
+
+/* ---- 文件操作类型 (CMD_DISP_EXT_FILE_OPERATION DATA[1]) ---- */
+#define FILE_OP_MKDIR                   0x00
+#define FILE_OP_DELETE                  0x01
+#define FILE_OP_RMDIR                   0x02
+#define FILE_OP_RENAME                  0x03
 
 /* ============================================================================
  * Keyboard 基础操作码 (CMD = 0x21 ~ 0x2F)

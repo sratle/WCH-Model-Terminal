@@ -683,17 +683,17 @@ static void snk_touch_event(ui_widget_t *w, ui_event_t *e)
         } else {
             snk_set_direction(SNK_DIR_RIGHT);
         }
-    } else if (e->type == UI_EVENT_PRESS) {
+    } else if (e->type == UI_EVENT_CLICK || e->type == UI_EVENT_DOWN) {
         if (s_snk.state == SNK_STATE_IDLE || s_snk.state == SNK_STATE_GAMEOVER) {
             snk_start_game();
         }
-    } else if (e->type == UI_EVENT_KEY_UP) {
+    } else if (e->type == UI_EVENT_KEY_UP_ARROW) {
         snk_set_direction(SNK_DIR_UP);
-    } else if (e->type == UI_EVENT_KEY_DOWN) {
+    } else if (e->type == UI_EVENT_KEY_DOWN_ARROW) {
         snk_set_direction(SNK_DIR_DOWN);
-    } else if (e->type == UI_EVENT_KEY_LEFT) {
+    } else if (e->type == UI_EVENT_KEY_LEFT_ARROW) {
         snk_set_direction(SNK_DIR_LEFT);
-    } else if (e->type == UI_EVENT_KEY_RIGHT) {
+    } else if (e->type == UI_EVENT_KEY_RIGHT_ARROW) {
         snk_set_direction(SNK_DIR_RIGHT);
     } else if (e->type == UI_EVENT_KEY_OK) {
         if (s_snk.state == SNK_STATE_IDLE || s_snk.state == SNK_STATE_GAMEOVER) {
@@ -704,7 +704,8 @@ static void snk_touch_event(ui_widget_t *w, ui_event_t *e)
 
 static void snk_dpad_event(ui_widget_t *w, ui_event_t *e)
 {
-    if (e->type != UI_EVENT_PRESS && e->type != UI_EVENT_HOLD) return;
+    if (e->type != UI_EVENT_DOWN && e->type != UI_EVENT_LONG_PRESS &&
+        e->type != UI_EVENT_LONG_PRESS_REPEAT) return;
     if (s_snk.state == SNK_STATE_IDLE || s_snk.state == SNK_STATE_GAMEOVER) {
         snk_start_game();
         return;

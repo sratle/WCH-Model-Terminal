@@ -781,8 +781,8 @@ static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
 
-    if (e->type == UI_EVENT_HOLD) {
-        /* Long press = flag (only on first HOLD, ignore repeats) */
+    if (e->type == UI_EVENT_LONG_PRESS) {
+        /* Long press = flag */
         if (!s_hold_active) {
             s_hold_active = true;
             mine_cancel_double_click();
@@ -795,7 +795,7 @@ static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
                 }
             }
         }
-    } else if (e->type == UI_EVENT_RELEASE) {
+    } else if (e->type == UI_EVENT_UP) {
         s_hold_active = false;
         /* Check for double-click */
         int row, col;
@@ -811,6 +811,24 @@ static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
                     s_pending_row = row;
                     s_pending_col = col;
                 }
+            }
+        }
+    } else if (e->type == UI_EVENT_DOUBLE_CLICK) {
+        /* Double click = reveal */
+        s_pending_single_click = false;
+        int row, col;
+        if (mine_pixel_to_cell(e->pos.x, e->pos.y, &row, &col)) {
+            if (s_mine.state == MINE_STATE_PLAYING) {
+                mine_reveal_cell(row, col);
+            }
+        }
+    } else if (e->type == UI_EVENT_CLICK) {
+        /* Single click = reveal (if not flagged) */
+        s_pending_single_click = false;
+        int row, col;
+        if (mine_pixel_to_cell(e->pos.x, e->pos.y, &row, &col)) {
+            if (s_mine.state == MINE_STATE_PLAYING) {
+                mine_reveal_cell(row, col);
             }
         }
     } else if (e->type == UI_EVENT_SWIPE_UP ||
@@ -831,21 +849,21 @@ static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
 static void mine_easy_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type != UI_EVENT_PRESS) return;
+    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN) return;
     mine_start_game(MINE_MODE_EASY);
 }
 
 static void mine_hard_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type != UI_EVENT_PRESS) return;
+    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN) return;
     mine_start_game(MINE_MODE_HARD);
 }
 
 static void mine_restart_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type != UI_EVENT_PRESS) return;
+    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN) return;
     if (s_mine.state == MINE_STATE_IDLE) return;  /* No game to restart */
     mine_restart();
 }

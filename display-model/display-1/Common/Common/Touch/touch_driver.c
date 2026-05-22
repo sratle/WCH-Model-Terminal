@@ -3,15 +3,13 @@
 #include "../MiniUI/miniui.h"
 #include "debug.h"
 
-#define TOUCH_X_RESOLUTION  800
-#define TOUCH_Y_RESOLUTION  480
-#define TOUCH_MAX_POINTS    5
-#define TOUCH_DEBOUNCE_FRAMES  2
-#define TOUCH_SCAN_DIVIDER      1       /* Scan touch every N frames */
+#define TOUCH_X_RESOLUTION      800
+#define TOUCH_Y_RESOLUTION      480
+#define TOUCH_MAX_POINTS        5
+#define TOUCH_DEBOUNCE_FRAMES   2
+#define TOUCH_SCAN_DIVIDER      1
 
 static bool s_touch_initialized = false;
-static bool s_last_pressed = false;
-static Touch_Point_t s_last_point = {0, 0, false};
 static uint8_t s_debounce_counter = 0;
 static uint8_t s_scan_counter = 0;
 
@@ -66,7 +64,7 @@ void Touch_Scan(void)
 {
     if (!s_touch_initialized) return;
 
-    /* Only perform I2C read every TOUCH_SCAN_DIVIDER frames to reduce overhead */
+    /* Only perform I2C read every TOUCH_SCAN_DIVIDER frames */
     s_scan_counter++;
     if (s_scan_counter < TOUCH_SCAN_DIVIDER) return;
     s_scan_counter = 0;
@@ -78,12 +76,7 @@ void Touch_Scan(void)
     if (result != GT911_OK) return;
 
     if (touch_count > 0) {
-        /* Legacy single-touch for backward compatibility */
-        s_last_point.x = points[0].x;
-        s_last_point.y = points[0].y;
-        s_last_point.pressed = true;
         s_debounce_counter = 0;
-        ui_input_touch_raw(true, points[0].x, points[0].y);
 
         /* Multi-touch: match current points to existing slots by track_id */
         bool matched[TOUCH_MAX_POINTS] = {false};
@@ -92,59 +85,49 @@ void Touch_Scan(void)
         for (uint8_t i = 0; i < touch_count; i++) {
             int8_t slot = find_slot_by_track_id(points[i].track_id);
             if (slot >= 0) {
-                /* Existing finger moved */
                 matched[slot] = true;
                 s_active_pos[slot] = points[i];
-                ui_input_touch_multi_raw((uint8_t)slot, true, points[i].x, points[i].y);
+                ui_input_feed_touch((uint8_t)slot, true, points[i].x, points[i].y);
             }
         }
 
         /* Second pass: assign new track_ids to free slots (new finger) */
         for (uint8_t i = 0; i < touch_count; i++) {
             int8_t existing = find_slot_by_track_id(points[i].track_id);
-            if (existing >= 0) continue; /* Already matched */
+            if (existing >= 0) continue;
 
             int8_t slot = find_free_slot();
-            if (slot < 0) continue; /* No free slots */
+            if (slot < 0) continue;
 
             s_active_ids[slot] = true;
             s_active_pos[slot] = points[i];
             matched[slot] = true;
-            ui_input_touch_multi_raw((uint8_t)slot, true, points[i].x, points[i].y);
+            ui_input_feed_touch((uint8_t)slot, true, points[i].x, points[i].y);
         }
 
         /* Release slots that are no longer present */
         for (uint8_t i = 0; i < TOUCH_MAX_POINTS; i++) {
             if (s_active_ids[i] && !matched[i]) {
-                ui_input_touch_multi_raw(i, false, s_active_pos[i].x, s_active_pos[i].y);
+                ui_input_feed_touch(i, false, s_active_pos[i].x, s_active_pos[i].y);
                 s_active_ids[i] = false;
             }
         }
     } else {
-        if (s_last_pressed) {
+        if (s_debounce_counter == 0) {
+            /* First frame with no touches — start debounce */
+            s_debounce_counter = 1;
+        } else {
             s_debounce_counter++;
             if (s_debounce_counter >= TOUCH_DEBOUNCE_FRAMES) {
-                ui_input_touch_raw(false, s_last_point.x, s_last_point.y);
-                s_last_point.pressed = false;
-                s_debounce_counter = 0;
-
-                /* Multi-touch: release all previously active touch points */
+                /* Release all previously active touch points */
                 for (uint8_t i = 0; i < TOUCH_MAX_POINTS; i++) {
                     if (s_active_ids[i]) {
-                        ui_input_touch_multi_raw(i, false, s_active_pos[i].x, s_active_pos[i].y);
+                        ui_input_feed_touch(i, false, s_active_pos[i].x, s_active_pos[i].y);
                         s_active_ids[i] = false;
                     }
                 }
+                s_debounce_counter = 0;
             }
         }
     }
-
-    s_last_pressed = (touch_count > 0) || (s_debounce_counter > 0);
-}
-
-bool Touch_GetPoint(Touch_Point_t *point)
-{
-    if (!s_touch_initialized || !s_last_point.pressed) return false;
-    *point = s_last_point;
-    return true;
 }

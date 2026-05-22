@@ -137,11 +137,11 @@ static void button_event_cb(ui_widget_t *w, ui_event_t *e)
     ui_button_t *btn = (ui_button_t *)w;
 
     switch (e->type) {
-    case UI_EVENT_PRESS:
+    case UI_EVENT_DOWN:
         w->flags |= UI_WIDGET_FLAG_PRESSED;
         ui_widget_invalidate(w);
         break;
-    case UI_EVENT_DRAG:
+    case UI_EVENT_MOVE:
         if (w->flags & UI_WIDGET_FLAG_PRESSED) {
             if (!ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
                 w->flags &= ~UI_WIDGET_FLAG_PRESSED;
@@ -154,14 +154,17 @@ static void button_event_cb(ui_widget_t *w, ui_event_t *e)
             }
         }
         break;
-    case UI_EVENT_RELEASE:
+    case UI_EVENT_UP:
         if (w->flags & UI_WIDGET_FLAG_PRESSED) {
             w->flags &= ~UI_WIDGET_FLAG_PRESSED;
             ui_widget_invalidate(w);
-            if (ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
-                if (btn->on_click) btn->on_click(w);
-            }
         }
+        break;
+    case UI_EVENT_CLICK:
+        if (btn->on_click) btn->on_click(w);
+        break;
+    case UI_EVENT_KEY_OK:
+        if (btn->on_click) btn->on_click(w);
         break;
     case UI_EVENT_SWIPE_UP:
     case UI_EVENT_SWIPE_DOWN:
@@ -264,11 +267,11 @@ static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
     ui_icon_button_t *btn = (ui_icon_button_t *)w;
 
     switch (e->type) {
-    case UI_EVENT_PRESS:
+    case UI_EVENT_DOWN:
         w->flags |= UI_WIDGET_FLAG_PRESSED;
         ui_widget_invalidate(w);
         break;
-    case UI_EVENT_DRAG:
+    case UI_EVENT_MOVE:
         if (w->flags & UI_WIDGET_FLAG_PRESSED) {
             if (!ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
                 w->flags &= ~UI_WIDGET_FLAG_PRESSED;
@@ -281,14 +284,17 @@ static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
             }
         }
         break;
-    case UI_EVENT_RELEASE:
+    case UI_EVENT_UP:
         if (w->flags & UI_WIDGET_FLAG_PRESSED) {
             w->flags &= ~UI_WIDGET_FLAG_PRESSED;
             ui_widget_invalidate(w);
-            if (ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
-                if (btn->on_click) btn->on_click(w);
-            }
         }
+        break;
+    case UI_EVENT_CLICK:
+        if (btn->on_click) btn->on_click(w);
+        break;
+    case UI_EVENT_KEY_OK:
+        if (btn->on_click) btn->on_click(w);
         break;
     case UI_EVENT_SWIPE_UP:
     case UI_EVENT_SWIPE_DOWN:
@@ -363,10 +369,10 @@ static void slider_event_cb(ui_widget_t *w, ui_event_t *e)
     ui_slider_t *slider = (ui_slider_t *)w;
 
     switch (e->type) {
-    case UI_EVENT_PRESS:
+    case UI_EVENT_DOWN:
         slider->dragging = true;
         /* fall through */
-    case UI_EVENT_DRAG:
+    case UI_EVENT_MOVE:
         if (slider->dragging) {
             int16_t usable_w = w->rect.w - 20;
             int16_t rel_x = e->pos.x - w->rect.x - 10;
@@ -380,7 +386,7 @@ static void slider_event_cb(ui_widget_t *w, ui_event_t *e)
             }
         }
         break;
-    case UI_EVENT_RELEASE:
+    case UI_EVENT_UP:
         slider->dragging = false;
         break;
     case UI_EVENT_SWIPE_UP:
@@ -459,17 +465,20 @@ static void switch_event_cb(ui_widget_t *w, ui_event_t *e)
     ui_switch_t *sw = (ui_switch_t *)w;
 
     switch (e->type) {
-    case UI_EVENT_PRESS:
+    case UI_EVENT_DOWN:
         w->flags |= UI_WIDGET_FLAG_PRESSED;
         ui_widget_invalidate(w);
         break;
-    case UI_EVENT_RELEASE:
+    case UI_EVENT_UP:
         if (w->flags & UI_WIDGET_FLAG_PRESSED) {
             w->flags &= ~UI_WIDGET_FLAG_PRESSED;
-            sw->state = !sw->state;
             ui_widget_invalidate(w);
-            if (sw->on_toggle) sw->on_toggle(w, sw->state);
         }
+        break;
+    case UI_EVENT_CLICK:
+        sw->state = !sw->state;
+        ui_widget_invalidate(w);
+        if (sw->on_toggle) sw->on_toggle(w, sw->state);
         break;
     case UI_EVENT_KEY_OK:
         sw->state = !sw->state;
@@ -594,7 +603,7 @@ static void card_event_cb(ui_widget_t *w, ui_event_t *e)
     ui_card_t *card = (ui_card_t *)w;
 
     switch (e->type) {
-    case UI_EVENT_PRESS: {
+    case UI_EVENT_DOWN: {
         card->active_child = -1;
         for (uint16_t i = 0; i < card->child_count; i++) {
             if (card->children[i] && ui_widget_hit_test(card->children[i], e->pos.x, e->pos.y)) {
@@ -605,12 +614,12 @@ static void card_event_cb(ui_widget_t *w, ui_event_t *e)
         }
         break;
     }
-    case UI_EVENT_DRAG:
+    case UI_EVENT_MOVE:
         if (card->active_child >= 0 && card->active_child < (int16_t)card->child_count) {
             ui_widget_event(card->children[card->active_child], e);
         }
         break;
-    case UI_EVENT_RELEASE:
+    case UI_EVENT_UP:
         if (card->active_child >= 0 && card->active_child < (int16_t)card->child_count) {
             ui_widget_event(card->children[card->active_child], e);
             card->active_child = -1;
@@ -700,18 +709,18 @@ static void list_item_event_cb(ui_widget_t *w, ui_event_t *e)
     if (!item->control) return;
 
     switch (e->type) {
-    case UI_EVENT_PRESS:
+    case UI_EVENT_DOWN:
         if (ui_widget_hit_test(item->control, e->pos.x, e->pos.y)) {
             item->control_active = true;
             ui_widget_event(item->control, e);
         }
         break;
-    case UI_EVENT_DRAG:
+    case UI_EVENT_MOVE:
         if (item->control_active) {
             ui_widget_event(item->control, e);
         }
         break;
-    case UI_EVENT_RELEASE:
+    case UI_EVENT_UP:
         if (item->control_active) {
             item->control_active = false;
             ui_widget_event(item->control, e);
@@ -790,14 +799,18 @@ static void tabview_event_cb(ui_widget_t *w, ui_event_t *e)
     ui_tabview_t *tv = (ui_tabview_t *)w;
 
     switch (e->type) {
-    case UI_EVENT_PRESS:
+    case UI_EVENT_DOWN:
         if (e->pos.y >= w->rect.y && e->pos.y < w->rect.y + TAB_BAR_HEIGHT) {
             w->flags |= UI_WIDGET_FLAG_PRESSED;
         }
         break;
-    case UI_EVENT_RELEASE:
-        if ((w->flags & UI_WIDGET_FLAG_PRESSED) &&
-            e->pos.y >= w->rect.y && e->pos.y < w->rect.y + TAB_BAR_HEIGHT) {
+    case UI_EVENT_UP:
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+        }
+        break;
+    case UI_EVENT_CLICK:
+        if (e->pos.y >= w->rect.y && e->pos.y < w->rect.y + TAB_BAR_HEIGHT) {
             int16_t tab_w = w->rect.w / tv->tab_count;
             int16_t idx = (e->pos.x - w->rect.x) / tab_w;
             if (idx >= 0 && idx < tv->tab_count && idx != tv->active_tab) {
@@ -806,7 +819,6 @@ static void tabview_event_cb(ui_widget_t *w, ui_event_t *e)
                 if (tv->on_tab_change) tv->on_tab_change(w, tv->active_tab);
             }
         }
-        w->flags &= ~UI_WIDGET_FLAG_PRESSED;
         break;
     case UI_EVENT_PRESS_CANCEL:
     case UI_EVENT_SWIPE_UP:
@@ -910,7 +922,7 @@ void ui_status_dot_set_state(ui_status_dot_t *dot, bool online)
 static void dialog_bg_event_cb(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type == UI_EVENT_PRESS) {
+    if (e->type == UI_EVENT_DOWN) {
         ui_page_pop();
     }
 }

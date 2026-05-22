@@ -671,7 +671,7 @@ static void brk_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
 
-    if (e->type == UI_EVENT_PRESS) {
+    if (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_CLICK) {
         if (s_brk.state == BRK_STATE_IDLE || s_brk.state == BRK_STATE_GAMEOVER || s_brk.state == BRK_STATE_WIN) {
             brk_start_game();
         } else if (s_brk.state == BRK_STATE_LAUNCH) {
@@ -683,7 +683,7 @@ static void brk_touch_event(ui_widget_t *w, ui_event_t *e)
                 brk_launch_ball();
             }
         }
-    } else if (e->type == UI_EVENT_DRAG) {
+    } else if (e->type == UI_EVENT_MOVE) {
         if (s_brk.state == BRK_STATE_PLAYING || s_brk.state == BRK_STATE_LAUNCH) {
             /* Move paddle to follow finger x position */
             brk_move_paddle_to(e->pos.x);
@@ -697,10 +697,12 @@ static void brk_touch_event(ui_widget_t *w, ui_event_t *e)
 
 static void brk_ctrl_event(ui_widget_t *w, ui_event_t *e)
 {
-    if (e->type != UI_EVENT_PRESS && e->type != UI_EVENT_HOLD) return;
+    if (e->type != UI_EVENT_DOWN && e->type != UI_EVENT_LONG_PRESS &&
+        e->type != UI_EVENT_LONG_PRESS_REPEAT) return;
     if (s_brk.state != BRK_STATE_PLAYING && s_brk.state != BRK_STATE_LAUNCH) return;
 
-    int speed = (e->type == UI_EVENT_HOLD) ? BRK_PADDLE_HOLD_SPEED : BRK_PADDLE_SPEED;
+    int speed = (e->type == UI_EVENT_LONG_PRESS || e->type == UI_EVENT_LONG_PRESS_REPEAT)
+                ? BRK_PADDLE_HOLD_SPEED : BRK_PADDLE_SPEED;
     int dir = 0;
     if (w == &s_btn_left) dir = -1;
     else if (w == &s_btn_right) dir = 1;
@@ -739,7 +741,7 @@ static void brk_ctrl_event(ui_widget_t *w, ui_event_t *e)
 static void brk_launch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type != UI_EVENT_PRESS) return;
+    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN) return;
 
     if (s_brk.state == BRK_STATE_IDLE || s_brk.state == BRK_STATE_GAMEOVER || s_brk.state == BRK_STATE_WIN) {
         brk_start_game();

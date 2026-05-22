@@ -64,6 +64,9 @@ int main(void)
 		 * the blanking period, not after I2C delay. */
 		Touch_Scan();
 
+		/* Poll UART for Core input events (keyboard, mouse, core keys) */
+		UART_Module_Poll();
+
 		/* Wait for VSYNC right before drawing to prevent tearing.
 		 * TE goes high at start of vertical blanking period.
 		 * Drawing starts immediately in blanking, so LCD scan never

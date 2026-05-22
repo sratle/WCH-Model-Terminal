@@ -1404,7 +1404,7 @@ static void ct_touch_event(ui_widget_t *w, ui_event_t *e)
     (void)w;
 
     /* Start / restart on tap */
-    if (e->type == UI_EVENT_PRESS) {
+    if (e->type == UI_EVENT_DOWN) {
         if (s_ct.state == CT_STATE_IDLE || s_ct.state == CT_STATE_GAMEOVER ||
             s_ct.state == CT_STATE_WIN) {
             ct_start_game();
@@ -1414,8 +1414,8 @@ static void ct_touch_event(ui_widget_t *w, ui_event_t *e)
 
     if (s_ct.state != CT_STATE_PLAYING) return;
 
-    /* Multi-touch events */
-    if (e->type == UI_EVENT_TOUCH_DOWN) {
+    /* Multi-touch events: DOWN/MOVE/UP from touch source */
+    if (e->source == UI_INPUT_TOUCH && e->type == UI_EVENT_DOWN) {
         uint8_t btns = ct_hit_test(e->pos.x, e->pos.y);
         if (e->touch_id < UI_MAX_TOUCH_POINTS) {
             s_touch_btns[e->touch_id] = btns;
@@ -1423,7 +1423,7 @@ static void ct_touch_event(ui_widget_t *w, ui_event_t *e)
         ct_recalc_inputs();
         return;
     }
-    if (e->type == UI_EVENT_TOUCH_MOVE) {
+    if (e->source == UI_INPUT_TOUCH && e->type == UI_EVENT_MOVE) {
         uint8_t btns = ct_hit_test(e->pos.x, e->pos.y);
         if (e->touch_id < UI_MAX_TOUCH_POINTS) {
             s_touch_btns[e->touch_id] = btns;
@@ -1431,7 +1431,7 @@ static void ct_touch_event(ui_widget_t *w, ui_event_t *e)
         ct_recalc_inputs();
         return;
     }
-    if (e->type == UI_EVENT_TOUCH_UP) {
+    if (e->source == UI_INPUT_TOUCH && e->type == UI_EVENT_UP) {
         if (e->touch_id < UI_MAX_TOUCH_POINTS) {
             s_touch_btns[e->touch_id] = 0;
         }
@@ -1439,22 +1439,22 @@ static void ct_touch_event(ui_widget_t *w, ui_event_t *e)
         return;
     }
 
-    /* Legacy single-touch fallback (for non-multi-touch events) */
-    if (e->type == UI_EVENT_PRESS || e->type == UI_EVENT_DRAG) {
+    /* Mouse/single-touch fallback */
+    if (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_MOVE) {
         uint8_t btns = ct_hit_test(e->pos.x, e->pos.y);
-        /* Use slot 0 for legacy single-touch */
+        /* Use slot 0 for mouse/single-touch */
         s_touch_btns[0] = btns;
         ct_recalc_inputs();
-    } else if (e->type == UI_EVENT_RELEASE) {
+    } else if (e->type == UI_EVENT_UP) {
         s_touch_btns[0] = 0;
         ct_recalc_inputs();
-    } else if (e->type == UI_EVENT_KEY_UP) {
+    } else if (e->type == UI_EVENT_KEY_UP_ARROW) {
         s_ct.input_up = true;
-    } else if (e->type == UI_EVENT_KEY_DOWN) {
+    } else if (e->type == UI_EVENT_KEY_DOWN_ARROW) {
         s_ct.input_down = true;
-    } else if (e->type == UI_EVENT_KEY_LEFT) {
+    } else if (e->type == UI_EVENT_KEY_LEFT_ARROW) {
         s_ct.input_left = true;
-    } else if (e->type == UI_EVENT_KEY_RIGHT) {
+    } else if (e->type == UI_EVENT_KEY_RIGHT_ARROW) {
         s_ct.input_right = true;
     } else if (e->type == UI_EVENT_KEY_OK) {
         s_ct.input_jump = true;
@@ -1475,38 +1475,38 @@ static void ct_touch_event(ui_widget_t *w, ui_event_t *e)
 static void ct_btn_up_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type == UI_EVENT_PRESS) s_ct.input_up = true;
-    else if (e->type == UI_EVENT_RELEASE) s_ct.input_up = false;
+    if (e->type == UI_EVENT_DOWN) s_ct.input_up = true;
+    else if (e->type == UI_EVENT_UP) s_ct.input_up = false;
 }
 static void ct_btn_down_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type == UI_EVENT_PRESS) s_ct.input_down = true;
-    else if (e->type == UI_EVENT_RELEASE) s_ct.input_down = false;
+    if (e->type == UI_EVENT_DOWN) s_ct.input_down = true;
+    else if (e->type == UI_EVENT_UP) s_ct.input_down = false;
 }
 static void ct_btn_left_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type == UI_EVENT_PRESS) s_ct.input_left = true;
-    else if (e->type == UI_EVENT_RELEASE) s_ct.input_left = false;
+    if (e->type == UI_EVENT_DOWN) s_ct.input_left = true;
+    else if (e->type == UI_EVENT_UP) s_ct.input_left = false;
 }
 static void ct_btn_right_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type == UI_EVENT_PRESS) s_ct.input_right = true;
-    else if (e->type == UI_EVENT_RELEASE) s_ct.input_right = false;
+    if (e->type == UI_EVENT_DOWN) s_ct.input_right = true;
+    else if (e->type == UI_EVENT_UP) s_ct.input_right = false;
 }
 static void ct_btn_jump_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type == UI_EVENT_PRESS) s_ct.input_jump = true;
-    else if (e->type == UI_EVENT_RELEASE) s_ct.input_jump = false;
+    if (e->type == UI_EVENT_DOWN) s_ct.input_jump = true;
+    else if (e->type == UI_EVENT_UP) s_ct.input_jump = false;
 }
 static void ct_btn_shoot_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type == UI_EVENT_PRESS) s_ct.input_shoot = true;
-    else if (e->type == UI_EVENT_RELEASE) s_ct.input_shoot = false;
+    if (e->type == UI_EVENT_DOWN) s_ct.input_shoot = true;
+    else if (e->type == UI_EVENT_UP) s_ct.input_shoot = false;
 }
 
 /*=============================================================================

@@ -1,8 +1,8 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : ui_system.c
 * Author             : LCD Model Team
-* Version            : V3.0.0
-* Date               : 2025/04/20
+* Version            : V4.0.0
+* Date               : 2026/05/22
 * Description        : MiniUI system initialization and main loop.
 ********************************************************************************/
 #include "miniui.h"
@@ -19,6 +19,7 @@
 #include "../FMC/fmc_driver.h"
 #include "../SSD1963/ssd1963.h"
 #include "../SSD1963/lcd_config.h"
+#include "../UART/uart_module.h"
 
 #define UI_TICK_MS  10
 
@@ -47,9 +48,6 @@ uint32_t ui_get_real_ms(void)
 void UI_Init(void)
 {
     printf("[UI_Init] start\r\n");
-
-    // printf("[UI_Init] -> FMC_Driver_Init()\r\n");
-    // FMC_Driver_Init();
 
     printf("[UI_Init] -> LCD_Init()\r\n");
     LCD_Init(LCD_ORIENTATION_NORMAL);
@@ -103,33 +101,78 @@ void UI_Init(void)
 }
 
 /*=============================================================================
+ *  Helper: check if event is a pointer-type event (has position)
+ *=============================================================================*/
+
+static bool is_pointer_event(ui_event_type_t type)
+{
+    return type == UI_EVENT_DOWN || type == UI_EVENT_UP ||
+           type == UI_EVENT_MOVE || type == UI_EVENT_CLICK ||
+           type == UI_EVENT_DOUBLE_CLICK || type == UI_EVENT_LONG_PRESS ||
+           type == UI_EVENT_LONG_PRESS_REPEAT ||
+           type == UI_EVENT_SWIPE_UP || type == UI_EVENT_SWIPE_DOWN ||
+           type == UI_EVENT_SWIPE_LEFT || type == UI_EVENT_SWIPE_RIGHT ||
+           type == UI_EVENT_PRESS_CANCEL;
+}
+
+static bool is_key_event(ui_event_type_t type)
+{
+    return type == UI_EVENT_KEY_DOWN || type == UI_EVENT_KEY_UP ||
+           type == UI_EVENT_KEY_CLICK || type == UI_EVENT_KEY_DOUBLE_CLICK ||
+           type == UI_EVENT_KEY_LONG_PRESS || type == UI_EVENT_KEY_LONG_REPEAT ||
+           type == UI_EVENT_KEY_UP_ARROW || type == UI_EVENT_KEY_DOWN_ARROW ||
+           type == UI_EVENT_KEY_LEFT_ARROW || type == UI_EVENT_KEY_RIGHT_ARROW ||
+           type == UI_EVENT_KEY_OK || type == UI_EVENT_KEY_BACK;
+}
+
+static bool is_multi_touch_event(ui_event_type_t type)
+{
+    return (type == UI_EVENT_DOWN || type == UI_EVENT_UP || type == UI_EVENT_MOVE) &&
+           false; /* Multi-touch is identified by touch_id != UI_TOUCH_ID_NONE,
+                     handled in dispatch below */
+}
+
+/*=============================================================================
  *  Main UI Tick
  *=============================================================================*/
 
 void UI_Tick(void)
 {
-    /* Check for hold events before polling */
-    ui_input_check_hold();
+    /* Process time-based gestures (long-press, click timeout) */
+    ui_input_tick();
 
+    /* Poll and dispatch events */
     ui_event_t *e = ui_input_poll();
     while (e) {
         ui_widget_t *capture = ui_input_get_capture();
 
         if (capture) {
+            /* Capture widget receives all events until release/cancel */
             ui_widget_event(capture, e);
-            if (e->type == UI_EVENT_RELEASE) {
-                ui_input_set_capture(NULL);
+
+            /* Release capture on UP or swipe (pointer events) */
+            if (e->type == UI_EVENT_UP || e->type == UI_EVENT_CLICK ||
+                e->type == UI_EVENT_DOUBLE_CLICK) {
+                /* Only release if the event's touch_id matches capture's touch_id,
+                 * or it's a non-touch event */
+                if (e->touch_id == ui_input_get_capture_touch_id() ||
+                    e->source != UI_INPUT_TOUCH) {
+                    ui_input_set_capture(NULL, UI_TOUCH_ID_NONE);
+                }
             } else if (e->type == UI_EVENT_SWIPE_UP || e->type == UI_EVENT_SWIPE_DOWN ||
                        e->type == UI_EVENT_SWIPE_LEFT || e->type == UI_EVENT_SWIPE_RIGHT) {
                 ui_event_t cancel_e = *e;
                 cancel_e.type = UI_EVENT_PRESS_CANCEL;
                 ui_widget_event(capture, &cancel_e);
-                ui_input_set_capture(NULL);
-            } else if (e->type == UI_EVENT_TOUCH_DOWN || e->type == UI_EVENT_TOUCH_UP ||
-                       e->type == UI_EVENT_TOUCH_MOVE) {
-                /* Multi-touch events bypass capture - broadcast to all widgets
-                 * so multiple fingers can interact with different UI elements.
-                 * Don't release capture though - legacy single-touch may still need it. */
+                ui_input_set_capture(NULL, UI_TOUCH_ID_NONE);
+            }
+
+            /* Multi-touch: broadcast DOWN/MOVE/UP to all widgets for
+             * multi-finger interaction (e.g., game buttons) */
+            if (e->source == UI_INPUT_TOUCH &&
+                e->touch_id != ui_input_get_capture_touch_id() &&
+                (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_UP ||
+                 e->type == UI_EVENT_MOVE)) {
                 ui_page_t *page = ui_page_current();
                 if (page) {
                     for (uint16_t i = 0; i < page->widget_count; i++) {
@@ -142,7 +185,9 @@ void UI_Tick(void)
         } else {
             bool handled = false;
 
-            if (e->type == UI_EVENT_KEY_BACK && ui_page_can_go_back()) {
+            /* Handle BACK key globally */
+            if ((e->type == UI_EVENT_KEY_BACK || e->type == UI_EVENT_KEY_OK) &&
+                e->type == UI_EVENT_KEY_BACK && ui_page_can_go_back()) {
                 ui_page_pop();
                 handled = true;
             }
@@ -161,38 +206,37 @@ void UI_Tick(void)
 
             if (!handled) {
                 ui_page_t *page = ui_page_current();
-                if (page) {
-                    if (e->type == UI_EVENT_PRESS || e->type == UI_EVENT_RELEASE) {
-                        for (int16_t i = page->widget_count - 1; i >= 0; i--) {
-                            if (page->widgets[i] &&
-                                ui_widget_hit_test(page->widgets[i], e->pos.x, e->pos.y)) {
-                                ui_widget_event(page->widgets[i], e);
-                                if (e->type == UI_EVENT_PRESS) {
-                                    ui_input_set_capture(page->widgets[i]);
-                                }
-                                handled = true;
-                                break;
+                if (!page) {
+                    e = ui_input_poll();
+                    continue;
+                }
+
+                if (is_pointer_event(e->type)) {
+                    /* Pointer events: hit-test widgets in reverse Z-order */
+                    for (int16_t i = page->widget_count - 1; i >= 0; i--) {
+                        if (page->widgets[i] &&
+                            ui_widget_hit_test(page->widgets[i], e->pos.x, e->pos.y)) {
+                            ui_widget_event(page->widgets[i], e);
+                            if (e->type == UI_EVENT_DOWN) {
+                                ui_input_set_capture(page->widgets[i],
+                                    e->source == UI_INPUT_TOUCH ? e->touch_id : UI_TOUCH_ID_NONE);
                             }
+                            handled = true;
+                            break;
                         }
-                    } else if (e->type == UI_EVENT_DRAG || e->type == UI_EVENT_SWIPE_UP ||
-                               e->type == UI_EVENT_SWIPE_DOWN || e->type == UI_EVENT_SWIPE_LEFT ||
-                               e->type == UI_EVENT_SWIPE_RIGHT) {
-                        for (int16_t i = page->widget_count - 1; i >= 0; i--) {
-                            if (page->widgets[i] &&
-                                ui_widget_hit_test(page->widgets[i], e->pos.x, e->pos.y)) {
-                                ui_widget_event(page->widgets[i], e);
-                                if (e->type == UI_EVENT_DRAG) {
-                                    ui_input_set_capture(page->widgets[i]);
-                                }
-                                handled = true;
-                                break;
-                            }
+                    }
+                } else if (is_key_event(e->type)) {
+                    /* Key events: broadcast to all widgets */
+                    for (uint16_t i = 0; i < page->widget_count; i++) {
+                        if (page->widgets[i]) {
+                            ui_widget_event(page->widgets[i], e);
                         }
-                    } else {
-                        for (uint16_t i = 0; i < page->widget_count; i++) {
-                            if (page->widgets[i]) {
-                                ui_widget_event(page->widgets[i], e);
-                            }
+                    }
+                } else {
+                    /* Other events: broadcast */
+                    for (uint16_t i = 0; i < page->widget_count; i++) {
+                        if (page->widgets[i]) {
+                            ui_widget_event(page->widgets[i], e);
                         }
                     }
                 }

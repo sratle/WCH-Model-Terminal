@@ -557,7 +557,7 @@ static void tb_draw_game_area(const ui_rect_t *clip)
 static void tb_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type == UI_EVENT_PRESS) {
+    if (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_CLICK) {
         tb_on_press(e->pos.x, e->pos.y);
     }
 }

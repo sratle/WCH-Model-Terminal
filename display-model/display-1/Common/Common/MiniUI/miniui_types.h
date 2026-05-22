@@ -69,43 +69,112 @@ typedef struct {
 
 /* Input source */
 typedef enum {
-    UI_INPUT_TOUCH,
-    UI_INPUT_MOUSE,
-    UI_INPUT_KEYBOARD,
+    UI_INPUT_TOUCH    = 0,  /* Local capacitive touch screen */
+    UI_INPUT_MOUSE    = 1,  /* Mouse from Core (CH9350 / BLE HID) */
+    UI_INPUT_KEYBOARD = 2,  /* Keyboard from Core (CH9350 / BLE HID / Keyboard module) */
+    UI_INPUT_CORE_KEY = 3,  /* Core onboard buttons (+/-/Enter) */
 } ui_input_source_t;
 
-/* Event types */
+/* Event types — unified across all input sources */
 typedef enum {
-    UI_EVENT_NONE,
-    UI_EVENT_PRESS,
-    UI_EVENT_RELEASE,
-    UI_EVENT_DRAG,
-    UI_EVENT_SWIPE_UP,
-    UI_EVENT_SWIPE_DOWN,
-    UI_EVENT_SWIPE_LEFT,
-    UI_EVENT_SWIPE_RIGHT,
-    UI_EVENT_KEY_UP,
-    UI_EVENT_KEY_DOWN,
-    UI_EVENT_KEY_LEFT,
-    UI_EVENT_KEY_RIGHT,
-    UI_EVENT_KEY_OK,
-    UI_EVENT_KEY_BACK,
-    UI_EVENT_PRESS_CANCEL,
-    UI_EVENT_HOLD,
-    UI_EVENT_TOUCH_DOWN,    /* Multi-touch: new finger touched */
-    UI_EVENT_TOUCH_UP,      /* Multi-touch: finger lifted */
-    UI_EVENT_TOUCH_MOVE,    /* Multi-touch: finger moved */
+    /* --- Touch / Mouse pointer events --- */
+    UI_EVENT_NONE         = 0,
+    UI_EVENT_DOWN,              /* Finger/mouse button pressed */
+    UI_EVENT_UP,                /* Finger/mouse button released (after short press) */
+    UI_EVENT_MOVE,              /* Finger/mouse moved while pressed */
+    UI_EVENT_CLICK,             /* Single tap completed (down + up within time & distance) */
+    UI_EVENT_DOUBLE_CLICK,      /* Two rapid clicks */
+    UI_EVENT_LONG_PRESS,        /* Press & hold exceeded threshold (first trigger) */
+    UI_EVENT_LONG_PRESS_REPEAT, /* Continued hold, repeats at interval */
+    UI_EVENT_SWIPE_UP,          /* Swipe gesture: up */
+    UI_EVENT_SWIPE_DOWN,        /* Swipe gesture: down */
+    UI_EVENT_SWIPE_LEFT,        /* Swipe gesture: left */
+    UI_EVENT_SWIPE_RIGHT,       /* Swipe gesture: right */
+
+    /* --- Keyboard / Core-key events --- */
+    UI_EVENT_KEY_DOWN,          /* Key pressed (physical or logical) */
+    UI_EVENT_KEY_UP,            /* Key released */
+    UI_EVENT_KEY_CLICK,         /* Key click (down + up within time) */
+    UI_EVENT_KEY_DOUBLE_CLICK,  /* Key double click */
+    UI_EVENT_KEY_LONG_PRESS,    /* Key long press (first trigger) */
+    UI_EVENT_KEY_LONG_REPEAT,   /* Key long press repeat */
+
+    /* --- Convenience logical key events (derived from keyboard/core-key) --- */
+    UI_EVENT_KEY_UP_ARROW,      /* Up arrow / + button */
+    UI_EVENT_KEY_DOWN_ARROW,    /* Down arrow / - button */
+    UI_EVENT_KEY_LEFT_ARROW,    /* Left arrow */
+    UI_EVENT_KEY_RIGHT_ARROW,   /* Right arrow */
+    UI_EVENT_KEY_OK,            /* OK / Enter */
+    UI_EVENT_KEY_BACK,          /* Back / Escape */
+
+    /* --- Legacy compat --- */
+    UI_EVENT_PRESS_CANCEL,      /* Press cancelled (e.g. swipe ended capture) */
 } ui_event_type_t;
 
-#define UI_TOUCH_ID_NONE  0xFF
+/* Key codes used in ui_event_t.key_code for UI_INPUT_KEYBOARD and UI_INPUT_CORE_KEY */
+typedef enum {
+    UI_KEY_NONE      = 0x00,
+    UI_KEY_UP        = 0x01,
+    UI_KEY_DOWN      = 0x02,
+    UI_KEY_LEFT      = 0x03,
+    UI_KEY_RIGHT     = 0x04,
+    UI_KEY_OK        = 0x05,
+    UI_KEY_BACK      = 0x06,
+    UI_KEY_HOME      = 0x07,
+    UI_KEY_MENU      = 0x08,
+    /* Core onboard buttons */
+    UI_KEY_CORE_PLUS  = 0x10,
+    UI_KEY_CORE_MINUS = 0x11,
+    UI_KEY_CORE_ENTER = 0x12,
+} ui_key_code_t;
 
-/* Event structure */
+/* USB HID modifier key bitmask (matches protocol) */
+typedef enum {
+    UI_MOD_LCTRL  = (1 << 0),
+    UI_MOD_LSHIFT = (1 << 1),
+    UI_MOD_LALT   = (1 << 2),
+    UI_MOD_LGUI   = (1 << 3),
+    UI_MOD_RCTRL  = (1 << 4),
+    UI_MOD_RSHIFT = (1 << 5),
+    UI_MOD_RALT   = (1 << 6),
+    UI_MOD_RGUI   = (1 << 7),
+} ui_key_modifier_t;
+
+/* Mouse button bitmask */
+typedef enum {
+    UI_MOUSE_BTN_LEFT   = (1 << 0),
+    UI_MOUSE_BTN_RIGHT  = (1 << 1),
+    UI_MOUSE_BTN_MIDDLE = (1 << 2),
+} ui_mouse_button_t;
+
+#define UI_TOUCH_ID_NONE  0xFF
+#define UI_MAX_TOUCH_POINTS 5
+
+/* Unified event structure */
 typedef struct {
     ui_event_type_t type;
     ui_input_source_t source;
+
+    /* Position — valid for TOUCH and MOUSE events */
     ui_point_t pos;
+    /* Delta — movement for MOVE/SWIPE events, scroll for mouse wheel */
     ui_point_t delta;
-    uint8_t touch_id;      /* Touch point ID for multi-touch (0-4), UI_TOUCH_ID_NONE for single-touch events */
+
+    /* Touch point ID for multi-touch (0 ~ UI_MAX_TOUCH_POINTS-1),
+       UI_TOUCH_ID_NONE for non-touch events */
+    uint8_t touch_id;
+
+    /* Key code — valid for KEYBOARD and CORE_KEY events */
+    uint8_t key_code;
+
+    /* Modifier bitmask — valid for KEYBOARD events */
+    uint8_t key_modifiers;
+
+    /* Mouse button state bitmask — valid for MOUSE events */
+    uint8_t mouse_buttons;
+
+    /* Scroll wheel delta — valid for MOUSE events */
+    int8_t scroll_delta;
 } ui_event_t;
 
 /*=============================================================================

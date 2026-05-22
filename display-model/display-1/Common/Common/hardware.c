@@ -27,6 +27,7 @@ void Hardware_V3F_Init(void)
 void Hardware_V5F_Init(void)
 {
     printf("[Hardware_V5F_Init] start\r\n");
+    UART_Module_Init();
     Touch_Init();
     UI_Init();
     printf("[Hardware_V5F_Init] done\r\n");
