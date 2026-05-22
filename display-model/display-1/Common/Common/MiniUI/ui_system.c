@@ -125,13 +125,6 @@ static bool is_key_event(ui_event_type_t type)
            type == UI_EVENT_KEY_OK || type == UI_EVENT_KEY_BACK;
 }
 
-static bool is_multi_touch_event(ui_event_type_t type)
-{
-    return (type == UI_EVENT_DOWN || type == UI_EVENT_UP || type == UI_EVENT_MOVE) &&
-           false; /* Multi-touch is identified by touch_id != UI_TOUCH_ID_NONE,
-                     handled in dispatch below */
-}
-
 /*=============================================================================
  *  Main UI Tick
  *=============================================================================*/

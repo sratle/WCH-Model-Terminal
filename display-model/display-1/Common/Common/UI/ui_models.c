@@ -156,14 +156,13 @@ void ui_models_draw(ui_page_t *page, ui_rect_t *dirty)
     ui_tabview_t *tv = &tabview;
     uint8_t tab = ui_tabview_get_active(tv);
 
-    const module_info_t *mods = NULL;
     ui_card_t *cards = NULL;
     int count = 0;
 
     switch (tab) {
-    case 0: mods = s_comm_modules; cards = card_comm; count = 4; break;
-    case 1: mods = s_display_modules; cards = card_disp; count = 3; break;
-    case 2: mods = s_storage_modules; cards = card_stor; count = 3; break;
+    case 0: cards = card_comm; count = 4; break;
+    case 1: cards = card_disp; count = 3; break;
+    case 2: cards = card_stor; count = 3; break;
     default: return;
     }
 

@@ -25,7 +25,7 @@
 #define USART1_TX_PORT      GPIOA
 #define USART1_RX_PIN       GPIO_Pin_10
 #define USART1_RX_PORT      GPIOA
-#define USART1_GPIO_AF      GPIO_AF7_USART1
+#define USART1_GPIO_AF      GPIO_AF7
 
 /*=============================================================================
  *  RX State Machine
@@ -66,21 +66,21 @@ void UART_Module_Init(void)
 {
     printf("[UART_Module_Init] start\r\n");
 
-    /* Enable GPIOA and USART1 clocks */
-    RCC_HB2PeriphClockCmd(RCC_HB2Periph_GPIOA, ENABLE);
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
+    /* Enable GPIOA, AFIO and USART1 clocks */
+    RCC_HB2PeriphClockCmd(RCC_HB2Periph_AFIO | RCC_HB2Periph_GPIOA | RCC_HB2Periph_USART1, ENABLE);
 
-    /* Configure PA9 (TX) and PA10 (RX) as AF7 */
+    /* Configure PA9 (TX) as AF7 push-pull */
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource9, USART1_GPIO_AF);
     GPIO_InitTypeDef GPIO_InitStructure = {0};
     GPIO_InitStructure.GPIO_Pin = USART1_TX_PIN;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_InitStructure.GPIO_Alternate = USART1_GPIO_AF;
     GPIO_Init(USART1_TX_PORT, &GPIO_InitStructure);
 
+    /* Configure PA10 (RX) as AF7 push-pull (full-duplex requires AF for RX too) */
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource10, USART1_GPIO_AF);
     GPIO_InitStructure.GPIO_Pin = USART1_RX_PIN;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
-    GPIO_InitStructure.GPIO_Alternate = USART1_GPIO_AF;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
     GPIO_Init(USART1_RX_PORT, &GPIO_InitStructure);
 
     /* USART1 configuration */
@@ -96,13 +96,9 @@ void UART_Module_Init(void)
     /* Enable RXNE interrupt */
     USART_ITConfig(USART1, USART_IT_RXNE, ENABLE);
 
-    /* Configure NVIC */
-    NVIC_InitTypeDef NVIC_InitStructure = {0};
-    NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
+    /* Configure NVIC for USART1 */
+    NVIC_SetPriority(USART1_IRQn, 1 << 4);  /* Priority level 1 */
+    NVIC_EnableIRQ(USART1_IRQn);
 
     /* Enable USART1 */
     USART_Cmd(USART1, ENABLE);

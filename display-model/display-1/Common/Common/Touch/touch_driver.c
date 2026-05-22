@@ -2,6 +2,7 @@
 #include "gt911.h"
 #include "../MiniUI/miniui.h"
 #include "debug.h"
+#include <string.h>
 
 #define TOUCH_X_RESOLUTION      800
 #define TOUCH_Y_RESOLUTION      480

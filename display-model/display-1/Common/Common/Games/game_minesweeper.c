@@ -770,13 +770,6 @@ static bool s_pending_single_click = false;
 static int s_pending_row, s_pending_col;
 static bool s_hold_active = false;       /* True after first HOLD, cleared on RELEASE */
 
-static void mine_execute_single_click(int row, int col)
-{
-    if (s_mine.state == MINE_STATE_PLAYING) {
-        mine_reveal_cell(row, col);
-    }
-}
-
 static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
