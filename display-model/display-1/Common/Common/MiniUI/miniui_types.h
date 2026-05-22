@@ -190,6 +190,7 @@ typedef struct ui_widget ui_widget_t;
 #define UI_WIDGET_FLAG_DIRTY       (1 << 2)
 #define UI_WIDGET_FLAG_PRESSED     (1 << 3)
 #define UI_WIDGET_FLAG_FOCUS       (1 << 4)
+#define UI_WIDGET_FLAG_OPAQUE      (1 << 5)  /* Widget fully opaque, renderer can skip bg fill */
 
 /*=============================================================================
  *  Page Type (Forward Declaration)
@@ -201,7 +202,6 @@ typedef struct ui_page ui_page_t;
 /* Page flags */
 #define UI_PAGE_FLAG_FULLSCREEN    (1 << 0)
 #define UI_PAGE_FLAG_HAS_BACK      (1 << 1)
-#define UI_PAGE_FLAG_GAME          (1 << 2)  /* Auto-invalidate every frame for games */
 
 /*=============================================================================
  *  Animation Type (Forward Declaration)
@@ -220,6 +220,7 @@ typedef void (*ui_page_enter_cb_t)(ui_page_t *page);
 typedef void (*ui_page_exit_cb_t)(ui_page_t *page);
 typedef void (*ui_page_draw_cb_t)(ui_page_t *page, ui_rect_t *dirty);
 typedef void (*ui_page_back_cb_t)(ui_page_t *page);
+typedef void (*ui_page_update_cb_t)(ui_page_t *page);  /* Per-frame logic update */
 typedef void (*ui_anim_update_cb_t)(int32_t value, void *user_data);
 
 #ifdef __cplusplus

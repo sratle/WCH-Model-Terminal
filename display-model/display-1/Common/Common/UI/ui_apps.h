@@ -17,7 +17,6 @@ extern "C" {
 
 void ui_apps_init(void);
 void ui_apps_enter(ui_page_t *page);
-void ui_apps_draw(ui_page_t *page, ui_rect_t *dirty);
 
 #ifdef __cplusplus
 }

@@ -154,17 +154,6 @@ static void app_button_click(ui_widget_t *w)
 }
 
 /*=============================================================================
- *  Apps Page Drawing
- *=============================================================================*/
-
-void ui_apps_draw(ui_page_t *page, ui_rect_t *dirty)
-{
-    (void)page;
-    ui_rect_t content = {SIDEBAR_WIDTH, 0, UI_SCREEN_WIDTH - SIDEBAR_WIDTH, UI_SCREEN_HEIGHT};
-    ui_draw_fill_rect(&content, UI_COLOR_BG_MAIN);
-}
-
-/*=============================================================================
  *  Apps Page Initialization
  *=============================================================================*/
 
@@ -221,7 +210,7 @@ void ui_apps_init(void)
     apps_update_grid();
 
     ui_page_set_widgets(&page_apps, s_apps_widgets, 4 + APPS_PER_PAGE);
-    ui_page_set_callbacks(&page_apps, ui_apps_enter, NULL, ui_apps_draw, NULL);
+    ui_page_set_callbacks(&page_apps, ui_apps_enter, NULL, NULL, NULL);
 }
 
 void ui_apps_enter(ui_page_t *page)

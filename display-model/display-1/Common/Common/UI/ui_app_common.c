@@ -23,15 +23,16 @@ static void app_back_click(ui_widget_t *w)
 
 /*=============================================================================
  *  Common Fullscreen Page Draw
+ *  Draws only the title bar background. The compositing renderer handles
+ *  the main background fill and widget drawing automatically.
  *=============================================================================*/
 
 void ui_app_page_draw(ui_page_t *page, ui_rect_t *dirty)
 {
     (void)page;
+    (void)dirty;
 
-    ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-    ui_draw_fill_rect(&full, UI_COLOR_BG_MAIN);
-
+    /* Title bar background (compositing renderer clips to current row) */
     ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
     ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
 }

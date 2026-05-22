@@ -150,7 +150,6 @@ typedef struct {
     int lives;
     int level;
     brk_state_t state;
-    bool need_full_redraw;
     uint32_t last_tick_ms;
 
     char buf_score[16];
@@ -281,7 +280,7 @@ static void brk_init_level(void)
 
     s_brk.paddle_x = BRK_PLAY_X + BRK_PLAY_W / 2;
     brk_reset_ball();
-    s_brk.need_full_redraw = true;
+    ui_page_invalidate_all();
 }
 
 static void brk_start_game(void)
@@ -292,7 +291,7 @@ static void brk_start_game(void)
     s_brk.score = 0;
     brk_init_level();
     brk_update_texts();
-    s_brk.need_full_redraw = true;
+    ui_page_invalidate_all();
     s_brk.last_tick_ms = ui_get_real_ms();
 }
 
@@ -479,7 +478,7 @@ static void brk_game_tick(void)
 
         if (s_brk.lives <= 0) {
             s_brk.state = BRK_STATE_GAMEOVER;
-            s_brk.need_full_redraw = true;
+            ui_page_invalidate_all();
         } else {
             brk_reset_ball();
         }
@@ -591,12 +590,6 @@ static void brk_draw_ball(void)
     int16_t bx = BRK_FIX_TO_INT(s_brk.ball_x);
     int16_t by = BRK_FIX_TO_INT(s_brk.ball_y);
     ui_draw_fill_circle(bx, by, BRK_BALL_R, UI_COLOR_WHITE);
-}
-
-/* Erase a region with play area background */
-static void brk_erase_rect(const ui_rect_t *r)
-{
-    ui_draw_fill_rect(r, UI_HEX(0x1A1A1A));
 }
 
 static void brk_draw_panel(void)
@@ -760,250 +753,49 @@ static void brk_game_enter(ui_page_t *page)
     memset(&s_brk, 0, sizeof(s_brk));
     s_brk.state = BRK_STATE_IDLE;
     brk_update_texts();
-    s_brk.need_full_redraw = true;
     s_brk.paddle_x = BRK_PLAY_X + BRK_PLAY_W / 2;
+    ui_page_invalidate_all();
 }
 
+/* Per-frame game logic update */
+static void brk_game_update(ui_page_t *page)
+{
+    (void)page;
+    brk_game_tick();
+}
+
+/* Per-row game rendering (compositing renderer auto-clips to target row) */
 static void brk_game_draw(ui_page_t *page, ui_rect_t *dirty)
 {
+    (void)page;
     (void)dirty;
 
-    /* Game tick */
-    brk_game_tick();
+    /* Game area background */
+    ui_rect_t full_bg = {0, APP_TITLE_BAR_H,
+                         UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
+    ui_draw_fill_rect(&full_bg, UI_HEX(0x1A1A1A));
 
-    /* Full redraw */
-    if (s_brk.need_full_redraw) {
-        s_brk.need_full_redraw = false;
-
-        /* Title bar */
-        ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
-
-        ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-        for (uint16_t j = 0; j < page->widget_count; j++) {
-            if (page->widgets[j]) {
-                ui_widget_draw(page->widgets[j], &full);
-            }
-        }
-
-        /* Game area background - fill entire screen below title bar */
-        ui_rect_t full_bg = {0, APP_TITLE_BAR_H,
-                             UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&full_bg, UI_HEX(0x1A1A1A));
-
-        if (s_brk.state == BRK_STATE_IDLE) {
-            brk_draw_all_bricks();
-            brk_draw_panel();
-            brk_draw_overlay("BREAKOUT", UI_COLOR_WHITE, "Swipe or press to start");
-        } else {
-            brk_draw_all_bricks();
-            brk_draw_paddle();
-            brk_draw_ball();
-            brk_draw_panel();
-
-            if (s_brk.state == BRK_STATE_GAMEOVER) {
-                brk_draw_overlay("GAME OVER", UI_HEX(0xF44336), "Press to restart");
-            } else if (s_brk.state == BRK_STATE_WIN) {
-                brk_draw_overlay("YOU WIN!", UI_HEX(0x4CAF50), "Press to play again");
-            }
-        }
-
-        /* Update drawn positions after full redraw */
-        s_brk.drawn_paddle_x = s_brk.paddle_x;
-        s_brk.drawn_ball_x = BRK_FIX_TO_INT(s_brk.ball_x);
-        s_brk.drawn_ball_y = BRK_FIX_TO_INT(s_brk.ball_y);
-
-        ui_page_clear_dirty();
-        return;
-    }
-
-    /* Partial redraw */
-    const ui_dirty_list_t *dl = ui_page_get_dirty_list();
-    if (dl->count == 0) return;
-
-    if (s_brk.state == BRK_STATE_IDLE || s_brk.state == BRK_STATE_GAMEOVER || s_brk.state == BRK_STATE_WIN) {
-        ui_page_clear_dirty();
-        return;
-    }
-
-    ui_rect_t game_area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
-                           UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-
-    /* Panel element rects */
-    ui_rect_t score_rect = {BRK_PANEL_X, BRK_SCORE_BOX_Y, BRK_PANEL_W, BRK_INFO_BOX_H};
-    ui_rect_t lives_rect = {BRK_PANEL_X, BRK_LIVES_BOX_Y, BRK_PANEL_W, BRK_INFO_BOX_H};
-    ui_rect_t level_rect = {BRK_PANEL_X, BRK_LEVEL_BOX_Y, BRK_PANEL_W, BRK_INFO_BOX_H};
-    ui_rect_t launch_rect = {BRK_LAUNCH_X, BRK_LAUNCH_Y, BRK_LAUNCH_W, BRK_LAUNCH_H};
-    bool score_needs = false, lives_needs = false, level_needs = false;
-    bool launch_needs = false;
-
-    /* Track which bricks need redraw */
-    bool brick_dirty[BRK_ROWS][BRK_COLS];
-    memset(brick_dirty, 0, sizeof(brick_dirty));
-
-    /* Track ball and paddle redraw */
-    bool ball_needs = false, paddle_needs = false;
-
-    /* Current paddle rect */
-    int16_t pad_x = s_brk.paddle_x - BRK_PADDLE_W / 2;
-    ui_rect_t paddle_rect = {pad_x, BRK_PADDLE_Y, BRK_PADDLE_W, BRK_PADDLE_H};
-    /* Drawn paddle rect (where paddle was last drawn) */
-    int16_t drawn_pad_x = s_brk.drawn_paddle_x - BRK_PADDLE_W / 2;
-    ui_rect_t drawn_paddle_rect = {drawn_pad_x, BRK_PADDLE_Y, BRK_PADDLE_W, BRK_PADDLE_H};
-
-    /* Current ball rect */
-    int16_t bx = BRK_FIX_TO_INT(s_brk.ball_x);
-    int16_t by = BRK_FIX_TO_INT(s_brk.ball_y);
-    ui_rect_t ball_rect = {bx - BRK_BALL_R, by - BRK_BALL_R,
-                           2 * BRK_BALL_R, 2 * BRK_BALL_R};
-    /* Drawn ball rect */
-    ui_rect_t drawn_ball_rect = {s_brk.drawn_ball_x - BRK_BALL_R, s_brk.drawn_ball_y - BRK_BALL_R,
-                                 2 * BRK_BALL_R, 2 * BRK_BALL_R};
-
-    for (uint16_t i = 0; i < dl->count; i++) {
-        const ui_rect_t *d = &dl->regions[i];
-        if (d->y + d->h <= APP_TITLE_BAR_H) continue;
-
-        /* Check panel overlaps */
-        if (d->x < score_rect.x + score_rect.w &&
-            d->x + d->w > score_rect.x &&
-            d->y < score_rect.y + score_rect.h &&
-            d->y + d->h > score_rect.y)
-            score_needs = true;
-        if (d->x < lives_rect.x + lives_rect.w &&
-            d->x + d->w > lives_rect.x &&
-            d->y < lives_rect.y + lives_rect.h &&
-            d->y + d->h > lives_rect.y)
-            lives_needs = true;
-        if (d->x < level_rect.x + level_rect.w &&
-            d->x + d->w > level_rect.x &&
-            d->y < level_rect.y + level_rect.h &&
-            d->y + d->h > level_rect.y)
-            level_needs = true;
-        if (d->x < launch_rect.x + launch_rect.w &&
-            d->x + d->w > launch_rect.x &&
-            d->y < launch_rect.y + launch_rect.h &&
-            d->y + d->h > launch_rect.y)
-            launch_needs = true;
-
-        /* Check brick overlaps */
-        if (d->x < BRK_GRID_X + BRK_GRID_W &&
-            d->x + d->w > BRK_GRID_X &&
-            d->y < BRK_GRID_Y + BRK_GRID_H &&
-            d->y + d->h > BRK_GRID_Y) {
-            int c_start = (d->x > BRK_GRID_X) ?
-                          (d->x - BRK_GRID_X) / (BRK_CELL_W + BRK_GAP) : 0;
-            int c_end = (d->x + d->w < BRK_GRID_X + BRK_GRID_W) ?
-                        (d->x + d->w - BRK_GRID_X + BRK_CELL_W + BRK_GAP - 1) / (BRK_CELL_W + BRK_GAP) : BRK_COLS;
-            int r_start = (d->y > BRK_GRID_Y) ?
-                          (d->y - BRK_GRID_Y) / (BRK_CELL_H + BRK_GAP) : 0;
-            int r_end = (d->y + d->h < BRK_GRID_Y + BRK_GRID_H) ?
-                        (d->y + d->h - BRK_GRID_Y + BRK_CELL_H + BRK_GAP - 1) / (BRK_CELL_H + BRK_GAP) : BRK_ROWS;
-
-            if (c_start < 0) c_start = 0;
-            if (c_end > BRK_COLS) c_end = BRK_COLS;
-            if (r_start < 0) r_start = 0;
-            if (r_end > BRK_ROWS) r_end = BRK_ROWS;
-
-            for (int r = r_start; r < r_end; r++)
-                for (int c = c_start; c < c_end; c++)
-                    brick_dirty[r][c] = true;
-        }
-
-        /* Check ball/paddle overlap (both current and last-drawn positions) */
-        if ((d->x < ball_rect.x + ball_rect.w &&
-             d->x + d->w > ball_rect.x &&
-             d->y < ball_rect.y + ball_rect.h &&
-             d->y + d->h > ball_rect.y) ||
-            (d->x < drawn_ball_rect.x + drawn_ball_rect.w &&
-             d->x + d->w > drawn_ball_rect.x &&
-             d->y < drawn_ball_rect.y + drawn_ball_rect.h &&
-             d->y + d->h > drawn_ball_rect.y))
-            ball_needs = true;
-        if ((d->x < paddle_rect.x + paddle_rect.w &&
-             d->x + d->w > paddle_rect.x &&
-             d->y < paddle_rect.y + paddle_rect.h &&
-             d->y + d->h > paddle_rect.y) ||
-            (d->x < drawn_paddle_rect.x + drawn_paddle_rect.w &&
-             d->x + d->w > drawn_paddle_rect.x &&
-             d->y < drawn_paddle_rect.y + drawn_paddle_rect.h &&
-             d->y + d->h > drawn_paddle_rect.y))
-            paddle_needs = true;
-    }
-
-    ui_render_set_clip(&game_area);
-
-    /* Redraw dirty bricks */
-    for (int r = 0; r < BRK_ROWS; r++) {
-        for (int c = 0; c < BRK_COLS; c++) {
-            if (!brick_dirty[r][c]) continue;
-            ui_rect_t br = brk_brick_rect(r, c);
-            /* Erase brick area with background */
-            brk_erase_rect(&br);
-            /* Redraw if still present */
-            if (s_brk.bricks[r][c]) {
-                brk_draw_brick(r, c);
-            }
-        }
-    }
-
-    /* Redraw ball */
-    if (ball_needs) {
-        /* Erase the union of drawn and current ball positions */
-        int16_t er = BRK_BALL_R + 2;
-        int16_t min_x = s_brk.drawn_ball_x < bx ? s_brk.drawn_ball_x : bx;
-        int16_t min_y = s_brk.drawn_ball_y < by ? s_brk.drawn_ball_y : by;
-        int16_t max_x = s_brk.drawn_ball_x > bx ? s_brk.drawn_ball_x : bx;
-        int16_t max_y = s_brk.drawn_ball_y > by ? s_brk.drawn_ball_y : by;
-        ui_rect_t erase_r = {min_x - er, min_y - er,
-                             max_x - min_x + 2 * er, max_y - min_y + 2 * er};
-        brk_erase_rect(&erase_r);
-        brk_draw_ball();
-        s_brk.drawn_ball_x = bx;
-        s_brk.drawn_ball_y = by;
-    }
-
-    /* Redraw paddle */
-    if (paddle_needs) {
-        /* Erase the union of drawn and current paddle positions */
-        int16_t min_x = drawn_pad_x < pad_x ? drawn_pad_x : pad_x;
-        int16_t max_x = drawn_pad_x > pad_x ? drawn_pad_x : pad_x;
-        ui_rect_t erase_r = {min_x - 2, BRK_PADDLE_Y - 2,
-                             max_x - min_x + BRK_PADDLE_W + 4, BRK_PADDLE_H + 4};
-        brk_erase_rect(&erase_r);
+    if (s_brk.state == BRK_STATE_IDLE) {
+        brk_draw_all_bricks();
+        brk_draw_panel();
+        brk_draw_overlay("BREAKOUT", UI_COLOR_WHITE, "Swipe or press to start");
+    } else {
+        brk_draw_all_bricks();
         brk_draw_paddle();
-        s_brk.drawn_paddle_x = s_brk.paddle_x;
+        brk_draw_ball();
+        brk_draw_panel();
+
+        if (s_brk.state == BRK_STATE_GAMEOVER) {
+            brk_draw_overlay("GAME OVER", UI_HEX(0xF44336), "Press to restart");
+        } else if (s_brk.state == BRK_STATE_WIN) {
+            brk_draw_overlay("YOU WIN!", UI_HEX(0x4CAF50), "Press to play again");
+        }
     }
 
-    /* Redraw panel elements */
-    if (score_needs) {
-        ui_render_set_clip(&score_rect);
-        ui_draw_fill_round_rect(&score_rect, BRK_INFO_BOX_R, UI_HEX(0x3C3C3C));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&score_rect, s_brk.buf_score, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-    if (lives_needs) {
-        ui_render_set_clip(&lives_rect);
-        ui_draw_fill_round_rect(&lives_rect, BRK_INFO_BOX_R, UI_HEX(0x3C3C3C));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&lives_rect, s_brk.buf_lives, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-    if (level_needs) {
-        ui_render_set_clip(&level_rect);
-        ui_draw_fill_round_rect(&level_rect, BRK_INFO_BOX_R, UI_HEX(0x3C3C3C));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&level_rect, s_brk.buf_level, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-    if (launch_needs) {
-        ui_render_set_clip(&launch_rect);
-        brk_draw_launch_btn();
-    }
-
-    ui_render_reset_clip();
-    ui_page_clear_dirty();
+    /* Update drawn positions */
+    s_brk.drawn_paddle_x = s_brk.paddle_x;
+    s_brk.drawn_ball_x = BRK_FIX_TO_INT(s_brk.ball_x);
+    s_brk.drawn_ball_y = BRK_FIX_TO_INT(s_brk.ball_y);
 }
 
 /*=============================================================================
@@ -1013,7 +805,6 @@ static void brk_game_draw(ui_page_t *page, ui_rect_t *dirty)
 void game_breakout_init(void)
 {
     ui_app_page_init(&s_game_breakout, "Breakout", 0x203);
-    s_game_breakout.page.flags |= UI_PAGE_FLAG_GAME;
 
     /* Touch area for swipe/click */
     ui_rect_t touch_rect = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
@@ -1051,6 +842,7 @@ void game_breakout_init(void)
     ui_page_set_widgets(&s_game_breakout.page, s_brk_widgets, 6);
     ui_page_set_callbacks(&s_game_breakout.page, brk_game_enter, NULL,
                           brk_game_draw, NULL);
+    ui_page_set_update_cb(&s_game_breakout.page, brk_game_update);
     ui_page_register(&s_game_breakout.page);
 }
 

@@ -128,7 +128,6 @@ typedef struct {
     int level;
     int best;
     snk_state_t state;
-    bool need_full_redraw;
     uint32_t last_move_ms;
     char buf_score[16];
     char buf_level[16];
@@ -299,7 +298,7 @@ static void snk_start_game(void)
 
     snk_spawn_food();
     snk_update_texts();
-    s_snk.need_full_redraw = true;
+    ui_page_invalidate_all();
     s_snk.last_move_ms = ui_get_real_ms();
 }
 
@@ -339,7 +338,7 @@ static void snk_game_tick(void)
         s_snk.state = SNK_STATE_GAMEOVER;
         if (s_snk.score > s_snk.best) s_snk.best = s_snk.score;
         snk_update_texts();
-        s_snk.need_full_redraw = true;
+        ui_page_invalidate_all();
         return;
     }
 
@@ -351,7 +350,7 @@ static void snk_game_tick(void)
             s_snk.state = SNK_STATE_GAMEOVER;
             if (s_snk.score > s_snk.best) s_snk.best = s_snk.score;
             snk_update_texts();
-            s_snk.need_full_redraw = true;
+            ui_page_invalidate_all();
             return;
         }
     }
@@ -727,189 +726,41 @@ static void snk_game_enter(ui_page_t *page)
     memset(&s_snk, 0, sizeof(s_snk));
     s_snk.state = SNK_STATE_IDLE;
     snk_update_texts();
-    s_snk.need_full_redraw = true;
+    ui_page_invalidate_all();
 }
 
+/* Per-frame game logic update */
+static void snk_game_update(ui_page_t *page)
+{
+    (void)page;
+    snk_game_tick();
+}
+
+/* Per-row game rendering (compositing renderer auto-clips to target row) */
 static void snk_game_draw(ui_page_t *page, ui_rect_t *dirty)
 {
+    (void)page;
     (void)dirty;
 
-    /* Game tick: move snake */
-    snk_game_tick();
+    /* Game area background */
+    ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
+                      UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
+    ui_draw_fill_rect(&area, SNK_BG_COLOR);
 
-    /* Full redraw */
-    if (s_snk.need_full_redraw) {
-        s_snk.need_full_redraw = false;
+    if (s_snk.state == SNK_STATE_IDLE) {
+        snk_draw_grid_bg();
+        snk_draw_panel();
+        snk_draw_idle_overlay();
+    } else {
+        snk_draw_grid_bg();
+        snk_draw_snake();
+        snk_draw_food_current();
+        snk_draw_panel();
 
-        /* Title bar */
-        ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
-
-        ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-        for (uint16_t j = 0; j < page->widget_count; j++) {
-            if (page->widgets[j]) {
-                ui_widget_draw(page->widgets[j], &full);
-            }
-        }
-
-        /* Game area background */
-        ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
-                          UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&area, SNK_BG_COLOR);
-
-        if (s_snk.state == SNK_STATE_IDLE) {
-            snk_draw_grid_bg();
-            snk_draw_panel();
-            snk_draw_idle_overlay();
-        } else {
-            snk_draw_grid_bg();
-            snk_draw_snake();
-            snk_draw_food_current();
-            snk_draw_panel();
-
-            if (s_snk.state == SNK_STATE_GAMEOVER) {
-                snk_draw_gameover_overlay();
-            }
-        }
-
-        ui_page_clear_dirty();
-        return;
-    }
-
-    /* Partial redraw */
-    const ui_dirty_list_t *dl = ui_page_get_dirty_list();
-    if (dl->count == 0) return;
-
-    if (s_snk.state == SNK_STATE_IDLE || s_snk.state == SNK_STATE_GAMEOVER) {
-        ui_page_clear_dirty();
-        return;
-    }
-
-    ui_rect_t grid_rect = {SNK_GRID_X, SNK_GRID_Y, SNK_GRID_W, SNK_GRID_H};
-    ui_rect_t game_area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
-                           UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-
-    /* Panel element rects */
-    ui_rect_t score_rect = {SNK_PANEL_X, SNK_SCORE_BOX_Y, SNK_PANEL_W, SNK_INFO_BOX_H};
-    ui_rect_t level_rect = {SNK_PANEL_X, SNK_LEVEL_BOX_Y, SNK_PANEL_W, SNK_INFO_BOX_H};
-    ui_rect_t best_rect  = {SNK_PANEL_X, SNK_BEST_BOX_Y, SNK_PANEL_W, SNK_INFO_BOX_H};
-    bool score_needs = false, level_needs = false, best_needs = false;
-
-    /* Collect which grid cells need redraw */
-    bool cell_dirty[SNK_ROWS][SNK_COLS];
-    memset(cell_dirty, 0, sizeof(cell_dirty));
-
-    for (uint16_t i = 0; i < dl->count; i++) {
-        const ui_rect_t *d = &dl->regions[i];
-        if (d->y + d->h <= APP_TITLE_BAR_H) continue;
-
-        /* Check panel element overlaps */
-        if (d->x < score_rect.x + score_rect.w &&
-            d->x + d->w > score_rect.x &&
-            d->y < score_rect.y + score_rect.h &&
-            d->y + d->h > score_rect.y)
-            score_needs = true;
-        if (d->x < level_rect.x + level_rect.w &&
-            d->x + d->w > level_rect.x &&
-            d->y < level_rect.y + level_rect.h &&
-            d->y + d->h > level_rect.y)
-            level_needs = true;
-        if (d->x < best_rect.x + best_rect.w &&
-            d->x + d->w > best_rect.x &&
-            d->y < best_rect.y + best_rect.h &&
-            d->y + d->h > best_rect.y)
-            best_needs = true;
-
-        /* Mark overlapping grid cells */
-        if (d->x < grid_rect.x + grid_rect.w &&
-            d->x + d->w > grid_rect.x &&
-            d->y < grid_rect.y + grid_rect.h &&
-            d->y + d->h > grid_rect.y) {
-            int c_start = (d->x > grid_rect.x) ?
-                          (d->x - grid_rect.x) / SNK_CELL : 0;
-            int c_end = (d->x + d->w < grid_rect.x + grid_rect.w) ?
-                        (d->x + d->w - grid_rect.x + SNK_CELL - 1) / SNK_CELL : SNK_COLS;
-            int r_start = (d->y > grid_rect.y) ?
-                          (d->y - grid_rect.y) / SNK_CELL : 0;
-            int r_end = (d->y + d->h < grid_rect.y + grid_rect.h) ?
-                        (d->y + d->h - grid_rect.y + SNK_CELL - 1) / SNK_CELL : SNK_ROWS;
-
-            if (c_start < 0) c_start = 0;
-            if (c_end > SNK_COLS) c_end = SNK_COLS;
-            if (r_start < 0) r_start = 0;
-            if (r_end > SNK_ROWS) r_end = SNK_ROWS;
-
-            for (int r = r_start; r < r_end; r++) {
-                for (int c = c_start; c < c_end; c++) {
-                    cell_dirty[r][c] = true;
-                }
-            }
+        if (s_snk.state == SNK_STATE_GAMEOVER) {
+            snk_draw_gameover_overlay();
         }
     }
-
-    /* Single-pass atomic drawing for dirty grid cells */
-    ui_render_set_clip(&game_area);
-    for (int r = 0; r < SNK_ROWS; r++) {
-        for (int c = 0; c < SNK_COLS; c++) {
-            if (!cell_dirty[r][c]) continue;
-
-            int16_t x = SNK_GRID_X + c * SNK_CELL;
-            int16_t y = SNK_GRID_Y + r * SNK_CELL;
-            ui_rect_t cell_r = {x, y, SNK_CELL, SNK_CELL};
-
-            /* Step 1: Erase cell with grid background (preserves grid lines) */
-            ui_render_set_clip(&cell_r);
-            snk_draw_cell_bg(r, c);
-
-            /* Step 2: Redraw cell content */
-            ui_render_set_clip(&game_area);
-
-            /* Check if food is here */
-            if (s_snk.food.col == c && s_snk.food.row == r) {
-                snk_draw_food(r, c);
-            }
-
-            /* Check if snake body occupies this cell */
-            for (int i = 0; i < s_snk.length; i++) {
-                if (s_snk.body[i].col == c && s_snk.body[i].row == r) {
-                    if (i == 0) {
-                        snk_draw_head(r, c);
-                    } else if (i == s_snk.length - 1) {
-                        snk_draw_tail(r, c);
-                    } else {
-                        snk_draw_body(r, c);
-                    }
-                    break;  /* Only one segment per cell */
-                }
-            }
-        }
-    }
-
-    /* Redraw panel elements if needed */
-    if (score_needs) {
-        ui_render_set_clip(&score_rect);
-        ui_draw_fill_round_rect(&score_rect, SNK_INFO_BOX_R, UI_HEX(0x3C3C3C));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&score_rect, s_snk.buf_score, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-    if (level_needs) {
-        ui_render_set_clip(&level_rect);
-        ui_draw_fill_round_rect(&level_rect, SNK_INFO_BOX_R, UI_HEX(0x3C3C3C));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&level_rect, s_snk.buf_level, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-    if (best_needs) {
-        ui_render_set_clip(&best_rect);
-        ui_draw_fill_round_rect(&best_rect, SNK_INFO_BOX_R, UI_HEX(0x3C3C3C));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&best_rect, s_snk.buf_best, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-
-    ui_render_reset_clip();
-    ui_page_clear_dirty();
 }
 
 /*=============================================================================
@@ -919,7 +770,6 @@ static void snk_game_draw(ui_page_t *page, ui_rect_t *dirty)
 void game_snake_init(void)
 {
     ui_app_page_init(&s_game_snake, "Snake", 0x202);
-    s_game_snake.page.flags |= UI_PAGE_FLAG_GAME;
 
     /* Touch area for swipe/click */
     ui_rect_t touch_rect = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
@@ -961,6 +811,7 @@ void game_snake_init(void)
     ui_page_set_widgets(&s_game_snake.page, s_snk_widgets, 7);
     ui_page_set_callbacks(&s_game_snake.page, snk_game_enter, NULL,
                           snk_game_draw, NULL);
+    ui_page_set_update_cb(&s_game_snake.page, snk_game_update);
     ui_page_register(&s_game_snake.page);
 }
 

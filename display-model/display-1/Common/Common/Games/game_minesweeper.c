@@ -139,7 +139,6 @@ typedef struct {
     int revealed_count;
     mine_mode_t mode;
     mine_state_t state;
-    bool need_full_redraw;
     bool first_click;       /* True until first reveal */
     int frame_count;        /* Frame counter for timer (25 FPS) */
     int elapsed_sec;        /* Elapsed seconds */
@@ -505,7 +504,7 @@ static void mine_start_game(mine_mode_t mode)
     }
 
     mine_update_texts();
-    s_mine.need_full_redraw = true;
+    ui_page_invalidate_all();
     mine_cancel_double_click();
 }
 
@@ -875,14 +874,15 @@ static void mine_game_enter(ui_page_t *page)
     s_mine.total_mines = MINE_MODE_EASY_MINES;
     s_mine.state = MINE_STATE_IDLE;
     mine_update_texts();
-    s_mine.need_full_redraw = true;
+    ui_page_invalidate_all();
     mine_cancel_double_click();
     s_pending_single_click = false;
 }
 
-static void mine_game_draw(ui_page_t *page, ui_rect_t *dirty)
+/* Per-frame game logic update (timer) */
+static void mine_game_update(ui_page_t *page)
 {
-    (void)dirty;
+    (void)page;
 
     /* Clear expired single-click (no action on single click) */
     if (s_pending_single_click && mine_single_click_expired()) {
@@ -900,159 +900,33 @@ static void mine_game_draw(ui_page_t *page, ui_rect_t *dirty)
             mine_inv_time();
         }
     }
+}
 
-    /* Full redraw */
-    if (s_mine.need_full_redraw) {
-        s_mine.need_full_redraw = false;
+/* Per-row game rendering (compositing renderer auto-clips to target row) */
+static void mine_game_draw(ui_page_t *page, ui_rect_t *dirty)
+{
+    (void)page;
+    (void)dirty;
 
-        /* Title bar */
-        ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
-
-        ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-        for (uint16_t j = 0; j < page->widget_count; j++) {
-            if (page->widgets[j]) {
-                ui_widget_draw(page->widgets[j], &full);
-            }
-        }
-
-        /* Game area background */
-        ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
-                          UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&area, MINE_BG_COLOR);
-
-        if (s_mine.state == MINE_STATE_IDLE) {
-            mine_draw_grid();
-            mine_draw_panel();
-            mine_draw_idle_overlay();
-        } else {
-            mine_draw_grid();
-            mine_draw_panel();
-
-            if (s_mine.state == MINE_STATE_WIN) {
-                mine_draw_win_overlay();
-            } else if (s_mine.state == MINE_STATE_LOSE) {
-                mine_draw_lose_overlay();
-            }
-        }
-
-        ui_page_clear_dirty();
-        return;
-    }
-
-    /* Partial redraw */
-    const ui_dirty_list_t *dl = ui_page_get_dirty_list();
-    if (dl->count == 0) return;
+    /* Game area background */
+    ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
+                      UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
+    ui_draw_fill_rect(&area, MINE_BG_COLOR);
 
     if (s_mine.state == MINE_STATE_IDLE) {
-        ui_page_clear_dirty();
-        return;
-    }
+        mine_draw_grid();
+        mine_draw_panel();
+        mine_draw_idle_overlay();
+    } else {
+        mine_draw_grid();
+        mine_draw_panel();
 
-    int gx = mine_grid_x();
-    int gy = mine_grid_y();
-    int gw = mine_grid_w();
-    int gh = mine_grid_h();
-    int cs = mine_cell_size();
-
-    ui_rect_t grid_rect = {gx, gy, gw, gh};
-    ui_rect_t game_area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
-                           UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-
-    /* Panel element rects */
-    ui_rect_t mines_rect = {MINE_PANEL_X, MINE_MINES_BOX_Y, MINE_PANEL_W, MINE_INFO_BOX_H};
-    ui_rect_t time_rect  = {MINE_PANEL_X, MINE_TIME_BOX_Y, MINE_PANEL_W, MINE_INFO_BOX_H};
-    bool mines_needs = false, time_needs = false;
-
-    /* Collect which grid cells need redraw */
-    bool cell_dirty[MINE_MAX_ROWS][MINE_MAX_COLS];
-    memset(cell_dirty, 0, sizeof(cell_dirty));
-
-    for (uint16_t i = 0; i < dl->count; i++) {
-        const ui_rect_t *d = &dl->regions[i];
-        if (d->y + d->h <= APP_TITLE_BAR_H) continue;
-
-        /* Check panel overlaps */
-        if (d->x < mines_rect.x + mines_rect.w &&
-            d->x + d->w > mines_rect.x &&
-            d->y < mines_rect.y + mines_rect.h &&
-            d->y + d->h > mines_rect.y)
-            mines_needs = true;
-        if (d->x < time_rect.x + time_rect.w &&
-            d->x + d->w > time_rect.x &&
-            d->y < time_rect.y + time_rect.h &&
-            d->y + d->h > time_rect.y)
-            time_needs = true;
-
-        /* Mark overlapping grid cells */
-        if (d->x < grid_rect.x + grid_rect.w &&
-            d->x + d->w > grid_rect.x &&
-            d->y < grid_rect.y + grid_rect.h &&
-            d->y + d->h > grid_rect.y) {
-            int c_start = (d->x > grid_rect.x) ?
-                          (d->x - grid_rect.x) / cs : 0;
-            int c_end = (d->x + d->w < grid_rect.x + grid_rect.w) ?
-                        (d->x + d->w - grid_rect.x + cs - 1) / cs : s_mine.cols;
-            int r_start = (d->y > grid_rect.y) ?
-                          (d->y - grid_rect.y) / cs : 0;
-            int r_end = (d->y + d->h < grid_rect.y + grid_rect.h) ?
-                        (d->y + d->h - grid_rect.y + cs - 1) / cs : s_mine.rows;
-
-            if (c_start < 0) c_start = 0;
-            if (c_end > s_mine.cols) c_end = s_mine.cols;
-            if (r_start < 0) r_start = 0;
-            if (r_end > s_mine.rows) r_end = s_mine.rows;
-
-            for (int r = r_start; r < r_end; r++) {
-                for (int c = c_start; c < c_end; c++) {
-                    cell_dirty[r][c] = true;
-                }
-            }
+        if (s_mine.state == MINE_STATE_WIN) {
+            mine_draw_win_overlay();
+        } else if (s_mine.state == MINE_STATE_LOSE) {
+            mine_draw_lose_overlay();
         }
     }
-
-    /* Single-pass atomic drawing for dirty grid cells */
-    ui_render_set_clip(&game_area);
-    for (int r = 0; r < s_mine.rows; r++) {
-        for (int c = 0; c < s_mine.cols; c++) {
-            if (!cell_dirty[r][c]) continue;
-
-            ui_rect_t cell_r = mine_cell_rect(r, c);
-
-            /* Erase and redraw atomically */
-            ui_render_set_clip(&cell_r);
-            ui_draw_fill_rect(&cell_r, MINE_BG_COLOR);
-
-            ui_render_set_clip(&game_area);
-            mine_draw_cell(r, c);
-        }
-    }
-
-    /* Redraw panel elements if needed */
-    if (mines_needs) {
-        ui_render_set_clip(&mines_rect);
-        ui_draw_fill_round_rect(&mines_rect, MINE_INFO_BOX_R, UI_HEX(0x3C3C3C));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&mines_rect, s_mine.buf_mines, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-    if (time_needs) {
-        ui_render_set_clip(&time_rect);
-        ui_draw_fill_round_rect(&time_rect, MINE_INFO_BOX_R, UI_HEX(0x3C3C3C));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&time_rect, s_mine.buf_time, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-
-    /* Redraw overlays if game ended */
-    if (s_mine.state == MINE_STATE_WIN) {
-        mine_draw_win_overlay();
-    } else if (s_mine.state == MINE_STATE_LOSE) {
-        mine_draw_lose_overlay();
-    }
-
-    ui_render_reset_clip();
-    ui_page_clear_dirty();
 }
 
 /*=============================================================================
@@ -1062,7 +936,6 @@ static void mine_game_draw(ui_page_t *page, ui_rect_t *dirty)
 void game_minesweeper_init(void)
 {
     ui_app_page_init(&s_game_mine, "Minesweeper", 0x206);
-    s_game_mine.page.flags |= UI_PAGE_FLAG_GAME;
 
     /* Touch area for grid interaction */
     ui_rect_t touch_rect = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
@@ -1101,6 +974,7 @@ void game_minesweeper_init(void)
     ui_page_set_widgets(&s_game_mine.page, s_mine_widgets, 6);
     ui_page_set_callbacks(&s_game_mine.page, mine_game_enter, NULL,
                           mine_game_draw, NULL);
+    ui_page_set_update_cb(&s_game_mine.page, mine_game_update);
     ui_page_register(&s_game_mine.page);
 }
 

@@ -241,19 +241,17 @@ void UI_Tick(void)
 
     ui_anim_tick(UI_TICK_MS);
 
-    /* Auto-refresh game pages: call draw callback every frame.
-     * Games manage their own dirty regions via ui_page_invalidate().
-     * We skip ui_page_draw for games since we handle drawing here. */
-    ui_page_t *draw_page = ui_page_current();
-    if (draw_page && (draw_page->flags & UI_PAGE_FLAG_GAME)) {
-        if (draw_page->on_draw) {
-            ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-            draw_page->on_draw(draw_page, &full);
+    /* Per-frame page update (game logic, time-based animations, etc.) */
+    {
+        ui_page_t *update_page = ui_page_current();
+        if (update_page && update_page->on_update) {
+            update_page->on_update(update_page);
         }
-        /* Skip ui_page_draw - game already drew what it needed */
-        return;
     }
 
+    /* Unified compositing render path for all page types (UI, apps, games).
+     * The page manager handles dirty region tracking, widget compositing,
+     * and GRAM flushing automatically. */
     ui_page_draw();
 }
 
@@ -263,16 +261,10 @@ void UI_Tick(void)
 
 void UI_FullRefresh(void)
 {
+    /* Clear GRAM to background color */
     ui_screen_clear(UI_COLOR_BG_MAIN);
 
-    ui_page_t *page = ui_page_current();
-    bool is_fullscreen = page && (page->flags & UI_PAGE_FLAG_FULLSCREEN);
-
-    if (!is_fullscreen) {
-        ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-        ui_main_draw_sidebar(&full);
-    }
-
+    /* Mark entire screen dirty and let compositing renderer handle it */
     ui_page_invalidate_all();
     ui_page_draw();
 }

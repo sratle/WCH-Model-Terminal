@@ -128,6 +128,16 @@ void SSD1963_Clear(uint16_t color)
     SSD1963_FillColor((uint32_t)800 * 480, color);
 }
 
+void SSD1963_WriteRect(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2,
+                       const uint16_t *buf, uint32_t len)
+{
+    SSD1963_SetWindow(x1, y1, x2, y2);
+    volatile uint16_t *data_reg = &SSD1963_DATA;
+    while (len--) {
+        *data_reg = *buf++;
+    }
+}
+
 /*=============================================================================
  *  Backlight Control (SSD1963 internal PWM)
  *=============================================================================*/

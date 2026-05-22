@@ -36,6 +36,7 @@ struct ui_page {
     ui_page_exit_cb_t on_exit;
     ui_page_draw_cb_t on_draw;
     ui_page_back_cb_t on_back;
+    ui_page_update_cb_t on_update;  /* Per-frame logic update (games, animations) */
     int16_t scroll_y;
     uint8_t flags;
 };
@@ -86,6 +87,7 @@ void ui_page_struct_init_fullscreen(ui_page_t *page, const char *name, uint32_t 
 void ui_page_set_widgets(ui_page_t *page, ui_widget_t **widgets, uint16_t count);
 void ui_page_set_callbacks(ui_page_t *page, ui_page_enter_cb_t enter, ui_page_exit_cb_t exit,
                            ui_page_draw_cb_t draw, ui_page_back_cb_t back);
+void ui_page_set_update_cb(ui_page_t *page, ui_page_update_cb_t update);
 
 #ifdef __cplusplus
 }

@@ -20,7 +20,8 @@ extern "C" {
  *=============================================================================*/
 
 struct ui_widget {
-    ui_rect_t rect;
+    ui_rect_t rect;             /* Current position and size */
+    ui_rect_t prev_rect;        /* Previous frame position (for dirty tracking) */
     uint16_t flags;
     ui_color_t bg_color;
     ui_draw_cb_t draw_cb;
@@ -39,6 +40,15 @@ void ui_widget_invalidate(ui_widget_t *w);
 void ui_widget_draw(ui_widget_t *w, ui_rect_t *dirty);
 void ui_widget_event(ui_widget_t *w, ui_event_t *e);
 bool ui_widget_hit_test(ui_widget_t *w, int16_t x, int16_t y);
+
+/* Move widget to new position; marks old+new positions as dirty */
+void ui_widget_move(ui_widget_t *w, int16_t x, int16_t y);
+
+/* Resize widget; marks old+new bounds as dirty */
+void ui_widget_resize(ui_widget_t *w, int16_t width, int16_t height);
+
+/* Set widget position and size without triggering dirty (for init phase) */
+void ui_widget_set_rect(ui_widget_t *w, const ui_rect_t *rect);
 
 /*=============================================================================
  *  Label Widget

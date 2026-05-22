@@ -145,33 +145,6 @@ static void init_tab_cards(const module_info_t *mods, ui_card_t *cards,
 }
 
 /*=============================================================================
- *  Models Page Drawing
-*=============================================================================*/
-
-void ui_models_draw(ui_page_t *page, ui_rect_t *dirty)
-{
-    ui_rect_t content = {SIDEBAR_WIDTH, 0, UI_SCREEN_WIDTH - SIDEBAR_WIDTH, UI_SCREEN_HEIGHT};
-    ui_draw_fill_rect(&content, UI_COLOR_BG_MAIN);
-
-    ui_tabview_t *tv = &tabview;
-    uint8_t tab = ui_tabview_get_active(tv);
-
-    ui_card_t *cards = NULL;
-    int count = 0;
-
-    switch (tab) {
-    case 0: cards = card_comm; count = 4; break;
-    case 1: cards = card_disp; count = 3; break;
-    case 2: cards = card_stor; count = 3; break;
-    default: return;
-    }
-
-    for (int i = 0; i < count; i++) {
-        ui_widget_draw((ui_widget_t *)&cards[i], dirty);
-    }
-}
-
-/*=============================================================================
  *  Models Page Initialization
 *=============================================================================*/
 
@@ -193,7 +166,7 @@ void ui_models_init(void)
     s_models_widgets[0] = (ui_widget_t *)&lbl_title;
     s_models_widgets[1] = (ui_widget_t *)&tabview;
     ui_page_set_widgets(&page_models, s_models_widgets, 2);
-    ui_page_set_callbacks(&page_models, ui_models_enter, NULL, ui_models_draw, NULL);
+    ui_page_set_callbacks(&page_models, ui_models_enter, NULL, NULL, NULL);
 
     s_models_inited = false;
 }

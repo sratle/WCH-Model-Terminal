@@ -74,17 +74,6 @@ static void game_button_click(ui_widget_t *w)
 }
 
 /*=============================================================================
- *  Games Page Drawing
- *=============================================================================*/
-
-void ui_games_draw(ui_page_t *page, ui_rect_t *dirty)
-{
-    (void)page;
-    ui_rect_t content = {SIDEBAR_WIDTH, 0, UI_SCREEN_WIDTH - SIDEBAR_WIDTH, UI_SCREEN_HEIGHT};
-    ui_draw_fill_rect(&content, UI_COLOR_BG_MAIN);
-}
-
-/*=============================================================================
  *  Games Page Initialization
  *=============================================================================*/
 
@@ -122,7 +111,7 @@ void ui_games_init(void)
     }
 
     ui_page_set_widgets(&page_games, s_games_widgets, 1 + GAME_TOTAL);
-    ui_page_set_callbacks(&page_games, ui_games_enter, NULL, ui_games_draw, NULL);
+    ui_page_set_callbacks(&page_games, ui_games_enter, NULL, NULL, NULL);
 }
 
 void ui_games_enter(ui_page_t *page)

@@ -99,6 +99,12 @@ void SSD1963_WriteBuffer(const uint16_t *buf, uint32_t len);
 void SSD1963_FillColor(uint32_t count, uint16_t color);
 void SSD1963_Clear(uint16_t color);
 
+/* Write a rectangular region of pixels from a row-major buffer.
+ * buf contains (x2-x1+1)*(y2-y1+1) pixels in row-major order.
+ * Uses a single SetWindow call for the entire rectangle. */
+void SSD1963_WriteRect(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2,
+                       const uint16_t *buf, uint32_t len);
+
 /* Backlight control (SSD1963 internal PWM) */
 void SSD1963_SetBacklight(uint8_t pwm);
 

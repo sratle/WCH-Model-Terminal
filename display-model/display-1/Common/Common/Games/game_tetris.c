@@ -160,7 +160,6 @@ typedef struct {
     int level;
     int lines;
     tet_state_t state;
-    bool need_full_redraw;
     uint32_t last_drop_ms;
     char buf_score[16];
     char buf_level[16];
@@ -281,7 +280,7 @@ static void tet_spawn_piece(void)
     /* Check game over */
     if (tet_collides(s_tet.cur_piece, s_tet.cur_rot, s_tet.cur_row, s_tet.cur_col)) {
         s_tet.state = TET_STATE_GAMEOVER;
-        s_tet.need_full_redraw = true;
+        ui_page_invalidate_all();
     }
 }
 
@@ -394,7 +393,7 @@ static void tet_start_game(void)
     s_tet.next_piece = tet_random_piece();
     tet_spawn_piece();
     tet_update_texts();
-    s_tet.need_full_redraw = true;
+    ui_page_invalidate_all();
     s_tet.last_drop_ms = ui_get_real_ms();
 }
 
@@ -907,234 +906,38 @@ static void tet_game_enter(ui_page_t *page)
     memset(&s_tet, 0, sizeof(s_tet));
     s_tet.state = TET_STATE_IDLE;
     tet_update_texts();
-    s_tet.need_full_redraw = true;
+    ui_page_invalidate_all();
 }
 
+/* Per-frame game logic update */
+static void tet_game_update(ui_page_t *page)
+{
+    (void)page;
+    tet_game_tick();
+}
+
+/* Per-row game rendering (compositing renderer auto-clips to target row) */
 static void tet_game_draw(ui_page_t *page, ui_rect_t *dirty)
 {
+    (void)page;
     (void)dirty;
 
-    /* Game tick: auto-drop */
-    tet_game_tick();
+    /* Game area background */
+    ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
+                      UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
+    ui_draw_fill_rect(&area, UI_HEX(0x1A1A1A));
 
-    /* Full redraw */
-    if (s_tet.need_full_redraw) {
-        s_tet.need_full_redraw = false;
+    if (s_tet.state == TET_STATE_IDLE) {
+        tet_draw_idle_screen();
+    } else {
+        tet_draw_board();
+        tet_draw_piece();
+        tet_draw_panel();
 
-        /* Title bar */
-        ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
-
-        ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-        for (uint16_t j = 0; j < page->widget_count; j++) {
-            if (page->widgets[j]) {
-                ui_widget_draw(page->widgets[j], &full);
-            }
-        }
-
-        /* Game area background */
-        ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
-                          UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&area, UI_HEX(0x1A1A1A));
-
-        if (s_tet.state == TET_STATE_IDLE) {
-            tet_draw_idle_screen();
-        } else {
-            tet_draw_board();
-            tet_draw_piece();
-            tet_draw_panel();
-
-            if (s_tet.state == TET_STATE_GAMEOVER) {
-                tet_draw_gameover_overlay();
-            }
-        }
-
-        ui_page_clear_dirty();
-        return;
-    }
-
-    /* Partial redraw */
-    const ui_dirty_list_t *dl = ui_page_get_dirty_list();
-    if (dl->count == 0) return;
-
-    if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER) {
-        ui_page_clear_dirty();
-        return;
-    }
-
-    ui_rect_t board_rect = {TET_GRID_X, TET_GRID_Y,
-                            TET_COLS * TET_CELL, TET_ROWS * TET_CELL};
-    ui_rect_t game_area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
-                           UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-
-    /* Panel element rects */
-    ui_rect_t score_rect = {TET_PANEL_X, TET_SCORE_BOX_Y, TET_PANEL_W, TET_INFO_BOX_H};
-    ui_rect_t level_rect = {TET_PANEL_X, TET_LEVEL_BOX_Y, TET_PANEL_W, TET_INFO_BOX_H};
-    ui_rect_t lines_rect = {TET_PANEL_X, TET_LINES_BOX_Y, TET_PANEL_W, TET_INFO_BOX_H};
-    ui_rect_t preview_rect = {TET_PREVIEW_X, TET_PREVIEW_Y, TET_PREVIEW_W, TET_PREVIEW_H};
-    bool score_needs = false, level_needs = false, lines_needs = false;
-    bool preview_needs = false;
-
-    /* Collect which board cells and panel elements need redraw */
-    bool cell_dirty[TET_ROWS][TET_COLS];
-    memset(cell_dirty, 0, sizeof(cell_dirty));
-
-    for (uint16_t i = 0; i < dl->count; i++) {
-        const ui_rect_t *d = &dl->regions[i];
-        if (d->y + d->h <= APP_TITLE_BAR_H) continue;
-
-        /* Clip to game area */
-        ui_rect_t clip = *d;
-        if (clip.y < APP_TITLE_BAR_H) {
-            clip.h -= (APP_TITLE_BAR_H - clip.y);
-            clip.y = APP_TITLE_BAR_H;
-        }
-        if (clip.w <= 0 || clip.h <= 0) continue;
-
-        /* Check panel element overlaps */
-        if (clip.x < score_rect.x + score_rect.w &&
-            clip.x + clip.w > score_rect.x &&
-            clip.y < score_rect.y + score_rect.h &&
-            clip.y + clip.h > score_rect.y)
-            score_needs = true;
-        if (clip.x < level_rect.x + level_rect.w &&
-            clip.x + clip.w > level_rect.x &&
-            clip.y < level_rect.y + level_rect.h &&
-            clip.y + clip.h > level_rect.y)
-            level_needs = true;
-        if (clip.x < lines_rect.x + lines_rect.w &&
-            clip.x + clip.w > lines_rect.x &&
-            clip.y < lines_rect.y + lines_rect.h &&
-            clip.y + clip.h > lines_rect.y)
-            lines_needs = true;
-        if (clip.x < preview_rect.x + preview_rect.w &&
-            clip.x + clip.w > preview_rect.x &&
-            clip.y < preview_rect.y + preview_rect.h &&
-            clip.y + clip.h > preview_rect.y)
-            preview_needs = true;
-
-        /* Mark overlapping board cells */
-        if (clip.x < board_rect.x + board_rect.w &&
-            clip.x + clip.w > board_rect.x &&
-            clip.y < board_rect.y + board_rect.h &&
-            clip.y + clip.h > board_rect.y) {
-            /* Calculate row/col range that overlaps with clip */
-            int c_start = (clip.x > board_rect.x) ?
-                          (clip.x - board_rect.x) / TET_CELL : 0;
-            int c_end = (clip.x + clip.w < board_rect.x + board_rect.w) ?
-                        (clip.x + clip.w - board_rect.x + TET_CELL - 1) / TET_CELL : TET_COLS;
-            int r_start = (clip.y > board_rect.y) ?
-                          (clip.y - board_rect.y) / TET_CELL : 0;
-            int r_end = (clip.y + clip.h < board_rect.y + board_rect.h) ?
-                        (clip.y + clip.h - board_rect.y + TET_CELL - 1) / TET_CELL : TET_ROWS;
-
-            if (c_start < 0) c_start = 0;
-            if (c_end > TET_COLS) c_end = TET_COLS;
-            if (r_start < 0) r_start = 0;
-            if (r_end > TET_ROWS) r_end = TET_ROWS;
-
-            for (int r = r_start; r < r_end; r++) {
-                for (int c = c_start; c < c_end; c++) {
-                    cell_dirty[r][c] = true;
-                }
-            }
+        if (s_tet.state == TET_STATE_GAMEOVER) {
+            tet_draw_gameover_overlay();
         }
     }
-
-    /* Redraw dirty board cells with single-pass atomic drawing */
-    ui_render_set_clip(&game_area);
-    for (int r = 0; r < TET_ROWS; r++) {
-        for (int c = 0; c < TET_COLS; c++) {
-            if (!cell_dirty[r][c]) continue;
-
-            int16_t x = TET_GRID_X + c * TET_CELL;
-            int16_t y = TET_GRID_Y + r * TET_CELL;
-            ui_rect_t cell_r = {x, y, TET_CELL, TET_CELL};
-
-            /* Erase cell with board background */
-            ui_render_set_clip(&cell_r);
-            ui_draw_fill_rect(&cell_r, tet_cell_color(s_tet.board[r][c]));
-
-            /* Draw board cell content */
-            ui_render_set_clip(&game_area);
-            tet_draw_board_cell(r, c);
-
-            /* Draw current piece cell if it occupies this position */
-            for (int i = 0; i < 4; i++) {
-                int8_t cr, cc;
-                tet_piece_cell(s_tet.cur_piece, s_tet.cur_rot, i, &cr, &cc);
-                if (s_tet.cur_row + cr == r && s_tet.cur_col + cc == c) {
-                    ui_color_t fill = tet_piece_color(s_tet.cur_piece + 1);
-                    ui_color_t border = ui_color_darken(fill, 25);
-                    ui_color_t highlight = ui_color_lighten(fill, 30);
-                    tet_draw_cell(x, y, fill, border, highlight);
-                    break;
-                }
-            }
-
-            /* Draw ghost piece cell if it occupies this position */
-            int ghost = tet_ghost_row();
-            if (ghost != s_tet.cur_row) {
-                for (int i = 0; i < 4; i++) {
-                    int8_t cr, cc;
-                    tet_piece_cell(s_tet.cur_piece, s_tet.cur_rot, i, &cr, &cc);
-                    if (ghost + cr == r && s_tet.cur_col + cc == c) {
-                        /* Only draw ghost if no current piece here */
-                        bool cur_here = false;
-                        for (int j = 0; j < 4; j++) {
-                            int8_t cr2, cc2;
-                            tet_piece_cell(s_tet.cur_piece, s_tet.cur_rot, j, &cr2, &cc2);
-                            if (s_tet.cur_row + cr2 == r && s_tet.cur_col + cc2 == c) {
-                                cur_here = true;
-                                break;
-                            }
-                        }
-                        if (!cur_here) {
-                            ui_color_t ghost_fill = ui_color_darken(tet_piece_color(s_tet.cur_piece + 1), 60);
-                            ui_color_t ghost_border = ui_color_darken(tet_piece_color(s_tet.cur_piece + 1), 70);
-                            ui_rect_t gr = {x, y, TET_CELL, TET_CELL};
-                            ui_draw_fill_rect(&gr, ghost_fill);
-                            ui_draw_rect_border(&gr, ghost_border, 1);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    /* Redraw panel elements if needed */
-    if (score_needs) {
-        ui_render_set_clip(&score_rect);
-        ui_draw_fill_round_rect(&score_rect, TET_INFO_BOX_R, UI_HEX(0x3C3C3C));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&score_rect, s_tet.buf_score, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-
-    if (level_needs) {
-        ui_render_set_clip(&level_rect);
-        ui_draw_fill_round_rect(&level_rect, TET_INFO_BOX_R, UI_HEX(0x3C3C3C));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&level_rect, s_tet.buf_level, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-
-    if (lines_needs) {
-        ui_render_set_clip(&lines_rect);
-        ui_draw_fill_round_rect(&lines_rect, TET_INFO_BOX_R, UI_HEX(0x3C3C3C));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&lines_rect, s_tet.buf_lines, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-
-    if (preview_needs) {
-        ui_render_set_clip(&preview_rect);
-        tet_draw_preview();
-    }
-
-    ui_render_reset_clip();
-    ui_page_clear_dirty();
 }
 
 /*=============================================================================
@@ -1144,7 +947,6 @@ static void tet_game_draw(ui_page_t *page, ui_rect_t *dirty)
 void game_tetris_init(void)
 {
     ui_app_page_init(&s_game_tetris, "Tetris", 0x200);
-    s_game_tetris.page.flags |= UI_PAGE_FLAG_GAME;
 
     /* Touch area for swipe/click */
     ui_rect_t touch_rect = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
@@ -1190,9 +992,10 @@ void game_tetris_init(void)
     s_tet_widgets[6] = (ui_widget_t *)&s_game_tetris.lbl_title;
     s_tet_widgets[7] = (ui_widget_t *)&s_game_tetris.btn_back;
 
-    ui_page_set_widgets(&s_game_tetris.page, s_tet_widgets, 8);
     ui_page_set_callbacks(&s_game_tetris.page, tet_game_enter, NULL,
                           tet_game_draw, NULL);
+    ui_page_set_update_cb(&s_game_tetris.page, tet_game_update);
+    ui_page_set_widgets(&s_game_tetris.page, s_tet_widgets, 8);
     ui_page_register(&s_game_tetris.page);
 }
 

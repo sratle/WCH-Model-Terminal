@@ -105,7 +105,6 @@ typedef struct {
     ap_bullet_t e_bullets[AP_MAX_E_BULLETS];
 
     /* State */
-    bool need_full_redraw;
     bool hud_dirty;
     int16_t dmg_show_timer;  /* Frames remaining to show -10 */
     int16_t dmg_show_x, dmg_show_y; /* Position of -10 text */
@@ -452,7 +451,7 @@ static void ap_end_game(void)
 {
     s_ap.state = AP_STATE_GAMEOVER;
     ap_update_gameover_text();
-    s_ap.need_full_redraw = true;
+    ui_page_invalidate_all();
 }
 
 static void ap_update(void)
@@ -825,14 +824,14 @@ static void ap_touch_event(ui_widget_t *w, ui_event_t *e)
     if (s_ap.state == AP_STATE_IDLE) {
         if (e->type == UI_EVENT_CLICK) {
             ap_start_game();
-            s_ap.need_full_redraw = true;
+            ui_page_invalidate_all();
         }
         return;
     }
     if (s_ap.state == AP_STATE_GAMEOVER) {
         if (e->type == UI_EVENT_CLICK) {
             ap_start_game();
-            s_ap.need_full_redraw = true;
+            ui_page_invalidate_all();
         }
         return;
     }
@@ -846,102 +845,38 @@ static void ap_game_enter(ui_page_t *page)
 {
     (void)page;
     ap_reset();
-    s_ap.need_full_redraw = true;
+    ui_page_invalidate_all();
 }
 
+/* Per-frame game logic update */
+static void ap_game_update(ui_page_t *page)
+{
+    (void)page;
+    ap_update();
+}
+
+/* Per-row game rendering (compositing renderer auto-clips to target row) */
 static void ap_game_draw(ui_page_t *page, ui_rect_t *dirty)
 {
     (void)page;
     (void)dirty;
 
-    ap_update();
-
-    /* Full redraw (initial enter, state change) */
-    if (s_ap.need_full_redraw) {
-        s_ap.need_full_redraw = false;
-
-        ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
-
-        ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-        for (uint16_t j = 0; j < page->widget_count; j++) {
-            if (page->widgets[j]) {
-                ui_widget_draw(page->widgets[j], &full);
-            }
-        }
-
-        ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
-                          UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&area, UI_COLOR_BG_MAIN);
-
-        if (s_ap.state == AP_STATE_IDLE) {
-            ap_draw_idle_screen();
-        } else if (s_ap.state == AP_STATE_PLAYING) {
-            ap_draw_entities_in_clip(&area);
-            ap_draw_hud();
-        } else {
-            ap_draw_entities_in_clip(&area);
-            ap_draw_hud();
-            ap_draw_gameover();
-        }
-        ui_page_clear_dirty();
-        return;
-    }
-
-    const ui_dirty_list_t *dl = ui_page_get_dirty_list();
-    if (dl->count == 0) return;
+    /* Game area background */
+    ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
+                      UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
+    ui_draw_fill_rect(&area, UI_COLOR_BG_MAIN);
 
     if (s_ap.state == AP_STATE_IDLE) {
-        ui_page_clear_dirty();
-        return;
-    }
+        ap_draw_idle_screen();
+    } else {
+        /* Draw all entities (primitives auto-clip to target row) */
+        ap_draw_entities_in_clip(&area);
+        ap_draw_hud();
 
-    /* Partial redraw: single-pass atomic per dirty region */
-    ui_rect_t game_area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
-                           UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-    ui_rect_t hud_rect = {AP_AREA_X, AP_AREA_Y, AP_AREA_W, AP_HUD_H};
-    bool hud_needs_redraw = false;
-
-    for (uint16_t i = 0; i < dl->count; i++) {
-        const ui_rect_t *d = &dl->regions[i];
-        if (d->y + d->h <= APP_TITLE_BAR_H) continue;
-
-        ui_rect_t clip = *d;
-        if (clip.y < APP_TITLE_BAR_H) {
-            clip.h -= (APP_TITLE_BAR_H - clip.y);
-            clip.y = APP_TITLE_BAR_H;
-        }
-        if (clip.w <= 0 || clip.h <= 0) continue;
-
-        /* Erase background */
-        ui_render_set_clip(&clip);
-        ui_draw_fill_rect(&clip, UI_COLOR_BG_MAIN);
-
-        /* Redraw entities with game-area clip */
-        ui_render_set_clip(&game_area);
-        ap_draw_entities_in_clip(&clip);
-
-        /* Check HUD overlap */
-        if (ap_rects_overlap(&clip, &hud_rect)) {
-            hud_needs_redraw = true;
-        }
-
-        /* Gameover overlay */
         if (s_ap.state == AP_STATE_GAMEOVER) {
             ap_draw_gameover();
         }
     }
-
-    /* Single HUD redraw */
-    if (hud_needs_redraw) {
-        ui_render_set_clip(&hud_rect);
-        ui_draw_fill_rect(&hud_rect, UI_HEX(0x2C3E50));
-        ui_render_set_clip(&game_area);
-        ap_draw_hud();
-    }
-
-    ui_page_clear_dirty();
-    ui_render_reset_clip();
 }
 
 /*=============================================================================
@@ -951,7 +886,6 @@ static void ap_game_draw(ui_page_t *page, ui_rect_t *dirty)
 void game_airplane_init(void)
 {
     ui_app_page_init(&s_game_airplane, "Airplane", 0x201);
-    s_game_airplane.page.flags |= UI_PAGE_FLAG_GAME;
 
     ui_rect_t touch_rect = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
                             UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
@@ -966,6 +900,7 @@ void game_airplane_init(void)
     ui_page_set_widgets(&s_game_airplane.page, s_ap_widgets, 3);
     ui_page_set_callbacks(&s_game_airplane.page, ap_game_enter, NULL,
                           ap_game_draw, NULL);
+    ui_page_set_update_cb(&s_game_airplane.page, ap_game_update);
     ui_page_register(&s_game_airplane.page);
 }
 

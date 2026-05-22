@@ -71,16 +71,6 @@ static void about_click(ui_widget_t *w)
 }
 
 /*=============================================================================
- *  Settings Page Drawing
- *=============================================================================*/
-
-void ui_settings_draw(ui_page_t *page, ui_rect_t *dirty)
-{
-    ui_rect_t content = {SIDEBAR_WIDTH, 0, UI_SCREEN_WIDTH - SIDEBAR_WIDTH, UI_SCREEN_HEIGHT};
-    ui_draw_fill_rect(&content, UI_COLOR_BG_MAIN);
-}
-
-/*=============================================================================
  *  Settings Page Initialization
  *=============================================================================*/
 
@@ -137,7 +127,7 @@ void ui_settings_init(void)
     s_settings_widgets[4] = (ui_widget_t *)&item_about;
 
     ui_page_set_widgets(&page_settings, s_settings_widgets, 5);
-    ui_page_set_callbacks(&page_settings, ui_settings_enter, NULL, ui_settings_draw, NULL);
+    ui_page_set_callbacks(&page_settings, ui_settings_enter, NULL, NULL, NULL);
 }
 
 void ui_settings_enter(ui_page_t *page)

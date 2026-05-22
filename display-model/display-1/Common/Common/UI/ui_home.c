@@ -33,16 +33,6 @@ static ui_status_dot_t dot_touch;
 static ui_widget_t *s_home_widgets[10];
 
 /*=============================================================================
- *  Home Page Drawing
- *=============================================================================*/
-
-void ui_home_draw(ui_page_t *page, ui_rect_t *dirty)
-{
-    ui_rect_t content = {SIDEBAR_WIDTH, 0, UI_SCREEN_WIDTH - SIDEBAR_WIDTH, UI_SCREEN_HEIGHT};
-    ui_draw_fill_rect(&content, UI_COLOR_BG_MAIN);
-}
-
-/*=============================================================================
  *  Home Page Initialization
  *=============================================================================*/
 
@@ -139,7 +129,7 @@ void ui_home_init(void)
     s_home_widgets[5] = (ui_widget_t *)&card_touch;
 
     ui_page_set_widgets(&page_home, s_home_widgets, 6);
-    ui_page_set_callbacks(&page_home, ui_home_enter, NULL, ui_home_draw, NULL);
+    ui_page_set_callbacks(&page_home, ui_home_enter, NULL, NULL, NULL);
 }
 
 void ui_home_enter(ui_page_t *page)

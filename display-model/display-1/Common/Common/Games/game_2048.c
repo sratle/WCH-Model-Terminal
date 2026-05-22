@@ -67,7 +67,6 @@ typedef struct {
     int moves;
     bool undo_available;
     g4_state_t state;
-    bool need_full_redraw;
     char buf_score[16];
     char buf_moves[16];
     char buf_best[16];
@@ -309,10 +308,10 @@ static bool g4_do_move(g4_dir_t dir)
     /* Check win/lose */
     if (g4_has_16384()) {
         s_g4.state = G4_STATE_WIN;
-        s_g4.need_full_redraw = true;
+        ui_page_invalidate_all();
     } else if (!g4_can_move()) {
         s_g4.state = G4_STATE_GAMEOVER;
-        s_g4.need_full_redraw = true;
+        ui_page_invalidate_all();
     }
 
     return true;
@@ -343,7 +342,7 @@ static void g4_start_game(void)
     g4_spawn_tile();
     g4_spawn_tile();
     g4_update_texts();
-    s_g4.need_full_redraw = true;
+    ui_page_invalidate_all();
 }
 
 /*=============================================================================
@@ -570,7 +569,7 @@ static void g4_game_enter(ui_page_t *page)
 {
     (void)page;
     g4_reset();
-    s_g4.need_full_redraw = true;
+    ui_page_invalidate_all();
 }
 
 static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
@@ -621,143 +620,29 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
     }
 }
 
+/* Per-row game rendering (compositing renderer auto-clips to target row) */
 static void g4_game_draw(ui_page_t *page, ui_rect_t *dirty)
 {
     (void)page;
     (void)dirty;
 
-    /* Full redraw (initial enter, state change) */
-    if (s_g4.need_full_redraw) {
-        s_g4.need_full_redraw = false;
-
-        /* Title bar */
-        ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
-
-        ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-        for (uint16_t j = 0; j < page->widget_count; j++) {
-            if (page->widgets[j]) {
-                ui_widget_draw(page->widgets[j], &full);
-            }
-        }
-
-        /* Game area background */
-        ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
-                          UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&area, UI_HEX(0xFAF8EF));
-
-        if (s_g4.state == G4_STATE_IDLE) {
-            g4_draw_idle_screen();
-        } else {
-            g4_draw_grid();
-            g4_draw_panel();
-
-            if (s_g4.state == G4_STATE_GAMEOVER) {
-                g4_draw_overlay("Game Over!", UI_HEX(0xF65E3B));
-            } else if (s_g4.state == G4_STATE_WIN) {
-                g4_draw_overlay("You Win!", UI_HEX(0xEDC22E));
-            }
-        }
-
-        ui_page_clear_dirty();
-        return;
-    }
-
-    /* Partial redraw */
-    const ui_dirty_list_t *dl = ui_page_get_dirty_list();
-    if (dl->count == 0) return;
+    /* Game area background */
+    ui_rect_t area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
+                      UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
+    ui_draw_fill_rect(&area, UI_HEX(0xFAF8EF));
 
     if (s_g4.state == G4_STATE_IDLE) {
-        ui_page_clear_dirty();
-        return;
-    }
+        g4_draw_idle_screen();
+    } else {
+        g4_draw_grid();
+        g4_draw_panel();
 
-    ui_rect_t game_area = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
-                           UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
-
-    /* Score/moves box rects */
-    int16_t score_y = G4_PANEL_Y + 18;
-    ui_rect_t score_rect = {G4_PANEL_X, score_y, G4_PANEL_W, 36};
-    int16_t moves_y = G4_PANEL_Y + 18 + 50 + 18;
-    ui_rect_t moves_rect = {G4_PANEL_X, moves_y, G4_PANEL_W, 36};
-    ui_rect_t undo_rect = {G4_UNDO_X, G4_UNDO_Y, G4_UNDO_W, G4_UNDO_H};
-    bool score_needs = false, moves_needs = false, undo_needs = false;
-
-    for (uint16_t i = 0; i < dl->count; i++) {
-        const ui_rect_t *d = &dl->regions[i];
-        if (d->y + d->h <= APP_TITLE_BAR_H) continue;
-
-        ui_rect_t clip = *d;
-        if (clip.y < APP_TITLE_BAR_H) {
-            clip.h -= (APP_TITLE_BAR_H - clip.y);
-            clip.y = APP_TITLE_BAR_H;
-        }
-        if (clip.w <= 0 || clip.h <= 0) continue;
-
-        /* Check which panel elements overlap */
-        if (clip.x < score_rect.x + score_rect.w &&
-            clip.x + clip.w > score_rect.x &&
-            clip.y < score_rect.y + score_rect.h &&
-            clip.y + clip.h > score_rect.y)
-            score_needs = true;
-        if (clip.x < moves_rect.x + moves_rect.w &&
-            clip.x + clip.w > moves_rect.x &&
-            clip.y < moves_rect.y + moves_rect.h &&
-            clip.y + clip.h > moves_rect.y)
-            moves_needs = true;
-        if (clip.x < undo_rect.x + undo_rect.w &&
-            clip.x + clip.w > undo_rect.x &&
-            clip.y < undo_rect.y + undo_rect.h &&
-            clip.y + clip.h > undo_rect.y)
-            undo_needs = true;
-
-        /* Redraw tiles overlapping this dirty region */
-        ui_render_set_clip(&game_area);
-        for (int r = 0; r < G4_GRID_SIZE; r++) {
-            for (int c = 0; c < G4_GRID_SIZE; c++) {
-                ui_rect_t tile_r = g4_tile_rect(r, c);
-                if (tile_r.x < clip.x + clip.w && tile_r.x + tile_r.w > clip.x &&
-                    tile_r.y < clip.y + clip.h && tile_r.y + tile_r.h > clip.y) {
-                    /* Erase tile with grid background color */
-                    ui_render_set_clip(&tile_r);
-                    ui_draw_fill_rect(&tile_r, UI_HEX(0xBBADA0));
-                    /* Redraw tile */
-                    g4_draw_tile(tile_r.x, tile_r.y, s_g4.grid[r][c]);
-                }
-            }
+        if (s_g4.state == G4_STATE_GAMEOVER) {
+            g4_draw_overlay("Game Over!", UI_HEX(0xF65E3B));
+        } else if (s_g4.state == G4_STATE_WIN) {
+            g4_draw_overlay("You Win!", UI_HEX(0xEDC22E));
         }
     }
-
-    /* Redraw score box if needed */
-    if (score_needs) {
-        ui_render_set_clip(&score_rect);
-        ui_draw_fill_round_rect(&score_rect, 6, UI_HEX(0xBBADA0));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&score_rect, s_g4.buf_score, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-
-    /* Redraw moves box if needed */
-    if (moves_needs) {
-        ui_render_set_clip(&moves_rect);
-        ui_draw_fill_round_rect(&moves_rect, 6, UI_HEX(0xBBADA0));
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&moves_rect, s_g4.buf_moves, &font_montserrat_16,
-                             UI_COLOR_WHITE, 1);
-    }
-
-    /* Redraw undo button if needed */
-    if (undo_needs) {
-        ui_color_t undo_bg = s_g4.undo_available ? UI_HEX(0x8F7A66) : UI_HEX(0xCDCCBE);
-        ui_color_t undo_fg = s_g4.undo_available ? UI_COLOR_WHITE : UI_HEX(0x999999);
-        ui_render_set_clip(&undo_rect);
-        ui_draw_fill_round_rect(&undo_rect, 6, undo_bg);
-        ui_render_set_clip(&game_area);
-        ui_draw_text_in_rect(&undo_rect, "UNDO", &font_montserrat_12, undo_fg, 1);
-    }
-
-    ui_render_reset_clip();
-    ui_page_clear_dirty();
 }
 
 /*=============================================================================
@@ -767,7 +652,6 @@ static void g4_game_draw(ui_page_t *page, ui_rect_t *dirty)
 void game_2048_init(void)
 {
     ui_app_page_init(&s_game_2048, "2048", 0x201);
-    s_game_2048.page.flags |= UI_PAGE_FLAG_GAME;
 
     ui_rect_t touch_rect = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
                             UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};

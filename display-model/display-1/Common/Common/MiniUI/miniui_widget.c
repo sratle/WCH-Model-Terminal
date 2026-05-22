@@ -17,7 +17,10 @@ void ui_widget_init(ui_widget_t *w, const ui_rect_t *rect)
 {
     if (!w) return;
     memset(w, 0, sizeof(ui_widget_t));
-    if (rect) w->rect = *rect;
+    if (rect) {
+        w->rect = *rect;
+        w->prev_rect = *rect;  /* prev_rect tracks the initial position */
+    }
     w->flags = UI_WIDGET_FLAG_VISIBLE | UI_WIDGET_FLAG_ENABLED;
     w->bg_color = UI_COLOR_TRANSPARENT;
 }
@@ -40,8 +43,17 @@ void ui_widget_set_enabled(ui_widget_t *w, bool enabled)
 void ui_widget_invalidate(ui_widget_t *w)
 {
     if (!w) return;
-    w->flags |= UI_WIDGET_FLAG_DIRTY;
+    /* Mark old position as dirty (if valid and different from current) */
+    if (w->prev_rect.w > 0 && w->prev_rect.h > 0 &&
+        (w->prev_rect.x != w->rect.x || w->prev_rect.y != w->rect.y ||
+         w->prev_rect.w != w->rect.w || w->prev_rect.h != w->rect.h)) {
+        ui_page_invalidate(&w->prev_rect);
+    }
+    /* Mark new position as dirty */
     ui_page_invalidate(&w->rect);
+    /* Save current rect as prev_rect for next frame */
+    w->prev_rect = w->rect;
+    w->flags |= UI_WIDGET_FLAG_DIRTY;
 }
 
 void ui_widget_draw(ui_widget_t *w, ui_rect_t *dirty)
@@ -62,6 +74,35 @@ bool ui_widget_hit_test(ui_widget_t *w, int16_t x, int16_t y)
     if (!w) return false;
     return (x >= w->rect.x && x < w->rect.x + w->rect.w &&
             y >= w->rect.y && y < w->rect.y + w->rect.h);
+}
+
+void ui_widget_move(ui_widget_t *w, int16_t x, int16_t y)
+{
+    if (!w) return;
+    if (w->rect.x == x && w->rect.y == y) return;
+    /* Mark old position dirty before changing */
+    ui_page_invalidate(&w->rect);
+    w->rect.x = x;
+    w->rect.y = y;
+    /* Invalidate marks new position and saves prev_rect */
+    ui_widget_invalidate(w);
+}
+
+void ui_widget_resize(ui_widget_t *w, int16_t width, int16_t height)
+{
+    if (!w) return;
+    if (w->rect.w == width && w->rect.h == height) return;
+    ui_page_invalidate(&w->rect);
+    w->rect.w = width;
+    w->rect.h = height;
+    ui_widget_invalidate(w);
+}
+
+void ui_widget_set_rect(ui_widget_t *w, const ui_rect_t *rect)
+{
+    if (!w || !rect) return;
+    w->rect = *rect;
+    w->prev_rect = *rect;
 }
 
 /*=============================================================================

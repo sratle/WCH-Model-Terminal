@@ -189,7 +189,6 @@ typedef struct {
 
     /* Score & HUD */
     int score;
-    bool need_full_redraw;
     bool hud_dirty;
     char buf_lives[16];
     char buf_score[16];
@@ -458,7 +457,7 @@ static void ct_start_game(void)
     s_ct.fire_timer = 0;
     s_ct.camera_x = 0;
     s_ct.score = 0;
-    s_ct.need_full_redraw = true;
+    ui_page_invalidate_all();
     s_ct.hud_dirty = true;
 
     ct_build_level();
@@ -477,7 +476,7 @@ static void ct_player_die(void)
 
     if (s_ct.lives <= 0) {
         s_ct.state = CT_STATE_GAMEOVER;
-        s_ct.need_full_redraw = true;
+        ui_page_invalidate_all();
         return;
     }
 
@@ -844,7 +843,7 @@ static void ct_update(void)
                         /* Boss death = win */
                         if (e->type == CT_ENEMY_BOSS) {
                             s_ct.state = CT_STATE_WIN;
-                            s_ct.need_full_redraw = true;
+                            ui_page_invalidate_all();
                             return;
                         }
                         /* Explosion particles */
@@ -1513,215 +1512,6 @@ static void ct_btn_shoot_event(ui_widget_t *w, ui_event_t *e)
  *  Page Callbacks
  *=============================================================================*/
 
-/* UI rect overlap check for partial refresh */
-static bool ct_rects_overlap_ui(const ui_rect_t *a, const ui_rect_t *b)
-{
-    return (a->x < b->x + b->w && a->x + a->w > b->x &&
-            a->y < b->y + b->h && a->y + a->h > b->y);
-}
-
-/* Draw only the HUD text (without background) */
-static void ct_draw_hud_text(void)
-{
-    ui_rect_t lives_r = {10, CT_AREA_Y + 4, 100, CT_HUD_H - 8};
-    char lives_buf[32];
-    int li = 0;
-    const char *lp = "LIVES:";
-    while (*lp && li < 25) lives_buf[li++] = *lp++;
-    const char *lv = s_ct.buf_lives;
-    while (*lv && li < 31) lives_buf[li++] = *lv++;
-    lives_buf[li] = '\0';
-    ui_draw_text_in_rect(&lives_r, lives_buf, &font_montserrat_12, UI_COLOR_WHITE, 0);
-
-    ui_rect_t score_r = {200, CT_AREA_Y + 4, 120, CT_HUD_H - 8};
-    char score_buf[32];
-    int si = 0;
-    const char *sp = "SCORE:";
-    while (*sp && si < 25) score_buf[si++] = *sp++;
-    const char *sv = s_ct.buf_score;
-    while (*sv && si < 31) score_buf[si++] = *sv++;
-    score_buf[si] = '\0';
-    ui_draw_text_in_rect(&score_r, score_buf, &font_montserrat_12, UI_COLOR_WHITE, 0);
-}
-
-/* Draw entities that overlap with the given clip rect (for partial refresh) */
-static void ct_draw_entities_in_clip(const ui_rect_t *clip)
-{
-    /* Mountains in background (parallax) - must draw before platforms */
-    int16_t m_offset = s_ct.camera_x / 3;
-    for (int i = 0; i < 8; i++) {
-        int16_t mx = i * 200 - (m_offset % 200);
-        int16_t mh = 40 + (i * 37) % 60;
-        ui_rect_t mr = {mx, CT_AREA_Y + CT_GROUND_Y - mh - 20, 120, mh};
-        if (!ct_rects_overlap_ui(&mr, clip)) continue;
-        ui_draw_fill_rect(&mr, UI_HEX(0x1F3044));
-    }
-
-    /* Stars / decoration */
-    for (int i = 0; i < 30; i++) {
-        int16_t sx = (i * 137 + 50) % CT_AREA_W;
-        int16_t sy = (i * 89 + 30) % (CT_AREA_H - 100) + CT_AREA_Y;
-        ui_rect_t sr = {sx, sy, 1, 1};
-        if (!ct_rects_overlap_ui(&sr, clip)) continue;
-        ui_draw_pixel(sx, sy, UI_HEX(0x555577));
-    }
-
-    /* Platforms */
-    for (int i = 0; i < s_ct.platform_count; i++) {
-        ct_platform_t *p = &s_ct.platforms[i];
-        int16_t sx = p->x - s_ct.camera_x;
-        int16_t sy = p->y + CT_AREA_Y;
-        ui_rect_t pr = {sx, sy, p->w, p->h};
-        if (!ct_rects_overlap_ui(&pr, clip)) continue;
-        ct_draw_world_rect(p->x, p->y, p->w, p->h, CT_PLATFORM_COLOR);
-        ct_draw_hline(p->x, p->y, p->w, CT_PLATFORM_TOP);
-    }
-
-    /* Enemies */
-    for (int i = 0; i < CT_MAX_ENEMIES; i++) {
-        ct_enemy_t *e = &s_ct.enemies[i];
-        if (!e->active) continue;
-        int16_t ew = (e->type == CT_ENEMY_BOSS) ? CT_BOSS_W : CT_ENEMY_W;
-        int16_t eh = (e->type == CT_ENEMY_BOSS) ? CT_BOSS_H : CT_ENEMY_H;
-        int16_t sx = e->x - s_ct.camera_x;
-        int16_t sy = e->y + CT_AREA_Y;
-        ui_rect_t er = {sx - 6, sy - 8, ew + 12, eh + 8};
-        if (!ct_rects_overlap_ui(&er, clip)) continue;
-
-        ui_color_t body_color = (e->type == CT_ENEMY_BOSS) ? CT_BOSS_COLOR : CT_ENEMY_COLOR;
-        ui_color_t head_color = (e->type == CT_ENEMY_BOSS) ? CT_BOSS_HEAD : CT_ENEMY_HEAD;
-        ct_draw_world_rect(e->x, e->y, ew, eh, body_color);
-
-        int16_t head_w = ew * 2 / 3;
-        int16_t head_h = eh / 4;
-        int16_t head_x = e->x + (ew - head_w) / 2;
-        ct_draw_world_rect(head_x, e->y, head_w, head_h, head_color);
-
-        if (e->type == CT_ENEMY_BOSS) {
-            int16_t bar_w = ew;
-            int16_t bar_h = 4;
-            ct_draw_world_rect(e->x, e->y - 8, bar_w, bar_h, UI_HEX(0x333333));
-            int16_t fill_w = (int16_t)((int32_t)bar_w * e->hp / CT_BOSS_HP);
-            ct_draw_world_rect(e->x, e->y - 8, fill_w, bar_h, UI_HEX(0xF44336));
-        }
-
-        int16_t gun_y = e->y + eh / 3;
-        if (e->facing_right) {
-            ct_draw_world_rect(e->x + ew, gun_y, 6, 3, UI_HEX(0x757575));
-        } else {
-            ct_draw_world_rect(e->x - 6, gun_y, 6, 3, UI_HEX(0x757575));
-        }
-    }
-
-    /* Player */
-    if (s_ct.state == CT_STATE_PLAYING || s_ct.state == CT_STATE_DEAD) {
-        bool visible = (s_ct.invincible <= 0) || ((s_ct.invincible / 4) % 2 == 0);
-        if (visible) {
-            int16_t ph = s_ct.crouching ? CT_PLAYER_CROUCH_H : CT_PLAYER_H;
-            int16_t sx = s_ct.px - s_ct.camera_x;
-            int16_t sy = s_ct.py + CT_AREA_Y;
-            ui_rect_t pr = {sx - 8, sy - 8, CT_PLAYER_W + 16, ph + 8};
-            if (ct_rects_overlap_ui(&pr, clip)) {
-                ct_draw_world_rect(s_ct.px, s_ct.py, CT_PLAYER_W, ph, CT_PLAYER_COLOR);
-
-                int16_t head_w = CT_PLAYER_W * 2 / 3;
-                int16_t head_h = CT_PLAYER_H / 5;
-                int16_t head_x = s_ct.px + (CT_PLAYER_W - head_w) / 2;
-                ct_draw_world_rect(head_x, s_ct.py, head_w, head_h, CT_PLAYER_HEAD);
-
-                int16_t gun_y = s_ct.py + ph / 3;
-                if (s_ct.facing_right) {
-                    ct_draw_world_rect(s_ct.px + CT_PLAYER_W, gun_y, 8, 3, CT_PLAYER_GUN);
-                } else {
-                    ct_draw_world_rect(s_ct.px - 8, gun_y, 8, 3, CT_PLAYER_GUN);
-                }
-
-                if (s_ct.input_up && !s_ct.crouching) {
-                    int16_t gun_x = s_ct.px + CT_PLAYER_W / 2 - 1;
-                    ct_draw_world_rect(gun_x, s_ct.py - 8, 3, 8, CT_PLAYER_GUN);
-                }
-            }
-        }
-    }
-
-    /* Bullets */
-    for (int i = 0; i < CT_MAX_BULLETS; i++) {
-        ct_bullet_t *b = &s_ct.bullets[i];
-        if (!b->active) continue;
-        int16_t bw = b->from_player ? CT_BULLET_W : CT_E_BULLET_W;
-        int16_t bh = b->from_player ? CT_BULLET_H : CT_E_BULLET_H;
-        int16_t sx = b->x - s_ct.camera_x;
-        int16_t sy = b->y + CT_AREA_Y;
-        ui_rect_t br = {sx, sy, bw, bh};
-        if (!ct_rects_overlap_ui(&br, clip)) continue;
-
-        if (b->from_player) {
-            ct_draw_world_rect(b->x, b->y, CT_BULLET_W, CT_BULLET_H, CT_BULLET_COLOR);
-        } else {
-            ct_draw_world_rect(b->x, b->y, CT_E_BULLET_W, CT_E_BULLET_H, CT_E_BULLET_COLOR);
-        }
-    }
-
-    /* Particles */
-    for (int i = 0; i < CT_MAX_PARTICLES; i++) {
-        ct_particle_t *p = &s_ct.particles[i];
-        if (!p->active) continue;
-        int16_t sx = p->x - s_ct.camera_x;
-        int16_t sy = p->y + CT_AREA_Y;
-        ui_rect_t pr = {sx, sy, 5, 5};
-        if (!ct_rects_overlap_ui(&pr, clip)) continue;
-        ct_draw_world_rect(p->x, p->y, 3, 3, CT_PARTICLE_COLOR);
-    }
-
-    /* Control overlays */
-    /* D-pad */
-    ui_color_t dpad_c = ui_color_blend(CT_CTRL_BG, CT_BG_SKY, CT_CTRL_ALPHA);
-    ui_color_t dpad_up_c = s_ct.input_up ? ui_color_blend(CT_CTRL_BG_PRESSED, CT_BG_SKY, CT_CTRL_ALPHA) : dpad_c;
-    ui_color_t dpad_dn_c = s_ct.input_down ? ui_color_blend(CT_CTRL_BG_PRESSED, CT_BG_SKY, CT_CTRL_ALPHA) : dpad_c;
-    ui_color_t dpad_lt_c = s_ct.input_left ? ui_color_blend(CT_CTRL_BG_PRESSED, CT_BG_SKY, CT_CTRL_ALPHA) : dpad_c;
-    ui_color_t dpad_rt_c = s_ct.input_right ? ui_color_blend(CT_CTRL_BG_PRESSED, CT_BG_SKY, CT_CTRL_ALPHA) : dpad_c;
-
-    ui_rect_t ur = {CT_DPAD_UP_X, CT_DPAD_UP_Y, CT_DPAD_BTN, CT_DPAD_BTN};
-    if (ct_rects_overlap_ui(&ur, clip)) {
-        ui_draw_fill_round_rect(&ur, 6, dpad_up_c);
-        ui_draw_text_in_rect(&ur, "^", &font_montserrat_16, UI_COLOR_WHITE, 1);
-    }
-
-    ui_rect_t dr = {CT_DPAD_DOWN_X, CT_DPAD_DOWN_Y, CT_DPAD_BTN, CT_DPAD_BTN};
-    if (ct_rects_overlap_ui(&dr, clip)) {
-        ui_draw_fill_round_rect(&dr, 6, dpad_dn_c);
-        ui_draw_text_in_rect(&dr, "v", &font_montserrat_16, UI_COLOR_WHITE, 1);
-    }
-
-    ui_rect_t lr = {CT_DPAD_LEFT_X, CT_DPAD_LEFT_Y, CT_DPAD_BTN, CT_DPAD_BTN};
-    if (ct_rects_overlap_ui(&lr, clip)) {
-        ui_draw_fill_round_rect(&lr, 6, dpad_lt_c);
-        ui_draw_text_in_rect(&lr, "<", &font_montserrat_16, UI_COLOR_WHITE, 1);
-    }
-
-    ui_rect_t rr = {CT_DPAD_RIGHT_X, CT_DPAD_RIGHT_Y, CT_DPAD_BTN, CT_DPAD_BTN};
-    if (ct_rects_overlap_ui(&rr, clip)) {
-        ui_draw_fill_round_rect(&rr, 6, dpad_rt_c);
-        ui_draw_text_in_rect(&rr, ">", &font_montserrat_16, UI_COLOR_WHITE, 1);
-    }
-
-    /* Action buttons */
-    ui_color_t jump_c = s_ct.input_jump ? ui_color_blend(CT_CTRL_BG_PRESSED, CT_BG_SKY, CT_CTRL_ALPHA) : dpad_c;
-    ui_color_t shoot_c = s_ct.input_shoot ? ui_color_blend(UI_HEX(0xFF5722), CT_BG_SKY, CT_CTRL_ALPHA) : ui_color_blend(UI_HEX(0xF44336), CT_BG_SKY, CT_CTRL_ALPHA);
-
-    ui_rect_t jr = {CT_ACT_RIGHT_X, CT_ACT_JUMP_Y, CT_ACT_BTN_W, CT_ACT_BTN_H};
-    if (ct_rects_overlap_ui(&jr, clip)) {
-        ui_draw_fill_round_rect(&jr, 10, jump_c);
-        ui_draw_text_in_rect(&jr, "JUMP", &font_montserrat_12, UI_COLOR_WHITE, 1);
-    }
-
-    ui_rect_t sr = {CT_ACT_RIGHT_X, CT_ACT_SHOOT_Y, CT_ACT_BTN_W, CT_ACT_BTN_H};
-    if (ct_rects_overlap_ui(&sr, clip)) {
-        ui_draw_fill_round_rect(&sr, 10, shoot_c);
-        ui_draw_text_in_rect(&sr, "FIRE", &font_montserrat_12, UI_COLOR_WHITE, 1);
-    }
-}
-
 static void ct_game_enter(ui_page_t *page)
 {
     (void)page;
@@ -1729,117 +1519,35 @@ static void ct_game_enter(ui_page_t *page)
     memset(s_touch_btns, 0, sizeof(s_touch_btns));
     s_ct.state = CT_STATE_IDLE;
     s_ct.lives = CT_LIVES;
-    s_ct.need_full_redraw = true;
+    ui_page_invalidate_all();
     ct_update_hud_texts();
 }
 
+/* Per-frame game logic update */
+static void ct_game_update(ui_page_t *page)
+{
+    (void)page;
+    ct_update();
+}
+
+/* Per-row game rendering (compositing renderer auto-clips to target row) */
 static void ct_game_draw(ui_page_t *page, ui_rect_t *dirty)
 {
+    (void)page;
     (void)dirty;
 
-    /* Update game logic */
-    ct_update();
-
-    /* Full redraw (initial enter, camera scroll, state change) */
-    if (s_ct.need_full_redraw) {
-        s_ct.need_full_redraw = false;
-
-        /* Draw title bar */
-        ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
-        ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
-
-        /* Draw title bar widgets (title label + back button) */
-        ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
-        for (uint16_t j = 0; j < page->widget_count; j++) {
-            if (page->widgets[j]) {
-                ui_widget_draw(page->widgets[j], &full);
-            }
-        }
-
-        /* Draw game area */
-        if (s_ct.state == CT_STATE_IDLE) {
-            ct_draw_game();
-            ct_draw_idle_overlay();
-        } else if (s_ct.state == CT_STATE_PLAYING) {
-            ct_draw_game();
-        } else if (s_ct.state == CT_STATE_GAMEOVER) {
-            ct_draw_game();
-            ct_draw_gameover_overlay();
-        } else if (s_ct.state == CT_STATE_WIN) {
-            ct_draw_game();
-            ct_draw_win_overlay();
-        }
-
-        ui_page_clear_dirty();
-        return;
-    }
-
-    /* Partial refresh: single-pass atomic per dirty region */
-    const ui_dirty_list_t *dl = ui_page_get_dirty_list();
-    if (dl->count == 0) return;
-
     if (s_ct.state == CT_STATE_IDLE) {
-        /* For idle state, just redraw the idle overlay */
-        for (uint16_t i = 0; i < dl->count; i++) {
-            const ui_rect_t *d = &dl->regions[i];
-            if (d->y < APP_TITLE_BAR_H) continue;
-            ui_render_set_clip(d);
-            ct_draw_game();
-            ct_draw_idle_overlay();
-        }
-        ui_page_clear_dirty();
-        ui_render_reset_clip();
-        return;
+        ct_draw_game();
+        ct_draw_idle_overlay();
+    } else if (s_ct.state == CT_STATE_PLAYING) {
+        ct_draw_game();
+    } else if (s_ct.state == CT_STATE_GAMEOVER) {
+        ct_draw_game();
+        ct_draw_gameover_overlay();
+    } else if (s_ct.state == CT_STATE_WIN) {
+        ct_draw_game();
+        ct_draw_win_overlay();
     }
-
-    ui_rect_t game_area = {CT_AREA_X, CT_AREA_Y, CT_AREA_W, CT_AREA_H};
-    ui_rect_t hud_rect = {0, CT_AREA_Y, CT_AREA_W, CT_HUD_H};
-    bool hud_needs_redraw = false;
-
-    for (uint16_t i = 0; i < dl->count; i++) {
-        const ui_rect_t *d = &dl->regions[i];
-
-        /* Skip title bar region */
-        if (d->y + d->h <= APP_TITLE_BAR_H) continue;
-
-        /* Clip to game area */
-        ui_rect_t clip = *d;
-        if (clip.y < CT_AREA_Y) {
-            clip.h -= (CT_AREA_Y - clip.y);
-            clip.y = CT_AREA_Y;
-        }
-        if (clip.w <= 0 || clip.h <= 0) continue;
-
-        /* Erase: fill with sky background */
-        ui_render_set_clip(&clip);
-        ui_draw_fill_rect(&clip, CT_BG_SKY);
-
-        /* Redraw game entities clipped to this dirty region */
-        ui_render_set_clip(&game_area);
-        ct_draw_entities_in_clip(&clip);
-
-        /* Check HUD overlap */
-        if (ct_rects_overlap_ui(&clip, &hud_rect)) {
-            hud_needs_redraw = true;
-        }
-
-        /* Gameover/win overlay */
-        if (s_ct.state == CT_STATE_GAMEOVER) {
-            ct_draw_gameover_overlay();
-        } else if (s_ct.state == CT_STATE_WIN) {
-            ct_draw_win_overlay();
-        }
-    }
-
-    /* Single HUD redraw if needed */
-    if (hud_needs_redraw) {
-        ui_render_set_clip(&hud_rect);
-        ui_draw_fill_rect(&hud_rect, CT_HUD_BG);
-        ct_draw_hud_text();
-    }
-
-    ui_page_clear_dirty();
-    ui_render_reset_clip();
 }
 
 /*=============================================================================
@@ -1849,7 +1557,6 @@ static void ct_game_draw(ui_page_t *page, ui_rect_t *dirty)
 void game_contra_init(void)
 {
     ui_app_page_init(&s_game_ct, "Contra", 0x207);
-    s_game_ct.page.flags |= UI_PAGE_FLAG_GAME;
 
     /* Touch area for whole game screen */
     ui_rect_t touch_rect = {0, APP_TITLE_BAR_H, CT_AREA_W, CT_AREA_H};
@@ -1903,6 +1610,7 @@ void game_contra_init(void)
     ui_page_set_widgets(&s_game_ct.page, s_ct_widgets, 9);
     ui_page_set_callbacks(&s_game_ct.page, ct_game_enter, NULL,
                           ct_game_draw, NULL);
+    ui_page_set_update_cb(&s_game_ct.page, ct_game_update);
     ui_page_register(&s_game_ct.page);
 }
 

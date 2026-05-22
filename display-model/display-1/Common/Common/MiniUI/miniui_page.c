@@ -251,8 +251,21 @@ void ui_page_clear_dirty(void)
 }
 
 /*=============================================================================
- *  Page Drawing
+ *  Page Drawing — Compositing Renderer
+ *
+ *  For each dirty rect, process scanline-by-scanline:
+ *    1. Set compositing target to one row
+ *    2. Fill background
+ *    3. Draw sidebar (if non-fullscreen and row intersects sidebar)
+ *    4. Draw page on_draw callback (for custom backgrounds / game logic)
+ *    5. Draw all visible widgets that intersect this row (Z-order low→high)
+ *    6. Flush composited row to GRAM (one SetWindow + WriteBuffer)
  *=============================================================================*/
+
+static inline bool widget_intersects_row(const ui_widget_t *w, int16_t y)
+{
+    return (y >= w->rect.y && y < w->rect.y + w->rect.h);
+}
 
 void ui_page_draw(void)
 {
@@ -263,42 +276,43 @@ void ui_page_draw(void)
 
     bool is_fullscreen = (page->flags & UI_PAGE_FLAG_FULLSCREEN) != 0;
 
-    if (s_sidebar_draw && !is_fullscreen) {
-        ui_rect_t sidebar_rect = {0, 0, s_sidebar_width, UI_SCREEN_HEIGHT};
-        bool sidebar_dirty = false;
-        for (uint16_t i = 0; i < s_dirty_list.count; i++) {
-            if (rects_overlap(&s_dirty_list.regions[i], &sidebar_rect)) {
-                sidebar_dirty = true;
-                break;
-            }
-        }
-        if (sidebar_dirty) {
-            ui_rect_t full_sidebar = {0, 0, s_sidebar_width, UI_SCREEN_HEIGHT};
-            ui_render_set_clip(&full_sidebar);
-            s_sidebar_draw(&full_sidebar);
-        }
-    }
-
     for (uint16_t i = 0; i < s_dirty_list.count; i++) {
         ui_rect_t *dirty = &s_dirty_list.regions[i];
 
-        ui_render_set_clip(dirty);
+        for (int16_t y = dirty->y; y < dirty->y + dirty->h; y++) {
+            /* Set compositing target to this scanline within the dirty rect */
+            ui_rect_t row_target = { dirty->x, y, dirty->w, 1 };
+            ui_render_begin_rect(&row_target);
 
-        if (page->on_draw) {
-            page->on_draw(page, dirty);
-        }
+            /* 1. Fill background */
+            ui_render_fill_line_buf(dirty->x, dirty->w, UI_COLOR_BG_MAIN);
 
-        for (uint16_t j = 0; j < page->widget_count; j++) {
-            if (page->widgets[j]) {
-                if (rects_overlap(&page->widgets[j]->rect, dirty)) {
-                    ui_widget_draw(page->widgets[j], dirty);
+            /* 2. Sidebar (if non-fullscreen and row intersects sidebar area) */
+            if (s_sidebar_draw && !is_fullscreen && dirty->x < s_sidebar_width) {
+                s_sidebar_draw(&row_target);
+            }
+
+            /* 3. Page on_draw callback (custom background / game rendering) */
+            if (page->on_draw) {
+                page->on_draw(page, &row_target);
+            }
+
+            /* 4. Draw all visible widgets intersecting this row (Z-order) */
+            for (uint16_t j = 0; j < page->widget_count; j++) {
+                ui_widget_t *w = page->widgets[j];
+                if (w && (w->flags & UI_WIDGET_FLAG_VISIBLE)) {
+                    if (widget_intersects_row(w, y)) {
+                        ui_widget_draw(w, &row_target);
+                    }
                 }
             }
+
+            /* 5. Flush composited row to GRAM */
+            ui_render_flush_row(y, dirty->x, dirty->w);
         }
     }
 
     s_dirty_list.count = 0;
-    ui_render_reset_clip();
 }
 
 /*=============================================================================
@@ -345,4 +359,10 @@ void ui_page_set_callbacks(ui_page_t *page, ui_page_enter_cb_t enter, ui_page_ex
     page->on_exit = exit;
     page->on_draw = draw;
     page->on_back = back;
+}
+
+void ui_page_set_update_cb(ui_page_t *page, ui_page_update_cb_t update)
+{
+    if (!page) return;
+    page->on_update = update;
 }
