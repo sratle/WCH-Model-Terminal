@@ -251,20 +251,24 @@ void ui_page_clear_dirty(void)
 }
 
 /*=============================================================================
- *  Page Drawing — Compositing Renderer
+ *  Page Drawing — Batched Compositing Renderer
  *
- *  For each dirty rect, process scanline-by-scanline:
- *    1. Set compositing target to one row
- *    2. Fill background
- *    3. Draw sidebar (if non-fullscreen and row intersects sidebar)
- *    4. Draw page on_draw callback (for custom backgrounds / game logic)
- *    5. Draw all visible widgets that intersect this row (Z-order low→high)
- *    6. Flush composited row to GRAM (one SetWindow + WriteBuffer)
+ *  For each dirty rect, process rows in batches of UI_COMPOSE_BATCH:
+ *    1. Set compositing target to batch rectangle (up to COMPOSE_BATCH rows)
+ *    2. Fill background for entire batch
+ *    3. Draw sidebar (if non-fullscreen and batch intersects sidebar)
+ *    4. Draw page on_draw callback ONCE per batch
+ *    5. Draw all visible widgets intersecting this batch
+ *    6. Flush entire batch to GRAM (one SetWindow + row data)
+ *
+ *  This amortizes SetWindow overhead (11 FMC writes) across COMPOSE_BATCH
+ *  rows, dramatically improving throughput for large dirty rects.
  *=============================================================================*/
 
-static inline bool widget_intersects_row(const ui_widget_t *w, int16_t y)
+static inline bool widget_intersects_batch(const ui_widget_t *w,
+                                            int16_t y_start, int16_t y_end)
 {
-    return (y >= w->rect.y && y < w->rect.y + w->rect.h);
+    return (y_end > w->rect.y && y_start < w->rect.y + w->rect.h);
 }
 
 void ui_page_draw(void)
@@ -279,36 +283,42 @@ void ui_page_draw(void)
     for (uint16_t i = 0; i < s_dirty_list.count; i++) {
         ui_rect_t *dirty = &s_dirty_list.regions[i];
 
-        for (int16_t y = dirty->y; y < dirty->y + dirty->h; y++) {
-            /* Set compositing target to this scanline within the dirty rect */
-            ui_rect_t row_target = { dirty->x, y, dirty->w, 1 };
-            ui_render_begin_rect(&row_target);
+        int16_t y_end = dirty->y + dirty->h;
+        for (int16_t y = dirty->y; y < y_end; y += UI_COMPOSE_BATCH) {
+            int16_t batch_h = y_end - y;
+            if (batch_h > UI_COMPOSE_BATCH) batch_h = UI_COMPOSE_BATCH;
 
-            /* 1. Fill background */
+            /* Set compositing target to this batch of rows */
+            ui_rect_t batch_target = { dirty->x, y, dirty->w, batch_h };
+            ui_render_begin_rect(&batch_target);
+
+            /* 1. Fill background for all rows in batch */
             ui_render_fill_line_buf(dirty->x, dirty->w, UI_COLOR_BG_MAIN);
 
-            /* 2. Sidebar (if non-fullscreen and row intersects sidebar area) */
+            /* 2. Sidebar (if non-fullscreen and batch intersects sidebar area) */
             if (s_sidebar_draw && !is_fullscreen && dirty->x < s_sidebar_width) {
-                s_sidebar_draw(&row_target);
+                s_sidebar_draw(&batch_target);
             }
 
-            /* 3. Page on_draw callback (custom background / game rendering) */
+            /* 3. Page on_draw callback (custom background / game rendering)
+             *    Called ONCE per batch — primitives auto-clip to multi-row target */
             if (page->on_draw) {
-                page->on_draw(page, &row_target);
+                page->on_draw(page, &batch_target);
             }
 
-            /* 4. Draw all visible widgets intersecting this row (Z-order) */
+            /* 4. Draw all visible widgets intersecting this batch */
+            int16_t batch_end = y + batch_h;
             for (uint16_t j = 0; j < page->widget_count; j++) {
                 ui_widget_t *w = page->widgets[j];
                 if (w && (w->flags & UI_WIDGET_FLAG_VISIBLE)) {
-                    if (widget_intersects_row(w, y)) {
-                        ui_widget_draw(w, &row_target);
+                    if (widget_intersects_batch(w, y, batch_end)) {
+                        ui_widget_draw(w, &batch_target);
                     }
                 }
             }
 
-            /* 5. Flush composited row to GRAM */
-            ui_render_flush_row(y, dirty->x, dirty->w);
+            /* 5. Flush entire batch to GRAM (one SetWindow + row data) */
+            ui_render_flush_rows(y, batch_h, dirty->x, dirty->w);
         }
     }
 

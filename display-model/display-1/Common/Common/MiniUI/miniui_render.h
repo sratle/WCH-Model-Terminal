@@ -25,6 +25,10 @@ extern "C" {
 #define UI_SCREEN_WIDTH     800
 #define UI_SCREEN_HEIGHT    480
 
+/* Number of rows batched per compose+flush cycle.
+ * Amortizes SetWindow overhead (11 FMC writes per call). */
+#define UI_COMPOSE_BATCH    8
+
 /*=============================================================================
  *  Render Engine Initialization
  *=============================================================================*/

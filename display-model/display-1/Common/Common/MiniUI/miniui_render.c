@@ -33,10 +33,14 @@ void ui_render_set_driver(const ui_display_driver_t *driver)
  *  Line Buffer & Compositing Target
  *=============================================================================*/
 
-static ui_color_t g_line_buf[UI_SCREEN_WIDTH];
+/* Multi-row compose buffer: batches UI_COMPOSE_BATCH rows to amortize
+ * SetWindow overhead.  800 * 8 * 2 = 12800 bytes. */
+#define COMPOSE_BATCH  UI_COMPOSE_BATCH
+
+static ui_color_t g_compose_buf[UI_SCREEN_WIDTH * COMPOSE_BATCH];
 
 /* Current compositing target: all drawing is clipped to this rect.
- * Typically a single scanline: {x, y, w, 1}. */
+ * Can be up to COMPOSE_BATCH rows tall. */
 static ui_rect_t g_target = {0, 0, UI_SCREEN_WIDTH, 1};
 
 /*=============================================================================
@@ -57,21 +61,24 @@ static bool rect_intersect(const ui_rect_t *a, const ui_rect_t *b, ui_rect_t *ou
     return true;
 }
 
-/* Fill line_buf[x..x+w-1] with color. Clipped to target x-range. */
-static void lb_fill(int16_t x, int16_t w, ui_color_t color)
+/* Fill compose_buf for row y, columns [x..x+w-1] with color.
+ * Clipped to target x-range. Row offset computed from g_target.y. */
+static void lb_fill(int16_t x, int16_t y, int16_t w, ui_color_t color)
 {
     int16_t x1 = ui_max(x, g_target.x);
     int16_t x2 = ui_min(x + w, g_target.x + g_target.w);
+    if (x2 <= x1) return;
+    ui_color_t *row = &g_compose_buf[(y - g_target.y) * UI_SCREEN_WIDTH];
     for (int16_t i = x1; i < x2; i++) {
-        g_line_buf[i] = color;
+        row[i] = color;
     }
 }
 
-/* Set a single pixel in line_buf. Clipped to target x-range. */
-static inline void lb_pixel(int16_t x, ui_color_t color)
+/* Set a single pixel in compose_buf at (x, y). Clipped to target x-range. */
+static inline void lb_pixel(int16_t x, int16_t y, ui_color_t color)
 {
     if (x >= g_target.x && x < g_target.x + g_target.w) {
-        g_line_buf[x] = color;
+        g_compose_buf[(y - g_target.y) * UI_SCREEN_WIDTH + x] = color;
     }
 }
 
@@ -87,12 +94,12 @@ static inline bool in_target_y(int16_t y)
 
 void ui_render_init(void)
 {
-    printf("[ui_render_init] compositing engine v4.0\r\n");
+    printf("[ui_render_init] compositing engine v5.0 (batch=%d)\r\n", COMPOSE_BATCH);
     g_target.x = 0;
     g_target.y = 0;
     g_target.w = UI_SCREEN_WIDTH;
     g_target.h = 1;
-    memset(g_line_buf, 0, sizeof(g_line_buf));
+    memset(g_compose_buf, 0, sizeof(g_compose_buf));
     printf("[ui_render_init] done\r\n");
 }
 
@@ -112,22 +119,26 @@ void ui_render_get_target(ui_rect_t *rect)
 
 ui_color_t* ui_render_get_line_buf(void)
 {
-    return g_line_buf;
+    return g_compose_buf;
 }
 
 void ui_render_fill_line_buf(int16_t x_start, int16_t width, ui_color_t color)
 {
-    lb_fill(x_start, width, color);
+    /* Fill all rows in current target */
+    for (int16_t y = g_target.y; y < g_target.y + g_target.h; y++) {
+        lb_fill(x_start, y, width, color);
+    }
 }
 
 void ui_render_set_line_pixel(int16_t x, ui_color_t color)
 {
-    lb_pixel(x, color);
+    /* Set pixel in first row of target */
+    lb_pixel(x, g_target.y, color);
 }
 
 ui_color_t ui_render_get_line_pixel(int16_t x)
 {
-    if (x >= 0 && x < UI_SCREEN_WIDTH) return g_line_buf[x];
+    if (x >= 0 && x < UI_SCREEN_WIDTH) return g_compose_buf[x];
     return 0;
 }
 
@@ -140,7 +151,11 @@ void ui_render_flush_row(int16_t y, int16_t x_start, int16_t width)
 
     s_driver.set_window((uint16_t)x_start, (uint16_t)y,
                         (uint16_t)(x_start + width - 1), (uint16_t)y);
-    s_driver.write_buffer(&g_line_buf[x_start], (uint32_t)width);
+    /* Find which row in compose_buf this y maps to */
+    int16_t row_idx = y - g_target.y;
+    if (row_idx < 0) row_idx = 0;
+    s_driver.write_buffer(&g_compose_buf[row_idx * UI_SCREEN_WIDTH + x_start],
+                          (uint32_t)width);
 }
 
 void ui_render_flush_rows(int16_t y_start, int16_t row_count,
@@ -153,11 +168,17 @@ void ui_render_flush_rows(int16_t y_start, int16_t row_count,
     if (x_start + width > UI_SCREEN_WIDTH) width = UI_SCREEN_WIDTH - x_start;
     if (width <= 0 || row_count <= 0) return;
 
+    /* Single SetWindow for the entire batch rectangle */
     s_driver.set_window((uint16_t)x_start, (uint16_t)y_start,
                         (uint16_t)(x_start + width - 1),
                         (uint16_t)(y_start + row_count - 1));
+    /* Write each row's data from compose_buf */
+    int16_t base_row = y_start - g_target.y;
+    if (base_row < 0) base_row = 0;
     for (int16_t r = 0; r < row_count; r++) {
-        s_driver.write_buffer(&g_line_buf[x_start], (uint32_t)width);
+        s_driver.write_buffer(
+            &g_compose_buf[(base_row + r) * UI_SCREEN_WIDTH + x_start],
+            (uint32_t)width);
     }
 }
 
@@ -167,13 +188,13 @@ void ui_render_flush_rows(int16_t y_start, int16_t row_count,
 
 void ui_draw_pixel(int16_t x, int16_t y, ui_color_t color)
 {
-    if (in_target_y(y)) lb_pixel(x, color);
+    if (in_target_y(y)) lb_pixel(x, y, color);
 }
 
 void ui_draw_hline(int16_t x, int16_t y, int16_t w, ui_color_t color)
 {
     if (!in_target_y(y) || w <= 0) return;
-    lb_fill(x, w, color);
+    lb_fill(x, y, w, color);
 }
 
 void ui_draw_vline(int16_t x, int16_t y, int16_t h, ui_color_t color)
@@ -182,7 +203,7 @@ void ui_draw_vline(int16_t x, int16_t y, int16_t h, ui_color_t color)
     int16_t y1 = ui_max(y, g_target.y);
     int16_t y2 = ui_min(y + h, g_target.y + g_target.h);
     for (int16_t row = y1; row < y2; row++) {
-        lb_pixel(x, color);
+        lb_pixel(x, row, color);
     }
 }
 
@@ -195,7 +216,7 @@ void ui_draw_line(int16_t x1, int16_t y1, int16_t x2, int16_t y2, ui_color_t col
     int16_t err = dx - dy;
 
     while (1) {
-        if (in_target_y(y1)) lb_pixel(x1, color);
+        if (in_target_y(y1)) lb_pixel(x1, y1, color);
         if (x1 == x2 && y1 == y2) break;
         int16_t e2 = 2 * err;
         if (e2 > -dy) { err -= dy; x1 += sx; }
@@ -211,8 +232,10 @@ void ui_draw_fill_rect(const ui_rect_t *rect, ui_color_t color)
 {
     ui_rect_t r;
     if (!rect_intersect(rect, &g_target, &r)) return;
-    /* Only fill within the target row(s) */
-    lb_fill(r.x, r.w, color);
+    /* Fill each row within the intersected range */
+    for (int16_t y = r.y; y < r.y + r.h; y++) {
+        lb_fill(r.x, y, r.w, color);
+    }
 }
 
 void ui_draw_rect_border(const ui_rect_t *rect, ui_color_t color, int16_t thickness)
@@ -266,16 +289,16 @@ static void fill_circle_quad_row(int16_t cx, int16_t cy, int16_t r,
 
         switch (q) {
         case 0: /* top-left: y <= cy, x <= cx */
-            if (y <= cy) lb_fill(cx - dx, dx + 1, color);
+            if (y <= cy) lb_fill(cx - dx, y, dx + 1, color);
             break;
         case 1: /* top-right: y <= cy, x >= cx */
-            if (y <= cy) lb_fill(cx, dx + 1, color);
+            if (y <= cy) lb_fill(cx, y, dx + 1, color);
             break;
         case 2: /* bottom-left: y >= cy, x <= cx */
-            if (y >= cy) lb_fill(cx - dx, dx + 1, color);
+            if (y >= cy) lb_fill(cx - dx, y, dx + 1, color);
             break;
         case 3: /* bottom-right: y >= cy, x >= cx */
-            if (y >= cy) lb_fill(cx, dx + 1, color);
+            if (y >= cy) lb_fill(cx, y, dx + 1, color);
             break;
         }
     }
@@ -373,7 +396,7 @@ void ui_draw_fill_circle(int16_t cx, int16_t cy, int16_t r, ui_color_t color)
         for (dx = r; dx > 0; dx--) {
             if ((int32_t)dx * dx <= dx2) break;
         }
-        lb_fill(cx - dx, 2 * dx + 1, color);
+        lb_fill(cx - dx, y, 2 * dx + 1, color);
     }
 }
 
@@ -416,7 +439,7 @@ void ui_draw_icon(int16_t x, int16_t y, const uint8_t *bitmap,
         uint16_t byte_idx = ry * ((w + 7) / 8);
         for (int16_t col = 0; col < w; col++) {
             if (bitmap[byte_idx + col / 8] & (0x80 >> (col % 8))) {
-                lb_pixel(x + col, color);
+                lb_pixel(x + col, row, color);
             }
         }
     }
@@ -464,13 +487,14 @@ static void draw_glyph(int16_t x, int16_t y, const ui_glyph_t *glyph,
     for (int16_t row = y_lo; row < y_hi; row++) {
         uint16_t row_idx = row - gy;
         uint32_t bit_idx = (uint32_t)row_idx * bpp * glyph->width;
+        ui_color_t *line = &g_compose_buf[(row - g_target.y) * UI_SCREEN_WIDTH];
 
         if (bg != UI_COLOR_TRANSPARENT) {
             /* Fill background first */
             int16_t x1 = ui_max(gx, g_target.x);
             int16_t x2 = ui_min(gx + glyph->width, g_target.x + g_target.w);
             for (int16_t col = x1; col < x2; col++) {
-                g_line_buf[col] = bg;
+                line[col] = bg;
             }
             /* Blend foreground pixels */
             for (int16_t col = 0; col < glyph->width; col++) {
@@ -480,11 +504,11 @@ static void draw_glyph(int16_t x, int16_t y, const ui_glyph_t *glyph,
                 int16_t px = gx + col;
                 if (px < g_target.x || px >= g_target.x + g_target.w) continue;
                 if (bpp == 1) {
-                    if (alpha) g_line_buf[px] = color;
+                    if (alpha) line[px] = color;
                 } else {
                     if (alpha > 0) {
                         uint8_t a8 = (uint16_t)alpha * 255 / mask;
-                        g_line_buf[px] = ui_color_blend(color, bg, a8);
+                        line[px] = ui_color_blend(color, bg, a8);
                     }
                 }
             }
@@ -495,7 +519,7 @@ static void draw_glyph(int16_t x, int16_t y, const ui_glyph_t *glyph,
                 uint32_t shift = 8 - bpp - ((bit_idx + (uint32_t)col * bpp) % 8);
                 uint8_t alpha = (glyph->bitmap[byte_idx] >> shift) & mask;
                 if (alpha > 0) {
-                    lb_pixel(gx + col, color);
+                    lb_pixel(gx + col, row, color);
                 }
             }
         }
