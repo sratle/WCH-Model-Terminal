@@ -161,6 +161,14 @@ static void button_event_cb(ui_widget_t *w, ui_event_t *e)
         }
         break;
     case UI_EVENT_CLICK:
+    case UI_EVENT_DOUBLE_CLICK:
+    case UI_EVENT_LONG_PRESS:
+        /* Clear pressed state before firing callback to avoid stuck visual
+         * if the callback triggers a page navigation */
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            ui_widget_invalidate(w);
+        }
         if (btn->on_click) btn->on_click(w);
         break;
     case UI_EVENT_KEY_OK:
@@ -291,6 +299,12 @@ static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
         }
         break;
     case UI_EVENT_CLICK:
+    case UI_EVENT_DOUBLE_CLICK:
+    case UI_EVENT_LONG_PRESS:
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            ui_widget_invalidate(w);
+        }
         if (btn->on_click) btn->on_click(w);
         break;
     case UI_EVENT_KEY_OK:
@@ -476,6 +490,7 @@ static void switch_event_cb(ui_widget_t *w, ui_event_t *e)
         }
         break;
     case UI_EVENT_CLICK:
+    case UI_EVENT_DOUBLE_CLICK:
         sw->state = !sw->state;
         ui_widget_invalidate(w);
         if (sw->on_toggle) sw->on_toggle(w, sw->state);
@@ -622,8 +637,15 @@ static void card_event_cb(ui_widget_t *w, ui_event_t *e)
     case UI_EVENT_UP:
         if (card->active_child >= 0 && card->active_child < (int16_t)card->child_count) {
             ui_widget_event(card->children[card->active_child], e);
-            card->active_child = -1;
         }
+        break;
+    case UI_EVENT_CLICK:
+    case UI_EVENT_DOUBLE_CLICK:
+    case UI_EVENT_LONG_PRESS:
+        if (card->active_child >= 0 && card->active_child < (int16_t)card->child_count) {
+            ui_widget_event(card->children[card->active_child], e);
+        }
+        card->active_child = -1;
         break;
     case UI_EVENT_SWIPE_UP:
     case UI_EVENT_SWIPE_DOWN:
@@ -722,9 +744,16 @@ static void list_item_event_cb(ui_widget_t *w, ui_event_t *e)
         break;
     case UI_EVENT_UP:
         if (item->control_active) {
-            item->control_active = false;
             ui_widget_event(item->control, e);
         }
+        break;
+    case UI_EVENT_CLICK:
+    case UI_EVENT_DOUBLE_CLICK:
+    case UI_EVENT_LONG_PRESS:
+        if (item->control_active) {
+            ui_widget_event(item->control, e);
+        }
+        item->control_active = false;
         break;
     case UI_EVENT_SWIPE_UP:
     case UI_EVENT_SWIPE_DOWN:
@@ -810,6 +839,7 @@ static void tabview_event_cb(ui_widget_t *w, ui_event_t *e)
         }
         break;
     case UI_EVENT_CLICK:
+    case UI_EVENT_DOUBLE_CLICK:
         if (e->pos.y >= w->rect.y && e->pos.y < w->rect.y + TAB_BAR_HEIGHT) {
             int16_t tab_w = w->rect.w / tv->tab_count;
             int16_t idx = (e->pos.x - w->rect.x) / tab_w;

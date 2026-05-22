@@ -24,7 +24,7 @@ extern "C" {
 /* Gesture timing thresholds */
 #define UI_CLICK_MAX_MS            300     /* Max press duration for a click */
 #define UI_CLICK_MAX_MOVE          15      /* Max movement for a click (px) */
-#define UI_DOUBLE_CLICK_INTERVAL   400     /* Max interval between two clicks (ms) */
+#define UI_DOUBLE_CLICK_INTERVAL   200     /* Max interval between two clicks (ms) */
 #define UI_LONG_PRESS_DELAY_MS     500     /* Hold time before first LONG_PRESS */
 #define UI_LONG_PRESS_REPEAT_MS    100     /* Interval between LONG_PRESS_REPEAT */
 #define UI_SWIPE_THRESHOLD         30      /* Min distance for swipe (px) */

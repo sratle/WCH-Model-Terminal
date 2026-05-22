@@ -206,6 +206,13 @@ void ui_input_feed_touch(uint8_t touch_id, bool pressed, int16_t x, int16_t y)
             int16_t adx = i16_abs(total_dx);
             int16_t ady = i16_abs(total_dy);
 
+            /* Always emit UP first so widgets clear PRESSED before CLICK fires */
+            e.type = UI_EVENT_UP;
+            e.pos = tp->pos;
+            e.delta.x = 0;
+            e.delta.y = 0;
+            queue_push(&e);
+
             if (tp->swipe_locked && (adx > UI_SWIPE_THRESHOLD || ady > UI_SWIPE_THRESHOLD)) {
                 /* Swipe gesture completed */
                 e.pos = tp->pos;
@@ -244,13 +251,6 @@ void ui_input_feed_touch(uint8_t touch_id, bool pressed, int16_t x, int16_t y)
                     }
                 }
             }
-
-            /* Always emit UP for state tracking */
-            e.type = UI_EVENT_UP;
-            e.pos = tp->pos;
-            e.delta.x = 0;
-            e.delta.y = 0;
-            queue_push(&e);
 
             tp->long_press_sent = false;
             tp->swipe_locked = false;
@@ -311,6 +311,11 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
         int16_t adx = i16_abs(total_dx);
         int16_t ady = i16_abs(total_dy);
 
+        /* Always emit UP first so widgets clear PRESSED before CLICK fires */
+        e.type = UI_EVENT_UP;
+        e.pos = mp->pos;
+        queue_push(&e);
+
         if (adx > UI_SWIPE_THRESHOLD || ady > UI_SWIPE_THRESHOLD) {
             /* Swipe */
             e.pos = mp->pos;
@@ -343,9 +348,6 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
             }
         }
 
-        e.type = UI_EVENT_UP;
-        e.pos = mp->pos;
-        queue_push(&e);
         mp->long_press_sent = false;
     } else if ((dx != 0 || dy != 0) && left_down) {
         /* Drag while pressed */
