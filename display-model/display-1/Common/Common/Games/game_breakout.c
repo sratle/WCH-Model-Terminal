@@ -671,7 +671,7 @@ static void brk_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
 
-    if (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_CLICK) {
+    if (e->type == UI_EVENT_CLICK) {
         if (s_brk.state == BRK_STATE_IDLE || s_brk.state == BRK_STATE_GAMEOVER || s_brk.state == BRK_STATE_WIN) {
             brk_start_game();
         } else if (s_brk.state == BRK_STATE_LAUNCH) {
@@ -741,7 +741,7 @@ static void brk_ctrl_event(ui_widget_t *w, ui_event_t *e)
 static void brk_launch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN) return;
+    if (e->type != UI_EVENT_CLICK) return;
 
     if (s_brk.state == BRK_STATE_IDLE || s_brk.state == BRK_STATE_GAMEOVER || s_brk.state == BRK_STATE_WIN) {
         brk_start_game();

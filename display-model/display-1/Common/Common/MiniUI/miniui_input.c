@@ -219,7 +219,7 @@ void ui_input_feed_touch(uint8_t touch_id, bool pressed, int16_t x, int16_t y)
                 }
                 queue_push(&e);
             } else if (!tp->long_press_sent) {
-                /* Short release — could be a click */
+                /* Short release — emit CLICK immediately */
                 uint32_t now = ui_get_real_ms();
                 uint32_t press_duration = now - tp->press_time;
 
@@ -234,10 +234,13 @@ void ui_input_feed_touch(uint8_t touch_id, bool pressed, int16_t x, int16_t y)
                         e.pos = tp->pos;
                         queue_push(&e);
                     } else {
-                        /* Single click — pending to see if double follows */
+                        /* Single click — emit immediately, mark pending for double-click */
                         tp->click_pending = true;
                         tp->last_click_time = now;
                         tp->last_click_pos = tp->pos;
+                        e.type = UI_EVENT_CLICK;
+                        e.pos = tp->pos;
+                        queue_push(&e);
                     }
                 }
             }
@@ -329,9 +332,13 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
                     e.pos = mp->pos;
                     queue_push(&e);
                 } else {
+                    /* Single click — emit immediately, mark pending for double-click */
                     mp->click_pending = true;
                     mp->last_click_time = now;
                     mp->last_click_pos = mp->pos;
+                    e.type = UI_EVENT_CLICK;
+                    e.pos = mp->pos;
+                    queue_push(&e);
                 }
             }
         }
@@ -666,31 +673,18 @@ static void check_click_timeouts(void)
 {
     uint32_t now = ui_get_real_ms();
 
-    /* Touch click timeouts */
+    /* Touch: click already emitted immediately on UP, just clear stale pending flags */
     for (int i = 0; i < UI_MAX_TOUCH_POINTS; i++) {
         ui_pointer_state_t *tp = &s_state.touches[i];
         if (tp->click_pending && (now - tp->last_click_time) > UI_DOUBLE_CLICK_INTERVAL) {
             tp->click_pending = false;
-            ui_event_t e;
-            memset(&e, 0, sizeof(e));
-            e.type = UI_EVENT_CLICK;
-            e.source = UI_INPUT_TOUCH;
-            e.touch_id = (uint8_t)i;
-            e.pos = tp->last_click_pos;
-            queue_push(&e);
         }
     }
 
-    /* Mouse click timeout */
+    /* Mouse: click already emitted immediately on UP, just clear stale pending flags */
     ui_pointer_state_t *mp = &s_state.mouse;
     if (mp->click_pending && (now - mp->last_click_time) > UI_DOUBLE_CLICK_INTERVAL) {
         mp->click_pending = false;
-        ui_event_t e;
-        memset(&e, 0, sizeof(e));
-        e.type = UI_EVENT_CLICK;
-        e.source = UI_INPUT_MOUSE;
-        e.pos = mp->last_click_pos;
-        queue_push(&e);
     }
 
     /* Keyboard key click timeouts */

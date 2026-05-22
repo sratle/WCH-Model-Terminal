@@ -842,21 +842,21 @@ static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
 static void mine_easy_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN) return;
+    if (e->type != UI_EVENT_CLICK) return;
     mine_start_game(MINE_MODE_EASY);
 }
 
 static void mine_hard_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN) return;
+    if (e->type != UI_EVENT_CLICK) return;
     mine_start_game(MINE_MODE_HARD);
 }
 
 static void mine_restart_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN) return;
+    if (e->type != UI_EVENT_CLICK) return;
     if (s_mine.state == MINE_STATE_IDLE) return;  /* No game to restart */
     mine_restart();
 }

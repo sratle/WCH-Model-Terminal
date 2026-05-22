@@ -228,7 +228,7 @@ static void snk_inv_best(void)
 }
 
 /* Invalidate entire grid */
-static void snk_inv_grid(void)
+static void __attribute__((unused)) snk_inv_grid(void)
 {
     ui_rect_t r = {SNK_GRID_X, SNK_GRID_Y, SNK_GRID_W, SNK_GRID_H};
     ui_page_invalidate(&r);
@@ -683,7 +683,7 @@ static void snk_touch_event(ui_widget_t *w, ui_event_t *e)
         } else {
             snk_set_direction(SNK_DIR_RIGHT);
         }
-    } else if (e->type == UI_EVENT_CLICK || e->type == UI_EVENT_DOWN) {
+    } else if (e->type == UI_EVENT_CLICK) {
         if (s_snk.state == SNK_STATE_IDLE || s_snk.state == SNK_STATE_GAMEOVER) {
             snk_start_game();
         }

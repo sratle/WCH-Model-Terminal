@@ -126,14 +126,18 @@ bool ui_main_handle_event(ui_event_t *e)
 {
     if (!e) return false;
 
-    if (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_CLICK) {
+    if (e->type == UI_EVENT_CLICK) {
         if (e->pos.x < SIDEBAR_WIDTH) {
             int item_idx = (e->pos.y - 80) / SIDEBAR_ITEM_HEIGHT;
             if (item_idx >= 0 && item_idx < SIDEBAR_ITEM_COUNT) {
-                if (e->type == UI_EVENT_CLICK) {
-                    ui_main_set_menu((menu_item_t)item_idx);
-                }
+                ui_main_set_menu((menu_item_t)item_idx);
             }
+            return true;
+        }
+    }
+
+    if (e->type == UI_EVENT_DOWN) {
+        if (e->pos.x < SIDEBAR_WIDTH) {
             return true;
         }
     }

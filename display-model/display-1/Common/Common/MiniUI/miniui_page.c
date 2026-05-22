@@ -8,6 +8,7 @@
 ********************************************************************************/
 #include "miniui_page.h"
 #include "miniui_widget.h"
+#include "miniui_input.h"
 #include "miniui_render.h"
 #include "debug.h"
 #include <string.h>
@@ -32,6 +33,17 @@ static ui_sidebar_event_cb_t s_sidebar_event = NULL;
 /*=============================================================================
  *  Helper Functions
  *=============================================================================*/
+
+/* Clear PRESSED flag on all widgets of a page to avoid stuck visual state */
+static void page_reset_widget_states(ui_page_t *page)
+{
+    if (!page) return;
+    for (uint16_t i = 0; i < page->widget_count; i++) {
+        if (page->widgets[i]) {
+            page->widgets[i]->flags &= ~UI_WIDGET_FLAG_PRESSED;
+        }
+    }
+}
 
 static bool rects_overlap(const ui_rect_t *a, const ui_rect_t *b)
 {
@@ -89,9 +101,11 @@ void ui_page_switch(ui_page_t *page)
 
     if (s_stack_top >= 0 && s_page_stack[s_stack_top]) {
         ui_page_t *current = s_page_stack[s_stack_top];
+        page_reset_widget_states(current);
         if (current->on_exit) current->on_exit(current);
     }
 
+    ui_input_set_capture(NULL, UI_TOUCH_ID_NONE);
     s_stack_top = -1;
     s_dirty_list.count = 0;
 
@@ -108,9 +122,11 @@ void ui_page_push(ui_page_t *page)
 
     if (s_stack_top >= 0 && s_page_stack[s_stack_top]) {
         ui_page_t *current = s_page_stack[s_stack_top];
+        page_reset_widget_states(current);
         if (current->on_exit) current->on_exit(current);
     }
 
+    ui_input_set_capture(NULL, UI_TOUCH_ID_NONE);
     s_page_stack[++s_stack_top] = page;
 
     if (page->on_enter) page->on_enter(page);
@@ -123,11 +139,16 @@ void ui_page_pop(void)
     if (s_stack_top <= 0) return;
 
     ui_page_t *current = s_page_stack[s_stack_top];
-    if (current && current->on_exit) current->on_exit(current);
+    if (current) {
+        page_reset_widget_states(current);
+        if (current->on_exit) current->on_exit(current);
+    }
 
+    ui_input_set_capture(NULL, UI_TOUCH_ID_NONE);
     s_page_stack[s_stack_top--] = NULL;
 
     ui_page_t *prev = s_page_stack[s_stack_top];
+    page_reset_widget_states(prev);
     if (prev && prev->on_enter) prev->on_enter(prev);
 
     /* Full invalidate to ensure previous page redraws everything,

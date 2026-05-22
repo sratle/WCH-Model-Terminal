@@ -823,14 +823,14 @@ static void ap_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
     if (s_ap.state == AP_STATE_IDLE) {
-        if (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_CLICK) {
+        if (e->type == UI_EVENT_CLICK) {
             ap_start_game();
             s_ap.need_full_redraw = true;
         }
         return;
     }
     if (s_ap.state == AP_STATE_GAMEOVER) {
-        if (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_CLICK) {
+        if (e->type == UI_EVENT_CLICK) {
             ap_start_game();
             s_ap.need_full_redraw = true;
         }

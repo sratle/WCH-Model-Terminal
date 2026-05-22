@@ -257,7 +257,7 @@ static void ct_update_hud_texts(void)
  *=============================================================================*/
 
 /* Invalidate a world-coordinate rect (converts to screen coords) */
-static void ct_inv_world_rect(int16_t wx, int16_t wy, int16_t w, int16_t h)
+static void __attribute__((unused)) ct_inv_world_rect(int16_t wx, int16_t wy, int16_t w, int16_t h)
 {
     int16_t sx = wx - s_ct.camera_x;
     int16_t sy = wy + CT_AREA_Y;
@@ -324,7 +324,7 @@ static void ct_inv_hud(void)
 }
 
 /* Invalidate entire game area */
-static void ct_inv_game_area(void)
+static void __attribute__((unused)) ct_inv_game_area(void)
 {
     ui_rect_t r = {0, CT_AREA_Y, CT_AREA_W, CT_AREA_H};
     ui_page_invalidate(&r);
@@ -603,7 +603,7 @@ static bool ct_check_platform_collision(int16_t x, int16_t y, int16_t w, int16_t
 }
 
 /* Get the ground Y at a given world X position */
-static int16_t ct_get_ground_y(int16_t wx)
+static int16_t __attribute__((unused)) ct_get_ground_y(int16_t wx)
 {
     /* Check platforms for ground-level ones */
     for (int i = 0; i < s_ct.platform_count; i++) {

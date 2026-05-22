@@ -857,7 +857,7 @@ static void tet_touch_event(ui_widget_t *w, ui_event_t *e)
         } else {
             tet_do_hard_drop();
         }
-    } else if (e->type == UI_EVENT_CLICK || e->type == UI_EVENT_DOWN) {
+    } else if (e->type == UI_EVENT_CLICK) {
         if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER) {
             tet_start_game();
         } else {
@@ -874,7 +874,7 @@ static void tet_touch_event(ui_widget_t *w, ui_event_t *e)
 
 static void tet_dpad_event(ui_widget_t *w, ui_event_t *e)
 {
-    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN) return;
+    if (e->type != UI_EVENT_CLICK) return;
     if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER) {
         tet_start_game();
         return;
@@ -889,7 +889,7 @@ static void tet_dpad_event(ui_widget_t *w, ui_event_t *e)
 static void tet_drop_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN) return;
+    if (e->type != UI_EVENT_CLICK) return;
     if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER) {
         tet_start_game();
         return;

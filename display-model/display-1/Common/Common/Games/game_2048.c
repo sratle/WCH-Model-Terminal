@@ -440,7 +440,7 @@ static void g4_draw_dpad(void)
 
 static void g4_dpad_event(ui_widget_t *w, ui_event_t *e)
 {
-    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN) return;
+    if (e->type != UI_EVENT_CLICK) return;
 
     g4_dir_t dir;
     if (w == &s_dpad_up)         dir = G4_DIR_UP;
@@ -602,7 +602,7 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
                 g4_inv_undo();
             }
         }
-    } else if (e->type == UI_EVENT_CLICK || e->type == UI_EVENT_DOWN) {
+    } else if (e->type == UI_EVENT_CLICK) {
         /* Check undo button tap */
         if (s_g4.state == G4_STATE_PLAYING && s_g4.undo_available) {
             int16_t tx = e->pos.x;
