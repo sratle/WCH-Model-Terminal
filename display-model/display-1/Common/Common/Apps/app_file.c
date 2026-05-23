@@ -191,12 +191,35 @@ static void on_file_op_done(bool success, uint8_t error_code)
     ui_page_invalidate_all();
 }
 
+static void on_cd_done(bool success, const char *cwd)
+{
+    if (success) {
+        /* Update display-side path from Core's CWD */
+        if (cwd[0] == '\\')
+            strncpy(s_fs.path, cwd + 1, FILE_PATH_MAX - 1);
+        else
+            strncpy(s_fs.path, cwd, FILE_PATH_MAX - 1);
+        s_fs.path[FILE_PATH_MAX - 1] = '\0';
+        /* Strip trailing backslash for consistent display */
+        int len = strlen(s_fs.path);
+        if (len > 0 && s_fs.path[len - 1] == '\\') s_fs.path[len - 1] = '\0';
+        /* Now request the file list for the new CWD */
+        file_request_list();
+    } else {
+        s_fs.loading = false;
+        snprintf(s_status_text, sizeof(s_status_text), "CD failed");
+        ui_page_invalidate_all();
+    }
+}
+
 static uart_app_callbacks_t s_file_callbacks = {
     .on_file_list = on_file_list_received,
     .on_file_op_result = on_file_op_done,
     .on_play_music_result = NULL,
     .on_bulk_data = NULL,
     .on_bulk_complete = NULL,
+    .on_cd_result = on_cd_done,
+    .on_cli_response = NULL,
 };
 
 /*=============================================================================
@@ -228,33 +251,44 @@ static void file_request_list(void)
     strncpy(s_last_request_path, s_fs.path, FILE_PATH_MAX - 1);
     s_last_request_path[FILE_PATH_MAX - 1] = '\0';
     UART_SetAppCallbacks(&s_file_callbacks);
-    UART_RequestFileList(s_fs.path);
+    /* Request file list for Core's current CWD (empty path = list CWD) */
+    UART_RequestFileList("");
     file_update_status();
     ui_page_invalidate_all();
 }
 
 static void file_enter_path(const char *name)
 {
-    int plen = strlen(s_fs.path);
-    int nlen = strlen(name);
-    if (plen + 1 + nlen >= FILE_PATH_MAX) return;
-    if (plen > 0 && s_fs.path[plen - 1] != '\\')
-        s_fs.path[plen++] = '\\';
-    memcpy(&s_fs.path[plen], name, nlen);
-    s_fs.path[plen + nlen] = '\0';
-    file_request_list();
+    /* Two-step: first CD into directory on Core, then list */
+    if (g_disp_state.music_state == MUSIC_STATE_PLAYING ||
+        g_disp_state.music_state == MUSIC_STATE_PAUSED) {
+        snprintf(s_status_text, sizeof(s_status_text), "Stop music first");
+        ui_page_invalidate_all();
+        return;
+    }
+
+    s_fs.loading = true;
+    UART_SetAppCallbacks(&s_file_callbacks);
+    UART_SendCD(name);
+    file_update_status();
+    ui_page_invalidate_all();
 }
 
 static void file_go_up(void)
 {
-    int len = strlen(s_fs.path);
-    if (len == 0) return;
-    if (s_fs.path[len - 1] == '\\') { s_fs.path[--len] = '\0'; }
-    int pos = len - 1;
-    while (pos >= 0 && s_fs.path[pos] != '\\') pos--;
-    if (pos < 0) s_fs.path[0] = '\0';
-    else s_fs.path[pos] = '\0';
-    file_request_list();
+    /* Two-step: CD .. on Core, then list */
+    if (g_disp_state.music_state == MUSIC_STATE_PLAYING ||
+        g_disp_state.music_state == MUSIC_STATE_PAUSED) {
+        snprintf(s_status_text, sizeof(s_status_text), "Stop music first");
+        ui_page_invalidate_all();
+        return;
+    }
+
+    s_fs.loading = true;
+    UART_SetAppCallbacks(&s_file_callbacks);
+    UART_SendCD("..");
+    file_update_status();
+    ui_page_invalidate_all();
 }
 
 static void file_delete_selected(void)

@@ -78,6 +78,8 @@
 #define CMD_DISP_EXT_SUBDISP_CONFIG     0x16
 #define CMD_DISP_EXT_ERROR_REPORT       0x17
 #define CMD_DISP_EXT_HID_STATUS         0x18    /* 外接 HID 设备连接/断开状态 */
+#define CMD_DISP_EXT_CD                 0x19    /* 切换工作目录 (cd) */
+#define CMD_DISP_EXT_CLI                0x1A    /* CLI 命令直通 (Display→Core→Display) */
 
 /* ---- HID 设备类型 (CMD_DISP_EXT_HID_STATUS DATA[2]) ---- */
 #define HID_DEV_KEYBOARD                0x01    /* 外接键盘 */

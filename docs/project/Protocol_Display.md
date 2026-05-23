@@ -142,7 +142,9 @@ Display 模块操作码分为两类：
 | `0x16` | `CMD_DISP_EXT_SUBDISP_CONFIG` | Core -> Display | 副屏配置 | `[分辨率][方向][开关]` |
 | `0x17` | `CMD_DISP_EXT_ERROR_REPORT` | Display -> Core | Display 错误/异常上报 | `[错误码:1][错误信息:变长]` |
 | `0x18` | `CMD_DISP_EXT_HID_STATUS` | Core -> Display | 外接 HID 设备连接/断开状态同步 | `[ext_code:1][事件:1][设备类型:1]` |
-| `0x19~0x3F` | — | — | 预留 | — |
+| `0x19` | `CMD_DISP_EXT_CD` | Display -> Core | 切换 CH378 工作目录（仿 cd） | `[路径:变长]`，Core 回复 ACK + CWD 或 NACK |
+| `0x1A` | `CMD_DISP_EXT_CLI` | 双向 | CLI 命令直通（Display 发命令，Core 执行并返回文本） | Display→Core: `[命令字符串]`；Core→Display: ACK + `[输出文本]` |
+| `0x1B~0x3F` | — | — | 预留 | — |
 
 > **已移除/合并的扩展码**：
 > - 原 `0x0C~0x0F`（BT_SCAN/BT_DEVICE_LIST/BT_CONNECT/BT_STATUS）：蓝牙操作由 Core 通过 CH585F（SPI）统一管理，Display 不直接与 CH585F 通信。合并为 `0x0C BT_EVENT`（Core 转发事件）和 `0x0D BT_CONTROL`（Display 请求 Core 代为执行）。
@@ -217,6 +219,8 @@ ACK/NACK 由**命令语义**决定，而非发送方向：
 | `0x16` | SUBDISP_CONFIG | 设置 | 发送即忘 |
 | `0x17` | ERROR_REPORT | 事件 | Core 不回复 |
 | `0x18` | HID_STATUS | 事件 | Display 不回复 |
+| `0x19` | CD | 动作 | Core 回复 ACK + `[CWD字符串]` 或 NACK |
+| `0x1A` | CLI | 动作 | Core 回复 ACK + `[命令输出文本]` 或 NACK |
 
 ### 3.4 ACK / NACK 帧格式
 

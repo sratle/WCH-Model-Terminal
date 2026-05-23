@@ -118,4 +118,7 @@ void Display_SendNotice(display_t *display, uint8_t priority,
 void Display_SendSubdispContent(display_t *display, uint8_t content_type,
                                 const uint8_t *content, uint16_t content_len);
 
+/* 发送 CLI 命令响应给 Display */
+void Display_SendCLIResponse(display_t *display, const char *output, uint16_t output_len);
+
 #endif

@@ -131,6 +131,18 @@ void UI_Tick(void)
         ui_page_t *page_before = ui_page_current();  /* Track page changes */
 
         if (capture) {
+            /* Safety: if a mouse DOWN arrives while capture is held by a
+             * different (possibly stale) touch, force-release the old
+             * capture so the mouse can interact normally. */
+            if (e->type == UI_EVENT_DOWN && e->source == UI_INPUT_MOUSE &&
+                ui_input_get_capture_touch_id() != UI_TOUCH_ID_NONE) {
+                ui_input_set_capture(NULL, UI_TOUCH_ID_NONE);
+                capture = NULL;
+                /* Fall through to no-capture path below */
+            }
+        }
+
+        if (capture) {
             /* Capture widget receives all events until release/cancel */
             ui_widget_event(capture, e);
 

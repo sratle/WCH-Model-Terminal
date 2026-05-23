@@ -116,6 +116,8 @@ extern "C" {
 #define DISP_EXT_SUBDISP_CONFIG     0x16
 #define DISP_EXT_ERROR_REPORT       0x17
 #define DISP_EXT_HID_STATUS         0x18    /* 外接 HID 设备连接/断开状态 */
+#define DISP_EXT_CD                 0x19    /* 切换工作目录 (cd) */
+#define DISP_EXT_CLI                0x1A    /* CLI 命令直通 (Display→Core→Display) */
 
 /* HID 设备类型 (DISP_EXT_HID_STATUS DATA[2]) */
 #define HID_DEV_KEYBOARD            0x01    /* 外接键盘 */
@@ -254,6 +256,8 @@ typedef enum {
     PENDING_PLAY_MUSIC,
     PENDING_FILE_READ,
     PENDING_FILE_SAVE,
+    PENDING_CD,
+    PENDING_CLI,
 } pending_req_t;
 
 extern volatile pending_req_t g_pending_req;
@@ -268,6 +272,8 @@ typedef struct {
     void (*on_play_music_result)(bool success, uint8_t error_code);
     void (*on_bulk_data)(const uint8_t *data, uint16_t len, bool is_last);
     void (*on_bulk_complete)(bool success, uint32_t total_size);
+    void (*on_cd_result)(bool success, const char *cwd);
+    void (*on_cli_response)(const char *output, uint16_t len, bool truncated);
 } uart_app_callbacks_t;
 
 void UART_SetAppCallbacks(const uart_app_callbacks_t *cb);
@@ -383,6 +389,12 @@ void UART_SendFileOperation(uint8_t op_type, const char *path);
 
 /* Send play music request (path to wav file) */
 void UART_SendPlayMusic(const char *path);
+
+/* Send CD command (change working directory on Core) */
+void UART_SendCD(const char *path);
+
+/* Send CLI command to Core for execution */
+void UART_SendCLI(const char *cmd);
 
 /* Notify activity (reset auto-off timer) — called from input system */
 void UART_NotifyActivity(void);

@@ -678,6 +678,13 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
     case DISP_EXT_HID_STATUS:
         handle_ext_hid_status(data, len);
         break;
+    case DISP_EXT_CLI:
+        /* CLI response from Core (text output) */
+        if (s_app_cb_valid && s_app_cb.on_cli_response && len >= 2) {
+            /* data[0] = ext_code (already consumed), data[1..] = output text */
+            s_app_cb.on_cli_response((const char *)&data[1], len - 1, false);
+        }
+        break;
     case DISP_EXT_BULK_TRANSFER:
         if (s_app_cb_valid && len >= 6) {
             if (s_app_cb.on_bulk_complete) {
@@ -785,6 +792,15 @@ static void process_frame(uint8_t src, uint8_t dst, uint8_t cmd,
                 s_app_cb.on_file_op_result(true, 0);
             } else if (g_pending_req == PENDING_PLAY_MUSIC && s_app_cb.on_play_music_result) {
                 s_app_cb.on_play_music_result(true, 0);
+            } else if (g_pending_req == PENDING_CD && s_app_cb.on_cd_result) {
+                /* ACK data = current working directory string */
+                char cwd[65];
+                uint8_t cwd_len = (data_len > 64) ? 64 : data_len;
+                memcpy(cwd, data, cwd_len);
+                cwd[cwd_len] = '\0';
+                s_app_cb.on_cd_result(true, cwd);
+            } else if (g_pending_req == PENDING_CLI && s_app_cb.on_cli_response) {
+                s_app_cb.on_cli_response((const char *)data, data_len, false);
             }
             g_pending_req = PENDING_NONE;
         }
@@ -796,6 +812,10 @@ static void process_frame(uint8_t src, uint8_t dst, uint8_t cmd,
                 s_app_cb.on_file_op_result(false, err);
             } else if (g_pending_req == PENDING_PLAY_MUSIC && s_app_cb.on_play_music_result) {
                 s_app_cb.on_play_music_result(false, err);
+            } else if (g_pending_req == PENDING_CD && s_app_cb.on_cd_result) {
+                s_app_cb.on_cd_result(false, "");
+            } else if (g_pending_req == PENDING_CLI && s_app_cb.on_cli_response) {
+                s_app_cb.on_cli_response("", 0, false);
             }
             g_pending_req = PENDING_NONE;
         }
@@ -951,4 +971,26 @@ void UART_SendPlayMusic(const char *path)
     memcpy(&buf[1], path, plen);
     g_pending_req = PENDING_PLAY_MUSIC;
     UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 1 + plen);
+}
+
+void UART_SendCD(const char *path)
+{
+    uint8_t buf[PROTO_MAX_DATA_LEN];
+    buf[0] = DISP_EXT_CD;
+    uint8_t plen = (uint8_t)strlen(path);
+    if (plen > sizeof(buf) - 2) plen = sizeof(buf) - 2;
+    memcpy(&buf[1], path, plen);
+    g_pending_req = PENDING_CD;
+    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 1 + plen);
+}
+
+void UART_SendCLI(const char *cmd)
+{
+    uint8_t buf[PROTO_MAX_DATA_LEN];
+    buf[0] = DISP_EXT_CLI;
+    uint8_t clen = (uint8_t)strlen(cmd);
+    if (clen > sizeof(buf) - 2) clen = sizeof(buf) - 2;
+    memcpy(&buf[1], cmd, clen);
+    g_pending_req = PENDING_CLI;
+    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 1 + clen);
 }

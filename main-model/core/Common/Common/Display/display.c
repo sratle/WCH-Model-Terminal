@@ -3,6 +3,7 @@
 #include "../CS43131/cs43131.h"
 #include "../CH378/CH378.h"
 #include "../CH585F/ch585f.h"
+#include "../CLI/CLI.h"
 #include "../hardware.h"
 #include <string.h>
 
@@ -12,6 +13,11 @@ display_t *display_ptr = NULL;
 extern cs43131_t CS43131_g;
 extern ch378_t ch378_g;
 extern ch585f_t ch585f_g;
+
+/* CLI printf capture (defined in ch585f_bt.c) */
+extern uint8_t cli_capture_buf[];
+extern uint16_t cli_capture_len;
+extern uint8_t cli_capture_flag;
 
 /* ============================================================================
  * 前向声明：Display 专用命令 handler
@@ -56,6 +62,10 @@ static uint8_t Display_HandleSetRgbMode(const protocol_frame_t *req,
                                         uint8_t *resp_buf, uint16_t resp_size, uint8_t *resp_len);
 static uint8_t Display_HandleBulkTransfer(const protocol_frame_t *req,
                                           uint8_t *resp_buf, uint16_t resp_size, uint8_t *resp_len);
+static uint8_t Display_HandleCD(const protocol_frame_t *req,
+                                uint8_t *resp_buf, uint16_t resp_size, uint8_t *resp_len);
+static uint8_t Display_HandleCLI(const protocol_frame_t *req,
+                                 uint8_t *resp_buf, uint16_t resp_size, uint8_t *resp_len);
 
 /* 事件类 handler（Core -> Display，无需响应） */
 static void Display_HandleInputEvent(const protocol_frame_t *req);
@@ -341,6 +351,16 @@ void Display_Process(display_t *display)
                     break;
                 case CMD_DISP_EXT_BULK_TRANSFER:
                     resp_len = display_dispatch_req(req, Display_HandleBulkTransfer,
+                                                    resp, sizeof(resp));
+                    handled = 1;
+                    break;
+                case CMD_DISP_EXT_CD:
+                    resp_len = display_dispatch_req(req, Display_HandleCD,
+                                                    resp, sizeof(resp));
+                    handled = 1;
+                    break;
+                case CMD_DISP_EXT_CLI:
+                    resp_len = display_dispatch_req(req, Display_HandleCLI,
                                                     resp, sizeof(resp));
                     handled = 1;
                     break;
@@ -761,9 +781,10 @@ static uint8_t Display_HandleRequestFileList(const protocol_frame_t *req,
     strncpy(saved_path, cur, sizeof(saved_path) - 1);
     saved_path[sizeof(saved_path) - 1] = '\0';
 
-    /* Navigate to requested path */
-    CH378_Dir_Go_Root(&ch378_g);
+    /* Navigate to requested path.
+     * Empty path = list current CWD (set by prior CD command). */
     if (req_path[0] != '\0') {
+        CH378_Dir_Go_Root(&ch378_g);
         /* Parse path components separated by '\\' */
         char path_copy[65];
         strncpy(path_copy, req_path, sizeof(path_copy) - 1);
@@ -1274,6 +1295,123 @@ static uint8_t Display_HandleBulkTransfer(const protocol_frame_t *req,
     return 1;
 }
 
+/* ---- 切换工作目录（动作类，Display -> Core） ---- */
+static uint8_t Display_HandleCD(const protocol_frame_t *req,
+                                uint8_t *resp_buf, uint16_t resp_size,
+                                uint8_t *resp_len)
+{
+    char path[65];
+    uint8_t path_len;
+    uint8_t status;
+
+    if (Audio_IsStreaming()) {
+        printf("[Display] CD rejected: CH378 busy\r\n");
+        return 0;
+    }
+
+    /* DATA[0] = ext_code, DATA[1..N] = path string */
+    path_len = (uint8_t)(PROTO_DATA_LEN(*req) > 1 ? PROTO_DATA_LEN(*req) - 1 : 0);
+    if (path_len > 64) path_len = 64;
+    if (path_len > 0)
+        memcpy(path, &req->data[1], path_len);
+    path[path_len] = '\0';
+
+    printf("[Display] CD: \"%s\"\r\n", path);
+
+    /* Same logic as CLI_Cmd_Cd in cli.c */
+    if (path[0] == '\0') {
+        /* cd with no arg → stay at current dir */
+        status = 0;
+    } else if (strcmp(path, "..") == 0) {
+        status = CH378_Dir_Go_Parent(&ch378_g);
+    } else if (strcmp(path, "/") == 0 || strcmp(path, "\\") == 0) {
+        status = CH378_Dir_Go_Root(&ch378_g);
+    } else {
+        status = CH378_Dir_Enter(&ch378_g, path);
+    }
+
+    if (status != 0) {
+        printf("[Display] CD: failed (status=0x%02X)\r\n", status);
+        return 0; /* NACK */
+    }
+
+    /* Return current working directory in ACK */
+    const char *cwd = CH378_Dir_Get_Path();
+    uint8_t cwd_len = (uint8_t)strlen(cwd);
+    if (cwd_len > resp_size - 1) cwd_len = resp_size - 1;
+    memcpy(resp_buf, cwd, cwd_len);
+    *resp_len = cwd_len;
+
+    printf("[Display] CD: now at \"%s\"\r\n", cwd);
+    return 1;
+}
+
+/* ---- CLI 命令直通（动作类，Display -> Core） ---- */
+/* 使用 cli.c 已有的 CLI_Process 执行命令，通过 cli_capture 机制
+ * 捕获 printf 输出，再通过 Display_SendCLIResponse 发回 Display。 */
+
+static uint8_t Display_HandleCLI(const protocol_frame_t *req,
+                                 uint8_t *resp_buf, uint16_t resp_size,
+                                 uint8_t *resp_len)
+{
+    char cmd[256]; /* CLI_BUF_SIZE in cli.c */
+    uint8_t cmd_len;
+
+    (void)resp_buf;
+    (void)resp_size;
+    (void)resp_len;
+
+    if (display_ptr == NULL)
+        return 0;
+
+    /* CH378 被音乐流式播放占用时，拒绝 CLI 命令 */
+    if (Audio_IsStreaming()) {
+        const char *msg = "CH378 busy (music streaming)\n";
+        uint8_t mlen = (uint8_t)strlen(msg);
+        Display_SendCLIResponse(display_ptr, msg, mlen);
+        return 1; /* ACK empty, response already sent */
+    }
+
+    /* DATA[0] = ext_code, DATA[1..N] = command string */
+    cmd_len = (uint8_t)(PROTO_DATA_LEN(*req) > 1 ? PROTO_DATA_LEN(*req) - 1 : 0);
+    if (cmd_len > sizeof(cmd) - 1) cmd_len = sizeof(cmd) - 1;
+    if (cmd_len > 0)
+        memcpy(cmd, &req->data[1], cmd_len);
+    cmd[cmd_len] = '\0';
+
+    printf("[Display] CLI: \"%s\"\r\n", cmd);
+
+    /* 启用 printf 捕获 */
+    cli_capture_flag = 1;
+    cli_capture_len = 0;
+
+    /* 调用已有的 CLI 命令处理器 */
+    CLI_Process((uint8_t *)cmd, cmd_len);
+
+    /* 停止捕获 */
+    cli_capture_flag = 0;
+
+    /* 将捕获到的输出发回 Display */
+    if (cli_capture_len > 0) {
+        /* 分帧发送，每帧最大 240 字节 payload */
+        uint16_t offset = 0;
+        while (offset < cli_capture_len) {
+            uint16_t chunk = cli_capture_len - offset;
+            if (chunk > 240) chunk = 240;
+            Display_SendCLIResponse(display_ptr,
+                                    (const char *)&cli_capture_buf[offset],
+                                    chunk);
+            offset += chunk;
+        }
+    } else {
+        /* 无输出也发一个空响应，让 Display 知道命令已执行 */
+        Display_SendCLIResponse(display_ptr, "ok\n", 3);
+    }
+
+    cli_capture_len = 0;
+    return 1; /* ACK 空（响应已通过 CLI response 帧发送） */
+}
+
 /* ---- 模块状态事件（事件类，Core -> Display） ---- */
 static void Display_HandleModuleStatus(const protocol_frame_t *req)
 {
@@ -1742,6 +1880,33 @@ void Display_SendSubdispContent(display_t *display, uint8_t content_type,
     frame_len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
                                    CMD_DISP_EXTENSION,
                                    data, 2 + (uint8_t)payload_len,
+                                   buf, sizeof(buf));
+    if (frame_len > 0)
+        Display_Send_Data(display, buf, frame_len);
+}
+
+void Display_SendCLIResponse(display_t *display, const char *output, uint16_t output_len)
+{
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint8_t data[1 + 250]; /* ext_code + output */
+    uint16_t frame_len;
+    uint16_t payload_len;
+
+    if (display == NULL || output == NULL)
+        return;
+
+    data[0] = CMD_DISP_EXT_CLI;
+
+    payload_len = output_len;
+    if (payload_len > 250)
+        payload_len = 250;
+
+    if (payload_len > 0)
+        memcpy(&data[1], output, payload_len);
+
+    frame_len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
+                                   CMD_DISP_EXTENSION,
+                                   data, 1 + (uint8_t)payload_len,
                                    buf, sizeof(buf));
     if (frame_len > 0)
         Display_Send_Data(display, buf, frame_len);

@@ -41,7 +41,42 @@ static ui_point_t s_cursor_rendered_pos = { -1, -1 };
 
 static bool queue_push(const ui_event_t *e)
 {
-    if (s_queue_count >= UI_INPUT_QUEUE_SIZE) return false;
+    if (s_queue_count >= UI_INPUT_QUEUE_SIZE) {
+        /* Queue full: for critical events (UP / CLICK), drop the oldest
+         * MOVE event to make room.  Losing a MOVE is harmless; losing an
+         * UP causes stuck captures and unresponsive input. */
+        bool is_critical = (e->type == UI_EVENT_UP ||
+                            e->type == UI_EVENT_CLICK ||
+                            e->type == UI_EVENT_DOUBLE_CLICK ||
+                            e->type == UI_EVENT_SWIPE_UP ||
+                            e->type == UI_EVENT_SWIPE_DOWN ||
+                            e->type == UI_EVENT_SWIPE_LEFT ||
+                            e->type == UI_EVENT_SWIPE_RIGHT);
+        if (!is_critical) return false;
+
+        /* Scan from head for the oldest MOVE event and remove it */
+        int idx = s_queue_head;
+        for (int i = 0; i < s_queue_count; i++) {
+            if (s_event_queue[idx].type == UI_EVENT_MOVE) {
+                /* Shift all events before this one forward by 1 */
+                int prev = idx;
+                for (int j = i - 1; j >= 0; j--) {
+                    int pidx = (s_queue_head + j) % UI_INPUT_QUEUE_SIZE;
+                    s_event_queue[prev] = s_event_queue[pidx];
+                    prev = pidx;
+                }
+                s_queue_head = (s_queue_head + 1) % UI_INPUT_QUEUE_SIZE;
+                s_queue_count--;
+                break;
+            }
+            idx = (idx + 1) % UI_INPUT_QUEUE_SIZE;
+        }
+        /* If no MOVE found, drop oldest event (head) */
+        if (s_queue_count >= UI_INPUT_QUEUE_SIZE) {
+            s_queue_head = (s_queue_head + 1) % UI_INPUT_QUEUE_SIZE;
+            s_queue_count--;
+        }
+    }
     s_event_queue[s_queue_tail] = *e;
     s_queue_tail = (s_queue_tail + 1) % UI_INPUT_QUEUE_SIZE;
     s_queue_count++;
@@ -144,6 +179,34 @@ void ui_input_init(void)
 }
 
 /*=============================================================================
+ *  Mouse Acceleration Helper
+ *=============================================================================*/
+
+/* Nonlinear acceleration: small movements = precise, large movements = fast.
+ * |raw| <= 1  →  1 px  (precise)
+ * |raw| == 2  →  4 px
+ * |raw| == 3  →  7 px
+ * |raw| >= 4  →  raw * raw / 2  (aggressive) */
+static int16_t mouse_accel(int8_t raw)
+{
+    if (raw == 0) return 0;
+    int16_t sign = (raw > 0) ? 1 : -1;
+    int16_t mag = (raw > 0) ? raw : -raw;
+
+    int16_t out;
+    if (mag <= 1) {
+        out = 1;
+    } else if (mag <= 3) {
+        /* Quadratic ramp: 2→4, 3→7 */
+        out = (mag * mag + mag) / 2;
+    } else {
+        /* Aggressive: mag^2 / 2 */
+        out = (mag * mag) / 2;
+    }
+    return sign * out;
+}
+
+/*=============================================================================
  *  Touch Input Processing
  *=============================================================================*/
 
@@ -152,6 +215,7 @@ void ui_input_feed_touch(uint8_t touch_id, bool pressed, int16_t x, int16_t y)
     if (touch_id >= UI_MAX_TOUCH_POINTS) return;
 
     ui_pointer_state_t *tp = &s_state.touches[touch_id];
+    tp->last_feed_time = ui_get_real_ms();
     ui_event_t e;
     memset(&e, 0, sizeof(e));
     e.source = UI_INPUT_TOUCH;
@@ -273,11 +337,12 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
 {
     ui_pointer_state_t *mp = &s_state.mouse;
     s_state.mouse_present = true;
+    mp->last_feed_time = ui_get_real_ms();
 
-    /* Update position (2x multiplier for comfortable speed) */
+    /* Update position with nonlinear acceleration for better feel */
     if (dx != 0 || dy != 0) {
-        mp->pos.x += dx * 2;
-        mp->pos.y += dy * 2;
+        mp->pos.x += mouse_accel(dx);
+        mp->pos.y += mouse_accel(dy);
         if (mp->pos.x < 0) mp->pos.x = 0;
         if (mp->pos.x >= UI_SCREEN_WIDTH) mp->pos.x = UI_SCREEN_WIDTH - 1;
         if (mp->pos.y < 0) mp->pos.y = 0;
@@ -360,15 +425,15 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
         /* Drag while pressed */
         e.type = UI_EVENT_MOVE;
         e.pos = mp->pos;
-        e.delta.x = dx;
-        e.delta.y = dy;
+        e.delta.x = mouse_accel(dx);
+        e.delta.y = mouse_accel(dy);
         queue_push(&e);
     } else if (dx != 0 || dy != 0) {
         /* Hover move (no button) */
         e.type = UI_EVENT_MOVE;
         e.pos = mp->pos;
-        e.delta.x = dx;
-        e.delta.y = dy;
+        e.delta.x = mouse_accel(dx);
+        e.delta.y = mouse_accel(dy);
         queue_push(&e);
     }
 
@@ -727,8 +792,77 @@ static void check_click_timeouts(void)
     }
 }
 
+/*=============================================================================
+ *  Stale Pointer Detection & Recovery
+ *=============================================================================*/
+
+/* Force-reset a pointer that has been "active" for too long without any new
+ * raw input.  This recovers from lost UART packets (touch release missed) or
+ * dropped queue events (UP event discarded on queue overflow). */
+static void check_stale_pointers(void)
+{
+    uint32_t now = ui_get_real_ms();
+
+    /* Check each touch point */
+    for (int i = 0; i < UI_MAX_TOUCH_POINTS; i++) {
+        ui_pointer_state_t *tp = &s_state.touches[i];
+        if (tp->active && tp->last_feed_time > 0 &&
+            (now - tp->last_feed_time) > UI_POINTER_STALE_TIMEOUT_MS) {
+
+            /* Synthesize UP event so widgets can clean up */
+            ui_event_t e;
+            memset(&e, 0, sizeof(e));
+            e.source = UI_INPUT_TOUCH;
+            e.touch_id = (uint8_t)i;
+            e.type = UI_EVENT_UP;
+            e.pos = tp->pos;
+            queue_push(&e);
+
+            tp->active = false;
+
+            /* Release capture if this stale touch holds it */
+            if (s_state.capture_widget && s_state.capture_touch_id == (uint8_t)i) {
+                s_state.capture_widget = NULL;
+                s_state.capture_touch_id = UI_TOUCH_ID_NONE;
+            }
+        }
+    }
+
+    /* Check mouse */
+    {
+        ui_pointer_state_t *mp = &s_state.mouse;
+        if (mp->active && mp->last_feed_time > 0 &&
+            (now - mp->last_feed_time) > UI_POINTER_STALE_TIMEOUT_MS) {
+
+            /* If mouse buttons are reported as 0 but active is still true,
+             * force-release.  This handles the case where the UP event was
+             * silently dropped from the queue. */
+            if (!(s_state.mouse_buttons & UI_MOUSE_BTN_LEFT)) {
+                ui_event_t e;
+                memset(&e, 0, sizeof(e));
+                e.source = UI_INPUT_MOUSE;
+                e.touch_id = UI_TOUCH_ID_NONE;
+                e.type = UI_EVENT_UP;
+                e.pos = mp->pos;
+                e.mouse_buttons = s_state.mouse_buttons;
+                queue_push(&e);
+
+                mp->active = false;
+
+                if (s_state.capture_widget &&
+                    s_state.capture_touch_id == UI_TOUCH_ID_NONE) {
+                    s_state.capture_widget = NULL;
+                }
+            }
+        }
+    }
+}
+
 void ui_input_tick(void)
 {
+    /* Detect and recover from stale pointers (lost UP events) */
+    check_stale_pointers();
+
     /* Check pointer holds */
     for (int i = 0; i < UI_MAX_TOUCH_POINTS; i++)
         check_pointer_hold(&s_state.touches[i], UI_INPUT_TOUCH, (uint8_t)i);

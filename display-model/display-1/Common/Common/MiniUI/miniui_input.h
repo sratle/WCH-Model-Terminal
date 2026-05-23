@@ -29,6 +29,10 @@ extern "C" {
 #define UI_LONG_PRESS_REPEAT_MS    100     /* Interval between LONG_PRESS_REPEAT */
 #define UI_SWIPE_THRESHOLD         30      /* Min distance for swipe (px) */
 #define UI_SWIPE_MAX_START_MOVE    20      /* Max initial movement before swipe lock */
+#define UI_POINTER_STALE_TIMEOUT_MS 5000   /* Force-reset pointer held > 5s (lost UP) */
+
+/* Mouse acceleration: threshold above which acceleration kicks in */
+#define UI_MOUSE_ACCEL_THRESHOLD   2
 
 /* Queue & tracking */
 #define UI_INPUT_QUEUE_SIZE        32
@@ -45,6 +49,7 @@ typedef struct {
     ui_point_t start;           /* Position at press time */
     uint32_t press_time;        /* Timestamp of press (ms) */
     uint32_t last_long_time;    /* Timestamp of last LONG_PRESS_REPEAT */
+    uint32_t last_feed_time;    /* Timestamp of last raw input (stale detection) */
     bool long_press_sent;       /* First LONG_PRESS already emitted */
     bool swipe_locked;          /* Swipe direction determined */
     int8_t swipe_dir;           /* 0=up 1=down 2=left 3=right, valid when swipe_locked */
