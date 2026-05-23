@@ -1,10 +1,10 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : app_music.c
 * Author             : LCD Model Team
-* Version            : V2.0.0
+* Version            : V3.0.0
 * Date               : 2026/05/23
-* Description        : Music Player app.
-*                      Playback controls, progress, volume, mode switching.
+* Description        : Music Player app (V3.0 CLI passthrough).
+*                      All controls via CLI: play/pause/resume/stop/vol.
 *                      Reads music state from Core via g_disp_state.
 ********************************************************************************/
 #include "app_music.h"
@@ -265,13 +265,13 @@ static void btn_play_click(ui_widget_t *w)
 static void btn_prev_click(ui_widget_t *w)
 {
     (void)w;
-    UART_SendMusicControl(MUSIC_CTRL_PREV, 0);
+    UART_SendCLI("prev");
 }
 
 static void btn_next_click(ui_widget_t *w)
 {
     (void)w;
-    UART_SendMusicControl(MUSIC_CTRL_NEXT, 0);
+    UART_SendCLI("next");
 }
 
 static void btn_stop_click(ui_widget_t *w)
@@ -284,7 +284,10 @@ static void btn_mode_click(ui_widget_t *w)
 {
     (void)w;
     s_current_mode = (s_current_mode + 1) % 3;
-    UART_SendMusicControl(MUSIC_CTRL_SET_MODE, s_current_mode);
+    /* Play mode (single/repeat/shuffle) is managed on Display side only */
+    static const char *mode_names[] = { "Single", "Repeat", "Shuffle" };
+    btn_mode.text = mode_names[s_current_mode];
+    btn_mode.base.flags |= UI_WIDGET_FLAG_DIRTY;
 }
 
 static void vol_touch_event(ui_widget_t *w, ui_event_t *e)

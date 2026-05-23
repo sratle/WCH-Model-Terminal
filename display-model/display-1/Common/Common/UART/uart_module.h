@@ -2,11 +2,12 @@
 * File Name          : uart_module.h
 * File Name          : uart_module.h
 * Author             : LCD Model Team
-* Version            : V2.0.0
-* Date               : 2026/05/22
-* Description        : UART1 module communication with Core.
-*                      Protocol frame parser, command dispatch, and input
-*                      event routing.  Implements Protocol_Display.md V2.0.
+* Version            : V3.0.0
+ * Date               : 2026/05/23
+ * Description        : UART1 module communication with Core.
+ *                      Protocol frame parser, command dispatch, and input
+ *                      event routing.  Implements Protocol_Display.md V3.0.
+ *                      V3.0: 全面迁移至 CLI 直通架构，废弃自定义文件/音乐操作码。
 ********************************************************************************/
 #ifndef __UART_MODULE_H
 #define __UART_MODULE_H
@@ -80,9 +81,9 @@ extern "C" {
 #define CMD_DISP_SCREEN_CONTROL     0x18   /* Set  → fire-and-forget */
 #define CMD_DISP_GET_SCREEN_STATE   0x19   /* Query → ACK + state */
 #define CMD_DISP_SHOW_NOTICE        0x1A   /* Set  → fire-and-forget */
-#define CMD_DISP_MUSIC_CONTROL      0x1B   /* Action (Display→Core) */
+/* 0x1B CMD_DISP_MUSIC_CONTROL   — 废弃 (V3.0 CLI 直通替代) */
 #define CMD_DISP_MUSIC_STATUS       0x1C   /* Event (Core→Display) */
-#define CMD_DISP_VOLUME_CONTROL     0x1D   /* Action/Query (Display→Core) */
+/* 0x1D CMD_DISP_VOLUME_CONTROL   — 废弃 (V3.0 CLI 直通替代) */
 #define CMD_DISP_FACTORY_RESET      0x1E   /* Set  → fire-and-forget */
 
 /* Extended opcode dispatcher: CMD=0x10, DATA[0]=sub-command */
@@ -97,12 +98,7 @@ extern "C" {
 #define DISP_EXT_APP_DATA           0x03
 #define DISP_EXT_MODULE_STATUS      0x04
 #define DISP_EXT_GET_MODULE_STATUS  0x05
-#define DISP_EXT_REQUEST_FILE_LIST  0x06
-#define DISP_EXT_FILE_LIST          0x07
-#define DISP_EXT_FILE_READ          0x08
-#define DISP_EXT_FILE_SAVE          0x09
-#define DISP_EXT_FILE_OPERATION     0x0A
-#define DISP_EXT_PLAY_MUSIC         0x0B
+/* 0x06-0x0B: 废弃 (V3.0 CLI 直通替代)  — FILE_LIST/READ/SAVE/OP/PLAY_MUSIC */
 #define DISP_EXT_BT_EVENT           0x0C
 #define DISP_EXT_BT_CONTROL         0x0D
 #define DISP_EXT_SUBMODEL_EVENT     0x0E
@@ -111,13 +107,13 @@ extern "C" {
 #define DISP_EXT_LOAD_CONFIG        0x11
 #define DISP_EXT_CONFIG_RESULT      0x12
 #define DISP_EXT_SET_RGB_MODE       0x13
-#define DISP_EXT_BULK_TRANSFER      0x14
+/* 0x14 DISP_EXT_BULK_TRANSFER — 废弃 (V3.0 CLI 直通替代) */
 #define DISP_EXT_SUBDISP_CONTENT    0x15
 #define DISP_EXT_SUBDISP_CONFIG     0x16
 #define DISP_EXT_ERROR_REPORT       0x17
 #define DISP_EXT_HID_STATUS         0x18    /* 外接 HID 设备连接/断开状态 */
-#define DISP_EXT_CD                 0x19    /* 切换工作目录 (cd) */
-#define DISP_EXT_CLI                0x1A    /* CLI 命令直通 (Display→Core→Display) */
+/* 0x19 DISP_EXT_CD — 废弃 (V3.0 CLI 直通替代) */
+#define DISP_EXT_CLI                0x1A    /* CLI 命令直通 (Display→Core) */
 
 /* HID 设备类型 (DISP_EXT_HID_STATUS DATA[2]) */
 #define HID_DEV_KEYBOARD            0x01    /* 外接键盘 */
@@ -219,10 +215,9 @@ extern "C" {
 #define POWER_EVT_ALARM         0x02
 
 /*=============================================================================
- *  File List Entry (parsed from DISP_EXT_FILE_LIST, Protocol_Display.md §5.9)
+ *  File List Entry (parsed from CLI "ls" output, Protocol_Display.md §4.5)
  *=============================================================================*/
 
-#define FILE_ENTRY_SIZE         21
 #define FILE_NAME_MAX_LEN       16
 #define FILE_LIST_MAX_ENTRIES   12
 
@@ -238,7 +233,7 @@ typedef struct {
 } file_entry_t;
 
 /*=============================================================================
- *  File Operation Types (Protocol_Display.md §5.10)
+ *  File Operation Types (convenience, internally mapped to CLI commands)
  *=============================================================================*/
 
 #define FILE_OP_MKDIR           0x00
@@ -252,28 +247,33 @@ typedef struct {
 
 typedef enum {
     PENDING_NONE = 0,
-    PENDING_FILE_OP,
-    PENDING_PLAY_MUSIC,
-    PENDING_FILE_READ,
-    PENDING_FILE_SAVE,
-    PENDING_CD,
-    PENDING_CLI,
+    PENDING_CLI,           /* CLI command in flight */
 } pending_req_t;
 
 extern volatile pending_req_t g_pending_req;
 
 /*=============================================================================
  *  App-Layer Callback Interface
+ *
+ *  All Display→Core requests now use CLI passthrough. The Core executes
+ *  CLI commands and returns text output via DISP_EXT_CLI. The app layer
+ *  receives the full CLI text response and parses it as needed.
+ *
+ *  Event notifications (Core→Display) still use their specific opcodes
+ *  (MODULE_STATUS, BT_EVENT, POWER_EVENT, etc.).
  *=============================================================================*/
 
 typedef struct {
+    /* CLI response: called when Core returns CLI output text.
+     * 'output' is NOT null-terminated; use 'len' for length.
+     * 'truncated' is true if output was truncated due to frame size limits.
+     * 'is_last' is true for the final frame of a multi-frame response. */
+    void (*on_cli_response)(const char *output, uint16_t len, bool truncated, bool is_last);
+
+    /* Legacy: file list parsed from "ls" CLI output.
+     * If set, the UART module will auto-parse ls output and call this.
+     * Otherwise, raw CLI text goes to on_cli_response. */
     void (*on_file_list)(uint8_t status, const file_entry_t *entries, uint8_t count);
-    void (*on_file_op_result)(bool success, uint8_t error_code);
-    void (*on_play_music_result)(bool success, uint8_t error_code);
-    void (*on_bulk_data)(const uint8_t *data, uint16_t len, bool is_last);
-    void (*on_bulk_complete)(bool success, uint32_t total_size);
-    void (*on_cd_result)(bool success, const char *cwd);
-    void (*on_cli_response)(const char *output, uint16_t len, bool truncated);
 } uart_app_callbacks_t;
 
 void UART_SetAppCallbacks(const uart_app_callbacks_t *cb);
@@ -361,40 +361,51 @@ void UART_SendACK(uint8_t dst, const uint8_t *data, uint8_t data_len);
 /* Send NACK with error code */
 void UART_SendNACK(uint8_t dst, uint8_t error_code);
 
-/* --- Display → Core request helpers --- */
+/* --- Display → Core request helpers (all via CLI passthrough) --- */
 
-/* Request file list from Core (triggers FILE_LIST response) */
-void UART_RequestFileList(const char *path);
+/* Send a CLI command to Core for execution.
+ * The response will arrive via on_cli_response callback. */
+void UART_SendCLI(const char *cmd);
 
-/* Request file read (triggers Bulk Mode) */
-void UART_RequestFileRead(const char *path);
+/* Convenience wrappers that build CLI commands internally: */
 
-/* Request file save (triggers Bulk Mode) */
-void UART_RequestFileSave(const char *path);
+/* List directory: if dir_or_null is non-NULL and non-empty, sends "cd <dir>"
+ * then auto-sends "ls" on cd response; if NULL or empty, sends "ls" directly.
+ * dir_or_null must be a single-level name (e.g. "DOC", "..", "\"). */
+void UART_RequestFileList(const char *dir_or_null);
 
-/* Send music control command */
-void UART_SendMusicControl(uint8_t ctrl_type, uint8_t param);
+/* Change directory: sends "cd <dir>" */
+void UART_SendCD(const char *dir);
 
-/* Send volume control (set or query) */
-void UART_SendVolumeControl(uint8_t op, uint8_t volume);
+/* Go to parent directory: sends "cd .." */
+void UART_SendCDUp(void);
 
-/* Send BT control request */
-void UART_SendBTControl(uint8_t ctrl_type, const uint8_t *param, uint8_t param_len);
+/* Print working directory: sends "pwd" */
+void UART_SendPWD(void);
 
-/* Report error to Core */
-void UART_SendErrorReport(uint8_t error_code, const char *msg);
-
-/* Send file operation request (mkdir/delete/rename) */
-void UART_SendFileOperation(uint8_t op_type, const char *path);
-
-/* Send play music request (path to wav file) */
+/* Play music file: sends "play <path>" */
 void UART_SendPlayMusic(const char *path);
 
-/* Send CD command (change working directory on Core) */
-void UART_SendCD(const char *path);
+/* Music controls: send "pause", "resume", "stop", "vol <n>", etc. */
+void UART_SendMusicControl(uint8_t ctrl_type, uint8_t param);
 
-/* Send CLI command to Core for execution */
-void UART_SendCLI(const char *cmd);
+/* Volume control: sends "vol <n>" */
+void UART_SendVolumeControl(uint8_t op, uint8_t volume);
+
+/* File operations: sends "mkdir <path>", "rm <path>", etc. */
+void UART_SendFileOperation(uint8_t op_type, const char *path);
+
+/* Read file content: sends "cat <path>" */
+void UART_RequestFileRead(const char *path);
+
+/* Save file content: sends "echo <content> > <path>" (for small files) */
+void UART_RequestFileSave(const char *path);
+
+/* Send BT control request (still uses DISP_EXT_BT_CONTROL) */
+void UART_SendBTControl(uint8_t ctrl_type, const uint8_t *param, uint8_t param_len);
+
+/* Report error to Core (still uses DISP_EXT_ERROR_REPORT) */
+void UART_SendErrorReport(uint8_t error_code, const char *msg);
 
 /* Notify activity (reset auto-off timer) — called from input system */
 void UART_NotifyActivity(void);

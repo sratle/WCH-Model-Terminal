@@ -1,11 +1,11 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : app_editor.c
 * Author             : LCD Model Team
-* Version            : V2.0.0
+* Version            : V3.0.0
 * Date               : 2026/05/23
-* Description        : Text Editor / Viewer app.
-*                      Displays text file content received from Core via bulk
-*                      transfer.  Supports scroll and status display.
+* Description        : Text Editor / Viewer app (V3.0 CLI passthrough).
+*                      Reads file content via CLI "cat" command.
+*                      Supports scroll and status display.
 ********************************************************************************/
 #include "app_editor.h"
 #include "../UI/ui_app_common.h"
@@ -102,14 +102,16 @@ static void editor_update_status(void)
  *  Protocol Callbacks
  *=============================================================================*/
 
-static void on_bulk_data_received(const uint8_t *data, uint16_t len, bool is_last)
+static void on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
 {
+    /* File content received via CLI "cat" command */
     uint16_t space = EDIT_BUF_SIZE - 1 - s_ed.content_len;
     uint16_t copy_len = (len < space) ? len : space;
     if (copy_len > 0) {
-        memcpy(&s_ed.content[s_ed.content_len], data, copy_len);
+        memcpy(&s_ed.content[s_ed.content_len], output, copy_len);
         s_ed.content_len += copy_len;
     }
+
     if (is_last) {
         s_ed.content[s_ed.content_len] = '\0';
         s_ed.is_loading = false;
@@ -122,27 +124,9 @@ static void on_bulk_data_received(const uint8_t *data, uint16_t len, bool is_las
     }
 }
 
-static void on_bulk_complete_cb(bool success, uint32_t total_size)
-{
-    (void)total_size;
-    s_ed.is_loading = false;
-    if (success && s_ed.content_len > 0) {
-        s_ed.content[s_ed.content_len] = '\0';
-        s_ed.has_content = true;
-        s_ed.is_modified = false;
-        s_ed.scroll_line = 0;
-        editor_parse_lines();
-    }
-    editor_update_status();
-    ui_page_invalidate_all();
-}
-
 static uart_app_callbacks_t s_editor_callbacks = {
     .on_file_list = NULL,
-    .on_file_op_result = NULL,
-    .on_play_music_result = NULL,
-    .on_bulk_data = on_bulk_data_received,
-    .on_bulk_complete = on_bulk_complete_cb,
+    .on_cli_response = on_cli_response,
 };
 
 /*=============================================================================
@@ -166,6 +150,7 @@ void app_editor_open_file(const char *path, const char *name)
 
     ui_label_set_text(&s_app_editor.lbl_title, s_ed.file_name);
     UART_SetAppCallbacks(&s_editor_callbacks);
+    /* Uses CLI "cat <path>" internally */
     UART_RequestFileRead(s_ed.file_path);
     editor_update_status();
 }

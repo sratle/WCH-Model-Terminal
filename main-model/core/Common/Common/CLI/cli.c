@@ -874,6 +874,12 @@ static void CLI_Cmd_Resume(void)
     printf("Resumed\r\n");
 }
 
+static void CLI_Cmd_Stop(void)
+{
+    Audio_PlayStop();
+    printf("Stopped\r\n");
+}
+
 static void CLI_Cmd_Playst(void)
 {
     const char *track = Audio_GetCurrentTrackName();
@@ -1720,6 +1726,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Pause();
     } else if (strcmp(argv[0], "resume") == 0) {
         CLI_Cmd_Resume();
+    } else if (strcmp(argv[0], "stop") == 0) {
+        CLI_Cmd_Stop();
     } else if (strcmp(argv[0], "playst") == 0) {
         CLI_Cmd_Playst();
     } else if (strcmp(argv[0], "lsdev") == 0) {

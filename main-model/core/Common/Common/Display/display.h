@@ -80,10 +80,6 @@ void Display_SendModuleStatus(display_t *display, uint8_t evt_type,
 /* 发送完整模块列表给 Display */
 void Display_SendModuleList(display_t *display);
 
-/* 发送文件列表给 Display */
-void Display_SendFileList(display_t *display, uint8_t status,
-                          const uint8_t *list_data, uint16_t list_len);
-
 /* 发送蓝牙事件给 Display */
 void Display_SendBtEvent(display_t *display, uint8_t evt_type,
                          const uint8_t *evt_data, uint8_t evt_data_len);

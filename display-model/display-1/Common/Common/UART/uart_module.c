@@ -1,15 +1,15 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : uart_module.c
 * Author             : LCD Model Team
-* Version            : V2.0.0
-* Date               : 2026/05/22
+* Version            : V3.0.0
+* Date               : 2026/05/23
 * Description        : UART1 module communication with Core.
-*                      Implements Protocol_Display.md V2.0:
+*                      Implements Protocol_Display.md V3.0:
 *                      - ISR-driven RX state machine (standard + stream frames)
-*                      - Command dispatch for all basic + extended opcodes
+*                      - Command dispatch for basic + extended opcodes
 *                      - ACK/NACK response generation
 *                      - Input event routing to ui_input_feed_*()
-*                      - Display→Core request helpers
+*                      - V3.0: CLI passthrough for file/music/directory ops
 ********************************************************************************/
 #include "uart_module.h"
 #include "../MiniUI/miniui.h"
@@ -32,6 +32,18 @@ uart_disp_state_t g_disp_state;
 static uart_app_callbacks_t s_app_cb;
 static bool s_app_cb_valid = false;
 volatile pending_req_t g_pending_req = PENDING_NONE;
+
+/*=============================================================================
+ *  CLI Response Assembly Buffer (forward declarations for internal use)
+ *=============================================================================*/
+
+#define CLI_RESP_BUF_SIZE   2048
+static char s_cli_resp_buf[CLI_RESP_BUF_SIZE];
+static uint16_t s_cli_resp_len = 0;
+static bool s_cli_resp_active = false;
+
+static void cli_resp_append(const char *data, uint16_t len);
+static void cli_resp_dispatch(void);
 
 void UART_SetAppCallbacks(const uart_app_callbacks_t *cb)
 {
@@ -509,10 +521,9 @@ static void handle_show_notice(const uint8_t *data, uint8_t len)
     }
 
     /* 解析 title: data[1..16] */
-    uint8_t tlen = 16;
     for (uint8_t i = 0; i < 16; i++) {
         s_notice_title[i] = (char)data[1 + i];
-        if (data[1 + i] == '\0') { tlen = i; break; }
+        if (data[1 + i] == '\0') break;
     }
     s_notice_title[16] = '\0';
 
@@ -626,42 +637,11 @@ static void handle_ext_hid_status(const uint8_t *data, uint8_t len)
     }
 }
 
-static void handle_ext_file_list(const uint8_t *data, uint8_t len)
-{
-    if (!s_app_cb_valid || !s_app_cb.on_file_list) return;
-    if (len < 3) return;
-
-    uint8_t status = data[1];
-    uint8_t count  = data[2];
-
-    file_entry_t entries[FILE_LIST_MAX_ENTRIES];
-    uint8_t parsed = 0;
-
-    for (uint8_t i = 0; i < count && i < FILE_LIST_MAX_ENTRIES; i++) {
-        uint16_t off = 3 + (uint16_t)i * FILE_ENTRY_SIZE;
-        if (off + FILE_ENTRY_SIZE > len) break;
-
-        entries[parsed].attr = data[off];
-        entries[parsed].size = ((uint32_t)data[off + 1] << 24) |
-                                ((uint32_t)data[off + 2] << 16) |
-                                ((uint32_t)data[off + 3] << 8)  |
-                                 (uint32_t)data[off + 4];
-        memcpy(entries[parsed].name, &data[off + 5], FILE_NAME_MAX_LEN);
-        entries[parsed].name[FILE_NAME_MAX_LEN] = '\0';
-        parsed++;
-    }
-
-    s_app_cb.on_file_list(status, entries, parsed);
-}
-
 static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t len, uint8_t src)
 {
     switch (sub_cmd) {
     case DISP_EXT_MODULE_STATUS:
         handle_ext_module_status(data, len);
-        break;
-    case DISP_EXT_FILE_LIST:
-        handle_ext_file_list(data, len);
         break;
     case DISP_EXT_BT_EVENT:
         handle_ext_bt_event(data, len);
@@ -679,21 +659,14 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
         handle_ext_hid_status(data, len);
         break;
     case DISP_EXT_CLI:
-        /* CLI response from Core (text output) */
-        if (s_app_cb_valid && s_app_cb.on_cli_response && len >= 2) {
-            /* data[0] = ext_code (already consumed), data[1..] = output text */
-            s_app_cb.on_cli_response((const char *)&data[1], len - 1, false);
+        /* CLI response from Core (text output).
+         * Each frame from Core is a standalone chunk; accumulate in buffer
+         * and dispatch immediately.  Core guarantees frame-level completeness. */
+        if (len >= 2) {
+            cli_resp_append((const char *)&data[1], len - 1);
+            cli_resp_dispatch();
         }
-        break;
-    case DISP_EXT_BULK_TRANSFER:
-        if (s_app_cb_valid && len >= 6) {
-            if (s_app_cb.on_bulk_complete) {
-                uint8_t done = data[1];
-                uint32_t total = ((uint32_t)data[2] << 24) | ((uint32_t)data[3] << 16) |
-                                  ((uint32_t)data[4] << 8)  |  (uint32_t)data[5];
-                s_app_cb.on_bulk_complete(done == 0x01, total);
-            }
-        }
+        g_pending_req = PENDING_NONE;
         break;
     case DISP_EXT_APP_LAUNCH:
     case DISP_EXT_APP_CLOSE:
@@ -702,6 +675,7 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
     case DISP_EXT_SUBDISP_CONFIG:
         /* TODO: implement as features are needed */
         break;
+    /* 0x06-0x0B, 0x14, 0x19: deprecated, fall through to NACK */
     default:
         UART_SendNACK(src, PROTO_ERR_UNSUPPORTED_CMD);
         break;
@@ -787,38 +761,15 @@ static void process_frame(uint8_t src, uint8_t dst, uint8_t cmd,
         break;
     }
     case CMD_ACK:
-        if (s_app_cb_valid) {
-            if (g_pending_req == PENDING_FILE_OP && s_app_cb.on_file_op_result) {
-                s_app_cb.on_file_op_result(true, 0);
-            } else if (g_pending_req == PENDING_PLAY_MUSIC && s_app_cb.on_play_music_result) {
-                s_app_cb.on_play_music_result(true, 0);
-            } else if (g_pending_req == PENDING_CD && s_app_cb.on_cd_result) {
-                /* ACK data = current working directory string */
-                char cwd[65];
-                uint8_t cwd_len = (data_len > 64) ? 64 : data_len;
-                memcpy(cwd, data, cwd_len);
-                cwd[cwd_len] = '\0';
-                s_app_cb.on_cd_result(true, cwd);
-            } else if (g_pending_req == PENDING_CLI && s_app_cb.on_cli_response) {
-                s_app_cb.on_cli_response((const char *)data, data_len, false);
-            }
-            g_pending_req = PENDING_NONE;
-        }
+        g_pending_req = PENDING_NONE;
         break;
     case CMD_NACK:
-        if (s_app_cb_valid && data_len >= 1) {
-            uint8_t err = data[0];
-            if (g_pending_req == PENDING_FILE_OP && s_app_cb.on_file_op_result) {
-                s_app_cb.on_file_op_result(false, err);
-            } else if (g_pending_req == PENDING_PLAY_MUSIC && s_app_cb.on_play_music_result) {
-                s_app_cb.on_play_music_result(false, err);
-            } else if (g_pending_req == PENDING_CD && s_app_cb.on_cd_result) {
-                s_app_cb.on_cd_result(false, "");
-            } else if (g_pending_req == PENDING_CLI && s_app_cb.on_cli_response) {
-                s_app_cb.on_cli_response("", 0, false);
-            }
-            g_pending_req = PENDING_NONE;
+        if (s_app_cb_valid && g_pending_req == PENDING_CLI && s_app_cb.on_cli_response) {
+            s_cli_resp_buf[0] = '\0';
+            s_cli_resp_len = 0;
+            s_app_cb.on_cli_response("ERROR: NACK", 11, false, true);
         }
+        g_pending_req = PENDING_NONE;
         break;
 
     default:
@@ -867,7 +818,137 @@ void UART_Module_Poll(void)
 }
 
 /*=============================================================================
- *  Display → Core Request Helpers
+ *  CLI Response Assembly — implementation
+ *=============================================================================*/
+
+/* Track the last CLI command sent, for context-aware parsing */
+#define CLI_CMD_TAG_SIZE   32
+static char s_cli_cmd_tag[CLI_CMD_TAG_SIZE];  /* e.g. "ls", "cd", "play" */
+
+/* When UART_RequestFileList(path) is called with a non-empty path,
+ * we first send "cd <path>" and set this flag. When the cd response
+ * arrives, cli_resp_dispatch automatically sends "ls". */
+static bool s_pending_ls_after_cd = false;
+
+static void cli_resp_reset(void)
+{
+    s_cli_resp_len = 0;
+    s_cli_resp_active = true;
+}
+
+static void cli_resp_append(const char *data, uint16_t len)
+{
+    uint16_t space = CLI_RESP_BUF_SIZE - 1 - s_cli_resp_len;
+    uint16_t copy = (len < space) ? len : space;
+    if (copy > 0) {
+        memcpy(&s_cli_resp_buf[s_cli_resp_len], data, copy);
+        s_cli_resp_len += copy;
+    }
+}
+
+/* Parse CLI "ls" output into file_entry_t array.
+ * ls output format:
+ *   --- \PATH ---
+ *     [DIR]  dirname
+ *     [FILE] filename  (12345 bytes)
+ */
+static void cli_resp_dispatch(void)
+{
+    s_cli_resp_buf[s_cli_resp_len] = '\0';
+    s_cli_resp_active = false;
+
+    if (!s_app_cb_valid) return;
+
+    /* After "cd" response, auto-send "ls" if pending */
+    if (strcmp(s_cli_cmd_tag, "cd") == 0 && s_pending_ls_after_cd) {
+        s_pending_ls_after_cd = false;
+        /* cd succeeded — now send ls to get the file list */
+        UART_SendCLI("ls");
+        return;
+    }
+
+    /* If on_file_list is set and command was "ls", parse the ls output */
+    if (s_app_cb.on_file_list && strcmp(s_cli_cmd_tag, "ls") == 0) {
+        file_entry_t entries[FILE_LIST_MAX_ENTRIES];
+        uint8_t count = 0;
+        const char *p = s_cli_resp_buf;
+
+        while (*p && count < FILE_LIST_MAX_ENTRIES) {
+            /* Skip to next line starting with [DIR] or [FILE] */
+            const char *dir_tag = strstr(p, "[DIR]");
+            const char *file_tag = strstr(p, "[FILE]");
+
+            /* Find the earliest tag */
+            const char *tag = NULL;
+            uint8_t is_dir = 0;
+            if (dir_tag && (!file_tag || dir_tag < file_tag)) {
+                tag = dir_tag;
+                is_dir = 1;
+            } else if (file_tag) {
+                tag = file_tag;
+                is_dir = 0;
+            }
+
+            if (!tag) break;
+
+            /* Skip past the tag */
+            p = tag + (is_dir ? 5 : 6);
+            /* Skip whitespace */
+            while (*p == ' ' || *p == '\t') p++;
+
+            /* Extract name */
+            uint8_t nlen = 0;
+            while (*p && *p != '\r' && *p != '\n' && nlen < FILE_NAME_MAX_LEN) {
+                entries[count].name[nlen++] = *p++;
+            }
+            entries[count].name[nlen] = '\0';
+
+            /* Skip trailing whitespace in name */
+            while (nlen > 0 && (entries[count].name[nlen-1] == ' ' ||
+                                entries[count].name[nlen-1] == '\t')) {
+                entries[count].name[--nlen] = '\0';
+            }
+
+            if (nlen == 0) continue;
+
+            entries[count].attr = is_dir ? FILE_ATTR_IS_DIR : 0;
+
+            /* Parse size for files: look for "(NNN bytes)" */
+            entries[count].size = 0;
+            if (!is_dir) {
+                const char *size_start = strstr(entries[count].name, "(");
+                if (size_start) {
+                    /* Trim name at '(' */
+                    uint8_t trim_pos = (uint8_t)(size_start - entries[count].name);
+                    if (trim_pos > 0 && entries[count].name[trim_pos-1] == ' ')
+                        trim_pos--;
+                    entries[count].name[trim_pos] = '\0';
+                    /* Parse size */
+                    /* Simple ASCII-to-int (no stdlib on embedded) */
+                    {
+                        uint32_t val = 0;
+                        const char *sp = size_start + 1;
+                        while (*sp >= '0' && *sp <= '9') {
+                            val = val * 10 + (uint32_t)(*sp - '0');
+                            sp++;
+                        }
+                        entries[count].size = val;
+                    }
+                }
+            }
+
+            count++;
+        }
+
+        s_app_cb.on_file_list(0x00, entries, count);
+    } else if (s_app_cb.on_cli_response) {
+        /* For all other commands, pass raw CLI text */
+        s_app_cb.on_cli_response(s_cli_resp_buf, s_cli_resp_len, false, true);
+    }
+}
+
+/*=============================================================================
+ *  Display → Core Request Helpers (all via CLI passthrough)
  *=============================================================================*/
 
 void UART_NotifyActivity(void)
@@ -880,50 +961,121 @@ void UART_NotifyActivity(void)
     }
 }
 
-void UART_RequestFileList(const char *path)
+void UART_SendCLI(const char *cmd)
 {
+    /* Extract command tag (first word) for context-aware parsing */
+    {
+        uint8_t i = 0;
+        while (i < CLI_CMD_TAG_SIZE - 1 && cmd[i] && cmd[i] != ' ') {
+            s_cli_cmd_tag[i] = cmd[i];
+            i++;
+        }
+        s_cli_cmd_tag[i] = '\0';
+    }
+
+    cli_resp_reset();
+    g_pending_req = PENDING_CLI;
+
     uint8_t buf[PROTO_MAX_DATA_LEN];
-    buf[0] = DISP_EXT_REQUEST_FILE_LIST;
-    uint8_t plen = (uint8_t)strlen(path);
-    if (plen > sizeof(buf) - 2) plen = sizeof(buf) - 2;
-    memcpy(&buf[1], path, plen);
-    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 1 + plen);
+    buf[0] = DISP_EXT_CLI;
+    uint8_t clen = (uint8_t)strlen(cmd);
+    if (clen > sizeof(buf) - 2) clen = sizeof(buf) - 2;
+    memcpy(&buf[1], cmd, clen);
+    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 1 + clen);
 }
 
-void UART_RequestFileRead(const char *path)
+void UART_RequestFileList(const char *dir_or_null)
 {
-    uint8_t buf[PROTO_MAX_DATA_LEN];
-    buf[0] = DISP_EXT_FILE_READ;
-    uint8_t plen = (uint8_t)strlen(path);
-    if (plen > sizeof(buf) - 2) plen = sizeof(buf) - 2;
-    memcpy(&buf[1], path, plen);
-    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 1 + plen);
+    if (dir_or_null && dir_or_null[0] != '\0') {
+        /* Two-step: send "cd <dir>" first, auto-follow with "ls" on response.
+         * dir_or_null should be a single-level dir name (e.g. "DOC", "..", "\"). */
+        s_pending_ls_after_cd = true;
+        char cmd[128];
+        snprintf(cmd, sizeof(cmd), "cd %s", dir_or_null);
+        UART_SendCLI(cmd);
+    } else {
+        /* Already in target directory, just list */
+        s_pending_ls_after_cd = false;
+        UART_SendCLI("ls");
+    }
 }
 
-void UART_RequestFileSave(const char *path)
+void UART_SendCD(const char *dir)
 {
-    uint8_t buf[PROTO_MAX_DATA_LEN];
-    buf[0] = DISP_EXT_FILE_SAVE;
-    uint8_t plen = (uint8_t)strlen(path);
-    if (plen > sizeof(buf) - 2) plen = sizeof(buf) - 2;
-    memcpy(&buf[1], path, plen);
-    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 1 + plen);
+    char cmd[80];
+    snprintf(cmd, sizeof(cmd), "cd %s", dir);
+    UART_SendCLI(cmd);
+}
+
+void UART_SendCDUp(void)
+{
+    UART_SendCLI("cd ..");
+}
+
+void UART_SendPWD(void)
+{
+    UART_SendCLI("pwd");
+}
+
+void UART_SendPlayMusic(const char *path)
+{
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "play %s", path);
+    UART_SendCLI(cmd);
 }
 
 void UART_SendMusicControl(uint8_t ctrl_type, uint8_t param)
 {
-    uint8_t data[2] = { ctrl_type, param };
-    uint8_t len = (ctrl_type == MUSIC_CTRL_FAST_FWD ||
-                   ctrl_type == MUSIC_CTRL_FAST_REV ||
-                   ctrl_type == MUSIC_CTRL_SET_MODE) ? 2 : 1;
-    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_MUSIC_CONTROL, data, len);
+    (void)param;
+    switch (ctrl_type) {
+    case MUSIC_CTRL_PLAY:    UART_SendCLI("resume"); break;
+    case MUSIC_CTRL_PAUSE:   UART_SendCLI("pause"); break;
+    case MUSIC_CTRL_STOP:    UART_SendCLI("stop");  break;
+    default: break;
+    }
 }
 
 void UART_SendVolumeControl(uint8_t op, uint8_t volume)
 {
-    uint8_t data[2] = { op, volume };
-    uint8_t len = (op == 0x00) ? 2 : 1;  /* set=2 bytes, query=1 byte */
-    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_VOLUME_CONTROL, data, len);
+    char cmd[16];
+    snprintf(cmd, sizeof(cmd), "vol %d", volume);
+    UART_SendCLI(cmd);
+}
+
+void UART_SendFileOperation(uint8_t op_type, const char *path)
+{
+    char cmd[128];
+    switch (op_type) {
+    case FILE_OP_MKDIR:
+        snprintf(cmd, sizeof(cmd), "mkdir %s", path);
+        break;
+    case FILE_OP_DELETE_FILE:
+        snprintf(cmd, sizeof(cmd), "rm %s", path);
+        break;
+    case FILE_OP_DELETE_DIR:
+        snprintf(cmd, sizeof(cmd), "rm -rf %s", path);
+        break;
+    case FILE_OP_RENAME:
+        /* Rename needs two args; caller should use UART_SendCLI directly */
+        return;
+    default:
+        return;
+    }
+    UART_SendCLI(cmd);
+}
+
+void UART_RequestFileRead(const char *path)
+{
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "cat %s", path);
+    UART_SendCLI(cmd);
+}
+
+void UART_RequestFileSave(const char *path)
+{
+    /* File save via CLI is limited; for now just a placeholder.
+     * Full file save would need bulk transfer or echo redirect. */
+    (void)path;
 }
 
 void UART_SendBTControl(uint8_t ctrl_type, const uint8_t *param, uint8_t param_len)
@@ -948,49 +1100,4 @@ void UART_SendErrorReport(uint8_t error_code, const char *msg)
     if (mlen > sizeof(buf) - 3) mlen = sizeof(buf) - 3;
     if (mlen > 0) memcpy(&buf[2], msg, mlen);
     UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 2 + mlen);
-}
-
-void UART_SendFileOperation(uint8_t op_type, const char *path)
-{
-    uint8_t buf[PROTO_MAX_DATA_LEN];
-    buf[0] = DISP_EXT_FILE_OPERATION;
-    buf[1] = op_type;
-    uint8_t plen = (uint8_t)strlen(path);
-    if (plen > sizeof(buf) - 3) plen = sizeof(buf) - 3;
-    memcpy(&buf[2], path, plen);
-    g_pending_req = PENDING_FILE_OP;
-    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 2 + plen);
-}
-
-void UART_SendPlayMusic(const char *path)
-{
-    uint8_t buf[PROTO_MAX_DATA_LEN];
-    buf[0] = DISP_EXT_PLAY_MUSIC;
-    uint8_t plen = (uint8_t)strlen(path);
-    if (plen > sizeof(buf) - 2) plen = sizeof(buf) - 2;
-    memcpy(&buf[1], path, plen);
-    g_pending_req = PENDING_PLAY_MUSIC;
-    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 1 + plen);
-}
-
-void UART_SendCD(const char *path)
-{
-    uint8_t buf[PROTO_MAX_DATA_LEN];
-    buf[0] = DISP_EXT_CD;
-    uint8_t plen = (uint8_t)strlen(path);
-    if (plen > sizeof(buf) - 2) plen = sizeof(buf) - 2;
-    memcpy(&buf[1], path, plen);
-    g_pending_req = PENDING_CD;
-    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 1 + plen);
-}
-
-void UART_SendCLI(const char *cmd)
-{
-    uint8_t buf[PROTO_MAX_DATA_LEN];
-    buf[0] = DISP_EXT_CLI;
-    uint8_t clen = (uint8_t)strlen(cmd);
-    if (clen > sizeof(buf) - 2) clen = sizeof(buf) - 2;
-    memcpy(&buf[1], cmd, clen);
-    g_pending_req = PENDING_CLI;
-    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 1 + clen);
 }

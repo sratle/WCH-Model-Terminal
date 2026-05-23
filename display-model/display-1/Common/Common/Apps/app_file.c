@@ -1,15 +1,18 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : app_file.c
 * Author             : LCD Model Team
-* Version            : V2.0.0
+* Version            : V3.0.0
 * Date               : 2026/05/23
-* Description        : File Manager app.
-*                      Browse directories, view files, create/delete.
-*                      Communicates with Core via UART protocol.
+* Description        : File Manager app (V3.0 CLI passthrough).
+*                      Browse directories, open music/text files via CLI.
+*                      All file I/O routed through UART_SendCLI.
 ********************************************************************************/
 #include "app_file.h"
+#include "app_music.h"
+#include "app_editor.h"
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
+#include "../MiniUI/miniui_page.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -98,23 +101,30 @@ static bool file_is_wav(const char *name)
 
 static bool file_is_text(const char *name)
 {
-    int len = strlen(name);
-    if (len < 3) return false;
-    const char *ext = name + len - 4;
-    if (ext >= name && ext[0] == '.') {
-        if ((ext[1] == 't' || ext[1] == 'T') && (ext[2] == 'x' || ext[2] == 'X') &&
-            (ext[3] == 't' || ext[3] == 'T')) return true;
-        if ((ext[1] == 'j' || ext[1] == 'J') && (ext[2] == 's' || ext[2] == 'S') &&
-            (ext[3] == 'o' || ext[3] == 'O')) return true;
+    /* Case-insensitive extension match */
+    const char *dot = strrchr(name, '.');
+    if (!dot) return false;
+    if (strlen(dot) < 2) return false;
+
+    char ext[8];
+    int elen = 0;
+    dot++;  /* skip '.' */
+    while (*dot && elen < (int)sizeof(ext) - 1) {
+        ext[elen++] = (*dot >= 'A' && *dot <= 'Z') ? (*dot + 32) : *dot;
+        dot++;
     }
-    ext = name + len - 3;
-    if (ext >= name && ext[0] == '.') {
-        if ((ext[1] == 'm' || ext[1] == 'M') && (ext[2] == 'd' || ext[2] == 'D')) return true;
-    }
-    ext = name + len - 2;
-    if (ext >= name && ext[0] == '.') {
-        if (ext[1] == 'c' || ext[1] == 'C') return true;
-        if (ext[1] == 'h' || ext[1] == 'H') return true;
+    ext[elen] = '\0';
+
+    /* Recognized text/code formats */
+    static const char *text_exts[] = {
+        "txt", "json", "xml", "csv", "log", "md",
+        "ini", "cfg", "conf", "dat",
+        "c", "h", "cpp", "hpp", "py", "lua", "js",
+        "html", "htm", "css",
+        NULL
+    };
+    for (int i = 0; text_exts[i] != NULL; i++) {
+        if (strcmp(ext, text_exts[i]) == 0) return true;
     }
     return false;
 }
@@ -183,43 +193,17 @@ static void on_file_list_received(uint8_t status, const file_entry_t *entries, u
     ui_page_invalidate_all();
 }
 
-static void on_file_op_done(bool success, uint8_t error_code)
+static void on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
 {
-    (void)error_code;
+    (void)output; (void)len; (void)truncated; (void)is_last;
+    /* CLI response for file operations (mkdir/rm) — refresh list on success */
     s_fs.loading = false;
-    if (success) file_request_list();
-    ui_page_invalidate_all();
-}
-
-static void on_cd_done(bool success, const char *cwd)
-{
-    if (success) {
-        /* Update display-side path from Core's CWD */
-        if (cwd[0] == '\\')
-            strncpy(s_fs.path, cwd + 1, FILE_PATH_MAX - 1);
-        else
-            strncpy(s_fs.path, cwd, FILE_PATH_MAX - 1);
-        s_fs.path[FILE_PATH_MAX - 1] = '\0';
-        /* Strip trailing backslash for consistent display */
-        int len = strlen(s_fs.path);
-        if (len > 0 && s_fs.path[len - 1] == '\\') s_fs.path[len - 1] = '\0';
-        /* Now request the file list for the new CWD */
-        file_request_list();
-    } else {
-        s_fs.loading = false;
-        snprintf(s_status_text, sizeof(s_status_text), "CD failed");
-        ui_page_invalidate_all();
-    }
+    file_request_list();
 }
 
 static uart_app_callbacks_t s_file_callbacks = {
     .on_file_list = on_file_list_received,
-    .on_file_op_result = on_file_op_done,
-    .on_play_music_result = NULL,
-    .on_bulk_data = NULL,
-    .on_bulk_complete = NULL,
-    .on_cd_result = on_cd_done,
-    .on_cli_response = NULL,
+    .on_cli_response = on_cli_response,
 };
 
 /*=============================================================================
@@ -251,15 +235,14 @@ static void file_request_list(void)
     strncpy(s_last_request_path, s_fs.path, FILE_PATH_MAX - 1);
     s_last_request_path[FILE_PATH_MAX - 1] = '\0';
     UART_SetAppCallbacks(&s_file_callbacks);
-    /* Request file list for Core's current CWD (empty path = list CWD) */
-    UART_RequestFileList("");
+    /* Just send "ls" — cd has already been done by file_enter_path/file_go_up */
+    UART_RequestFileList(NULL);
     file_update_status();
     ui_page_invalidate_all();
 }
 
 static void file_enter_path(const char *name)
 {
-    /* Two-step: first CD into directory on Core, then list */
     if (g_disp_state.music_state == MUSIC_STATE_PLAYING ||
         g_disp_state.music_state == MUSIC_STATE_PAUSED) {
         snprintf(s_status_text, sizeof(s_status_text), "Stop music first");
@@ -267,16 +250,30 @@ static void file_enter_path(const char *name)
         return;
     }
 
+    /* Build new path locally for display */
+    int plen = strlen(s_fs.path);
+    int nlen = strlen(name);
+    if (plen + 1 + nlen >= FILE_PATH_MAX) return;
+
+    if (plen > 0 && s_fs.path[plen - 1] != '\\') {
+        s_fs.path[plen] = '\\';
+        s_fs.path[plen + 1] = '\0';
+        plen++;
+    }
+    memcpy(s_fs.path + plen, name, nlen + 1);
+
+    /* Send "cd <dirname>" — Core cd only supports single-level dir names.
+     * uart_module will auto-send "ls" after cd response. */
     s_fs.loading = true;
+    s_fs.data_ready = false;
     UART_SetAppCallbacks(&s_file_callbacks);
-    UART_SendCD(name);
+    UART_RequestFileList(name);
     file_update_status();
     ui_page_invalidate_all();
 }
 
 static void file_go_up(void)
 {
-    /* Two-step: CD .. on Core, then list */
     if (g_disp_state.music_state == MUSIC_STATE_PLAYING ||
         g_disp_state.music_state == MUSIC_STATE_PAUSED) {
         snprintf(s_status_text, sizeof(s_status_text), "Stop music first");
@@ -284,9 +281,17 @@ static void file_go_up(void)
         return;
     }
 
+    /* Remove last path component (local display path) */
+    int len = strlen(s_fs.path);
+    while (len > 0 && s_fs.path[len - 1] == '\\') { s_fs.path[--len] = '\0'; }
+    while (len > 0 && s_fs.path[len - 1] != '\\') { s_fs.path[--len] = '\0'; }
+    if (len > 0 && s_fs.path[len - 1] == '\\') s_fs.path[--len] = '\0';
+
+    /* Send "cd .." — uart_module will auto-send "ls" after cd response */
     s_fs.loading = true;
+    s_fs.data_ready = false;
     UART_SetAppCallbacks(&s_file_callbacks);
-    UART_SendCD("..");
+    UART_RequestFileList("..");
     file_update_status();
     ui_page_invalidate_all();
 }
@@ -301,16 +306,13 @@ static void file_delete_selected(void)
         return;
     }
     file_entry_t *e = &s_fs.entries[s_fs.selected];
-    char fullpath[FILE_PATH_MAX];
-    int plen = strlen(s_fs.path);
-    snprintf(fullpath, sizeof(fullpath), "%s%s%s", s_fs.path,
-             (plen > 0 && s_fs.path[plen - 1] != '\\') ? "\\" : "", e->name);
+    /* Core commands operate on current directory + filename */
     s_fs.loading = true;
     UART_SetAppCallbacks(&s_file_callbacks);
     if (e->attr & FILE_ATTR_IS_DIR)
-        UART_SendFileOperation(FILE_OP_DELETE_DIR, fullpath);
+        UART_SendFileOperation(FILE_OP_DELETE_DIR, e->name);
     else
-        UART_SendFileOperation(FILE_OP_DELETE_FILE, fullpath);
+        UART_SendFileOperation(FILE_OP_DELETE_FILE, e->name);
     file_update_status();
     ui_page_invalidate_all();
 }
@@ -323,13 +325,10 @@ static void file_create_folder(void)
         ui_page_invalidate_all();
         return;
     }
-    char fullpath[FILE_PATH_MAX];
-    int plen = strlen(s_fs.path);
-    snprintf(fullpath, sizeof(fullpath), "%s%s%s", s_fs.path,
-             (plen > 0 && s_fs.path[plen - 1] != '\\') ? "\\" : "", "NewFolder");
+    /* Core mkdir operates on current directory + dirname */
     s_fs.loading = true;
     UART_SetAppCallbacks(&s_file_callbacks);
-    UART_SendFileOperation(FILE_OP_MKDIR, fullpath);
+    UART_SendFileOperation(FILE_OP_MKDIR, "NewFolder");
     file_update_status();
     ui_page_invalidate_all();
 }
@@ -340,14 +339,14 @@ static void file_open_selected(void)
     file_entry_t *e = &s_fs.entries[s_fs.selected];
     if (e->attr & FILE_ATTR_IS_DIR) { file_enter_path(e->name); return; }
 
-    char fullpath[FILE_PATH_MAX];
-    int plen = strlen(s_fs.path);
-    snprintf(fullpath, sizeof(fullpath), "%s%s%s", s_fs.path,
-             (plen > 0 && s_fs.path[plen - 1] != '\\') ? "\\" : "", e->name);
+    /* Core commands (play/cat) operate on current directory + filename,
+     * so we only send the filename, not the full path. */
     if (file_is_wav(e->name)) {
-        UART_SendPlayMusic(fullpath);
+        UART_SendPlayMusic(e->name);
+        ui_page_push(app_music_get_page());
     } else if (file_is_text(e->name)) {
-        UART_RequestFileRead(fullpath);
+        app_editor_open_file(e->name, e->name);
+        ui_page_push(app_editor_get_page());
     }
 }
 
@@ -430,7 +429,9 @@ static void file_page_enter(ui_page_t *page)
     if (!s_fs.data_ready && !s_fs.loading) {
         s_fs.path[0] = '\0';
         file_update_status();
-        file_request_list();
+        /* First entry: cd to root then ls */
+        UART_SetAppCallbacks(&s_file_callbacks);
+        UART_RequestFileList("\\");
     }
     UART_SetAppCallbacks(&s_file_callbacks);
     ui_page_invalidate_all();

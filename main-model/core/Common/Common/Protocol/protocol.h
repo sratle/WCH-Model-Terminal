@@ -45,9 +45,9 @@
 #define CMD_DISP_SCREEN_CONTROL         0x18
 #define CMD_DISP_GET_SCREEN_STATE       0x19
 #define CMD_DISP_SHOW_NOTICE            0x1A
-#define CMD_DISP_MUSIC_CONTROL          0x1B
+/* 0x1B CMD_DISP_MUSIC_CONTROL — 废弃 (V3.0 CLI 直通替代) */
 #define CMD_DISP_MUSIC_STATUS           0x1C
-#define CMD_DISP_VOLUME_CONTROL         0x1D
+/* 0x1D CMD_DISP_VOLUME_CONTROL — 废弃 (V3.0 CLI 直通替代) */
 #define CMD_DISP_FACTORY_RESET          0x1E
 /* 0x1F 预留 */
 
@@ -59,12 +59,7 @@
 #define CMD_DISP_EXT_APP_DATA           0x03
 #define CMD_DISP_EXT_MODULE_STATUS      0x04
 #define CMD_DISP_EXT_GET_MODULE_STATUS  0x05
-#define CMD_DISP_EXT_REQUEST_FILE_LIST  0x06
-#define CMD_DISP_EXT_FILE_LIST          0x07
-#define CMD_DISP_EXT_FILE_READ          0x08
-#define CMD_DISP_EXT_FILE_SAVE          0x09
-#define CMD_DISP_EXT_FILE_OPERATION     0x0A
-#define CMD_DISP_EXT_PLAY_MUSIC         0x0B
+/* 0x06~0x0B: 废弃 (V3.0 CLI 直通替代) — FILE_LIST/READ/SAVE/OP/PLAY_MUSIC */
 #define CMD_DISP_EXT_BT_EVENT           0x0C
 #define CMD_DISP_EXT_BT_CONTROL         0x0D
 #define CMD_DISP_EXT_SUBMODEL_EVENT     0x0E
@@ -73,13 +68,13 @@
 #define CMD_DISP_EXT_LOAD_CONFIG        0x11
 #define CMD_DISP_EXT_CONFIG_RESULT      0x12
 #define CMD_DISP_EXT_SET_RGB_MODE       0x13
-#define CMD_DISP_EXT_BULK_TRANSFER      0x14
+/* 0x14: 废弃 (V3.0 CLI 直通替代) — BULK_TRANSFER */
 #define CMD_DISP_EXT_SUBDISP_CONTENT    0x15
 #define CMD_DISP_EXT_SUBDISP_CONFIG     0x16
 #define CMD_DISP_EXT_ERROR_REPORT       0x17
 #define CMD_DISP_EXT_HID_STATUS         0x18    /* 外接 HID 设备连接/断开状态 */
-#define CMD_DISP_EXT_CD                 0x19    /* 切换工作目录 (cd) */
-#define CMD_DISP_EXT_CLI                0x1A    /* CLI 命令直通 (Display→Core→Display) */
+/* 0x19: 废弃 (V3.0 CLI 直通替代) — CD */
+#define CMD_DISP_EXT_CLI                0x1A    /* CLI 命令直通 (Display→Core) */
 
 /* ---- HID 设备类型 (CMD_DISP_EXT_HID_STATUS DATA[2]) ---- */
 #define HID_DEV_KEYBOARD                0x01    /* 外接键盘 */
@@ -105,18 +100,10 @@
 #define CORE_KEY_EVT_PRESS              0x01
 #define CORE_KEY_EVT_LONG_PRESS         0x02
 
-/* ---- 音乐控制类型 (CMD_DISP_MUSIC_CONTROL DATA[0]) ---- */
-#define MUSIC_CTRL_TOGGLE               0x00
-#define MUSIC_CTRL_PLAY                 0x01
-#define MUSIC_CTRL_PAUSE                0x02
-#define MUSIC_CTRL_STOP                 0x03
-#define MUSIC_CTRL_PREV                 0x04
-#define MUSIC_CTRL_NEXT                 0x05
-#define MUSIC_CTRL_SEEK_FWD             0x06
-#define MUSIC_CTRL_SEEK_BACK            0x07
-#define MUSIC_CTRL_SET_MODE             0x08
+/* ---- 音乐控制类型 (已废弃，V3.0 CLI 直通替代：pause/resume/stop/prev/next/vol) ---- */
+/* MUSIC_CTRL_* 常量仅在 Display 侧 uart_module.h 中保留作为便利封装 */
 
-/* ---- 播放模式 (MUSIC_CTRL_SET_MODE DATA[1]) ---- */
+/* ---- 播放模式 (已废弃，V3.0 CLI 直通替代：mode 命令) ---- */
 #define MUSIC_MODE_SINGLE              0x00
 #define MUSIC_MODE_SEQUENCE             0x01
 #define MUSIC_MODE_SHUFFLE              0x02
@@ -127,7 +114,7 @@
 #define MUSIC_STATE_PAUSED              0x02
 #define MUSIC_STATE_STOPPED             0x03
 
-/* ---- 音量控制操作 (CMD_DISP_VOLUME_CONTROL DATA[0]) ---- */
+/* ---- 音量控制操作 (已废弃，V3.0 CLI 直通替代：vol 命令) ---- */
 #define VOLUME_OP_SET                   0x00
 #define VOLUME_OP_GET                   0x01
 
@@ -167,11 +154,8 @@
 #define POWER_EVT_CHARGE                0x01
 #define POWER_EVT_ALARM                 0x02
 
-/* ---- 文件操作类型 (CMD_DISP_EXT_FILE_OPERATION DATA[1]) ---- */
-#define FILE_OP_MKDIR                   0x00
-#define FILE_OP_DELETE                  0x01
-#define FILE_OP_RMDIR                   0x02
-#define FILE_OP_RENAME                  0x03
+/* ---- 文件操作类型 (已废弃，V3.0 CLI 直通替代) ---- */
+/* FILE_OP_MKDIR/DELETE/RMDIR/RENAME → 使用 CLI mkdir/rm/rm -rf 命令 */
 
 /* ============================================================================
  * Keyboard 基础操作码 (CMD = 0x21 ~ 0x2F)
