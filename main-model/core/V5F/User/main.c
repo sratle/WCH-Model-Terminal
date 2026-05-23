@@ -48,6 +48,7 @@ int main(void)
         Audio_Process();
         Debug_CLI_Process();
         CH585F_BT_Poll();
+        Hardware_Heartbeat();
         Delay_Ms(1);
     }
 }

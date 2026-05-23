@@ -10,6 +10,7 @@
 #include "ui_main.h"
 #include "../SSD1963/ssd1963.h"
 #include "../settings.h"
+#include "../UART/uart_module.h"
 
 /*=============================================================================
  *  Settings Item Configuration
@@ -51,7 +52,9 @@ static void brightness_change(ui_widget_t *w, int16_t value)
 static void volume_change(ui_widget_t *w, int16_t value)
 {
     (void)w;
-    (void)value;
+    g_settings.volume = (uint8_t)value;
+    /* 发送音量设置命令给 Core (VOLUME_OP_SET=0x00) */
+    UART_SendVolumeControl(0x00, (uint8_t)value);
 }
 
 static void auto_off_change(ui_widget_t *w, int16_t value)

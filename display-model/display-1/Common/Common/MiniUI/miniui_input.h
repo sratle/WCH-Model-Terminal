@@ -136,6 +136,22 @@ void ui_input_set_capture(ui_widget_t *widget, uint8_t touch_id);
 ui_widget_t* ui_input_get_capture(void);
 uint8_t ui_input_get_capture_touch_id(void);
 
+/*=============================================================================
+ *  Mouse Cursor
+ *=============================================================================*/
+
+/* 获取鼠标光标当前位置（屏幕坐标） */
+ui_point_t ui_input_get_mouse_pos(void);
+
+/* 鼠标光标是否可见（外接鼠标已连接） */
+bool ui_input_is_mouse_cursor_visible(void);
+
+/* 设置外接鼠标连接状态（由 UART 协议处理调用） */
+void ui_input_set_mouse_connected(bool connected);
+
+/* 标记鼠标光标脏区域（旧位置 + 新位置），在 ui_page_draw 之前调用 */
+void ui_input_invalidate_cursor(void);
+
 #ifdef __cplusplus
 }
 #endif

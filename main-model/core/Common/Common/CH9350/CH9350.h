@@ -148,6 +148,7 @@ typedef struct
     volatile uint8_t work_state;              // 当前CH9350工作状态（0~4）
     volatile uint8_t dev_connected;           // 设备连接标志（收到0x81置1）
     volatile uint8_t dev_disconnected;        // 设备断开脉冲（收到0x86置1，读取后由应用清零）
+    uint8_t connected_dev_type;               // 连接的设备类型（键盘/鼠标，由DEV_CONNECT帧解析）
     uint8_t version;                          // 下位机版本号（收到0x87更新）
 
     // 应答帧配置

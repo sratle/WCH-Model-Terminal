@@ -569,6 +569,11 @@ void Audio_SetCurrentTrack(const char *name)
     }
 }
 
+audio_state_t Audio_GetState(void)
+{
+    return audio_state;
+}
+
 uint8_t Audio_IsPlaying(void)
 {
     return (audio_state == AUDIO_STATE_PLAYING);

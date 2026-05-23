@@ -1,5 +1,6 @@
 #include "power.h"
 #include "../Protocol/protocol_common.h"
+#include "../hardware.h"
 
 power_t *power_ptr = NULL;
 
@@ -189,8 +190,19 @@ void Power_Process(power_t *power)
 
     req = &power->rx_ctx.frame;
 
+    /* 0. 处理 Power 返回的 ACK 响应（心跳 GET_TYPE 的回复） */
+    if (req->cmd == CMD_ACK)
+    {
+        module_identity_t id;
+        if (Protocol_ParseIdentity(req, &id))
+        {
+            Hardware_Hb_MarkOnline(MODULE_ID_POWER, id.type, id.subtype);
+            power->type_id = id.subtype;
+        }
+        handled = 1;
+    }
     /* 1. 通用命令（0x00~0x0F） */
-    if (ProtocolCommon_Dispatch(req, &power_common_cb,
+    else if (ProtocolCommon_Dispatch(req, &power_common_cb,
                                 resp, sizeof(resp), &resp_len))
     {
         handled = 1;

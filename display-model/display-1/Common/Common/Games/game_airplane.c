@@ -124,6 +124,7 @@ static ui_app_page_t s_game_airplane;
 static ui_widget_t s_touch_area;
 static ui_widget_t *s_ap_widgets[3];
 static ap_game_t s_ap;
+static bool s_ap_touch_active = false;  /* 触摸优先标志：触摸按下时为true */
 
 /*=============================================================================
  *  Helpers
@@ -835,15 +836,32 @@ static void ap_touch_event(ui_widget_t *w, ui_event_t *e)
         }
         return;
     }
-    if (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_MOVE) {
-        s_ap.target_x = e->pos.x - AP_AREA_X;
-        s_ap.target_y = e->pos.y - AP_AREA_Y;
+
+    /* 触摸事件：优先级最高 */
+    if (e->source == UI_INPUT_TOUCH) {
+        if (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_MOVE) {
+            s_ap_touch_active = true;
+            s_ap.target_x = e->pos.x - AP_AREA_X;
+            s_ap.target_y = e->pos.y - AP_AREA_Y;
+        } else if (e->type == UI_EVENT_UP) {
+            s_ap_touch_active = false;
+        }
+        return;
+    }
+
+    /* 鼠标事件：仅当触摸未激活时，鼠标移动直接设置目标位置（无需按下左键） */
+    if (e->source == UI_INPUT_MOUSE && !s_ap_touch_active) {
+        if (e->type == UI_EVENT_MOVE) {
+            s_ap.target_x = e->pos.x - AP_AREA_X;
+            s_ap.target_y = e->pos.y - AP_AREA_Y;
+        }
     }
 }
 
 static void ap_game_enter(ui_page_t *page)
 {
     (void)page;
+    s_ap_touch_active = false;
     ap_reset();
     ui_page_invalidate_all();
 }

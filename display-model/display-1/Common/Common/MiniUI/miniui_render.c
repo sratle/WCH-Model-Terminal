@@ -138,7 +138,8 @@ void ui_render_set_line_pixel(int16_t x, ui_color_t color)
 
 ui_color_t ui_render_get_line_pixel(int16_t x)
 {
-    if (x >= 0 && x < UI_SCREEN_WIDTH) return g_compose_buf[x];
+    if (x >= 0 && x < UI_SCREEN_WIDTH)
+        return g_compose_buf[0 * UI_SCREEN_WIDTH + x];  /* first row of target */
     return 0;
 }
 
@@ -601,15 +602,65 @@ int16_t ui_text_width(const char *text, const ui_font_t *font)
 }
 
 /*=============================================================================
+ *  Mouse Cursor Drawing
+ *
+ *  Draws a simple arrow cursor at (x, y) using pixel-level drawing.
+ *  Cursor shape: 12x18 pixel arrow pointing top-left.
+ *=============================================================================*/
+
+/* 1bpp cursor bitmap: 12 pixels wide, 18 rows tall, MSB first.
+ * Each byte covers 8 horizontal pixels; 12 pixels = 2 bytes per row.
+ * The arrow points to the top-left corner (hotspot at x, y). */
+static const uint8_t s_cursor_bitmap[] = {
+    0x80, 0x00,  /* row  0: #........... */
+    0xC0, 0x00,  /* row  1: ##.......... */
+    0xE0, 0x00,  /* row  2: ###......... */
+    0xF0, 0x00,  /* row  3: ####........ */
+    0xF8, 0x00,  /* row  4: #####....... */
+    0xFC, 0x00,  /* row  5: ######...... */
+    0xFE, 0x00,  /* row  6: #######..... */
+    0xFF, 0x00,  /* row  7: ########.... */
+    0xFF, 0x80,  /* row  8: #########... */
+    0xFF, 0xC0,  /* row  9: ##########.. */
+    0xFC, 0x00,  /* row 10: ######...... */
+    0xEE, 0x00,  /* row 11: ###.###..... */
+    0xC7, 0x00,  /* row 12: ##...###.... */
+    0x83, 0x80,  /* row 13: #.....###... */
+    0x01, 0xC0,  /* row 14: .......###.. */
+    0x00, 0xE0,  /* row 15: ........###. */
+    0x00, 0x70,  /* row 16: .........### */
+    0x00, 0x20,  /* row 17: ..........#. */
+};
+
+void ui_draw_mouse_cursor(int16_t x, int16_t y)
+{
+    ui_color_t fg = UI_COLOR_WHITE;
+    ui_color_t bg = UI_COLOR_BLACK;
+
+    for (int16_t row = 0; row < 18; row++) {
+        int16_t py = y + row;
+        uint8_t b0 = s_cursor_bitmap[row * 2];
+        uint8_t b1 = s_cursor_bitmap[row * 2 + 1];
+
+        for (int16_t col = 0; col < 12; col++) {
+            uint8_t bit = (col < 8) ? (b0 << col) : (b1 << (col - 8));
+            if (bit & 0x80) {
+                ui_draw_pixel(x + col, py, fg);
+            } else {
+                /* Draw black outline for visibility on light backgrounds */
+                /* Only draw bg pixel if any neighbor is fg (outline effect) */
+                /* Simplified: draw bg for all transparent pixels in cursor bounds */
+                ui_draw_pixel(x + col, py, bg);
+            }
+        }
+    }
+}
+
+/*=============================================================================
  *  Screen Operations (direct GRAM access)
  *=============================================================================*/
 
 void ui_screen_clear(ui_color_t color)
 {
     s_driver.clear(color);
-}
-
-void ui_full_refresh(void)
-{
-    s_driver.clear(UI_COLOR_BG_MAIN);
 }

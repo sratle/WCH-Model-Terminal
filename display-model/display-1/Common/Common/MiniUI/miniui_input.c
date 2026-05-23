@@ -28,6 +28,12 @@ static uint8_t s_queue_count = 0;
 static uint8_t s_prev_key_codes[UI_MAX_KEYBOARD_KEYS];
 static uint8_t s_prev_modifiers = 0;
 
+/* External mouse connection state (set by protocol handler) */
+static bool s_ext_mouse_connected = false;
+
+/* Previous mouse position for dirty region tracking */
+static ui_point_t s_prev_mouse_pos = { UI_SCREEN_WIDTH / 2, UI_SCREEN_HEIGHT / 2 };
+
 /*=============================================================================
  *  Queue Helpers
  *=============================================================================*/
@@ -267,6 +273,9 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
     ui_pointer_state_t *mp = &s_state.mouse;
     s_state.mouse_present = true;
 
+    /* Save previous position for dirty region */
+    s_prev_mouse_pos = mp->pos;
+
     /* Update position */
     if (dx != 0 || dy != 0) {
         mp->pos.x += dx;
@@ -459,7 +468,9 @@ void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6])
 
                 ks->pressed = false;
                 ks->long_press_sent = false;
-                ks->click_pending = false;
+                /* NOTE: do NOT clear click_pending here!
+                 * check_click_timeouts() needs it to fire KEY_CLICK after
+                 * the double-click window expires. */
             }
         }
     }
@@ -777,4 +788,56 @@ ui_widget_t* ui_input_get_capture(void)
 uint8_t ui_input_get_capture_touch_id(void)
 {
     return s_state.capture_touch_id;
+}
+
+/*=============================================================================
+ *  Mouse Cursor
+ *=============================================================================*/
+
+ui_point_t ui_input_get_mouse_pos(void)
+{
+    return s_state.mouse.pos;
+}
+
+bool ui_input_is_mouse_cursor_visible(void)
+{
+    return s_ext_mouse_connected;
+}
+
+void ui_input_set_mouse_connected(bool connected)
+{
+    if (s_ext_mouse_connected == connected) return;
+    s_ext_mouse_connected = connected;
+
+    if (connected) {
+        /* Initialize mouse position to (400, 240) */
+        s_state.mouse.pos.x = 400;
+        s_state.mouse.pos.y = 240;
+        s_prev_mouse_pos = s_state.mouse.pos;
+    }
+
+    /* Invalidate cursor area so it appears/disappears */
+    ui_input_invalidate_cursor();
+}
+
+void ui_input_invalidate_cursor(void)
+{
+    if (!s_ext_mouse_connected) return;
+
+    /* Mouse cursor size: 12x18 pixels */
+    #define CURSOR_W  12
+    #define CURSOR_H  18
+
+    /* Invalidate old position */
+    ui_rect_t r;
+    r.x = s_prev_mouse_pos.x;
+    r.y = s_prev_mouse_pos.y;
+    r.w = CURSOR_W;
+    r.h = CURSOR_H;
+    ui_page_invalidate(&r);
+
+    /* Invalidate new position */
+    r.x = s_state.mouse.pos.x;
+    r.y = s_state.mouse.pos.y;
+    ui_page_invalidate(&r);
 }

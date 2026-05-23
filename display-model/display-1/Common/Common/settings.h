@@ -25,6 +25,11 @@ typedef struct {
     uint8_t volume;         /* System volume (0-100) */
     uint8_t auto_off_min;   /* Auto screen-off timeout in minutes */
     bool    auto_off_enable;/* Auto screen-off switch */
+
+    /* 外接 HID 设备状态 */
+    bool    ext_keyboard_connected;  /* 外接键盘是否连接 */
+    bool    ext_mouse_connected;     /* 外接鼠标是否连接 */
+
     /* Extend here for future settings (WiFi, BT, theme, etc.) */
 } sys_settings_t;
 

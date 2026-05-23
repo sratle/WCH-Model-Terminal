@@ -317,7 +317,17 @@ void ui_page_draw(void)
                 }
             }
 
-            /* 5. Flush entire batch to GRAM (one SetWindow + row data) */
+            /* 5. Draw mouse cursor overlay (topmost, if visible and intersects batch) */
+            if (ui_input_is_mouse_cursor_visible()) {
+                ui_point_t mpos = ui_input_get_mouse_pos();
+                /* Cursor: 12x18 pixel arrow, check if batch intersects cursor rect */
+                if (mpos.x < dirty->x + dirty->w && mpos.x + 12 > dirty->x &&
+                    mpos.y < y + batch_h && mpos.y + 18 > y) {
+                    ui_draw_mouse_cursor(mpos.x, mpos.y);
+                }
+            }
+
+            /* 6. Flush entire batch to GRAM (one SetWindow + row data) */
             ui_render_flush_rows(y, batch_h, dirty->x, dirty->w);
         }
     }

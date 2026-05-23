@@ -1,5 +1,6 @@
 #include "submodels.h"
 #include "../Protocol/protocol_common.h"
+#include "../hardware.h"
 
 /* ============================================================================
  * 前向声明：各子类型分发函数
@@ -272,17 +273,22 @@ void Submodels_Process(submodels_t *submodel)
 
     req = &submodel->rx_ctx.frame;
 
-    /* 0. type_id 尚未确定时，尝试从 ACK 帧解析模块身份 */
+    /* 0. 处理 ACK 响应（心跳 GET_TYPE 的回复） */
+    if (req->cmd == CMD_ACK && req->len >= 2 &&
+        req->data[0] == MODULE_TYPE_SUBMODEL)
+    {
+        uint8_t module_id = MODULE_ID_SUBMODEL_1 + (submodel->submodels_id - 1);
+        submodel->type_id = req->data[1];
+        Hardware_Hb_MarkOnline(module_id, req->data[0], req->data[1]);
+
+        /* type_id 尚未确定时，静默返回 */
+        Protocol_ResetRxCtx(&submodel->rx_ctx);
+        return;
+    }
+
+    /* type_id 尚未确定时，静默丢弃所有帧（不回复 NACK） */
     if (submodel->type_id == MODULE_SUBTYPE_SUBMODEL_RESERVED)
     {
-        if (req->cmd == CMD_ACK && req->len >= 2 &&
-            req->data[0] == MODULE_TYPE_SUBMODEL)
-        {
-            submodel->type_id = req->data[1];
-            Protocol_ResetRxCtx(&submodel->rx_ctx);
-            return;
-        }
-        /* 未识别到身份前，静默丢弃所有帧（不回复 NACK） */
         Protocol_ResetRxCtx(&submodel->rx_ctx);
         return;
     }

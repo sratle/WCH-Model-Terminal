@@ -77,6 +77,15 @@
 #define CMD_DISP_EXT_SUBDISP_CONTENT    0x15
 #define CMD_DISP_EXT_SUBDISP_CONFIG     0x16
 #define CMD_DISP_EXT_ERROR_REPORT       0x17
+#define CMD_DISP_EXT_HID_STATUS         0x18    /* 外接 HID 设备连接/断开状态 */
+
+/* ---- HID 设备类型 (CMD_DISP_EXT_HID_STATUS DATA[2]) ---- */
+#define HID_DEV_KEYBOARD                0x01    /* 外接键盘 */
+#define HID_DEV_MOUSE                   0x02    /* 外接鼠标 */
+
+/* ---- HID 设备事件 (CMD_DISP_EXT_HID_STATUS DATA[1]) ---- */
+#define HID_EVT_CONNECTED               0x01    /* 设备已连接 */
+#define HID_EVT_DISCONNECTED            0x00    /* 设备已断开 */
 
 /* ---- 输入事件设备类型 (CMD_DISP_INPUT_EVENT DATA[0]) ---- */
 #define INPUT_DEV_KEYBOARD              0x00

@@ -17,6 +17,7 @@
 #include "CH585F/ch585f.h"
 #include "Key/key.h"
 #include "CLI/CLI.h"
+#include "Protocol/protocol.h"
 
 /**
  * Global variables
@@ -34,6 +35,168 @@ ch9350_t ch9350_g;
 submodels_t submodels_g[3];
 
 volatile hardware_t hardware_g; // Hardware global variable
+
+/*=============================================================================
+ *  心跳 / 模块在线检测
+ *=============================================================================*/
+
+/* 心跳槽位初始化表：module_id 对应协议中的模块 ID */
+static const uint8_t hb_module_ids[HB_MAX_SLOTS] = {
+    MODULE_ID_DISPLAY,
+    MODULE_ID_KEYBOARD,
+    MODULE_ID_POWER,
+    MODULE_ID_SUBMODEL_1,
+    MODULE_ID_SUBMODEL_2,
+    MODULE_ID_SUBMODEL_3,
+};
+
+/* 心跳槽位名称（用于日志） */
+static const char *hb_slot_names[HB_MAX_SLOTS] = {
+    "Display",
+    "Keyboard",
+    "Power",
+    "Submodel1",
+    "Submodel2",
+    "Submodel3",
+};
+
+/* 心跳槽位对应的初始化标志位 */
+static const uint8_t hb_init_flags[HB_MAX_SLOTS] = {
+    0x08,   /* Display  -> V5F bit3 */
+    0x20,   /* Keyboard -> V3F bit5 */
+    0x10,   /* Power    -> V3F bit4 */
+    0x80,   /* Submodel1 -> V3F bit7 */
+    0x80,   /* Submodel2 -> V3F bit7 */
+    0x80,   /* Submodel3 -> V3F bit7 */
+};
+
+static void hb_init_slots(void)
+{
+    uint8_t i;
+    for (i = 0; i < HB_MAX_SLOTS; i++)
+    {
+        hardware_g.hb_slots[i].module_id  = hb_module_ids[i];
+        hardware_g.hb_slots[i].miss_count = 0;
+        hardware_g.hb_slots[i].status     = HB_STATUS_UNKNOWN;
+        hardware_g.hb_slots[i].type       = MODULE_TYPE_RESERVED;
+        hardware_g.hb_slots[i].subtype    = 0;
+    }
+    hardware_g.hb_tick = 0;
+}
+
+/* 向指定槽位发送 CMD_GET_TYPE（仅当模块已初始化时） */
+static void hb_send_get_type(uint8_t slot_idx)
+{
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint16_t len;
+    uint8_t dst = hardware_g.hb_slots[slot_idx].module_id;
+
+    /* 模块未初始化则跳过 */
+    if (!(hardware_g.hardware_init_flag & hb_init_flags[slot_idx]))
+        return;
+
+    len = Protocol_PackFrame(MODULE_ID_CORE, dst, CMD_GET_TYPE, NULL, 0,
+                             buf, sizeof(buf));
+    if (len == 0)
+        return;
+
+    switch (slot_idx)
+    {
+        case 0: Display_Send_Data(&display_g, buf, len); break;
+        case 1: Keyboard_Send_Data(&keyboard_g, buf, len); break;
+        case 2: Power_Send_Data(&power_g, buf, len); break;
+        case 3: Submodels_Send_Data(&submodels_g[0], buf, len); break;
+        case 4: Submodels_Send_Data(&submodels_g[1], buf, len); break;
+        case 5: Submodels_Send_Data(&submodels_g[2], buf, len); break;
+        default: break;
+    }
+}
+
+/*********************************************************************
+ * @fn      Hardware_Heartbeat
+ *
+ * @brief   心跳函数，每秒向所有槽位发送 CMD_GET_TYPE，
+ *          5 次无回应标记为失联。需在主循环中以 1ms 间隔调用。
+ *
+ * @return  none
+ *********************************************************************/
+void Hardware_Heartbeat(void)
+{
+    uint8_t i;
+
+    hardware_g.hb_tick++;
+
+    if (hardware_g.hb_tick < HB_INTERVAL_MS)
+        return;
+
+    hardware_g.hb_tick = 0;
+
+    for (i = 0; i < HB_MAX_SLOTS; i++)
+    {
+        /* 模块未初始化则跳过 */
+        if (!(hardware_g.hardware_init_flag & hb_init_flags[i]))
+            continue;
+
+        /* 检查上轮是否收到回应：
+         * MarkOnline 会将 miss_count 清零，
+         * 如果 miss_count > 0 说明上轮无回应 */
+        if (hardware_g.hb_slots[i].miss_count > 0)
+        {
+            hardware_g.hb_slots[i].miss_count++;
+
+            /* 达到失联阈值 */
+            if (hardware_g.hb_slots[i].miss_count >= HB_TIMEOUT_LIMIT &&
+                hardware_g.hb_slots[i].status != HB_STATUS_OFFLINE)
+            {
+                hardware_g.hb_slots[i].status = HB_STATUS_OFFLINE;
+                printf("[HB] %s OFFLINE\r\n", hb_slot_names[i]);
+            }
+        }
+
+        /* 发送新一轮 GET_TYPE */
+        hb_send_get_type(i);
+
+        /* 设置待确认标记：miss_count==0 表示上轮收到了回应，
+         * 设为 1 表示"等待本轮回应"，MarkOnline 会清零 */
+        if (hardware_g.hb_slots[i].miss_count == 0)
+            hardware_g.hb_slots[i].miss_count = 1;
+    }
+}
+
+/*********************************************************************
+ * @fn      Hardware_Hb_MarkOnline
+ *
+ * @brief   由各模块 Process 在收到 GET_TYPE ACK 时调用，
+ *          标记对应槽位在线。
+ *
+ * @param   module_id  - 协议模块 ID
+ * @param   type       - 模块类型 (MODULE_TYPE_xxx)
+ * @param   subtype    - 模块子类型
+ *
+ * @return  none
+ *********************************************************************/
+void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
+{
+    uint8_t i;
+
+    for (i = 0; i < HB_MAX_SLOTS; i++)
+    {
+        if (hardware_g.hb_slots[i].module_id == module_id)
+        {
+            hardware_g.hb_slots[i].miss_count = 0;
+            hardware_g.hb_slots[i].type       = type;
+            hardware_g.hb_slots[i].subtype    = subtype;
+
+            if (hardware_g.hb_slots[i].status != HB_STATUS_ONLINE)
+            {
+                hardware_g.hb_slots[i].status = HB_STATUS_ONLINE;
+                printf("[HB] %s ONLINE type=0x%02X subtype=0x%02X\r\n",
+                       hb_slot_names[i], type, subtype);
+            }
+            return;
+        }
+    }
+}
 
 /*********************************************************************
  * @fn      Hardware_init
@@ -57,6 +220,8 @@ void Hardware_V3F_Init(void)
     // Submodels_Init(submodels_g);
     // hardware_g.hardware_init_flag |= 0x80;
 
+    hb_init_slots();
+
     // while (hardware_g.hardware_init_flag != 0xFF);
 }
 
@@ -75,8 +240,10 @@ void Hardware_V5F_Init(void)
     CH585F_Init(&ch585f_g);
     hardware_g.hardware_init_flag |= 0x04;
 
-    // Display_Init(&display_g);
-    // hardware_g.hardware_init_flag |= 0x08;
+    Display_Init(&display_g);
+    hardware_g.hardware_init_flag |= 0x08;
+
+    hb_init_slots();
 
     // while (hardware_g.hardware_init_flag != 0xFF);
 }

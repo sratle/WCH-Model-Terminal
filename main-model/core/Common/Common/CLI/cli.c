@@ -6,6 +6,9 @@
 
 #include "CH378/CH378.h"
 #include "CS43131/cs43131.h"
+#include "Display/display.h"
+#include "Protocol/protocol.h"
+#include "hardware.h"
 #include "debug.h"
 
 extern ch378_t ch378_g;
@@ -539,6 +542,267 @@ static void CLI_Cmd_Rm(uint8_t argc, char **argv)
     }
 }
 
+/* ---- 设备/Display 交互命令 ---- */
+
+/* 辅助：通过 Display UART 发送一帧命令给 Display */
+static void CLI_SendToDisplay(uint8_t cmd, const uint8_t *data, uint8_t data_len)
+{
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint16_t len;
+
+    len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY, cmd,
+                             data, data_len, buf, sizeof(buf));
+    if (len > 0)
+        Display_Send_Data(&display_g, buf, len);
+}
+
+static void CLI_Cmd_Lsdev(void)
+{
+    uint8_t i;
+    const char *names[HB_MAX_SLOTS] = {
+        "Display", "Keyboard", "Power", "Submodel1", "Submodel2", "Submodel3"
+    };
+
+    printf("Module Status:\r\n");
+    for (i = 0; i < HB_MAX_SLOTS; i++)
+    {
+        const char *status_str;
+        switch (hardware_g.hb_slots[i].status)
+        {
+            case HB_STATUS_ONLINE:  status_str = "ONLINE";  break;
+            case HB_STATUS_OFFLINE: status_str = "OFFLINE"; break;
+            default:                status_str = "UNKNOWN"; break;
+        }
+        printf("  %-10s  %s  type=0x%02X  subtype=0x%02X  miss=%d\r\n",
+               names[i], status_str,
+               hardware_g.hb_slots[i].type,
+               hardware_g.hb_slots[i].subtype,
+               hardware_g.hb_slots[i].miss_count);
+    }
+}
+
+static void CLI_Cmd_Light(uint8_t argc, char **argv)
+{
+    int val;
+    uint8_t brightness;
+
+    if (argc < 2) {
+        printf("Usage: light <0-100>\r\n");
+        return;
+    }
+
+    val = atoi(argv[1]);
+    if (val < 0) val = 0;
+    if (val > 100) val = 100;
+
+    brightness = (uint8_t)val;
+    CLI_SendToDisplay(CMD_DISP_SET_BRIGHTNESS, &brightness, 1);
+    printf("Set brightness: %d%%\r\n", brightness);
+}
+
+static void CLI_Cmd_Note(uint8_t argc, char **argv)
+{
+    uint8_t data[128];
+    uint8_t priority = 0;
+    uint16_t text_len;
+    uint8_t i;
+
+    if (argc < 2) {
+        printf("Usage: note <text>\r\n");
+        return;
+    }
+
+    /* 拼接所有参数为文本内容 */
+    {
+        char text_buf[110];
+        uint16_t pos = 0;
+        for (i = 1; i < argc && pos < sizeof(text_buf) - 1; i++) {
+            if (i > 1 && pos < sizeof(text_buf) - 1) {
+                text_buf[pos++] = ' ';
+            }
+            uint16_t alen = strlen(argv[i]);
+            if (pos + alen >= sizeof(text_buf))
+                alen = sizeof(text_buf) - 1 - pos;
+            memcpy(&text_buf[pos], argv[i], alen);
+            pos += alen;
+        }
+        text_buf[pos] = '\0';
+        text_len = pos;
+
+        /* DATA[0]=priority, DATA[1..16]=title(16字节补0), DATA[17..N]=content */
+        data[0] = priority;
+        memset(&data[1], 0, 16);
+        {
+            const char *title = "Notice";
+            uint8_t tlen = strlen(title);
+            if (tlen > 16) tlen = 16;
+            memcpy(&data[1], title, tlen);
+        }
+        if (text_len > sizeof(data) - 17)
+            text_len = sizeof(data) - 17;
+        memcpy(&data[17], text_buf, text_len);
+    }
+
+    CLI_SendToDisplay(CMD_DISP_SHOW_NOTICE, data, 17 + text_len);
+    printf("Notice sent\r\n");
+}
+
+static void CLI_Cmd_Mouse(uint8_t argc, char **argv)
+{
+    uint8_t data[5];
+    int x, y;
+    uint8_t buttons = 0;
+
+    if (argc < 4) {
+        printf("Usage: mouse <left/right/none> <x> <y>\r\n");
+        return;
+    }
+
+    if (strcmp(argv[1], "left") == 0)
+        buttons = 0x01;
+    else if (strcmp(argv[1], "right") == 0)
+        buttons = 0x02;
+    else if (strcmp(argv[1], "none") == 0)
+        buttons = 0x00;
+    else {
+        printf("Usage: mouse <left/right/none> <x> <y>\r\n");
+        return;
+    }
+
+    x = atoi(argv[2]);
+    y = atoi(argv[3]);
+    if (x < -128) x = -128; if (x > 127) x = 127;
+    if (y < -128) y = -128; if (y > 127) y = 127;
+
+    /* 鼠标报告: DATA[0]=0x01(mouse), DATA[1]=buttons, DATA[2]=dx, DATA[3]=dy, DATA[4]=wheel */
+    data[0] = INPUT_DEV_MOUSE;
+    data[1] = buttons;
+    data[2] = (int8_t)x;
+    data[3] = (int8_t)y;
+    data[4] = 0;
+
+    CLI_SendToDisplay(CMD_DISP_INPUT_EVENT, data, 5);
+
+    /* 发送按钮释放事件 */
+    if (buttons != 0) {
+        data[1] = 0x00;
+        data[2] = 0;
+        data[3] = 0;
+        CLI_SendToDisplay(CMD_DISP_INPUT_EVENT, data, 5);
+    }
+
+    printf("Mouse: btn=%s dx=%d dy=%d\r\n", argv[1], x, y);
+}
+
+static void CLI_Cmd_Roll(uint8_t argc, char **argv)
+{
+    uint8_t data[5];
+    int delta;
+
+    if (argc < 2) {
+        printf("Usage: roll <delta>\r\n");
+        return;
+    }
+
+    delta = atoi(argv[1]);
+    if (delta < -128) delta = -128;
+    if (delta > 127) delta = 127;
+
+    /* 鼠标报告: buttons=0, dx=0, dy=0, wheel=delta */
+    data[0] = INPUT_DEV_MOUSE;
+    data[1] = 0x00;
+    data[2] = 0;
+    data[3] = 0;
+    data[4] = (int8_t)delta;
+
+    CLI_SendToDisplay(CMD_DISP_INPUT_EVENT, data, 5);
+    printf("Roll: %d\r\n", delta);
+}
+
+/* 键名 -> USB HID Usage ID 映射表 */
+static uint8_t CLI_KeyNameToHID(const char *name)
+{
+    /* 单字符: 0-9, a-z, 基本标点（不含需要Shift的符号） */
+    if (strlen(name) == 1)
+    {
+        char c = name[0];
+        if (c >= 'a' && c <= 'z') return 0x04 + (c - 'a');
+        if (c >= 'A' && c <= 'Z') return 0x04 + (c - 'A');
+        if (c >= '1' && c <= '9') return 0x1E + (c - '1');
+        if (c == '0')             return 0x27;
+        if (c == ' ')             return 0x2C;
+        if (c == '.')             return 0x37;
+        if (c == ',')             return 0x36;
+        if (c == ';')             return 0x33;
+        if (c == '/')             return 0x38;
+        if (c == '\\')            return 0x31;
+        if (c == '[')             return 0x2F;
+        if (c == ']')             return 0x30;
+        if (c == '-')             return 0x2D;
+        if (c == '=')             return 0x2E;
+        if (c == '`')             return 0x35;
+        if (c == '\'')            return 0x34;
+        return 0x00;
+    }
+
+    /* 特殊键名 */
+    if (strcmp(name, "SPACE") == 0)   return 0x2C;
+    if (strcmp(name, "ENTER") == 0)   return 0x28;
+    if (strcmp(name, "UP") == 0)      return 0x52;
+    if (strcmp(name, "DOWN") == 0)    return 0x51;
+    if (strcmp(name, "LEFT") == 0)    return 0x50;
+    if (strcmp(name, "RIGHT") == 0)   return 0x4F;
+    if (strcmp(name, "ESC") == 0)     return 0x29;
+    if (strcmp(name, "BACKSPACE") == 0) return 0x2A;
+    if (strcmp(name, "TAB") == 0)     return 0x2B;
+    if (strcmp(name, "DEL") == 0)     return 0x4C;
+    if (strcmp(name, "HOME") == 0)    return 0x4A;
+    if (strcmp(name, "END") == 0)     return 0x4D;
+    if (strcmp(name, "PGUP") == 0)    return 0x4B;
+    if (strcmp(name, "PGDN") == 0)    return 0x4E;
+
+    return 0x00;
+}
+
+static void CLI_Cmd_Keyboard(uint8_t argc, char **argv)
+{
+    uint8_t data[9];
+    uint8_t hid_code;
+
+    if (argc < 2) {
+        printf("Usage: keyboard <key>\r\n");
+        printf("  Keys: a-z 0-9 SPACE ENTER UP DOWN LEFT RIGHT\r\n");
+        return;
+    }
+
+    hid_code = CLI_KeyNameToHID(argv[1]);
+    if (hid_code == 0x00) {
+        printf("Unknown key: %s\r\n", argv[1]);
+        return;
+    }
+
+    /* 键盘报告: DATA[0]=0x00(keyboard), DATA[1]=modifier, DATA[2]=reserved,
+     *           DATA[3]=keycode, DATA[4..8]=0 */
+    data[0] = INPUT_DEV_KEYBOARD;
+    data[1] = 0x00; /* 无修饰键 */
+    data[2] = 0x00;
+    data[3] = hid_code;
+    data[4] = 0x00;
+    data[5] = 0x00;
+    data[6] = 0x00;
+    data[7] = 0x00;
+    data[8] = 0x00;
+
+    /* 发送按下事件 */
+    CLI_SendToDisplay(CMD_DISP_INPUT_EVENT, data, 9);
+
+    /* 发送释放事件（所有键码清零） */
+    data[3] = 0x00;
+    CLI_SendToDisplay(CMD_DISP_INPUT_EVENT, data, 9);
+
+    printf("Key: 0x%02X (%s)\r\n", hid_code, argv[1]);
+}
+
 static void CLI_Cmd_Help(void)
 {
     printf("Available commands:\r\n");
@@ -570,6 +834,12 @@ static void CLI_Cmd_Help(void)
     printf("  pause           Pause playback\r\n");
     printf("  resume          Resume playback\r\n");
     printf("  playst          Show playback status\r\n");
+    printf("  lsdev           List module status (online/offline/type)\r\n");
+    printf("  light <0-255>   Set display brightness\r\n");
+    printf("  note <text>     Show notice popup on display\r\n");
+    printf("  mouse <L/R/none> <dx> <dy>  Send mouse click event\r\n");
+    printf("  roll <delta>    Send mouse scroll event\r\n");
+    printf("  keyboard <key>  Send keyboard event (a-z 0-9 SPACE ENTER UP DOWN LEFT RIGHT)\r\n");
     printf("  clear           Clear screen\r\n");
     printf("  help            Show this help message\r\n");
 }
@@ -1452,6 +1722,18 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Resume();
     } else if (strcmp(argv[0], "playst") == 0) {
         CLI_Cmd_Playst();
+    } else if (strcmp(argv[0], "lsdev") == 0) {
+        CLI_Cmd_Lsdev();
+    } else if (strcmp(argv[0], "light") == 0) {
+        CLI_Cmd_Light(argc, argv);
+    } else if (strcmp(argv[0], "note") == 0) {
+        CLI_Cmd_Note(argc, argv);
+    } else if (strcmp(argv[0], "mouse") == 0) {
+        CLI_Cmd_Mouse(argc, argv);
+    } else if (strcmp(argv[0], "roll") == 0) {
+        CLI_Cmd_Roll(argc, argv);
+    } else if (strcmp(argv[0], "keyboard") == 0) {
+        CLI_Cmd_Keyboard(argc, argv);
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }

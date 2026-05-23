@@ -1,4 +1,7 @@
 #include "CH9350.h"
+#include "../Display/display.h"
+#include "../Protocol/protocol.h"
+#include "../hardware.h"
 
 // 全局CH9350实例指针（供中断服务函数调用）
 static ch9350_t *g_ch9350_dev = NULL;
@@ -290,7 +293,15 @@ uint8_t CH9350_Parse_Frame(ch9350_t *ch9350)
         ch9350->device_type = CH9350_DEV_NONE;
         if (ch9350->rx_len >= 4)
         {
-            ch9350->version = ch9350->rx_buffer[3];  // 若存在则记录
+            uint8_t id_byte = ch9350->rx_buffer[3];
+            uint8_t dev_mask = id_byte & CH9350_ID_DEV_MASK;
+            if (dev_mask == CH9350_ID_DEV_KEYBOARD)
+                ch9350->connected_dev_type = CH9350_DEV_KEYBOARD;
+            else if (dev_mask == CH9350_ID_DEV_MOUSE)
+                ch9350->connected_dev_type = CH9350_DEV_MOUSE_REL;
+            else
+                ch9350->connected_dev_type = CH9350_DEV_NONE;
+            ch9350->version = id_byte;  // 保留原始ID字节
         }
         parse_success = 1;
         break;
@@ -300,6 +311,7 @@ uint8_t CH9350_Parse_Frame(ch9350_t *ch9350)
         ch9350->dev_connected = 0;
         ch9350->dev_disconnected = 1;
         ch9350->device_type = CH9350_DEV_NONE;
+        ch9350->connected_dev_type = CH9350_DEV_NONE;
         // 清空已缓存的设备数据
         memset(&ch9350->keyboard_data, 0, sizeof(ch9350_keyboard_t));
         memset(&ch9350->mouse_rel_data, 0, sizeof(ch9350_mouse_rel_t));
@@ -584,11 +596,28 @@ void CH9350_Process(ch9350_t *ch9350)
                         }
                     }
                     printf("\r\n");
+
+                    /* 转发键盘输入事件给 Display */
+                    {
+                        uint8_t kb_report[8];
+                        kb_report[0] = ch9350->keyboard_data.modifier;
+                        kb_report[1] = ch9350->keyboard_data.reserved;
+                        memcpy(&kb_report[2], ch9350->keyboard_data.key_code, 6);
+                        Display_SendInputEvent(&display_g, INPUT_DEV_KEYBOARD,
+                                               kb_report, 8);
+                    }
                 }
                 else if (has_prev)
                 {
                     // 从有到无：按键释放
                     printf("[CH9350] KB | Released\r\n");
+
+                    /* 转发键盘释放事件给 Display */
+                    {
+                        uint8_t kb_report[8] = {0};
+                        Display_SendInputEvent(&display_g, INPUT_DEV_KEYBOARD,
+                                               kb_report, 8);
+                    }
                 }
                 // 两帧全0：静默，避免空闲刷屏
 
@@ -614,6 +643,17 @@ void CH9350_Process(ch9350_t *ch9350)
                            ch9350->mouse_rel_data.x_offset,
                            ch9350->mouse_rel_data.y_offset,
                            ch9350->mouse_rel_data.wheel);
+
+                    /* 转发鼠标输入事件给 Display */
+                    {
+                        uint8_t ms_report[4];
+                        ms_report[0] = ch9350->mouse_rel_data.button;
+                        ms_report[1] = (uint8_t)ch9350->mouse_rel_data.x_offset;
+                        ms_report[2] = (uint8_t)ch9350->mouse_rel_data.y_offset;
+                        ms_report[3] = (uint8_t)ch9350->mouse_rel_data.wheel;
+                        Display_SendInputEvent(&display_g, INPUT_DEV_MOUSE,
+                                               ms_report, 4);
+                    }
                 }
                 ch9350->prev_mouse_rel_data = ch9350->mouse_rel_data;
                 break;
@@ -625,11 +665,29 @@ void CH9350_Process(ch9350_t *ch9350)
                 // 连接/断开事件仍然输出
                 if (ch9350->dev_connected)
                 {
-                    printf("[CH9350] Device Connected\r\n");
+                    const char *dev_name = "Unknown";
+                    uint8_t hid_dev_type = 0;
+                    if (ch9350->connected_dev_type == CH9350_DEV_KEYBOARD) {
+                        dev_name = "Keyboard";
+                        hid_dev_type = HID_DEV_KEYBOARD;
+                    } else if (ch9350->connected_dev_type == CH9350_DEV_MOUSE_REL) {
+                        dev_name = "Mouse";
+                        hid_dev_type = HID_DEV_MOUSE;
+                    }
+                    printf("[CH9350] Device Connected (%s)\r\n", dev_name);
+
+                    /* 通知 Display 外接 HID 设备连接 */
+                    if (hid_dev_type != 0) {
+                        Display_SendHidStatus(&display_g, hid_dev_type, 1);
+                    }
                 }
                 else if (ch9350->dev_disconnected)
                 {
                     printf("[CH9350] Device Disconnected\r\n");
+
+                    /* 通知 Display 外接 HID 设备断开（键盘和鼠标都通知断开） */
+                    Display_SendHidStatus(&display_g, HID_DEV_KEYBOARD, 0);
+                    Display_SendHidStatus(&display_g, HID_DEV_MOUSE, 0);
                 }
                 else if (op_code != CH9350_OP_STATUS_CHG)
                 {

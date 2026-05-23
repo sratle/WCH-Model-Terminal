@@ -1,5 +1,6 @@
 #include "keyboard.h"
 #include "../Protocol/protocol_common.h"
+#include "../hardware.h"
 
 keyboard_t *keyboard_ptr = NULL;
 
@@ -188,8 +189,19 @@ void Keyboard_Process(keyboard_t *keyboard)
 
     req = &keyboard->rx_ctx.frame;
 
+    /* 0. 处理 Keyboard 返回的 ACK 响应（心跳 GET_TYPE 的回复） */
+    if (req->cmd == CMD_ACK)
+    {
+        module_identity_t id;
+        if (Protocol_ParseIdentity(req, &id))
+        {
+            Hardware_Hb_MarkOnline(MODULE_ID_KEYBOARD, id.type, id.subtype);
+            keyboard->type_id = id.subtype;
+        }
+        handled = 1;
+    }
     /* 1. 通用命令（0x00~0x0F） */
-    if (ProtocolCommon_Dispatch(req, &keyboard_common_cb,
+    else if (ProtocolCommon_Dispatch(req, &keyboard_common_cb,
                                 resp, sizeof(resp), &resp_len))
     {
         handled = 1;

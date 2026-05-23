@@ -115,16 +115,6 @@ static bool is_pointer_event(ui_event_type_t type)
            type == UI_EVENT_PRESS_CANCEL;
 }
 
-static bool is_key_event(ui_event_type_t type)
-{
-    return type == UI_EVENT_KEY_DOWN || type == UI_EVENT_KEY_UP ||
-           type == UI_EVENT_KEY_CLICK || type == UI_EVENT_KEY_DOUBLE_CLICK ||
-           type == UI_EVENT_KEY_LONG_PRESS || type == UI_EVENT_KEY_LONG_REPEAT ||
-           type == UI_EVENT_KEY_UP_ARROW || type == UI_EVENT_KEY_DOWN_ARROW ||
-           type == UI_EVENT_KEY_LEFT_ARROW || type == UI_EVENT_KEY_RIGHT_ARROW ||
-           type == UI_EVENT_KEY_OK || type == UI_EVENT_KEY_BACK;
-}
-
 /*=============================================================================
  *  Main UI Tick
  *=============================================================================*/
@@ -186,8 +176,7 @@ void UI_Tick(void)
             bool handled = false;
 
             /* Handle BACK key globally */
-            if ((e->type == UI_EVENT_KEY_BACK || e->type == UI_EVENT_KEY_OK) &&
-                e->type == UI_EVENT_KEY_BACK && ui_page_can_go_back()) {
+            if (e->type == UI_EVENT_KEY_BACK && ui_page_can_go_back()) {
                 ui_page_pop();
                 handled = true;
             }
@@ -229,15 +218,8 @@ void UI_Tick(void)
                             break;
                         }
                     }
-                } else if (is_key_event(e->type)) {
-                    /* Key events: broadcast to all widgets */
-                    for (uint16_t i = 0; i < page->widget_count; i++) {
-                        if (page->widgets[i]) {
-                            ui_widget_event(page->widgets[i], e);
-                        }
-                    }
                 } else {
-                    /* Other events: broadcast */
+                    /* Key / other events: broadcast to all widgets */
                     for (uint16_t i = 0; i < page->widget_count; i++) {
                         if (page->widgets[i]) {
                             ui_widget_event(page->widgets[i], e);
@@ -259,6 +241,9 @@ void UI_Tick(void)
             update_page->on_update(update_page);
         }
     }
+
+    /* Invalidate mouse cursor dirty regions before rendering */
+    ui_input_invalidate_cursor();
 
     /* Unified compositing render path for all page types (UI, apps, games).
      * The page manager handles dirty region tracking, widget compositing,

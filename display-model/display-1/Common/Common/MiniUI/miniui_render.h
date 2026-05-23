@@ -123,12 +123,14 @@ void ui_draw_text_in_rect(const ui_rect_t *rect, const char *text, const ui_font
 void ui_draw_text_in_rect_bg(const ui_rect_t *rect, const char *text, const ui_font_t *font, ui_color_t color, ui_color_t bg, uint8_t align);
 int16_t ui_text_width(const char *text, const ui_font_t *font);
 
+/* Mouse Cursor Drawing */
+void ui_draw_mouse_cursor(int16_t x, int16_t y);
+
 /*=============================================================================
  *  Screen Operations (direct GRAM access, not via line buffer)
  *=============================================================================*/
 
 void ui_screen_clear(ui_color_t color);
-void ui_full_refresh(void);
 
 #ifdef __cplusplus
 }

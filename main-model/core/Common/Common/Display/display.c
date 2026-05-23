@@ -3,6 +3,7 @@
 #include "../CS43131/cs43131.h"
 #include "../CH378/CH378.h"
 #include "../CH585F/ch585f.h"
+#include "../hardware.h"
 #include <string.h>
 
 display_t *display_ptr = NULL;
@@ -129,7 +130,18 @@ void Display_UART_IRQ_Handler(display_t *display)
 
 void Display_Get_Type(display_t *display)
 {
-    (void)display;
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint16_t len;
+
+    len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
+                             CMD_GET_TYPE, NULL, 0,
+                             buf, sizeof(buf));
+    if (len > 0)
+    {
+        Display_Send_Data(display, buf, len);
+        display->type_requested = 1;
+        printf("[Display] CMD_GET_TYPE sent\r\n");
+    }
 }
 
 void Display_Send_Data(display_t *display, const uint8_t *data, uint16_t length)
@@ -213,8 +225,42 @@ void Display_Process(display_t *display)
 
     req = &display->rx_ctx.frame;
 
+    /* 0. 处理 Display 返回的 ACK 响应（Core 发送请求后 Display 的回复） */
+    if (req->cmd == CMD_ACK)
+    {
+        module_identity_t id;
+        if (Protocol_ParseIdentity(req, &id))
+        {
+            /* 首次 GET_TYPE 响应 */
+            if (display->type_requested && !display->type_received)
+            {
+                display->type_received = 1;
+                display->type_id = id.subtype;
+                display->identity = id;
+                printf("[Display] GET_TYPE ACK: type=0x%02X subtype=0x%02X hw=0x%02X fw=%d.%d\r\n",
+                       id.type, id.subtype, id.hw_ver, id.fw_major, id.fw_minor);
+            }
+            /* 更新心跳在线状态 */
+            Hardware_Hb_MarkOnline(MODULE_ID_DISPLAY, id.type, id.subtype);
+        }
+        else if (display->type_requested && !display->type_received)
+        {
+            printf("[Display] GET_TYPE ACK: data too short (len=%d)\r\n", req->len);
+        }
+        handled = 1;
+    }
+    /* 处理 Display 返回的 NACK 响应 */
+    else if (req->cmd == CMD_NACK)
+    {
+        if (display->type_requested && !display->type_received)
+        {
+            uint8_t err_code = (req->len >= 2) ? req->data[0] : 0xFF;
+            printf("[Display] GET_TYPE NACK: err=0x%02X\r\n", err_code);
+        }
+        handled = 1;
+    }
     /* 1. 通用命令（0x00~0x0F） */
-    if (ProtocolCommon_Dispatch(req, &display_common_cb,
+    else if (ProtocolCommon_Dispatch(req, &display_common_cb,
                                 resp, sizeof(resp), &resp_len))
     {
         handled = 1;
@@ -517,6 +563,7 @@ static uint8_t Display_HandleVolumeControl(const protocol_frame_t *req,
             if (PROTO_DATA_LEN(*req) < 2)
                 return 0;
             Audio_SetVolume(req->data[1]);
+            printf("[Display] VOLUME_OP_SET: vol=%d\r\n", req->data[1]);
             return 1; /* ACK 空 */
 
         case VOLUME_OP_GET:
@@ -524,6 +571,7 @@ static uint8_t Display_HandleVolumeControl(const protocol_frame_t *req,
                 return 0;
             resp_buf[0] = Audio_GetVolume();
             *resp_len = 1;
+            printf("[Display] VOLUME_OP_GET: vol=%d\r\n", resp_buf[0]);
             return 1;
 
         default:
@@ -870,6 +918,27 @@ void Display_SendInputEvent(display_t *display, uint8_t dev_type,
     frame_len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
                                    CMD_DISP_INPUT_EVENT,
                                    data, 1 + report_len,
+                                   buf, sizeof(buf));
+    if (frame_len > 0)
+        Display_Send_Data(display, buf, frame_len);
+}
+
+void Display_SendHidStatus(display_t *display, uint8_t dev_type, uint8_t connected)
+{
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint8_t data[3]; /* ext_code + evt + dev_type */
+    uint16_t frame_len;
+
+    if (display == NULL)
+        return;
+
+    data[0] = CMD_DISP_EXT_HID_STATUS;
+    data[1] = connected ? HID_EVT_CONNECTED : HID_EVT_DISCONNECTED;
+    data[2] = dev_type;
+
+    frame_len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
+                                   CMD_DISP_EXTENSION,
+                                   data, 3,
                                    buf, sizeof(buf));
     if (frame_len > 0)
         Display_Send_Data(display, buf, frame_len);

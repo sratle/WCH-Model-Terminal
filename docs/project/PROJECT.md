@@ -16,7 +16,7 @@
 供电来自于Power模块，然后在这块PCB上将供电再传输给核心板上连接的其他模块。
 核心板上可以连接的模块包括Power模块一个、Keyboard模块一个、Display模块一个，
 Submodel模块三个（正常情况下可以插入普通的三个Submodel，但是Submodel-7（副屏）体积较大，物理上占用两个 Submodel 位置，因此整机最多只能插入 2 个 Submodel（如 Submodel-7 + 一个普通 Submodel），占用 2 路 UART）
-电路上还接了一个以太网口，但是不一定启用，优先级低。核心模块还支持串口连接CLI控制设备。
+核心模块还支持串口连接CLI控制设备。
 
 - CH378是一个文件管理芯片，通过SPI1和CH32H417通信，CH378下接一个USB-A和一个TF卡座，
   可以读取和操作U盘、TF卡中的文件，文件系统为FAT32，里面的文件主要为txt、wav、md、bmp文件，

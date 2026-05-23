@@ -27,6 +27,8 @@ void settings_load_defaults(void)
     g_settings.volume          = 60;
     g_settings.auto_off_min    = 5;
     g_settings.auto_off_enable = false;
+    g_settings.ext_keyboard_connected = false;
+    g_settings.ext_mouse_connected    = false;
 }
 
 void settings_apply(void)

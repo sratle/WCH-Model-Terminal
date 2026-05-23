@@ -32,6 +32,9 @@ typedef enum {
 typedef struct
 {
     uint8_t type_id;              /* 屏幕类型编号 */
+    uint8_t type_requested;       /* CMD_GET_TYPE 已发送标志 */
+    uint8_t type_received;        /* CMD_GET_TYPE ACK 已收到标志 */
+    module_identity_t identity;   /* Display 模块身份信息 */
     protocol_rx_ctx_t rx_ctx;     /* 协议接收状态机上下文 */
     /* Bulk transfer state */
     bulk_state_t bulk_state;
@@ -62,6 +65,9 @@ void Display_UART_IRQ_Handler(display_t *display);
 /* 发送输入事件给 Display（键盘/鼠标/Core按键/BLE HID） */
 void Display_SendInputEvent(display_t *display, uint8_t dev_type,
                             const uint8_t *report, uint8_t report_len);
+
+/* 发送外接 HID 设备连接/断开状态给 Display */
+void Display_SendHidStatus(display_t *display, uint8_t dev_type, uint8_t connected);
 
 /* 发送音乐播放状态给 Display */
 void Display_SendMusicStatus(display_t *display);
