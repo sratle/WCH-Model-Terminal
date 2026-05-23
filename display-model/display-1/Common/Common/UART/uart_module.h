@@ -217,6 +217,63 @@ extern "C" {
 #define POWER_EVT_ALARM         0x02
 
 /*=============================================================================
+ *  File List Entry (parsed from DISP_EXT_FILE_LIST, Protocol_Display.md §5.9)
+ *=============================================================================*/
+
+#define FILE_ENTRY_SIZE         21
+#define FILE_NAME_MAX_LEN       16
+#define FILE_LIST_MAX_ENTRIES   12
+
+#define FILE_ATTR_IS_DIR        (1 << 0)
+#define FILE_ATTR_READONLY      (1 << 1)
+#define FILE_ATTR_HIDDEN        (1 << 2)
+#define FILE_ATTR_HAS_LFN       (1 << 3)
+
+typedef struct {
+    uint8_t  attr;
+    uint32_t size;
+    char     name[FILE_NAME_MAX_LEN + 1];
+} file_entry_t;
+
+/*=============================================================================
+ *  File Operation Types (Protocol_Display.md §5.10)
+ *=============================================================================*/
+
+#define FILE_OP_MKDIR           0x00
+#define FILE_OP_DELETE_FILE     0x01
+#define FILE_OP_DELETE_DIR      0x02
+#define FILE_OP_RENAME          0x03
+
+/*=============================================================================
+ *  Pending Request Types (for ACK/NACK routing)
+ *=============================================================================*/
+
+typedef enum {
+    PENDING_NONE = 0,
+    PENDING_FILE_OP,
+    PENDING_PLAY_MUSIC,
+    PENDING_FILE_READ,
+    PENDING_FILE_SAVE,
+} pending_req_t;
+
+extern volatile pending_req_t g_pending_req;
+
+/*=============================================================================
+ *  App-Layer Callback Interface
+ *=============================================================================*/
+
+typedef struct {
+    void (*on_file_list)(uint8_t status, const file_entry_t *entries, uint8_t count);
+    void (*on_file_op_result)(bool success, uint8_t error_code);
+    void (*on_play_music_result)(bool success, uint8_t error_code);
+    void (*on_bulk_data)(const uint8_t *data, uint16_t len, bool is_last);
+    void (*on_bulk_complete)(bool success, uint32_t total_size);
+} uart_app_callbacks_t;
+
+void UART_SetAppCallbacks(const uart_app_callbacks_t *cb);
+void UART_ClearAppCallbacks(void);
+
+/*=============================================================================
  *  Music Control Types  (Protocol_Display.md §5.2)
  *=============================================================================*/
 
@@ -320,6 +377,12 @@ void UART_SendBTControl(uint8_t ctrl_type, const uint8_t *param, uint8_t param_l
 
 /* Report error to Core */
 void UART_SendErrorReport(uint8_t error_code, const char *msg);
+
+/* Send file operation request (mkdir/delete/rename) */
+void UART_SendFileOperation(uint8_t op_type, const char *path);
+
+/* Send play music request (path to wav file) */
+void UART_SendPlayMusic(const char *path);
 
 /* Notify activity (reset auto-off timer) — called from input system */
 void UART_NotifyActivity(void);

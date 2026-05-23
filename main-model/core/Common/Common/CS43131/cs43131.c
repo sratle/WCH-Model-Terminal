@@ -29,6 +29,9 @@ static volatile uint32_t audio_data_offset = 0;
 static audio_mode_t audio_mode = AUDIO_MODE_NONE;
 static audio_state_t audio_state = AUDIO_STATE_IDLE;
 
+/* 音乐状态脏标记：状态/音量/曲目变化时置位 */
+static volatile uint8_t music_status_dirty = 0;
+
 
 
 /* 1/4 周期正弦查找表 (0~pi/2)，振幅 8000，65 点 */
@@ -392,6 +395,7 @@ void Audio_FillBuffer(uint16_t *buffer, uint32_t length)
         audio_state = AUDIO_STATE_IDLE;
         audio_mode = AUDIO_MODE_NONE;
         song_data = NULL;
+        music_status_dirty = 1;
     }
 }
 
@@ -412,6 +416,7 @@ void Audio_PlayStart(const uint16_t *data, uint32_t length)
     audio_data_offset = 0;
     audio_mode = AUDIO_MODE_MEMORY;
     audio_state = AUDIO_STATE_PLAYING;
+    music_status_dirty = 1;
 
     /* 预填充两个 buffer，避免启动噪声 */
     Audio_FillBuffer(audio_buffer_A, AUDIO_BUFFER_SIZE);
@@ -436,6 +441,7 @@ void Audio_PlayStop(void)
         CH378FileClose(0);
         wav_file_opened = 0;
     }
+    music_status_dirty = 1;
 }
 
 /*********************************************************************
@@ -450,6 +456,7 @@ void Audio_PlaySineStart(void)
     sine_phase = 0;
     audio_mode = AUDIO_MODE_SINE;
     audio_state = AUDIO_STATE_PLAYING;
+    music_status_dirty = 1;
 
     Audio_GenerateSineWave(audio_buffer_A, AUDIO_BUFFER_SIZE);
 
@@ -476,11 +483,10 @@ void Audio_SetVolume(uint8_t vol)
 {
     if (vol > 100) vol = 100;
     CS43131_g.volume = vol;
-    /* CS43131 PCM Volume: 0x20=0dB(max), ~0xC0=mute.
-     * Linear map: 100 → 0x20, 0 → 0xC0 */
     uint8_t reg_val = (uint8_t)(((100 - vol) * 160) / 100) + 32;
-    CS43131_I2C_WriteReg(0x090001, reg_val); /* Volume B */
-    CS43131_I2C_WriteReg(0x090002, reg_val); /* Volume A */
+    CS43131_I2C_WriteReg(0x090001, reg_val);
+    CS43131_I2C_WriteReg(0x090002, reg_val);
+    music_status_dirty = 1;
 }
 
 /*********************************************************************
@@ -506,6 +512,7 @@ void Audio_Pause(void)
 {
     if (audio_state == AUDIO_STATE_PLAYING) {
         audio_state = AUDIO_STATE_PAUSED;
+        music_status_dirty = 1;
     }
 }
 
@@ -520,6 +527,7 @@ void Audio_Resume(void)
 {
     if (audio_state == AUDIO_STATE_PAUSED) {
         audio_state = AUDIO_STATE_PLAYING;
+        music_status_dirty = 1;
     }
 }
 
@@ -536,6 +544,18 @@ uint32_t Audio_GetPlayTime_ms(void)
      * Stereo 44.1kHz = 88200 channel-samples/sec.
      * ms = samples * 1000 / 88200 */
     return (CS43131_g.samples_played * 1000ULL) / 88200;
+}
+
+uint32_t Audio_GetDuration_ms(void)
+{
+    if (audio_mode != AUDIO_MODE_WAV || wav_info.data_size == 0)
+        return 0;
+    /* duration_ms = data_size * 1000 / byte_rate
+     * byte_rate = sample_rate * num_channels * bits_per_sample / 8 */
+    uint32_t byte_rate = wav_info.sample_rate * wav_info.num_channels *
+                          wav_info.bits_per_sample / 8;
+    if (byte_rate == 0) return 0;
+    return (wav_info.data_size * 1000ULL) / byte_rate;
 }
 
 /*********************************************************************
@@ -567,6 +587,7 @@ void Audio_SetCurrentTrack(const char *name)
     } else {
         CS43131_g.track_name[0] = '\0';
     }
+    music_status_dirty = 1;
 }
 
 audio_state_t Audio_GetState(void)
@@ -577,6 +598,21 @@ audio_state_t Audio_GetState(void)
 uint8_t Audio_IsPlaying(void)
 {
     return (audio_state == AUDIO_STATE_PLAYING);
+}
+
+uint8_t Audio_IsStreaming(void)
+{
+    return (audio_mode == AUDIO_MODE_WAV && wav_file_opened);
+}
+
+uint8_t Audio_IsStatusDirty(void)
+{
+    return music_status_dirty;
+}
+
+void Audio_ClearStatusDirty(void)
+{
+    music_status_dirty = 0;
 }
 
 /*********************************************************************
@@ -687,6 +723,7 @@ void Audio_PlayWAV_Start(wav_info_t *info)
 
     audio_mode = AUDIO_MODE_WAV;
     audio_state = AUDIO_STATE_PLAYING;
+    music_status_dirty = 1;
     printf("Audio_PlayWAV_Start: streaming started, rb_used=%lu\r\n", rb_used());
 }
 
@@ -756,6 +793,7 @@ static void fill_audio_half(uint16_t *buf)
             if (wav_eof && rb_used() == 0) {
                 audio_state = AUDIO_STATE_IDLE;
                 audio_mode = AUDIO_MODE_NONE;
+                music_status_dirty = 1;
                 printf("Audio: playback finished\r\n");
             }
         }

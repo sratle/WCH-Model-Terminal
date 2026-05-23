@@ -26,6 +26,32 @@
 uart_disp_state_t g_disp_state;
 
 /*=============================================================================
+ *  App-Layer Callback Storage
+ *=============================================================================*/
+
+static uart_app_callbacks_t s_app_cb;
+static bool s_app_cb_valid = false;
+volatile pending_req_t g_pending_req = PENDING_NONE;
+
+void UART_SetAppCallbacks(const uart_app_callbacks_t *cb)
+{
+    if (cb) {
+        memcpy(&s_app_cb, cb, sizeof(uart_app_callbacks_t));
+        s_app_cb_valid = true;
+    } else {
+        memset(&s_app_cb, 0, sizeof(uart_app_callbacks_t));
+        s_app_cb_valid = false;
+    }
+}
+
+void UART_ClearAppCallbacks(void)
+{
+    memset(&s_app_cb, 0, sizeof(uart_app_callbacks_t));
+    s_app_cb_valid = false;
+    g_pending_req = PENDING_NONE;
+}
+
+/*=============================================================================
  *  USART1 Configuration
  *=============================================================================*/
 
@@ -600,11 +626,42 @@ static void handle_ext_hid_status(const uint8_t *data, uint8_t len)
     }
 }
 
+static void handle_ext_file_list(const uint8_t *data, uint8_t len)
+{
+    if (!s_app_cb_valid || !s_app_cb.on_file_list) return;
+    if (len < 3) return;
+
+    uint8_t status = data[1];
+    uint8_t count  = data[2];
+
+    file_entry_t entries[FILE_LIST_MAX_ENTRIES];
+    uint8_t parsed = 0;
+
+    for (uint8_t i = 0; i < count && i < FILE_LIST_MAX_ENTRIES; i++) {
+        uint16_t off = 3 + (uint16_t)i * FILE_ENTRY_SIZE;
+        if (off + FILE_ENTRY_SIZE > len) break;
+
+        entries[parsed].attr = data[off];
+        entries[parsed].size = ((uint32_t)data[off + 1] << 24) |
+                                ((uint32_t)data[off + 2] << 16) |
+                                ((uint32_t)data[off + 3] << 8)  |
+                                 (uint32_t)data[off + 4];
+        memcpy(entries[parsed].name, &data[off + 5], FILE_NAME_MAX_LEN);
+        entries[parsed].name[FILE_NAME_MAX_LEN] = '\0';
+        parsed++;
+    }
+
+    s_app_cb.on_file_list(status, entries, parsed);
+}
+
 static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t len, uint8_t src)
 {
     switch (sub_cmd) {
     case DISP_EXT_MODULE_STATUS:
         handle_ext_module_status(data, len);
+        break;
+    case DISP_EXT_FILE_LIST:
+        handle_ext_file_list(data, len);
         break;
     case DISP_EXT_BT_EVENT:
         handle_ext_bt_event(data, len);
@@ -621,10 +678,19 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
     case DISP_EXT_HID_STATUS:
         handle_ext_hid_status(data, len);
         break;
+    case DISP_EXT_BULK_TRANSFER:
+        if (s_app_cb_valid && len >= 6) {
+            if (s_app_cb.on_bulk_complete) {
+                uint8_t done = data[1];
+                uint32_t total = ((uint32_t)data[2] << 24) | ((uint32_t)data[3] << 16) |
+                                  ((uint32_t)data[4] << 8)  |  (uint32_t)data[5];
+                s_app_cb.on_bulk_complete(done == 0x01, total);
+            }
+        }
+        break;
     case DISP_EXT_APP_LAUNCH:
     case DISP_EXT_APP_CLOSE:
     case DISP_EXT_APP_DATA:
-    case DISP_EXT_FILE_LIST:
     case DISP_EXT_SUBDISP_CONTENT:
     case DISP_EXT_SUBDISP_CONFIG:
         /* TODO: implement as features are needed */
@@ -714,8 +780,25 @@ static void process_frame(uint8_t src, uint8_t dst, uint8_t cmd,
         break;
     }
     case CMD_ACK:
+        if (s_app_cb_valid) {
+            if (g_pending_req == PENDING_FILE_OP && s_app_cb.on_file_op_result) {
+                s_app_cb.on_file_op_result(true, 0);
+            } else if (g_pending_req == PENDING_PLAY_MUSIC && s_app_cb.on_play_music_result) {
+                s_app_cb.on_play_music_result(true, 0);
+            }
+            g_pending_req = PENDING_NONE;
+        }
+        break;
     case CMD_NACK:
-        /* Responses to Display's own requests — handled by app layer */
+        if (s_app_cb_valid && data_len >= 1) {
+            uint8_t err = data[0];
+            if (g_pending_req == PENDING_FILE_OP && s_app_cb.on_file_op_result) {
+                s_app_cb.on_file_op_result(false, err);
+            } else if (g_pending_req == PENDING_PLAY_MUSIC && s_app_cb.on_play_music_result) {
+                s_app_cb.on_play_music_result(false, err);
+            }
+            g_pending_req = PENDING_NONE;
+        }
         break;
 
     default:
@@ -845,4 +928,27 @@ void UART_SendErrorReport(uint8_t error_code, const char *msg)
     if (mlen > sizeof(buf) - 3) mlen = sizeof(buf) - 3;
     if (mlen > 0) memcpy(&buf[2], msg, mlen);
     UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 2 + mlen);
+}
+
+void UART_SendFileOperation(uint8_t op_type, const char *path)
+{
+    uint8_t buf[PROTO_MAX_DATA_LEN];
+    buf[0] = DISP_EXT_FILE_OPERATION;
+    buf[1] = op_type;
+    uint8_t plen = (uint8_t)strlen(path);
+    if (plen > sizeof(buf) - 3) plen = sizeof(buf) - 3;
+    memcpy(&buf[2], path, plen);
+    g_pending_req = PENDING_FILE_OP;
+    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 2 + plen);
+}
+
+void UART_SendPlayMusic(const char *path)
+{
+    uint8_t buf[PROTO_MAX_DATA_LEN];
+    buf[0] = DISP_EXT_PLAY_MUSIC;
+    uint8_t plen = (uint8_t)strlen(path);
+    if (plen > sizeof(buf) - 2) plen = sizeof(buf) - 2;
+    memcpy(&buf[1], path, plen);
+    g_pending_req = PENDING_PLAY_MUSIC;
+    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 1 + plen);
 }

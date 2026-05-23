@@ -90,9 +90,18 @@ void Audio_Resume(void);
 
 /* 播放状态查询 */
 audio_state_t Audio_GetState(void);
+uint8_t Audio_IsPlaying(void);
+
+/* CH378 占用查询（WAV 流式播放期间 CH378 不可用于其他操作） */
+uint8_t Audio_IsStreaming(void);
+
+/* 音乐状态脏标记：状态/音量/曲目变化时置位，供 Display 同步使用 */
+uint8_t Audio_IsStatusDirty(void);
+void Audio_ClearStatusDirty(void);
 
 /* 播放进度与曲目信息 */
 uint32_t Audio_GetPlayTime_ms(void);
+uint32_t Audio_GetDuration_ms(void);
 const char* Audio_GetCurrentTrackName(void);
 void Audio_SetCurrentTrack(const char *name);
 
@@ -100,7 +109,6 @@ void Audio_SetCurrentTrack(const char *name);
 uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info);
 void Audio_PlayWAV_Start(wav_info_t *info);
 void Audio_Process(void);
-uint8_t Audio_IsPlaying(void);
 
 void DMA1_Channel1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 
