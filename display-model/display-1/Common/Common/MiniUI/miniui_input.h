@@ -152,6 +152,9 @@ void ui_input_set_mouse_connected(bool connected);
 /* 标记鼠标光标脏区域（旧位置 + 新位置），在 ui_page_draw 之前调用 */
 void ui_input_invalidate_cursor(void);
 
+/* 渲染完成后调用，更新已渲染的光标位置跟踪 */
+void ui_input_cursor_rendered(void);
+
 #ifdef __cplusplus
 }
 #endif

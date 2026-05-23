@@ -249,6 +249,9 @@ void UI_Tick(void)
      * The page manager handles dirty region tracking, widget compositing,
      * and GRAM flushing automatically. */
     ui_page_draw();
+
+    /* Update cursor rendered position after drawing */
+    ui_input_cursor_rendered();
 }
 
 /*=============================================================================

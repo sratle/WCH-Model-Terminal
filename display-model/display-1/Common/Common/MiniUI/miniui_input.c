@@ -31,8 +31,9 @@ static uint8_t s_prev_modifiers = 0;
 /* External mouse connection state (set by protocol handler) */
 static bool s_ext_mouse_connected = false;
 
-/* Previous mouse position for dirty region tracking */
-static ui_point_t s_prev_mouse_pos = { UI_SCREEN_WIDTH / 2, UI_SCREEN_HEIGHT / 2 };
+/* Last rendered cursor position for dirty region tracking.
+ * Updated after each render cycle to track where cursor was actually drawn. */
+static ui_point_t s_cursor_rendered_pos = { -1, -1 };
 
 /*=============================================================================
  *  Queue Helpers
@@ -273,13 +274,10 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
     ui_pointer_state_t *mp = &s_state.mouse;
     s_state.mouse_present = true;
 
-    /* Save previous position for dirty region */
-    s_prev_mouse_pos = mp->pos;
-
-    /* Update position */
+    /* Update position (2x multiplier for comfortable speed) */
     if (dx != 0 || dy != 0) {
-        mp->pos.x += dx;
-        mp->pos.y += dy;
+        mp->pos.x += dx * 2;
+        mp->pos.y += dy * 2;
         if (mp->pos.x < 0) mp->pos.x = 0;
         if (mp->pos.x >= UI_SCREEN_WIDTH) mp->pos.x = UI_SCREEN_WIDTH - 1;
         if (mp->pos.y < 0) mp->pos.y = 0;
@@ -813,31 +811,54 @@ void ui_input_set_mouse_connected(bool connected)
         /* Initialize mouse position to (400, 240) */
         s_state.mouse.pos.x = 400;
         s_state.mouse.pos.y = 240;
-        s_prev_mouse_pos = s_state.mouse.pos;
+        s_cursor_rendered_pos.x = -1;  /* Force invalidate at new position */
+        s_cursor_rendered_pos.y = -1;
+    } else {
+        /* Mouse disconnected: invalidate old cursor position to erase it */
+        if (s_cursor_rendered_pos.x >= 0) {
+            ui_rect_t r;
+            r.x = s_cursor_rendered_pos.x - 1;
+            r.y = s_cursor_rendered_pos.y - 1;
+            r.w = 10;
+            r.h = 13;
+            ui_page_invalidate(&r);
+        }
+        s_cursor_rendered_pos.x = -1;
+        s_cursor_rendered_pos.y = -1;
     }
-
-    /* Invalidate cursor area so it appears/disappears */
-    ui_input_invalidate_cursor();
 }
 
 void ui_input_invalidate_cursor(void)
 {
     if (!s_ext_mouse_connected) return;
 
-    /* Mouse cursor size: 12x18 pixels */
-    #define CURSOR_W  12
-    #define CURSOR_H  18
+    /* Mouse cursor size: 8x11 pixels + 1px outline = 10x13 dirty region */
+    #define CURSOR_W  10
+    #define CURSOR_H  13
 
-    /* Invalidate old position */
     ui_rect_t r;
-    r.x = s_prev_mouse_pos.x;
-    r.y = s_prev_mouse_pos.y;
     r.w = CURSOR_W;
     r.h = CURSOR_H;
-    ui_page_invalidate(&r);
 
-    /* Invalidate new position */
-    r.x = s_state.mouse.pos.x;
-    r.y = s_state.mouse.pos.y;
+    /* Invalidate the position where cursor was last rendered (to erase it) */
+    if (s_cursor_rendered_pos.x >= 0 &&
+        (s_cursor_rendered_pos.x != s_state.mouse.pos.x ||
+         s_cursor_rendered_pos.y != s_state.mouse.pos.y)) {
+        r.x = s_cursor_rendered_pos.x - 1;
+        r.y = s_cursor_rendered_pos.y - 1;
+        ui_page_invalidate(&r);
+    }
+
+    /* Invalidate the current cursor position (to draw it) */
+    r.x = s_state.mouse.pos.x - 1;
+    r.y = s_state.mouse.pos.y - 1;
     ui_page_invalidate(&r);
+}
+
+/* Called after rendering to update the tracked rendered position */
+void ui_input_cursor_rendered(void)
+{
+    if (s_ext_mouse_connected) {
+        s_cursor_rendered_pos = s_state.mouse.pos;
+    }
 }

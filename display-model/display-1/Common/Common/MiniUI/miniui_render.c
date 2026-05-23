@@ -604,53 +604,67 @@ int16_t ui_text_width(const char *text, const ui_font_t *font)
 /*=============================================================================
  *  Mouse Cursor Drawing
  *
- *  Draws a simple arrow cursor at (x, y) using pixel-level drawing.
- *  Cursor shape: 12x18 pixel arrow pointing top-left.
+ *  Draws a small arrow cursor at (x, y) using pixel-level drawing.
+ *  Cursor shape: 8x11 pixel arrow pointing top-left, transparent background.
  *=============================================================================*/
 
-/* 1bpp cursor bitmap: 12 pixels wide, 18 rows tall, MSB first.
- * Each byte covers 8 horizontal pixels; 12 pixels = 2 bytes per row.
- * The arrow points to the top-left corner (hotspot at x, y). */
+/* Mouse Cursor Drawing */
 static const uint8_t s_cursor_bitmap[] = {
-    0x80, 0x00,  /* row  0: #........... */
-    0xC0, 0x00,  /* row  1: ##.......... */
-    0xE0, 0x00,  /* row  2: ###......... */
-    0xF0, 0x00,  /* row  3: ####........ */
-    0xF8, 0x00,  /* row  4: #####....... */
-    0xFC, 0x00,  /* row  5: ######...... */
-    0xFE, 0x00,  /* row  6: #######..... */
-    0xFF, 0x00,  /* row  7: ########.... */
-    0xFF, 0x80,  /* row  8: #########... */
-    0xFF, 0xC0,  /* row  9: ##########.. */
-    0xFC, 0x00,  /* row 10: ######...... */
-    0xEE, 0x00,  /* row 11: ###.###..... */
-    0xC7, 0x00,  /* row 12: ##...###.... */
-    0x83, 0x80,  /* row 13: #.....###... */
-    0x01, 0xC0,  /* row 14: .......###.. */
-    0x00, 0xE0,  /* row 15: ........###. */
-    0x00, 0x70,  /* row 16: .........### */
-    0x00, 0x20,  /* row 17: ..........#. */
+    0x80,  /* row 0:  #....... */
+    0xC0,  /* row 1:  ##...... */
+    0xE0,  /* row 2:  ###..... */
+    0xF0,  /* row 3:  ####.... */
+    0xF8,  /* row 4:  #####... */
+    0xFC,  /* row 5:  ######.. */
+    0xF0,  /* row 6:  ####.... */
+    0xD8,  /* row 7:  ##.##... */
+    0x8C,  /* row 8:  #...##.. */
+    0x06,  /* row 9:  .....##. */
+    0x02,  /* row 10: ......#. */
 };
+
+#define CURSOR_BITMAP_W  8
+#define CURSOR_BITMAP_H  11
 
 void ui_draw_mouse_cursor(int16_t x, int16_t y)
 {
-    ui_color_t fg = UI_COLOR_WHITE;
-    ui_color_t bg = UI_COLOR_BLACK;
+    /* Draw white outline (offset ±1 pixel) then black fill,
+     * ensuring visibility on both light and dark backgrounds. */
+    ui_color_t outline = UI_COLOR_WHITE;
+    ui_color_t fill    = UI_COLOR_BLACK;
 
-    for (int16_t row = 0; row < 18; row++) {
+    /* Pass 1: white outline — draw each set pixel shifted by ±1 */
+    for (int16_t row = 0; row < CURSOR_BITMAP_H; row++) {
+        uint8_t b = s_cursor_bitmap[row];
+        for (int16_t col = 0; col < CURSOR_BITMAP_W; col++) {
+            if (b & (0x80 >> col)) {
+                for (int16_t dy = -1; dy <= 1; dy++) {
+                    for (int16_t dx = -1; dx <= 1; dx++) {
+                        if (dx == 0 && dy == 0) continue;
+                        int16_t px = x + col + dx;
+                        int16_t py = y + row + dy;
+                        /* Only draw outline if the neighbor is NOT part of the cursor */
+                        int16_t nr = row + dy;
+                        int16_t nc = col + dx;
+                        bool neighbor_set = (nr >= 0 && nr < CURSOR_BITMAP_H &&
+                                             nc >= 0 && nc < CURSOR_BITMAP_W &&
+                                             (s_cursor_bitmap[nr] & (0x80 >> nc)));
+                        if (!neighbor_set) {
+                            ui_draw_pixel(px, py, outline);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /* Pass 2: black fill */
+    for (int16_t row = 0; row < CURSOR_BITMAP_H; row++) {
         int16_t py = y + row;
-        uint8_t b0 = s_cursor_bitmap[row * 2];
-        uint8_t b1 = s_cursor_bitmap[row * 2 + 1];
-
-        for (int16_t col = 0; col < 12; col++) {
-            uint8_t bit = (col < 8) ? (b0 << col) : (b1 << (col - 8));
-            if (bit & 0x80) {
-                ui_draw_pixel(x + col, py, fg);
-            } else {
-                /* Draw black outline for visibility on light backgrounds */
-                /* Only draw bg pixel if any neighbor is fg (outline effect) */
-                /* Simplified: draw bg for all transparent pixels in cursor bounds */
-                ui_draw_pixel(x + col, py, bg);
+        uint8_t b = s_cursor_bitmap[row];
+        for (int16_t col = 0; col < CURSOR_BITMAP_W; col++) {
+            if (b & (0x80 >> col)) {
+                ui_draw_pixel(x + col, py, fill);
             }
         }
     }

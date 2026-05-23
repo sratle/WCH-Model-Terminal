@@ -29,8 +29,6 @@ extern ch378_t ch378_g;
 extern ch585f_t ch585f_g;
 extern display_t display_g;
 
-extern volatile hardware_t hardware_g;
-
 /*=============================================================================
  *  心跳 / 模块在线检测
  *=============================================================================*/
@@ -62,6 +60,8 @@ typedef struct
     hb_slot_t hb_slots[HB_MAX_SLOTS]; /* 心跳槽位 */
     uint32_t hb_tick;           /* 心跳计时计数器 (ms) */
 } hardware_t;
+
+extern volatile hardware_t hardware_g;
 
 void Hardware_V5F_Init(void);
 void Hardware_V3F_Init(void);

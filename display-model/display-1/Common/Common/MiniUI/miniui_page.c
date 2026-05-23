@@ -320,9 +320,9 @@ void ui_page_draw(void)
             /* 5. Draw mouse cursor overlay (topmost, if visible and intersects batch) */
             if (ui_input_is_mouse_cursor_visible()) {
                 ui_point_t mpos = ui_input_get_mouse_pos();
-                /* Cursor: 12x18 pixel arrow, check if batch intersects cursor rect */
-                if (mpos.x < dirty->x + dirty->w && mpos.x + 12 > dirty->x &&
-                    mpos.y < y + batch_h && mpos.y + 18 > y) {
+                /* Cursor: 8x11 + 1px outline = 10x13, check if batch intersects */
+                if (mpos.x - 1 < dirty->x + dirty->w && mpos.x + 9 > dirty->x &&
+                    mpos.y - 1 < y + batch_h && mpos.y + 12 > y) {
                     ui_draw_mouse_cursor(mpos.x, mpos.y);
                 }
             }

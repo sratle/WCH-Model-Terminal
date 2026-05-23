@@ -197,12 +197,16 @@ static void button_event_cb(ui_widget_t *w, ui_event_t *e)
         break;
     case UI_EVENT_MOVE:
         if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            /* Currently pressed: release if pointer moved outside */
             if (!ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
                 w->flags &= ~UI_WIDGET_FLAG_PRESSED;
                 ui_widget_invalidate(w);
             }
         } else {
-            if (ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
+            /* Not pressed: only enter pressed state for touch or mouse-with-button-down */
+            bool can_press = (e->source == UI_INPUT_TOUCH) ||
+                             (e->source == UI_INPUT_MOUSE && (e->mouse_buttons & UI_MOUSE_BTN_LEFT));
+            if (can_press && ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
                 w->flags |= UI_WIDGET_FLAG_PRESSED;
                 ui_widget_invalidate(w);
             }
@@ -335,12 +339,16 @@ static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
         break;
     case UI_EVENT_MOVE:
         if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            /* Currently pressed: release if pointer moved outside */
             if (!ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
                 w->flags &= ~UI_WIDGET_FLAG_PRESSED;
                 ui_widget_invalidate(w);
             }
         } else {
-            if (ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
+            /* Not pressed: only enter pressed state for touch or mouse-with-button-down */
+            bool can_press = (e->source == UI_INPUT_TOUCH) ||
+                             (e->source == UI_INPUT_MOUSE && (e->mouse_buttons & UI_MOUSE_BTN_LEFT));
+            if (can_press && ui_widget_hit_test(w, e->pos.x, e->pos.y)) {
                 w->flags |= UI_WIDGET_FLAG_PRESSED;
                 ui_widget_invalidate(w);
             }
