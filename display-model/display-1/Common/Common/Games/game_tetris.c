@@ -832,6 +832,40 @@ static void tet_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
 
+    /* Keyboard events */
+    if (e->type == UI_EVENT_KEY_UP_ARROW) {
+        if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER)
+            tet_start_game();
+        else
+            tet_do_rotate();
+        return;
+    } else if (e->type == UI_EVENT_KEY_DOWN_ARROW) {
+        if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER)
+            tet_start_game();
+        else
+            tet_do_move_action(0, 1);
+        return;
+    } else if (e->type == UI_EVENT_KEY_LEFT_ARROW) {
+        if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER)
+            tet_start_game();
+        else
+            tet_do_move_action(-1, 0);
+        return;
+    } else if (e->type == UI_EVENT_KEY_RIGHT_ARROW) {
+        if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER)
+            tet_start_game();
+        else
+            tet_do_move_action(1, 0);
+        return;
+    } else if (e->type == UI_EVENT_KEY_OK) {
+        if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER)
+            tet_start_game();
+        else
+            tet_do_hard_drop();
+        return;
+    }
+
+    /* Touch / swipe events */
     if (e->type == UI_EVENT_SWIPE_LEFT) {
         if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER) {
             tet_start_game();

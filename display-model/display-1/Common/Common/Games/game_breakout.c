@@ -664,6 +664,33 @@ static void brk_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
 
+    /* Keyboard events */
+    if (e->type == UI_EVENT_KEY_LEFT_ARROW) {
+        if (s_brk.state == BRK_STATE_PLAYING || s_brk.state == BRK_STATE_LAUNCH) {
+            int16_t new_x = s_brk.paddle_x - BRK_PADDLE_HOLD_SPEED;
+            brk_move_paddle_to(new_x);
+        } else if (s_brk.state == BRK_STATE_IDLE || s_brk.state == BRK_STATE_GAMEOVER || s_brk.state == BRK_STATE_WIN) {
+            brk_start_game();
+        }
+        return;
+    } else if (e->type == UI_EVENT_KEY_RIGHT_ARROW) {
+        if (s_brk.state == BRK_STATE_PLAYING || s_brk.state == BRK_STATE_LAUNCH) {
+            int16_t new_x = s_brk.paddle_x + BRK_PADDLE_HOLD_SPEED;
+            brk_move_paddle_to(new_x);
+        } else if (s_brk.state == BRK_STATE_IDLE || s_brk.state == BRK_STATE_GAMEOVER || s_brk.state == BRK_STATE_WIN) {
+            brk_start_game();
+        }
+        return;
+    } else if (e->type == UI_EVENT_KEY_OK) {
+        if (s_brk.state == BRK_STATE_IDLE || s_brk.state == BRK_STATE_GAMEOVER || s_brk.state == BRK_STATE_WIN) {
+            brk_start_game();
+        } else if (s_brk.state == BRK_STATE_LAUNCH) {
+            brk_launch_ball();
+        }
+        return;
+    }
+
+    /* Touch events */
     if (e->type == UI_EVENT_CLICK) {
         if (s_brk.state == BRK_STATE_IDLE || s_brk.state == BRK_STATE_GAMEOVER || s_brk.state == BRK_STATE_WIN) {
             brk_start_game();

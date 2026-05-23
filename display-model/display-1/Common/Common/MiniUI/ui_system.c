@@ -218,6 +218,17 @@ void UI_Tick(void)
                             break;
                         }
                     }
+                } else if (e->type == UI_EVENT_KEY_OK && ui_input_is_mouse_cursor_visible()) {
+                    /* KEY_OK with mouse cursor: simulate click at cursor position */
+                    ui_point_t mpos = ui_input_get_mouse_pos();
+                    for (int16_t i = page->widget_count - 1; i >= 0; i--) {
+                        if (page->widgets[i] &&
+                            ui_widget_hit_test(page->widgets[i], mpos.x, mpos.y)) {
+                            ui_widget_event(page->widgets[i], e);
+                            handled = true;
+                            break;
+                        }
+                    }
                 } else {
                     /* Key / other events: broadcast to all widgets */
                     for (uint16_t i = 0; i < page->widget_count; i++) {

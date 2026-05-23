@@ -855,6 +855,32 @@ static void ap_touch_event(ui_widget_t *w, ui_event_t *e)
             s_ap.target_x = e->pos.x - AP_AREA_X;
             s_ap.target_y = e->pos.y - AP_AREA_Y;
         }
+        return;
+    }
+
+    /* 键盘事件：方向键移动飞机，OK键开始/重新开始 */
+    if (e->type == UI_EVENT_KEY_LEFT_ARROW) {
+        s_ap.target_x -= 20;
+        if (s_ap.target_x < 0) s_ap.target_x = 0;
+        return;
+    } else if (e->type == UI_EVENT_KEY_RIGHT_ARROW) {
+        s_ap.target_x += 20;
+        if (s_ap.target_x > AP_AREA_W) s_ap.target_x = AP_AREA_W;
+        return;
+    } else if (e->type == UI_EVENT_KEY_UP_ARROW) {
+        s_ap.target_y -= 20;
+        if (s_ap.target_y < 0) s_ap.target_y = 0;
+        return;
+    } else if (e->type == UI_EVENT_KEY_DOWN_ARROW) {
+        s_ap.target_y += 20;
+        if (s_ap.target_y > AP_AREA_H) s_ap.target_y = AP_AREA_H;
+        return;
+    } else if (e->type == UI_EVENT_KEY_OK) {
+        if (s_ap.state == AP_STATE_IDLE || s_ap.state == AP_STATE_GAMEOVER) {
+            ap_start_game();
+            ui_page_invalidate_all();
+        }
+        return;
     }
 }
 

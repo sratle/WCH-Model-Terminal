@@ -576,6 +576,34 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
 
+    /* Keyboard events */
+    if (e->type == UI_EVENT_KEY_LEFT_ARROW || e->type == UI_EVENT_KEY_RIGHT_ARROW ||
+        e->type == UI_EVENT_KEY_UP_ARROW || e->type == UI_EVENT_KEY_DOWN_ARROW) {
+        if (s_g4.state == G4_STATE_IDLE || s_g4.state == G4_STATE_GAMEOVER || s_g4.state == G4_STATE_WIN) {
+            g4_start_game();
+            return;
+        }
+        if (s_g4.state == G4_STATE_PLAYING) {
+            g4_dir_t dir;
+            if (e->type == UI_EVENT_KEY_LEFT_ARROW)       dir = G4_DIR_LEFT;
+            else if (e->type == UI_EVENT_KEY_RIGHT_ARROW)  dir = G4_DIR_RIGHT;
+            else if (e->type == UI_EVENT_KEY_UP_ARROW)     dir = G4_DIR_UP;
+            else                                            dir = G4_DIR_DOWN;
+            if (g4_do_move(dir)) {
+                g4_inv_changed_tiles();
+                g4_inv_score();
+                g4_inv_moves();
+                g4_inv_undo();
+            }
+        }
+        return;
+    } else if (e->type == UI_EVENT_KEY_OK) {
+        if (s_g4.state == G4_STATE_IDLE || s_g4.state == G4_STATE_GAMEOVER || s_g4.state == G4_STATE_WIN)
+            g4_start_game();
+        return;
+    }
+
+    /* Touch / swipe events */
     if (e->type == UI_EVENT_SWIPE_LEFT || e->type == UI_EVENT_SWIPE_RIGHT ||
         e->type == UI_EVENT_SWIPE_UP || e->type == UI_EVENT_SWIPE_DOWN) {
 
