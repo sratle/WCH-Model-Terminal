@@ -125,13 +125,16 @@ static char s_status_text[32];
 static uint8_t s_prev_state = 0xFF;
 static uint8_t s_prev_vol = 0xFF;
 
-/* Local position estimation: increment while playing, calibrate on Core update */
+/* Local position estimation: frame-based counter (25fps = 40ms/frame) */
 static uint32_t s_local_pos_ms = 0;
-static uint32_t s_last_tick_ms = 0;
 static bool s_local_tracking = false;
+#define MUSIC_FRAME_MS  40  /* 25fps */
 
 /* Track-end detection flag — set when position reaches duration */
 static bool s_track_ended = false;
+
+/* Flag: skip playst on enter because play command was just sent from file browser */
+static bool s_skip_playst = false;
 
 /*=============================================================================
  *  Forward Declarations
@@ -174,7 +177,6 @@ static void music_play_index(int16_t index)
     s_track_ended = false;
     s_local_pos_ms = 0;
     s_local_tracking = true;
-    s_last_tick_ms = ui_get_real_ms();
     UART_SendPlayMusic(s_playlist.names[index]);
 }
 
@@ -382,14 +384,19 @@ static void music_page_enter(ui_page_t *page)
     s_prev_vol = 0xFF;
     s_local_tracking = false;
     s_local_pos_ms = g_disp_state.music_pos_ms;
-    s_last_tick_ms = 0;
     s_track_ended = false;
 
     /* Register music callbacks so CLI responses don't go to file app */
     UART_SetAppCallbacks(&s_music_callbacks);
 
-    /* Send playst to sync music state from Core */
-    UART_SendCLI("playst");
+    /* Send playst to sync music state from Core, but skip if a play
+     * command was just sent from file browser (it would overwrite the
+     * pending play request). */
+    if (s_skip_playst) {
+        s_skip_playst = false;
+    } else {
+        UART_SendCLI("playst");
+    }
 
     /* Ensure current track is visible */
     music_ensure_current_visible();
@@ -400,11 +407,17 @@ static void music_page_enter(ui_page_t *page)
 
 static void music_page_draw(ui_page_t *page, ui_rect_t *dirty)
 {
-    (void)page; (void)dirty;
+    (void)page;
+
+    /* Title bar background */
     ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
     ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
+
+    /* Main background */
     ui_rect_t bg = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
     ui_draw_fill_rect(&bg, MUSIC_BG);
+
+    /* Always draw all sections — drawing primitives are auto-clipped to dirty */
     music_draw_disc();
     music_draw_info();
     music_draw_progress();
@@ -415,58 +428,52 @@ static void music_page_draw(ui_page_t *page, ui_rect_t *dirty)
 static void music_page_update(ui_page_t *page)
 {
     (void)page;
-    bool changed = false;
 
-    /* Local position estimation: increment while playing */
+    /* --- Frame-based position counter (25fps = 40ms per frame) --- */
     if (g_disp_state.music_state == MUSIC_STATE_PLAYING) {
-        uint32_t now = ui_get_real_ms();
-        if (s_last_tick_ms > 0 && now > s_last_tick_ms) {
-            uint32_t dt = now - s_last_tick_ms;
-            if (dt >= 100) {
-                s_local_pos_ms += dt;
-                s_last_tick_ms = now;
-                if (g_disp_state.music_dur_ms > 0 &&
-                    s_local_pos_ms > g_disp_state.music_dur_ms)
-                    s_local_pos_ms = g_disp_state.music_dur_ms;
-                changed = true;
-            }
-        } else {
-            s_last_tick_ms = now;
-        }
         if (!s_local_tracking) {
             s_local_tracking = true;
             s_local_pos_ms = g_disp_state.music_pos_ms;
-            s_last_tick_ms = ui_get_real_ms();
-            changed = true;
         }
+        s_local_pos_ms += MUSIC_FRAME_MS;
+        if (g_disp_state.music_dur_ms > 0 &&
+            s_local_pos_ms > g_disp_state.music_dur_ms)
+            s_local_pos_ms = g_disp_state.music_dur_ms;
 
-        /* Detect track end: position reached duration */
+        /* Detect track end */
         if (!s_track_ended && g_disp_state.music_dur_ms > 0 &&
             s_local_pos_ms >= g_disp_state.music_dur_ms) {
             music_on_track_end();
         }
+
+        /* Only invalidate progress bar area (time text + bar) */
+        music_update_texts();
+        ui_rect_t prog_area = {PROG_X - 2, PROG_Y - 2,
+                               PROG_W + 4, (TIME_Y + 16) - PROG_Y + 4};
+        ui_page_invalidate(&prog_area);
     } else {
         if (s_local_tracking) {
             s_local_tracking = false;
             s_local_pos_ms = g_disp_state.music_pos_ms;
-            changed = true;
         }
-        s_last_tick_ms = 0;
     }
 
-    /* Calibrate local position when Core state changes */
+    /* State change: full redraw needed */
     if (g_disp_state.music_state != s_prev_state) {
         s_prev_state = g_disp_state.music_state;
         s_local_pos_ms = g_disp_state.music_pos_ms;
-        changed = true;
-    }
-    if (g_disp_state.music_volume != s_prev_vol) {
-        s_prev_vol = g_disp_state.music_volume;
-        changed = true;
-    }
-    if (changed) {
         music_update_texts();
         ui_page_invalidate_all();
+        return;
+    }
+
+    /* Volume change: only invalidate volume area */
+    if (g_disp_state.music_volume != s_prev_vol) {
+        s_prev_vol = g_disp_state.music_volume;
+        music_update_texts();
+        ui_rect_t vol_area = {VOL_X - 40, VOL_Y,
+                              VOL_W + 60, VOL_H};
+        ui_page_invalidate(&vol_area);
     }
 }
 
@@ -661,4 +668,8 @@ void app_music_set_playlist(const char *names[], int16_t count, int16_t start_in
 
     /* Scroll to show the selected track */
     music_ensure_current_visible();
+
+    /* Mark that play command will be sent by caller, so music_page_enter
+     * should skip playst to avoid overwriting the pending play request. */
+    s_skip_playst = true;
 }
