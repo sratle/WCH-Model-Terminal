@@ -43,6 +43,9 @@ typedef struct
     uint16_t bulk_block_size;     /* Block size for current bulk transfer */
 } display_t;
 
+/* Global display instance pointer (set by Display_Init) */
+extern display_t *display_ptr;
+
 /* 初始化屏幕结构体，初始化串口 */
 void Display_Init(display_t *display);
 
@@ -116,5 +119,8 @@ void Display_SendSubdispContent(display_t *display, uint8_t content_type,
 
 /* 发送 CLI 命令响应给 Display */
 void Display_SendCLIResponse(display_t *display, const char *output, uint16_t output_len);
+
+/* 发送 CWD 变更通知给 Display */
+void Display_SendCWDNotify(display_t *display, const char *path);
 
 #endif

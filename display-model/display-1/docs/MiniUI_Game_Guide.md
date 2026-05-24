@@ -77,19 +77,23 @@ MiniUI 使用**行缓冲区合成渲染器**，所有绘图原语写入行缓冲
 ```
 UI_Tick()
     │
-    ├─ 1. ui_input_tick() + ui_input_poll() 处理输入
+    ├─ 1. ui_input_tick() + ui_input_poll() 处理输入、分发事件
+    │     ├─ 页面切换保护：事件处理中如触发 ui_page_push，跳过后续 broadcast/capture
+    │     └─ 鼠标 capture 强制释放：mouse DOWN 到达时若 capture 被 touch 持有，强制释放
     ├─ 2. ui_anim_tick() 更新动画
     ├─ 3. page->on_update() 更新游戏逻辑、标记脏区域
-    └─ 4. ui_page_draw() 合成渲染
-          ├─ 遍历脏区域列表
-          │   └─ 每个脏区域按 UI_COMPOSE_BATCH 行分批：
-          │       ├─ ui_render_begin_rect(&batch_target)
-          │       ├─ ui_render_fill_line_buf() 填充背景
-          │       ├─ sidebar_draw() (非全屏页面)
-          │       ├─ page->on_draw(page, &batch_target)
-          │       ├─ widget draw_cb's
-          │       └─ ui_render_flush_rows(y, batch_h, x, w)
-          └─ 清空脏列表
+    ├─ 4. ui_input_invalidate_cursor() 标记鼠标光标脏区域
+    ├─ 5. ui_page_draw() 合成渲染
+    │     ├─ 遍历脏区域列表
+    │     │   └─ 每个脏区域按 UI_COMPOSE_BATCH 行分批：
+    │     │       ├─ ui_render_begin_rect(&batch_target)
+    │     │       ├─ ui_render_fill_line_buf() 填充背景
+    │     │       ├─ sidebar_draw() (非全屏页面)
+    │     │       ├─ page->on_draw(page, &batch_target)
+    │     │       ├─ widget draw_cb's
+    │     │       └─ ui_render_flush_rows(y, batch_h, x, w)
+    │     └─ 清空脏列表
+    └─ 6. ui_input_cursor_rendered() 更新光标已渲染位置跟踪
 ```
 
 ### 绘图原语自动裁剪
@@ -206,6 +210,31 @@ MiniUI 支持最多 5 点同时触控（`UI_MAX_TOUCH_POINTS = 5`）。
 - 第一根手指（主触点）的事件走正常 capture 机制
 - 第二根及以后手指的 **DOWN 和 UP** 事件广播给页面的所有 widget（支持同时按多个按钮）
 - **MOVE 事件不广播**——防止一根手指移动时触发其他按钮的 hover/pressed 状态
+- **统一 hit test 过滤**：`ui_widget_event` 对所有 DOWN/UP 指针事件自动执行 hit test，不在 widget 范围内的触点不会触发该 widget。这意味着广播不会误触不在触摸位置下的 widget
+
+### Widget 事件过滤（ui_widget_event）
+
+`ui_widget_event` 是所有事件到达 widget 回调之前的统一入口。它对 DOWN/UP 指针事件（触摸和鼠标）自动执行 hit test 过滤：
+
+```c
+void ui_widget_event(ui_widget_t *w, ui_event_t *e)
+{
+    if (!w || !(w->flags & UI_WIDGET_FLAG_ENABLED)) return;
+
+    // 过滤广播的 DOWN/UP 指针事件：只有触摸位置在 widget 内才传递
+    if ((e->type == UI_EVENT_DOWN || e->type == UI_EVENT_UP) &&
+        (e->source == UI_INPUT_TOUCH || e->source == UI_INPUT_MOUSE)) {
+        if (!ui_widget_hit_test(w, e->pos.x, e->pos.y)) return;
+    }
+
+    if (w->event_cb) w->event_cb(w, e);
+}
+```
+
+**影响**：
+- Capture widget 通过 UI_Tick 的独立路径接收事件，不受此过滤影响
+- 广播路径（多触点 DOWN/UP）经过此过滤，确保只有被实际触摸的 widget 收到事件
+- 游戏代码**不需要**在各自的 `event_cb` 中手动做 hit test 判断
 
 ### 需要多点触控的游戏实现模式
 
@@ -259,6 +288,17 @@ static void touch_event(ui_widget_t *w, ui_event_t *e) {
 - `recalc_inputs` 用 OR 合并所有触点的按钮状态
 - MOVE 事件只在 capture widget 内处理（不会广播），避免误触
 
+**⚠️ 严重警告：不要同时使用 touch_area 和独立 button widget**
+
+如果一个游戏使用了上述 per-touch 跟踪模式（通过一个全屏 touch_area widget），**不要**再为各个按钮注册独立的 button widget。原因：
+
+1. Button widget 使用简单的 DOWN=设置 PRESSED / UP=清除 PRESSED 逻辑
+2. 当 touch_area 获得 capture 后，button widget 只能通过广播接收 DOWN/UP
+3. 广播虽然经过 hit test 过滤，但 button widget 的简单状态机无法正确跟踪哪个触点对应哪个按钮
+4. 结果：一根手指按下方向键，另一根手指按下跳跃键时，方向键的 button widget 会被错误设置为 PRESSED 状态
+
+**正确做法**：只使用一个 touch_area widget，所有按钮的 hit test 和状态管理在 touch_event 回调中完成。
+
 ### 事件捕获（Capture）机制
 
 - `UI_EVENT_DOWN` 时，命中的 widget 自动获得 capture
@@ -266,6 +306,9 @@ static void touch_event(ui_widget_t *w, ui_event_t *e) {
 - `UI_EVENT_UP` / `UI_EVENT_CLICK` / `UI_EVENT_DOUBLE_CLICK` 后释放 capture
 - 滑动手势触发 `UI_EVENT_PRESS_CANCEL` 并释放 capture
 - 多点触控：只有主触点的 UP 才释放 capture
+- **页面切换保护**：如果 capture widget 的事件回调中触发了页面切换（如 `ui_page_push`），UI_Tick 会检测页面变化并跳过后续的 broadcast 和 capture 设置，避免事件泄漏到新页面
+- **鼠标 capture 强制释放**：当鼠标 DOWN 到达时，如果 capture 正被一个触摸触点持有，会强制释放旧 capture，让鼠标可以正常交互
+- **Hit test 路径保护**：在无 capture 的 hit test 路径中，如果事件处理导致页面切换，立即停止遍历剩余 widget
 
 ### 触摸区域 widget
 
@@ -280,6 +323,33 @@ s_touch_area.event_cb = tb_touch_event;
 ```
 
 Widget 顺序影响事件分发：高 index 的 widget 先接收事件。返回按钮应在最高 index，确保它能优先处理点击。
+
+---
+
+## 4.1 输入系统鲁棒性
+
+### 过期指针恢复（Stale Pointer Recovery）
+
+输入系统内置了过期指针检测和恢复机制。如果某个触点超过 5 秒（`UI_POINTER_STALE_TIMEOUT_MS`）没有收到新的原始输入，系统会自动合成一个 UP 事件并释放该触点的 capture。这处理了以下异常情况：
+
+- UART 丢包导致触摸释放事件丢失
+- 事件队列溢出导致 UP 事件被丢弃
+- 硬件异常导致触点卡死
+
+### 键盘 KEY_CLICK 时序
+
+键盘的 `UI_EVENT_KEY_CLICK` 事件采用延迟确认机制：
+
+1. 按键释放时，如果按压时间 ≤ 300ms，设置 `click_pending = true`
+2. `ui_input_tick` 中的 `check_click_timeouts` 检查 pending 状态
+3. 当超过双击间隔（200ms）且没有第二次按键时，触发 `UI_EVENT_KEY_CLICK`
+4. 如果在间隔内再次按下并释放相同键，触发 `UI_EVENT_KEY_DOUBLE_CLICK`
+
+**注意**：`click_pending` 在按键释放时**不要手动清除**，否则 KEY_CLICK 永远不会触发。
+
+### 事件队列溢出保护
+
+当输入事件队列满时（32 个事件），对关键事件（UP、CLICK、SWIPE 等）会主动丢弃最老的 MOVE 事件来腾出空间。丢失一个 MOVE 事件无害，但丢失 UP 事件会导致 capture 卡死。
 
 ---
 
@@ -359,13 +429,32 @@ while(1) {
 
 ### 7.4 相机移动时的局刷策略
 
-相机移动时不要全刷，而是标记所有移动元素的旧位置和新位置：
+相机移动时不要全刷，而是精准标记需要重绘的区域。以下是经过实战验证的优化策略：
 
 1. **边缘条**：相机滚动时新出现的屏幕边缘区域
 2. **平台**：在旧相机偏移和新相机偏移下各标记一次
-3. **视差背景**：在旧偏移和新偏移下各标记一次
-4. **所有实体**：旧位置 + 新位置
-5. **HUD**：仅在数据变化时标记
+3. **静态背景**：不使用视差滚动的背景元素（如固定位置的山脉），无需标记脏区域
+4. **水平均匀地面**：如果地面在水平方向上是相同的（如一条连续的绿色地面），水平移动相机不会改变其在画面中的显示，**可以完全跳过**脏区域标记
+5. **地面间隙**：只在间隙进入或离开可见区域时才标记脏区域（通过比较旧/新相机偏移下的可见性）
+6. **所有实体**：旧位置 + 新位置
+7. **HUD**：仅在数据变化时标记
+
+**关键原则**：FMC 发送像素的开销远大于计算开销，应通过精准计算减少传输的像素量，而不是简单粗暴地标记整个区域。
+
+```c
+// 示例：地面间隙的精准标记
+static bool gap_visible(int16_t gap_x, int16_t cam_x) {
+    int16_t screen_x = gap_x - cam_x;
+    return (screen_x + GAP_W > 0 && screen_x < SCREEN_W);
+}
+
+// 只在可见性变化时标记
+bool old_vis = gap_visible(gap_x, old_cam_x);
+bool new_vis = gap_visible(gap_x, new_cam_x);
+if (old_vis != new_vis) {
+    // 标记间隙相关区域为脏
+}
+```
 
 ### 7.5 VSYNC 等待位置
 
@@ -395,7 +484,11 @@ void SSD1963_WaitVSync(void)
 | 2 | on_draw 绘制标题栏背景 | `ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY)` |
 | 3 | on_draw 绘制游戏内容 | 绘图原语自动裁剪到 dirty 范围 |
 | 4 | 脏区域标记完整 | 旧位置 + 新位置，宁多勿少 |
-| 5 | 触摸区域 widget | 全屏触摸区域，事件回调处理 DOWN/MOVE/UP |
-| 6 | Widget 顺序 | 返回按钮在最高 index |
-| 7 | 多点触控 | 需要多按钮的游戏使用 per-touch 跟踪模式 |
-| 8 | VSYNC 同步 | 先 Touch_Scan，再 WaitVSync，再 UI_Tick |
+| 5 | 脏区域精准计算 | FMC 开销远大于计算，用精准标记减少传输像素量 |
+| 6 | 触摸区域 widget | 全屏触摸区域，事件回调处理 DOWN/MOVE/UP |
+| 7 | Widget 顺序 | 返回按钮在最高 index |
+| 8 | 多点触控 | 需要多按钮的游戏使用 per-touch 跟踪模式 |
+| 9 | 不要混用输入模式 | touch_area + 独立 button widget 会冲突，只用一种 |
+| 10 | 不需要手动 hit test | `ui_widget_event` 已统一处理 DOWN/UP 的 hit test 过滤 |
+| 11 | VSYNC 同步 | 先 Touch_Scan，再 WaitVSync，再 UI_Tick |
+| 12 | 静态背景 | 背景元素使用固定位置，避免视差滚动带来的大量重绘 |

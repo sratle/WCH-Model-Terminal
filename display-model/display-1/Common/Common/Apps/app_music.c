@@ -1,11 +1,16 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : app_music.c
 * Author             : LCD Model Team
-* Version            : V3.0.0
-* Date               : 2026/05/23
-* Description        : Music Player app (V3.0 CLI passthrough).
-*                      All controls via CLI: play/pause/resume/stop/vol.
-*                      Reads music state from Core via g_disp_state.
+* Version            : V3.2.0
+* Date               : 2026/05/24
+* Description        : Music Player app (V3.2 CLI passthrough + local playlist).
+*                      Playlist built from file browser's wav list.
+*                      Prev/next via local playlist, play <name> to Core.
+*                      Play mode (single/repeat/sequential) managed locally.
+*                      Separate play/pause icons for clear state indication.
+*                      Registers own UART callbacks to avoid file app interference.
+*                      V3.2: Right-side playlist panel, allow exit while playing,
+*                            send playst on re-enter to sync state.
 ********************************************************************************/
 #include "app_music.h"
 #include "../UI/ui_app_common.h"
@@ -15,28 +20,51 @@
 
 /*=============================================================================
  *  Layout Configuration (800x480)
+ *
+ *  Left half (0..499):  Disc, track info, progress, controls, volume
+ *  Right half (500..799): Playlist panel (scrollable)
  *=============================================================================*/
 
-#define DISC_SIZE           180
-#define DISC_X              ((UI_SCREEN_WIDTH - DISC_SIZE) / 2)
-#define DISC_Y              (APP_TITLE_BAR_H + 20)
-#define INFO_Y              (DISC_Y + DISC_SIZE + 20)
-#define INFO_H              50
-#define PROG_Y              (INFO_Y + INFO_H + 10)
-#define PROG_X              60
-#define PROG_W              (UI_SCREEN_WIDTH - 120)
-#define PROG_H              20
-#define TIME_Y              (PROG_Y + PROG_H + 4)
-#define CTRL_Y              (TIME_Y + 24)
-#define CTRL_BTN_W          64
-#define CTRL_BTN_H          48
-#define CTRL_GAP            16
+#define LEFT_W              500
+
+/* Disc */
+#define DISC_SIZE           160
+#define DISC_X              ((LEFT_W - DISC_SIZE) / 2)
+#define DISC_Y              (APP_TITLE_BAR_H + 16)
+
+/* Track info */
+#define INFO_Y              (DISC_Y + DISC_SIZE + 12)
+#define INFO_H              44
+
+/* Progress bar */
+#define PROG_Y              (INFO_Y + INFO_H + 8)
+#define PROG_X              40
+#define PROG_W              (LEFT_W - 80)
+#define PROG_H              16
+#define TIME_Y              (PROG_Y + PROG_H + 2)
+
+/* Control buttons */
+#define CTRL_Y              (TIME_Y + 22)
+#define CTRL_BTN_W          56
+#define CTRL_BTN_H          44
+#define CTRL_GAP            12
 #define CTRL_TOTAL_W        (5 * CTRL_BTN_W + 4 * CTRL_GAP)
-#define CTRL_X              ((UI_SCREEN_WIDTH - CTRL_TOTAL_W) / 2)
-#define VOL_Y               (CTRL_Y + CTRL_BTN_H + 20)
-#define VOL_X               80
-#define VOL_W               (UI_SCREEN_WIDTH - 160)
-#define VOL_H               24
+#define CTRL_X              ((LEFT_W - CTRL_TOTAL_W) / 2)
+
+/* Volume */
+#define VOL_Y               (CTRL_Y + CTRL_BTN_H + 16)
+#define VOL_X               60
+#define VOL_W               (LEFT_W - 120)
+#define VOL_H               20
+
+/* Right-side playlist panel */
+#define PL_X                LEFT_W
+#define PL_Y                APP_TITLE_BAR_H
+#define PL_W                (UI_SCREEN_WIDTH - LEFT_W)
+#define PL_H                (UI_SCREEN_HEIGHT - APP_TITLE_BAR_H)
+#define PL_ITEM_H           32
+#define PL_HEADER_H         28
+#define PL_VISIBLE          ((PL_H - PL_HEADER_H) / PL_ITEM_H)
 
 /*=============================================================================
  *  Colors
@@ -52,6 +80,33 @@
 #define MUSIC_CTRL_BG       UI_HEX(0x16213E)
 #define MUSIC_VOL_BG        UI_HEX(0x16213E)
 #define MUSIC_VOL_FILL      UI_HEX(0x7EC8C8)
+#define MUSIC_PL_BG         UI_HEX(0x16213E)
+#define MUSIC_PL_SEL        UI_HEX(0x0F3460)
+#define MUSIC_PL_CUR        UI_HEX(0x7EC8C8)
+#define MUSIC_PL_BORDER     UI_HEX(0x0F3460)
+#define MUSIC_PL_SCROLL     UI_HEX(0x3A506B)
+
+/*=============================================================================
+ *  Playlist & Play Mode
+ *=============================================================================*/
+
+#define MUSIC_PLAYLIST_MAX  12
+#define MUSIC_NAME_LEN      64
+
+/* Play modes — managed locally, no Core command needed */
+#define PLAY_MODE_SINGLE    0   /* Play one track, stop at end */
+#define PLAY_MODE_REPEAT    1   /* Repeat all (loop playlist) */
+#define PLAY_MODE_SINGLE_LOOP 2 /* Repeat current track */
+
+typedef struct {
+    char   names[MUSIC_PLAYLIST_MAX][MUSIC_NAME_LEN];
+    int16_t count;
+    int16_t current;      /* Index of currently playing track, -1 if none */
+    uint8_t mode;         /* PLAY_MODE_SINGLE / REPEAT / SINGLE_LOOP */
+    int16_t scroll;       /* Scroll offset for playlist */
+} music_playlist_t;
+
+static music_playlist_t s_playlist;
 
 /*=============================================================================
  *  Static Data
@@ -60,7 +115,8 @@
 static ui_app_page_t s_app_music;
 static ui_button_t btn_play, btn_prev, btn_next, btn_stop, btn_mode;
 static ui_widget_t s_vol_touch;
-static ui_widget_t *s_music_widgets[8];
+static ui_widget_t s_pl_touch;  /* Playlist touch area */
+static ui_widget_t *s_music_widgets[9];
 static char s_track_name[68];
 static char s_time_pos[12];
 static char s_time_dur[12];
@@ -68,12 +124,26 @@ static char s_vol_text[8];
 static char s_status_text[32];
 static uint8_t s_prev_state = 0xFF;
 static uint8_t s_prev_vol = 0xFF;
-static uint8_t s_current_mode = 0;
 
-/* 本地位置估算：播放时每秒自增，收到 Core 状态更新时校准 */
+/* Local position estimation: increment while playing, calibrate on Core update */
 static uint32_t s_local_pos_ms = 0;
 static uint32_t s_last_tick_ms = 0;
 static bool s_local_tracking = false;
+
+/* Track-end detection flag — set when position reaches duration */
+static bool s_track_ended = false;
+
+/*=============================================================================
+ *  Forward Declarations
+ *=============================================================================*/
+
+static void music_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
+
+static uart_app_callbacks_t s_music_callbacks = {
+    .on_file_list = NULL,
+    .on_cli_response = music_on_cli_response,
+    .on_cwd_notify = NULL,
+};
 
 /*=============================================================================
  *  Helpers
@@ -85,6 +155,61 @@ static void format_time_ms(uint32_t ms, char *buf)
     snprintf(buf, 12, "%02u:%02u", (unsigned)(sec / 60), (unsigned)(sec % 60));
 }
 
+static bool music_has_prev(void)
+{
+    return s_playlist.count > 1 && s_playlist.current > 0;
+}
+
+static bool music_has_next(void)
+{
+    return s_playlist.count > 1 && s_playlist.current >= 0 &&
+           s_playlist.current < s_playlist.count - 1;
+}
+
+/* Play a track from the playlist by index */
+static void music_play_index(int16_t index)
+{
+    if (index < 0 || index >= s_playlist.count) return;
+    s_playlist.current = index;
+    s_track_ended = false;
+    s_local_pos_ms = 0;
+    s_local_tracking = true;
+    s_last_tick_ms = ui_get_real_ms();
+    UART_SendPlayMusic(s_playlist.names[index]);
+}
+
+/* Called when current track ends (detected by position reaching duration) */
+static void music_on_track_end(void)
+{
+    s_track_ended = true;
+    switch (s_playlist.mode) {
+    case PLAY_MODE_SINGLE_LOOP:
+        if (s_playlist.current >= 0)
+            music_play_index(s_playlist.current);
+        break;
+    case PLAY_MODE_REPEAT:
+        if (s_playlist.count > 0) {
+            int16_t next = s_playlist.current + 1;
+            if (next >= s_playlist.count) next = 0;
+            music_play_index(next);
+        }
+        break;
+    case PLAY_MODE_SINGLE:
+    default:
+        break;
+    }
+}
+
+/* Ensure current track is visible in playlist scroll */
+static void music_ensure_current_visible(void)
+{
+    if (s_playlist.current < 0) return;
+    if (s_playlist.current < s_playlist.scroll)
+        s_playlist.scroll = s_playlist.current;
+    else if (s_playlist.current >= s_playlist.scroll + PL_VISIBLE)
+        s_playlist.scroll = s_playlist.current - PL_VISIBLE + 1;
+}
+
 static void music_update_texts(void)
 {
     if (g_disp_state.music_track[0] != '\0') {
@@ -93,7 +218,6 @@ static void music_update_texts(void)
     } else {
         strcpy(s_track_name, "No track");
     }
-    /* 使用本地估算位置，若有 Core 更新则校准 */
     uint32_t display_pos = s_local_tracking ? s_local_pos_ms : g_disp_state.music_pos_ms;
     format_time_ms(display_pos, s_time_pos);
     format_time_ms(g_disp_state.music_dur_ms, s_time_dur);
@@ -105,6 +229,34 @@ static void music_update_texts(void)
     case MUSIC_STATE_STOPPED: strcpy(s_status_text, "Stopped"); break;
     default:                  strcpy(s_status_text, "---"); break;
     }
+
+    /* Update play/pause button text based on state */
+    if (g_disp_state.music_state == MUSIC_STATE_PLAYING) {
+        btn_play.text = "||";   /* Show pause icon when playing */
+    } else {
+        btn_play.text = ">";    /* Show play icon when not playing */
+    }
+    btn_play.base.flags |= UI_WIDGET_FLAG_DIRTY;
+
+    /* Update mode button text */
+    switch (s_playlist.mode) {
+    case PLAY_MODE_SINGLE:      btn_mode.text = "1"; break;
+    case PLAY_MODE_REPEAT:      btn_mode.text = "Rep"; break;
+    case PLAY_MODE_SINGLE_LOOP: btn_mode.text = "1R"; break;
+    default:                    btn_mode.text = "1"; break;
+    }
+    btn_mode.base.flags |= UI_WIDGET_FLAG_DIRTY;
+}
+
+/*=============================================================================
+ *  CLI Response Callback (music-specific)
+ *=============================================================================*/
+
+static void music_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+{
+    (void)output; (void)len; (void)truncated; (void)is_last;
+    /* Music app CLI responses (play/pause/resume/stop/vol) — ignore text,
+     * we rely on Core's MUSIC_STATUS periodic updates for state. */
 }
 
 /*=============================================================================
@@ -118,17 +270,17 @@ static void music_draw_disc(void)
     int16_t r_outer = DISC_SIZE / 2;
 
     ui_draw_fill_circle(cx, cy, r_outer, MUSIC_DISC_OUTER);
-    ui_draw_fill_circle(cx, cy, r_outer - 30, MUSIC_DISC_INNER);
-    ui_draw_fill_circle(cx, cy, 20, MUSIC_DISC_CENTER);
+    ui_draw_fill_circle(cx, cy, r_outer - 25, MUSIC_DISC_INNER);
+    ui_draw_fill_circle(cx, cy, 18, MUSIC_DISC_CENTER);
     ui_draw_circle_border(cx, cy, r_outer - 5, MUSIC_ACCENT, 1);
     ui_draw_text(cx - 6, cy - 8, "*", &font_montserrat_16, MUSIC_ACCENT);
 }
 
 static void music_draw_info(void)
 {
-    ui_rect_t info_rect = {40, INFO_Y, UI_SCREEN_WIDTH - 80, INFO_H};
+    ui_rect_t info_rect = {20, INFO_Y, LEFT_W - 40, INFO_H};
     ui_draw_text_in_rect(&info_rect, s_track_name, &font_montserrat_16, MUSIC_TEXT, 0x11);
-    ui_rect_t status_rect = {40, INFO_Y + 26, UI_SCREEN_WIDTH - 80, 20};
+    ui_rect_t status_rect = {20, INFO_Y + 24, LEFT_W - 40, 20};
     ui_draw_text_in_rect(&status_rect, s_status_text, &font_montserrat_12, MUSIC_TEXT_DIM, 0x11);
 }
 
@@ -163,8 +315,60 @@ static void music_draw_volume(void)
         ui_draw_fill_round_rect(&vf, 4, MUSIC_VOL_FILL);
     }
 
-    ui_draw_text(VOL_X - 40, VOL_Y + 4, "Vol", &font_montserrat_12, MUSIC_TEXT_DIM);
-    ui_draw_text(VOL_X + VOL_W + 8, VOL_Y + 4, s_vol_text, &font_montserrat_12, MUSIC_TEXT_DIM);
+    ui_draw_text(VOL_X - 36, VOL_Y + 4, "Vol", &font_montserrat_12, MUSIC_TEXT_DIM);
+    ui_draw_text(VOL_X + VOL_W + 6, VOL_Y + 4, s_vol_text, &font_montserrat_12, MUSIC_TEXT_DIM);
+}
+
+static void music_draw_playlist(void)
+{
+    if (s_playlist.count == 0) return;
+
+    /* Panel background */
+    ui_rect_t bg = {PL_X, PL_Y, PL_W, PL_H};
+    ui_draw_fill_rect(&bg, MUSIC_PL_BG);
+
+    /* Left border line */
+    ui_draw_vline(PL_X, PL_Y, PL_H, MUSIC_PL_BORDER);
+
+    /* Header */
+    char hdr[24];
+    snprintf(hdr, sizeof(hdr), "Playlist (%d)", s_playlist.count);
+    ui_draw_text(PL_X + 10, PL_Y + 6, hdr, &font_montserrat_12, MUSIC_TEXT_DIM);
+    ui_draw_hline(PL_X, PL_Y + PL_HEADER_H, PL_W, MUSIC_PL_BORDER);
+
+    /* Items */
+    for (int16_t i = 0; i < PL_VISIBLE && (i + s_playlist.scroll) < s_playlist.count; i++) {
+        int16_t idx = i + s_playlist.scroll;
+        int16_t iy = PL_Y + PL_HEADER_H + i * PL_ITEM_H;
+        ui_rect_t item_rect = {PL_X + 4, iy + 1, PL_W - 8, PL_ITEM_H - 2};
+
+        if (idx == s_playlist.current) {
+            ui_draw_fill_round_rect(&item_rect, 4, MUSIC_PL_SEL);
+            /* Playing indicator */
+            ui_draw_text(PL_X + 10, iy + 8, ">", &font_montserrat_12, MUSIC_PL_CUR);
+            ui_draw_text(PL_X + 24, iy + 8, s_playlist.names[idx],
+                         &font_montserrat_12, MUSIC_PL_CUR);
+        } else {
+            ui_draw_text(PL_X + 24, iy + 8, s_playlist.names[idx],
+                         &font_montserrat_12, MUSIC_TEXT_DIM);
+        }
+
+        /* Separator line */
+        ui_draw_hline(PL_X + 8, iy + PL_ITEM_H - 1, PL_W - 16, MUSIC_PL_BORDER);
+    }
+
+    /* Scroll indicator */
+    if (s_playlist.count > PL_VISIBLE) {
+        int16_t scroll_area_y = PL_Y + PL_HEADER_H;
+        int16_t scroll_area_h = PL_H - PL_HEADER_H;
+        int16_t bar_h = scroll_area_h * PL_VISIBLE / s_playlist.count;
+        if (bar_h < 20) bar_h = 20;
+        int16_t bar_y = scroll_area_y + (scroll_area_h - bar_h) * s_playlist.scroll / (s_playlist.count - PL_VISIBLE);
+        ui_rect_t scroll_bg = {PL_X + PL_W - 5, scroll_area_y, 5, scroll_area_h};
+        ui_draw_fill_rect(&scroll_bg, UI_HEX(0x0D1B2A));
+        ui_rect_t scroll_bar = {PL_X + PL_W - 5, bar_y, 5, bar_h};
+        ui_draw_fill_rect(&scroll_bar, MUSIC_PL_SCROLL);
+    }
 }
 
 /*=============================================================================
@@ -179,6 +383,17 @@ static void music_page_enter(ui_page_t *page)
     s_local_tracking = false;
     s_local_pos_ms = g_disp_state.music_pos_ms;
     s_last_tick_ms = 0;
+    s_track_ended = false;
+
+    /* Register music callbacks so CLI responses don't go to file app */
+    UART_SetAppCallbacks(&s_music_callbacks);
+
+    /* Send playst to sync music state from Core */
+    UART_SendCLI("playst");
+
+    /* Ensure current track is visible */
+    music_ensure_current_visible();
+
     music_update_texts();
     ui_page_invalidate_all();
 }
@@ -194,6 +409,7 @@ static void music_page_draw(ui_page_t *page, ui_rect_t *dirty)
     music_draw_info();
     music_draw_progress();
     music_draw_volume();
+    music_draw_playlist();
 }
 
 static void music_page_update(ui_page_t *page)
@@ -201,7 +417,7 @@ static void music_page_update(ui_page_t *page)
     (void)page;
     bool changed = false;
 
-    /* 本地位置估算：播放中每 100ms 自增 */
+    /* Local position estimation: increment while playing */
     if (g_disp_state.music_state == MUSIC_STATE_PLAYING) {
         uint32_t now = ui_get_real_ms();
         if (s_last_tick_ms > 0 && now > s_last_tick_ms) {
@@ -209,7 +425,6 @@ static void music_page_update(ui_page_t *page)
             if (dt >= 100) {
                 s_local_pos_ms += dt;
                 s_last_tick_ms = now;
-                /* 上限保护 */
                 if (g_disp_state.music_dur_ms > 0 &&
                     s_local_pos_ms > g_disp_state.music_dur_ms)
                     s_local_pos_ms = g_disp_state.music_dur_ms;
@@ -224,6 +439,12 @@ static void music_page_update(ui_page_t *page)
             s_last_tick_ms = ui_get_real_ms();
             changed = true;
         }
+
+        /* Detect track end: position reached duration */
+        if (!s_track_ended && g_disp_state.music_dur_ms > 0 &&
+            s_local_pos_ms >= g_disp_state.music_dur_ms) {
+            music_on_track_end();
+        }
     } else {
         if (s_local_tracking) {
             s_local_tracking = false;
@@ -233,7 +454,7 @@ static void music_page_update(ui_page_t *page)
         s_last_tick_ms = 0;
     }
 
-    /* Core 状态变化时校准本地位置 */
+    /* Calibrate local position when Core state changes */
     if (g_disp_state.music_state != s_prev_state) {
         s_prev_state = g_disp_state.music_state;
         s_local_pos_ms = g_disp_state.music_pos_ms;
@@ -265,13 +486,15 @@ static void btn_play_click(ui_widget_t *w)
 static void btn_prev_click(ui_widget_t *w)
 {
     (void)w;
-    UART_SendCLI("prev");
+    if (music_has_prev())
+        music_play_index(s_playlist.current - 1);
 }
 
 static void btn_next_click(ui_widget_t *w)
 {
     (void)w;
-    UART_SendCLI("next");
+    if (music_has_next())
+        music_play_index(s_playlist.current + 1);
 }
 
 static void btn_stop_click(ui_widget_t *w)
@@ -283,11 +506,8 @@ static void btn_stop_click(ui_widget_t *w)
 static void btn_mode_click(ui_widget_t *w)
 {
     (void)w;
-    s_current_mode = (s_current_mode + 1) % 3;
-    /* Play mode (single/repeat/shuffle) is managed on Display side only */
-    static const char *mode_names[] = { "Single", "Repeat", "Shuffle" };
-    btn_mode.text = mode_names[s_current_mode];
-    btn_mode.base.flags |= UI_WIDGET_FLAG_DIRTY;
+    s_playlist.mode = (s_playlist.mode + 1) % 3;
+    music_update_texts();
 }
 
 static void vol_touch_event(ui_widget_t *w, ui_event_t *e)
@@ -301,6 +521,47 @@ static void vol_touch_event(ui_widget_t *w, ui_event_t *e)
     UART_SendVolumeControl(0x00, (uint8_t)((uint32_t)rel_x * 100 / VOL_W));
 }
 
+/* Playlist touch: tap to select & play, swipe to scroll */
+static void pl_touch_event(ui_widget_t *w, ui_event_t *e)
+{
+    (void)w;
+    if (e->type == UI_EVENT_SWIPE_UP) {
+        int16_t max_scroll = s_playlist.count - PL_VISIBLE;
+        if (max_scroll < 0) max_scroll = 0;
+        s_playlist.scroll += 2;
+        if (s_playlist.scroll > max_scroll) s_playlist.scroll = max_scroll;
+        ui_page_invalidate_all();
+        return;
+    }
+    if (e->type == UI_EVENT_SWIPE_DOWN) {
+        s_playlist.scroll -= 2;
+        if (s_playlist.scroll < 0) s_playlist.scroll = 0;
+        ui_page_invalidate_all();
+        return;
+    }
+    /* Mouse wheel scrolling */
+    if (e->type == UI_EVENT_MOVE && e->scroll_delta != 0) {
+        int16_t max_scroll = s_playlist.count - PL_VISIBLE;
+        if (max_scroll < 0) max_scroll = 0;
+        s_playlist.scroll -= e->scroll_delta;
+        if (s_playlist.scroll > max_scroll) s_playlist.scroll = max_scroll;
+        if (s_playlist.scroll < 0) s_playlist.scroll = 0;
+        ui_page_invalidate_all();
+        return;
+    }
+    if (e->type == UI_EVENT_CLICK) {
+        /* Determine which item was tapped */
+        int16_t rel_y = e->pos.y - (PL_Y + PL_HEADER_H);
+        if (rel_y < 0) return;
+        int16_t idx = rel_y / PL_ITEM_H + s_playlist.scroll;
+        if (idx >= 0 && idx < s_playlist.count) {
+            music_play_index(idx);
+            music_ensure_current_visible();
+            ui_page_invalidate_all();
+        }
+    }
+}
+
 /*=============================================================================
  *  Public API
  *=============================================================================*/
@@ -311,7 +572,7 @@ void app_music_init(void)
     int16_t bx = CTRL_X;
 
     ui_rect_t r_mode = {bx, CTRL_Y, CTRL_BTN_W, CTRL_BTN_H};
-    ui_button_init(&btn_mode, &r_mode, "Mode", &font_montserrat_12);
+    ui_button_init(&btn_mode, &r_mode, "1", &font_montserrat_12);
     ui_button_set_callback(&btn_mode, btn_mode_click);
     ui_button_set_colors(&btn_mode, MUSIC_CTRL_BG, MUSIC_ACCENT, MUSIC_TEXT);
     btn_mode.radius = 12;
@@ -325,7 +586,7 @@ void app_music_init(void)
 
     bx += CTRL_BTN_W + CTRL_GAP;
     ui_rect_t r_play = {bx, CTRL_Y, CTRL_BTN_W, CTRL_BTN_H};
-    ui_button_init(&btn_play, &r_play, ">/||", &font_montserrat_12);
+    ui_button_init(&btn_play, &r_play, ">", &font_montserrat_16);
     ui_button_set_callback(&btn_play, btn_play_click);
     ui_button_set_colors(&btn_play, MUSIC_ACCENT, UI_COLOR_SECONDARY, MUSIC_BG);
     btn_play.radius = 24;
@@ -349,6 +610,12 @@ void app_music_init(void)
     s_vol_touch.bg_color = UI_COLOR_TRANSPARENT;
     s_vol_touch.event_cb = vol_touch_event;
 
+    /* Playlist touch area — covers entire right panel */
+    ui_rect_t pl_rect = {PL_X, PL_Y, PL_W, PL_H};
+    ui_widget_init(&s_pl_touch, &pl_rect);
+    s_pl_touch.bg_color = UI_COLOR_TRANSPARENT;
+    s_pl_touch.event_cb = pl_touch_event;
+
     s_music_widgets[0] = (ui_widget_t *)&s_app_music.btn_back;
     s_music_widgets[1] = (ui_widget_t *)&s_app_music.lbl_title;
     s_music_widgets[2] = (ui_widget_t *)&btn_mode;
@@ -357,12 +624,41 @@ void app_music_init(void)
     s_music_widgets[5] = (ui_widget_t *)&btn_next;
     s_music_widgets[6] = (ui_widget_t *)&btn_stop;
     s_music_widgets[7] = &s_vol_touch;
+    s_music_widgets[8] = &s_pl_touch;
 
-    ui_page_set_widgets(&s_app_music.page, s_music_widgets, 8);
+    ui_page_set_widgets(&s_app_music.page, s_music_widgets, 9);
     ui_page_set_callbacks(&s_app_music.page, music_page_enter, NULL, music_page_draw, NULL);
     ui_page_set_update_cb(&s_app_music.page, music_page_update);
     ui_page_register(&s_app_music.page);
+
+    /* Initialize playlist */
+    memset(&s_playlist, 0, sizeof(s_playlist));
+    s_playlist.current = -1;
+    s_playlist.mode = PLAY_MODE_SINGLE;
+
     music_update_texts();
 }
 
 ui_page_t *app_music_get_page(void) { return &s_app_music.page; }
+
+void app_music_set_playlist(const char *names[], int16_t count, int16_t start_index)
+{
+    s_playlist.count = 0;
+    s_playlist.current = -1;
+    s_playlist.scroll = 0;
+
+    for (int16_t i = 0; i < count && i < MUSIC_PLAYLIST_MAX; i++) {
+        if (names[i]) {
+            strncpy(s_playlist.names[i], names[i], MUSIC_NAME_LEN - 1);
+            s_playlist.names[i][MUSIC_NAME_LEN - 1] = '\0';
+            s_playlist.count++;
+        }
+    }
+
+    if (start_index >= 0 && start_index < s_playlist.count) {
+        s_playlist.current = start_index;
+    }
+
+    /* Scroll to show the selected track */
+    music_ensure_current_visible();
+}

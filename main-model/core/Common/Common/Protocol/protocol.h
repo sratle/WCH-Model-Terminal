@@ -75,6 +75,7 @@
 #define CMD_DISP_EXT_HID_STATUS         0x18    /* 外接 HID 设备连接/断开状态 */
 /* 0x19: 废弃 (V3.0 CLI 直通替代) — CD */
 #define CMD_DISP_EXT_CLI                0x1A    /* CLI 命令直通 (Display→Core) */
+#define CMD_DISP_EXT_CWD_NOTIFY         0x1B    /* CWD 变更通知 (Core→Display) */
 
 /* ---- HID 设备类型 (CMD_DISP_EXT_HID_STATUS DATA[2]) ---- */
 #define HID_DEV_KEYBOARD                0x01    /* 外接键盘 */

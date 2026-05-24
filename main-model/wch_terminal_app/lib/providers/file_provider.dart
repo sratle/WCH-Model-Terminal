@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/cli/cli_engine.dart';
 import '../core/cli/cli_commands.dart';
@@ -6,9 +7,29 @@ import 'cli_provider.dart';
 
 class FileNotifier extends StateNotifier<FileSystemState> {
   final CliEngine _cli;
+  StreamSubscription<String>? _cwdSub;
 
   FileNotifier(this._cli)
-      : super(const FileSystemState(currentPath: '\\'));
+      : super(const FileSystemState(currentPath: '\\')) {
+    // Listen for CWD notifications pushed by Core (when another client
+    // changes directory). This keeps the App's path in sync without polling.
+    _cwdSub = _cli.cwdStream.listen(_onCwdNotify);
+  }
+
+  void _onCwdNotify(String path) {
+    if (path != state.currentPath) {
+      // Another client changed the directory on Core.
+      // Update our local path and refresh the file list.
+      state = state.copyWith(currentPath: path, isLoading: true);
+      _fetchAndCache();
+    }
+  }
+
+  @override
+  void dispose() {
+    _cwdSub?.cancel();
+    super.dispose();
+  }
 
   Future<bool> _cd(String path) async {
     final resp = await _cli.execute(CliCommands.cd(path));

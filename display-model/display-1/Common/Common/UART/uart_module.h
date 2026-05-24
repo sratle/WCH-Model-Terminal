@@ -114,6 +114,7 @@ extern "C" {
 #define DISP_EXT_HID_STATUS         0x18    /* 外接 HID 设备连接/断开状态 */
 /* 0x19 DISP_EXT_CD — 废弃 (V3.0 CLI 直通替代) */
 #define DISP_EXT_CLI                0x1A    /* CLI 命令直通 (Display→Core) */
+#define DISP_EXT_CWD_NOTIFY         0x1B    /* CWD 变更通知 (Core→Display) */
 
 /* HID 设备类型 (DISP_EXT_HID_STATUS DATA[2]) */
 #define HID_DEV_KEYBOARD            0x01    /* 外接键盘 */
@@ -218,7 +219,7 @@ extern "C" {
  *  File List Entry (parsed from CLI "ls" output, Protocol_Display.md §4.5)
  *=============================================================================*/
 
-#define FILE_NAME_MAX_LEN       16
+#define FILE_NAME_MAX_LEN       64
 #define FILE_LIST_MAX_ENTRIES   12
 
 #define FILE_ATTR_IS_DIR        (1 << 0)
@@ -274,6 +275,11 @@ typedef struct {
      * If set, the UART module will auto-parse ls output and call this.
      * Otherwise, raw CLI text goes to on_cli_response. */
     void (*on_file_list)(uint8_t status, const file_entry_t *entries, uint8_t count);
+
+    /* CWD change notification: called when Core pushes a CWD_NOTIFY frame.
+     * This happens when cd/device command succeeds on Core side,
+     * allowing Display to synchronize its local path display. */
+    void (*on_cwd_notify)(const char *path);
 } uart_app_callbacks_t;
 
 void UART_SetAppCallbacks(const uart_app_callbacks_t *cb);

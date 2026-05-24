@@ -237,7 +237,14 @@ static void CLI_Cmd_Cd(uint8_t argc, char **argv)
     }
 
     if (status == ERR_SUCCESS) {
-        printf("%s\r\n", CH378_Dir_Get_Path());
+        const char *cwd = CH378_Dir_Get_Path();
+        printf("%s\r\n", cwd);
+        /* CWD notification tag: parsed by WCH Terminal App for path sync.
+         * When cd is initiated by another client (Display/UART CLI),
+         * the App receives this as unsolicited CLI output and syncs its path. */
+        printf("[CWD] %s\r\n", cwd);
+        /* Push CWD notification to Display for path synchronization */
+        Display_SendCWDNotify(display_ptr, cwd);
     } else {
         printf("cd: %s: failed (status=%02X)\r\n", dir, status);
     }
@@ -919,7 +926,12 @@ static void CLI_Cmd_Device(uint8_t argc, char **argv)
         CH378_Device_Select(&ch378_g, CH378_Device_TF);
     } else {
         printf("Usage: device [usb|sd]\r\n");
+        return;
     }
+    /* Device switch resets CWD to root — notify Display and BLE App */
+    const char *new_cwd = CH378_Dir_Get_Path();
+    printf("[CWD] %s\r\n", new_cwd);
+    Display_SendCWDNotify(display_ptr, new_cwd);
 }
 
 static void CLI_Cmd_Hexdump(uint8_t argc, char **argv)

@@ -1,11 +1,12 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : app_file.c
 * Author             : LCD Model Team
-* Version            : V3.0.0
+* Version            : V3.1.0
 * Date               : 2026/05/23
-* Description        : File Manager app (V3.0 CLI passthrough).
+* Description        : File Manager app (V3.1 CLI passthrough + CWD sync).
 *                      Browse directories, open music/text files via CLI.
 *                      All file I/O routed through UART_SendCLI.
+*                      Path synchronized from Core via CWD_NOTIFY + ls header.
 ********************************************************************************/
 #include "app_file.h"
 #include "app_music.h"
@@ -46,7 +47,7 @@
  *=============================================================================*/
 
 typedef struct {
-    char path[FILE_PATH_MAX];
+    char path[FILE_PATH_MAX];       /* Real path from Core (via ls header / CWD_NOTIFY) */
     file_entry_t entries[FILE_MAX_ENTRIES];
     int16_t count;
     int16_t selected;
@@ -54,6 +55,7 @@ typedef struct {
     bool loading;
     bool data_ready;
     uint8_t last_status;
+    uint8_t current_device;         /* 0=SD, 1=USB */
 } file_state_t;
 
 /*=============================================================================
@@ -62,15 +64,15 @@ typedef struct {
 
 static ui_app_page_t s_app_file;
 static ui_widget_t s_list_touch;
-static ui_button_t btn_up, btn_new_folder, btn_delete, btn_refresh;
+static ui_button_t btn_up, btn_new_folder, btn_delete, btn_refresh, btn_device;
 static ui_widget_t *s_file_widgets[8];
 static file_state_t s_fs;
 static char s_status_text[80];
-static char s_path_display[FILE_PATH_MAX + 8];
+static char s_path_display[FILE_PATH_MAX + 16];
 
-/* 防抖：同一目录 2 秒内不重复请求 */
-static uint32_t s_last_request_ms = 0;
-static char s_last_request_path[FILE_PATH_MAX];
+/* Double-click detection */
+static uint32_t s_last_click_ms = 0;
+#define DOUBLE_CLICK_MS  400
 
 /*=============================================================================
  *  Forward Declarations
@@ -83,6 +85,7 @@ static void file_draw_list(void);
 static void file_draw_toolbar(void);
 static void file_enter_path(const char *name);
 static void file_go_up(void);
+static void file_switch_device(void);
 
 /*=============================================================================
  *  Helpers
@@ -101,21 +104,19 @@ static bool file_is_wav(const char *name)
 
 static bool file_is_text(const char *name)
 {
-    /* Case-insensitive extension match */
     const char *dot = strrchr(name, '.');
     if (!dot) return false;
     if (strlen(dot) < 2) return false;
 
     char ext[8];
     int elen = 0;
-    dot++;  /* skip '.' */
+    dot++;
     while (*dot && elen < (int)sizeof(ext) - 1) {
         ext[elen++] = (*dot >= 'A' && *dot <= 'Z') ? (*dot + 32) : *dot;
         dot++;
     }
     ext[elen] = '\0';
 
-    /* Recognized text/code formats */
     static const char *text_exts[] = {
         "txt", "json", "xml", "csv", "log", "md",
         "ini", "cfg", "conf", "dat",
@@ -193,18 +194,38 @@ static void on_file_list_received(uint8_t status, const file_entry_t *entries, u
     ui_page_invalidate_all();
 }
 
-static void on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void on_cwd_changed(const char *path)
 {
-    (void)output; (void)len; (void)truncated; (void)is_last;
-    /* CLI response for file operations (mkdir/rm) — refresh list on success */
-    s_fs.loading = false;
-    file_request_list();
+    /* Core pushed a CWD change — update our local path display.
+     * This synchronizes path when cd is initiated by Core UART CLI
+     * or by another client (WCH Terminal App). */
+    strncpy(s_fs.path, path, FILE_PATH_MAX - 1);
+    s_fs.path[FILE_PATH_MAX - 1] = '\0';
+    file_update_status();
+    ui_page_invalidate_all();
 }
+
+/* Forward declaration — on_cli_response references s_file_callbacks
+ * which is defined below. */
+static void on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
 
 static uart_app_callbacks_t s_file_callbacks = {
     .on_file_list = on_file_list_received,
     .on_cli_response = on_cli_response,
+    .on_cwd_notify = on_cwd_changed,
 };
+
+static void on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+{
+    (void)output; (void)len; (void)truncated; (void)is_last;
+    /* CLI response for file operations (mkdir/rm/device switch).
+     * After any such operation, refresh by cd \ then ls. */
+    s_fs.loading = true;
+    s_fs.data_ready = false;
+    UART_SetAppCallbacks(&s_file_callbacks);
+    UART_RequestFileList("\\");
+    ui_page_invalidate_all();
+}
 
 /*=============================================================================
  *  File Operations
@@ -212,28 +233,8 @@ static uart_app_callbacks_t s_file_callbacks = {
 
 static void file_request_list(void)
 {
-    /* 音乐播放中 CH378 被占用，提示用户 */
-    if (g_disp_state.music_state == MUSIC_STATE_PLAYING ||
-        g_disp_state.music_state == MUSIC_STATE_PAUSED) {
-        snprintf(s_status_text, sizeof(s_status_text), "Stop music first");
-        s_fs.loading = false;
-        s_fs.count = 0;
-        ui_page_invalidate_all();
-        return;
-    }
-
-    /* 防抖：同一路径 2 秒内不重复请求（除非强制刷新） */
-    uint32_t now = ui_get_real_ms();
-    if (strcmp(s_fs.path, s_last_request_path) == 0 &&
-        (now - s_last_request_ms) < 2000 && s_fs.data_ready) {
-        return;
-    }
-
     s_fs.loading = true;
     s_fs.data_ready = false;
-    s_last_request_ms = now;
-    strncpy(s_last_request_path, s_fs.path, FILE_PATH_MAX - 1);
-    s_last_request_path[FILE_PATH_MAX - 1] = '\0';
     UART_SetAppCallbacks(&s_file_callbacks);
     /* Just send "ls" — cd has already been done by file_enter_path/file_go_up */
     UART_RequestFileList(NULL);
@@ -243,27 +244,9 @@ static void file_request_list(void)
 
 static void file_enter_path(const char *name)
 {
-    if (g_disp_state.music_state == MUSIC_STATE_PLAYING ||
-        g_disp_state.music_state == MUSIC_STATE_PAUSED) {
-        snprintf(s_status_text, sizeof(s_status_text), "Stop music first");
-        ui_page_invalidate_all();
-        return;
-    }
-
-    /* Build new path locally for display */
-    int plen = strlen(s_fs.path);
-    int nlen = strlen(name);
-    if (plen + 1 + nlen >= FILE_PATH_MAX) return;
-
-    if (plen > 0 && s_fs.path[plen - 1] != '\\') {
-        s_fs.path[plen] = '\\';
-        s_fs.path[plen + 1] = '\0';
-        plen++;
-    }
-    memcpy(s_fs.path + plen, name, nlen + 1);
-
     /* Send "cd <dirname>" — Core cd only supports single-level dir names.
-     * uart_module will auto-send "ls" after cd response. */
+     * uart_module will auto-send "ls" after cd response.
+     * Path will be updated via on_cwd_notify from ls header parsing. */
     s_fs.loading = true;
     s_fs.data_ready = false;
     UART_SetAppCallbacks(&s_file_callbacks);
@@ -274,20 +257,8 @@ static void file_enter_path(const char *name)
 
 static void file_go_up(void)
 {
-    if (g_disp_state.music_state == MUSIC_STATE_PLAYING ||
-        g_disp_state.music_state == MUSIC_STATE_PAUSED) {
-        snprintf(s_status_text, sizeof(s_status_text), "Stop music first");
-        ui_page_invalidate_all();
-        return;
-    }
-
-    /* Remove last path component (local display path) */
-    int len = strlen(s_fs.path);
-    while (len > 0 && s_fs.path[len - 1] == '\\') { s_fs.path[--len] = '\0'; }
-    while (len > 0 && s_fs.path[len - 1] != '\\') { s_fs.path[--len] = '\0'; }
-    if (len > 0 && s_fs.path[len - 1] == '\\') s_fs.path[--len] = '\0';
-
-    /* Send "cd .." — uart_module will auto-send "ls" after cd response */
+    /* Send "cd .." — uart_module will auto-send "ls" after cd response.
+     * Path will be updated via on_cwd_notify from ls header parsing. */
     s_fs.loading = true;
     s_fs.data_ready = false;
     UART_SetAppCallbacks(&s_file_callbacks);
@@ -296,17 +267,30 @@ static void file_go_up(void)
     ui_page_invalidate_all();
 }
 
+static void file_switch_device(void)
+{
+    /* Toggle between SD and USB */
+    s_fs.current_device = !s_fs.current_device;
+    const char *dev_cmd = s_fs.current_device ? "device usb" : "device sd";
+
+    s_fs.loading = true;
+    s_fs.data_ready = false;
+    s_fs.path[0] = '\0';
+    UART_SetAppCallbacks(&s_file_callbacks);
+
+    /* Send device switch command via CLI.
+     * The on_cli_response callback will trigger a file list refresh
+     * (cd \ then ls) after the device switch completes. */
+    UART_SendCLI(dev_cmd);
+
+    file_update_status();
+    ui_page_invalidate_all();
+}
+
 static void file_delete_selected(void)
 {
     if (s_fs.selected < 0 || s_fs.selected >= s_fs.count) return;
-    if (g_disp_state.music_state == MUSIC_STATE_PLAYING ||
-        g_disp_state.music_state == MUSIC_STATE_PAUSED) {
-        snprintf(s_status_text, sizeof(s_status_text), "Stop music first");
-        ui_page_invalidate_all();
-        return;
-    }
     file_entry_t *e = &s_fs.entries[s_fs.selected];
-    /* Core commands operate on current directory + filename */
     s_fs.loading = true;
     UART_SetAppCallbacks(&s_file_callbacks);
     if (e->attr & FILE_ATTR_IS_DIR)
@@ -319,13 +303,6 @@ static void file_delete_selected(void)
 
 static void file_create_folder(void)
 {
-    if (g_disp_state.music_state == MUSIC_STATE_PLAYING ||
-        g_disp_state.music_state == MUSIC_STATE_PAUSED) {
-        snprintf(s_status_text, sizeof(s_status_text), "Stop music first");
-        ui_page_invalidate_all();
-        return;
-    }
-    /* Core mkdir operates on current directory + dirname */
     s_fs.loading = true;
     UART_SetAppCallbacks(&s_file_callbacks);
     UART_SendFileOperation(FILE_OP_MKDIR, "NewFolder");
@@ -339,9 +316,20 @@ static void file_open_selected(void)
     file_entry_t *e = &s_fs.entries[s_fs.selected];
     if (e->attr & FILE_ATTR_IS_DIR) { file_enter_path(e->name); return; }
 
-    /* Core commands (play/cat) operate on current directory + filename,
-     * so we only send the filename, not the full path. */
+    /* Core commands (play/cat) operate on current directory + filename */
     if (file_is_wav(e->name)) {
+        /* Build playlist from all wav files in current directory */
+        const char *wav_names[FILE_MAX_ENTRIES];
+        int16_t wav_count = 0;
+        int16_t wav_index = -1;
+        for (int16_t i = 0; i < s_fs.count; i++) {
+            if (file_is_wav(s_fs.entries[i].name)) {
+                wav_names[wav_count] = s_fs.entries[i].name;
+                if (i == s_fs.selected) wav_index = wav_count;
+                wav_count++;
+            }
+        }
+        app_music_set_playlist(wav_names, wav_count, wav_index);
         UART_SendPlayMusic(e->name);
         ui_page_push(app_music_get_page());
     } else if (file_is_text(e->name)) {
@@ -361,10 +349,15 @@ static void file_update_status(void)
     else
         snprintf(s_status_text, sizeof(s_status_text), "%d items", s_fs.count);
 
+    const char *dev_name = s_fs.current_device ? "USB" : "SD";
     if (s_fs.path[0] == '\0')
-        snprintf(s_path_display, sizeof(s_path_display), "\\ (Root)");
+        snprintf(s_path_display, sizeof(s_path_display), "[%s] \\ (Root)", dev_name);
     else
-        snprintf(s_path_display, sizeof(s_path_display), "\\%s", s_fs.path);
+        snprintf(s_path_display, sizeof(s_path_display), "[%s] %s", dev_name, s_fs.path);
+
+    /* Update device button text */
+    btn_device.text = s_fs.current_device ? "USB" : "SD";
+    btn_device.base.flags |= UI_WIDGET_FLAG_DIRTY;
 }
 
 /*=============================================================================
@@ -417,6 +410,17 @@ static void file_draw_list(void)
             ui_draw_text(52, y + 24, size_buf, &font_montserrat_12, FILE_SIZE_COLOR);
         }
     }
+
+    /* Scroll indicator */
+    if (s_fs.count > FILE_VISIBLE_ITEMS) {
+        int16_t bar_h = FILE_LIST_H * FILE_VISIBLE_ITEMS / s_fs.count;
+        if (bar_h < 20) bar_h = 20;
+        int16_t bar_y = FILE_LIST_Y + (FILE_LIST_H - bar_h) * s_fs.scroll_offset / (s_fs.count - FILE_VISIBLE_ITEMS);
+        ui_rect_t scroll_bg = {UI_SCREEN_WIDTH - 6, FILE_LIST_Y, 6, FILE_LIST_H};
+        ui_draw_fill_rect(&scroll_bg, UI_HEX(0xE0E0E0));
+        ui_rect_t scroll_bar = {UI_SCREEN_WIDTH - 6, bar_y, 6, bar_h};
+        ui_draw_fill_rect(&scroll_bar, UI_HEX(0xBDBDBD));
+    }
 }
 
 /*=============================================================================
@@ -426,14 +430,11 @@ static void file_draw_list(void)
 static void file_page_enter(ui_page_t *page)
 {
     (void)page;
+    UART_SetAppCallbacks(&s_file_callbacks);
     if (!s_fs.data_ready && !s_fs.loading) {
-        s_fs.path[0] = '\0';
-        file_update_status();
         /* First entry: cd to root then ls */
-        UART_SetAppCallbacks(&s_file_callbacks);
         UART_RequestFileList("\\");
     }
-    UART_SetAppCallbacks(&s_file_callbacks);
     ui_page_invalidate_all();
 }
 
@@ -453,6 +454,8 @@ static void file_page_draw(ui_page_t *page, ui_rect_t *dirty)
 static void list_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
+
+    /* Touch swipe scrolling */
     if (e->type == UI_EVENT_SWIPE_UP) {
         int max_scroll = s_fs.count - FILE_VISIBLE_ITEMS;
         if (max_scroll < 0) max_scroll = 0;
@@ -467,24 +470,52 @@ static void list_touch_event(ui_widget_t *w, ui_event_t *e)
         ui_page_invalidate_all();
         return;
     }
-    if (e->type != UI_EVENT_CLICK) return;
+
+    /* Mouse wheel scrolling (UI_EVENT_MOVE with scroll_delta) */
+    if (e->type == UI_EVENT_MOVE && e->scroll_delta != 0) {
+        int max_scroll = s_fs.count - FILE_VISIBLE_ITEMS;
+        if (max_scroll < 0) max_scroll = 0;
+        s_fs.scroll_offset -= e->scroll_delta;  /* scroll_delta: positive=up, negative=down */
+        if (s_fs.scroll_offset > max_scroll) s_fs.scroll_offset = max_scroll;
+        if (s_fs.scroll_offset < 0) s_fs.scroll_offset = 0;
+        ui_page_invalidate_all();
+        return;
+    }
+
+    /* Click / Double-click handling */
+    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOUBLE_CLICK) return;
     if (s_fs.count == 0) return;
     int16_t rel_y = e->pos.y - FILE_LIST_Y;
     if (rel_y < 0 || rel_y >= FILE_LIST_H) return;
     int item_idx = s_fs.scroll_offset + rel_y / FILE_ITEM_H;
     if (item_idx < 0 || item_idx >= s_fs.count) return;
-    if (item_idx == s_fs.selected) {
-        file_open_selected();
-    } else {
+
+    if (e->type == UI_EVENT_DOUBLE_CLICK) {
+        /* Double-click: open directly */
         s_fs.selected = item_idx;
-        ui_page_invalidate_all();
+        file_open_selected();
+        return;
     }
+
+    /* Single click: select or double-click detection */
+    uint32_t now = ui_get_real_ms();
+    if (item_idx == s_fs.selected && (now - s_last_click_ms) < DOUBLE_CLICK_MS) {
+        /* Second click within double-click window → open */
+        file_open_selected();
+        s_last_click_ms = 0;
+        return;
+    }
+
+    s_fs.selected = item_idx;
+    s_last_click_ms = now;
+    ui_page_invalidate_all();
 }
 
 static void btn_up_click(ui_widget_t *w) { (void)w; if (!s_fs.loading) file_go_up(); }
 static void btn_new_folder_click(ui_widget_t *w) { (void)w; if (!s_fs.loading) file_create_folder(); }
 static void btn_delete_click(ui_widget_t *w) { (void)w; if (!s_fs.loading && s_fs.selected >= 0) file_delete_selected(); }
 static void btn_refresh_click(ui_widget_t *w) { (void)w; file_request_list(); }
+static void btn_device_click(ui_widget_t *w) { (void)w; file_switch_device(); }
 
 /*=============================================================================
  *  Public API
@@ -502,19 +533,25 @@ void app_file_init(void)
     ui_button_set_colors(&btn_up, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
     btn_up.radius = 8;
 
-    ui_rect_t r_newf = {80, TB_BTN_Y, TB_BTN_W + 20, TB_BTN_H};
+    ui_rect_t r_dev = {80, TB_BTN_Y, TB_BTN_W, TB_BTN_H};
+    ui_button_init(&btn_device, &r_dev, "SD", &font_montserrat_12);
+    ui_button_set_callback(&btn_device, btn_device_click);
+    ui_button_set_colors(&btn_device, UI_HEX(0xE3F2FD), UI_HEX(0x1565C0), UI_HEX(0x1565C0));
+    btn_device.radius = 8;
+
+    ui_rect_t r_newf = {150, TB_BTN_Y, TB_BTN_W + 20, TB_BTN_H};
     ui_button_init(&btn_new_folder, &r_newf, "+Dir", &font_montserrat_12);
     ui_button_set_callback(&btn_new_folder, btn_new_folder_click);
     ui_button_set_colors(&btn_new_folder, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
     btn_new_folder.radius = 8;
 
-    ui_rect_t r_delf = {180, TB_BTN_Y, TB_BTN_W + 10, TB_BTN_H};
+    ui_rect_t r_delf = {250, TB_BTN_Y, TB_BTN_W + 10, TB_BTN_H};
     ui_button_init(&btn_delete, &r_delf, "Del", &font_montserrat_12);
     ui_button_set_callback(&btn_delete, btn_delete_click);
     ui_button_set_colors(&btn_delete, UI_HEX(0xFFEBEE), UI_COLOR_ACCENT, UI_COLOR_DANGER);
     btn_delete.radius = 8;
 
-    ui_rect_t r_ref = {260, TB_BTN_Y, TB_BTN_W, TB_BTN_H};
+    ui_rect_t r_ref = {330, TB_BTN_Y, TB_BTN_W, TB_BTN_H};
     ui_button_init(&btn_refresh, &r_ref, "Ref", &font_montserrat_12);
     ui_button_set_callback(&btn_refresh, btn_refresh_click);
     ui_button_set_colors(&btn_refresh, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
@@ -528,12 +565,13 @@ void app_file_init(void)
     s_file_widgets[0] = (ui_widget_t *)&s_app_file.btn_back;
     s_file_widgets[1] = (ui_widget_t *)&s_app_file.lbl_title;
     s_file_widgets[2] = (ui_widget_t *)&btn_up;
-    s_file_widgets[3] = (ui_widget_t *)&btn_new_folder;
-    s_file_widgets[4] = (ui_widget_t *)&btn_delete;
-    s_file_widgets[5] = (ui_widget_t *)&btn_refresh;
-    s_file_widgets[6] = &s_list_touch;
+    s_file_widgets[3] = (ui_widget_t *)&btn_device;
+    s_file_widgets[4] = (ui_widget_t *)&btn_new_folder;
+    s_file_widgets[5] = (ui_widget_t *)&btn_delete;
+    s_file_widgets[6] = (ui_widget_t *)&btn_refresh;
+    s_file_widgets[7] = &s_list_touch;
 
-    ui_page_set_widgets(&s_app_file.page, s_file_widgets, 7);
+    ui_page_set_widgets(&s_app_file.page, s_file_widgets, 8);
     ui_page_set_callbacks(&s_app_file.page, file_page_enter, NULL, file_page_draw, NULL);
     ui_page_register(&s_app_file.page);
 }

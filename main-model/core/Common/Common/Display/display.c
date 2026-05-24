@@ -1161,3 +1161,27 @@ void Display_SendCLIResponse(display_t *display, const char *output, uint16_t ou
     if (frame_len > 0)
         Display_Send_Data(display, buf, frame_len);
 }
+
+void Display_SendCWDNotify(display_t *display, const char *path)
+{
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint8_t data[1 + 64]; /* ext_code + path */
+    uint16_t frame_len;
+    uint8_t path_len;
+
+    if (display == NULL || path == NULL)
+        return;
+
+    data[0] = CMD_DISP_EXT_CWD_NOTIFY;
+    path_len = (uint8_t)strlen(path);
+    if (path_len > 63)
+        path_len = 63;
+    memcpy(&data[1], path, path_len);
+
+    frame_len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
+                                   CMD_DISP_EXTENSION,
+                                   data, 1 + path_len,
+                                   buf, sizeof(buf));
+    if (frame_len > 0)
+        Display_Send_Data(display, buf, frame_len);
+}

@@ -668,6 +668,19 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
         }
         g_pending_req = PENDING_NONE;
         break;
+    case DISP_EXT_CWD_NOTIFY:
+        /* CWD change notification from Core (pushed on cd/device success).
+         * DATA[1..N] = path string (null-terminated or len-delimited). */
+        if (len >= 2 && s_app_cb_valid && s_app_cb.on_cwd_notify) {
+            /* Ensure null-termination */
+            char path_buf[64];
+            uint8_t plen = len - 1;
+            if (plen > sizeof(path_buf) - 1) plen = sizeof(path_buf) - 1;
+            memcpy(path_buf, &data[1], plen);
+            path_buf[plen] = '\0';
+            s_app_cb.on_cwd_notify(path_buf);
+        }
+        break;
     case DISP_EXT_APP_LAUNCH:
     case DISP_EXT_APP_CLOSE:
     case DISP_EXT_APP_DATA:
@@ -873,6 +886,23 @@ static void cli_resp_dispatch(void)
         uint8_t count = 0;
         const char *p = s_cli_resp_buf;
 
+        /* Extract path from "--- \PATH ---" header line */
+        const char *hdr_start = strstr(p, "--- ");
+        if (hdr_start) {
+            const char *path_start = hdr_start + 4; /* skip "--- " */
+            const char *path_end = strstr(path_start, " ---");
+            if (path_end) {
+                uint8_t path_len = (uint8_t)(path_end - path_start);
+                char ls_path[64];
+                if (path_len > sizeof(ls_path) - 1) path_len = sizeof(ls_path) - 1;
+                memcpy(ls_path, path_start, path_len);
+                ls_path[path_len] = '\0';
+                /* Notify app of the real CWD from ls output */
+                if (s_app_cb.on_cwd_notify)
+                    s_app_cb.on_cwd_notify(ls_path);
+            }
+        }
+
         while (*p && count < FILE_LIST_MAX_ENTRIES) {
             /* Skip to next line starting with [DIR] or [FILE] */
             const char *dir_tag = strstr(p, "[DIR]");
@@ -920,8 +950,6 @@ static void cli_resp_dispatch(void)
                 if (size_start) {
                     /* Trim name at '(' */
                     uint8_t trim_pos = (uint8_t)(size_start - entries[count].name);
-                    if (trim_pos > 0 && entries[count].name[trim_pos-1] == ' ')
-                        trim_pos--;
                     entries[count].name[trim_pos] = '\0';
                     /* Parse size */
                     /* Simple ASCII-to-int (no stdlib on embedded) */
@@ -934,6 +962,16 @@ static void cli_resp_dispatch(void)
                         }
                         entries[count].size = val;
                     }
+                }
+            }
+
+            /* Final trim: remove ALL trailing whitespace from name
+             * (ls output may have multiple spaces before "(NNN bytes)") */
+            {
+                uint8_t nlen2 = (uint8_t)strlen(entries[count].name);
+                while (nlen2 > 0 && (entries[count].name[nlen2-1] == ' ' ||
+                                     entries[count].name[nlen2-1] == '\t')) {
+                    entries[count].name[--nlen2] = '\0';
                 }
             }
 
@@ -991,7 +1029,7 @@ void UART_RequestFileList(const char *dir_or_null)
          * dir_or_null should be a single-level dir name (e.g. "DOC", "..", "\"). */
         s_pending_ls_after_cd = true;
         char cmd[128];
-        snprintf(cmd, sizeof(cmd), "cd %s", dir_or_null);
+        snprintf(cmd, sizeof(cmd), "cd \"%s\"", dir_or_null);
         UART_SendCLI(cmd);
     } else {
         /* Already in target directory, just list */
@@ -1003,7 +1041,7 @@ void UART_RequestFileList(const char *dir_or_null)
 void UART_SendCD(const char *dir)
 {
     char cmd[80];
-    snprintf(cmd, sizeof(cmd), "cd %s", dir);
+    snprintf(cmd, sizeof(cmd), "cd \"%s\"", dir);
     UART_SendCLI(cmd);
 }
 
@@ -1020,7 +1058,7 @@ void UART_SendPWD(void)
 void UART_SendPlayMusic(const char *path)
 {
     char cmd[128];
-    snprintf(cmd, sizeof(cmd), "play %s", path);
+    snprintf(cmd, sizeof(cmd), "play \"%s\"", path);
     UART_SendCLI(cmd);
 }
 
@@ -1047,13 +1085,13 @@ void UART_SendFileOperation(uint8_t op_type, const char *path)
     char cmd[128];
     switch (op_type) {
     case FILE_OP_MKDIR:
-        snprintf(cmd, sizeof(cmd), "mkdir %s", path);
+        snprintf(cmd, sizeof(cmd), "mkdir \"%s\"", path);
         break;
     case FILE_OP_DELETE_FILE:
-        snprintf(cmd, sizeof(cmd), "rm %s", path);
+        snprintf(cmd, sizeof(cmd), "rm \"%s\"", path);
         break;
     case FILE_OP_DELETE_DIR:
-        snprintf(cmd, sizeof(cmd), "rm -rf %s", path);
+        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", path);
         break;
     case FILE_OP_RENAME:
         /* Rename needs two args; caller should use UART_SendCLI directly */
@@ -1067,7 +1105,7 @@ void UART_SendFileOperation(uint8_t op_type, const char *path)
 void UART_RequestFileRead(const char *path)
 {
     char cmd[128];
-    snprintf(cmd, sizeof(cmd), "cat %s", path);
+    snprintf(cmd, sizeof(cmd), "cat \"%s\"", path);
     UART_SendCLI(cmd);
 }
 

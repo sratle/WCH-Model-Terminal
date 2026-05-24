@@ -141,7 +141,8 @@ Display 模块操作码分为两类：
 | `0x18` | `CMD_DISP_EXT_HID_STATUS` | Core -> Display | 外接 HID 设备连接/断开状态同步 | `[事件:1][设备类型:1]` |
 | `0x19` | — | — | **已废弃**（V3.0 CLI 直通 `cd` 替代） | — |
 | `0x1A` | `CMD_DISP_EXT_CLI` | 双向 | **CLI 命令直通**（Display→Core 发命令，Core 执行后通过同扩展码返回文本） | §4 |
-| `0x1B~0x3F` | — | — | 预留 | — |
+| `0x1B` | `CMD_DISP_EXT_CWD_NOTIFY` | Core→Display | **CWD 变更通知**（Core 主动推送当前工作目录，用于三方路径同步） | §4.8 |
+| `0x1C~0x3F` | — | — | 预留 | — |
 
 > **V3.0 已废弃（Core 回复 NACK）**：`0x06~0x0B`（FILE_LIST/READ/SAVE/OP/PLAY_MUSIC）、`0x14`（BULK_TRANSFER）、`0x19`（CD）、基础码 `0x1B`（MUSIC_CONTROL）、`0x1D`（VOLUME_CONTROL）。全部由 CLI 直通替代。
 
@@ -207,6 +208,7 @@ ACK/NACK 由**命令语义**决定，而非发送方向：
 | `0x18` | HID_STATUS | 事件 | Display 不回复 |
 | `0x19` | — | — | **已废弃**，Core 回复 NACK |
 | `0x1A` | CLI | 动作 | Core 通过 DISP_EXT_CLI 返回文本，不发送独立 ACK |
+| `0x1B` | CWD_NOTIFY | 事件 | Display 不回复（Core 主动推送） |
 
 ### 3.4 ACK / NACK 帧格式
 
@@ -406,6 +408,57 @@ Display                              Core
 | Core 处理入口 | `Display_HandleCLI` → `CLI_Process()` | `CMD_BT_EXT_CLI_DATA` → `CLI_Process()` |
 
 > 两种方式在 Core 侧最终都通过同一个 `CLI_Process()` 执行命令，确保行为一致。
+
+### 4.8 CWD 变更通知与三方路径同步
+
+#### 问题背景
+
+Core 的当前工作目录（CWD）可由三个客户端修改：
+1. **Display-1**（通过 UART CLI 直通）
+2. **WCH Terminal App**（通过 BLE CLI 直通）
+3. **Core UART CLI**（直接串口终端）
+
+当任一客户端执行 `cd` 或 `device` 命令时，Core 的 CWD 发生变化，其他客户端的本地路径显示可能与 Core 实际状态不同步。
+
+#### 同步方案
+
+采用**事件驱动**方式（非定时轮询），Core 在 CWD 变更时主动推送通知：
+
+**Display-1**：通过专用扩展码 `CMD_DISP_EXT_CWD_NOTIFY`（0x1B）推送
+
+```
+[AA][00][10][LEN][10][1B][路径字符串...][A5][5A][FC][FD]
+ HEAD SRC DST LEN CMD EXT   DATA[1..N] = CWD 路径（UTF-8）
+```
+
+- `CMD = 0x10`（扩展操作码基码）
+- `DATA[0] = 0x1B`（CWD_NOTIFY 子命令）
+- `DATA[1..N]`：当前工作目录路径字符串（如 `\DOC\MUSIC`），最大 63 字节
+- Display 收到后更新本地路径显示，无需回复
+
+**WCH Terminal App**：通过 CLI 输出中的 `[CWD]` 标记行推送
+
+Core 在 `cd`/`device` 成功后，额外输出一行 `[CWD] <path>`。该标记行：
+- 作为 CLI 输出的一部分，通过 BLE CLI_DATA 通道传输
+- App 的 `CliEngine` 检测 `[CWD]` 前缀，提取路径并通过 `cwdStream` 发出通知
+- `FileNotifier` 监听 `cwdStream`，自动同步本地路径并刷新文件列表
+- 对于 App 自身发起的 `cd`，该标记行被 `CliEngine` 过滤后不影响命令响应解析
+
+#### 触发时机
+
+Core 在以下场景推送 CWD 通知：
+
+| 场景 | 触发方式 | Display 通知 | App 通知 |
+|------|---------|-------------|---------|
+| Display 发送 `cd` | CLI 直通 | CWD_NOTIFY 帧 | `[CWD]` 标记行（通过 BLE 捕获输出） |
+| App 发送 `cd` | BLE CLI | CWD_NOTIFY 帧 | `[CWD]` 标记行（被 CliEngine 过滤） |
+| Core UART `cd` | 直接执行 | CWD_NOTIFY 帧 | `[CWD]` 标记行（unsolicited output） |
+| `device` 命令切换存储 | CLI/BLE | CWD_NOTIFY 帧 | `[CWD]` 标记行 |
+| Display/App 发送 `ls` | CLI 直通 | ls 输出 `--- \PATH ---` 头部解析 | cd 响应中路径已同步 |
+
+#### ls 输出路径头部
+
+`ls` 命令输出的首行 `--- \PATH ---` 也携带路径信息。Display 侧 `uart_module.c` 在解析 `ls` 输出时，同时提取该头部并通过 `on_cwd_notify` 回调通知应用层，作为 CWD 同步的补充机制。
 
 ---
 
@@ -835,3 +888,4 @@ Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | V1.0 | 2026-04-24 | 初始版本 |
 | V2.0 | 2026-05-22 | 全面修正：移除以太网操作码；新增 Core 按键输入事件；修正音乐控制/状态格式对齐 CS43131 实现；合并蓝牙操作为事件转发+控制请求模式；合并 Submodel 事件为统一转发格式；合并电源事件；移除与 SCREEN_CONTROL 重叠的 SCREEN_WAKEUP/SLEEP；移除过于笼统的 REPORT_EVENT/REQUEST_DATA；修正文件列表格式对齐 CH378 LFN 支持；扩展码重新编号 |
 | V3.0 | 2026-05-23 | CLI 直通重构：废弃扩展码 0x06~0x0B、0x14、0x19 及基础码 0x1B/0x1D，统一使用 0x1A CLI 直通；Core 不再发送独立 ACK，CLI 响应通过 DISP_EXT_CLI 帧返回；删除批量传输/文件列表/文件操作/音乐控制/音量控制等废弃章节；删除以太网相关内容；章节重新编号 |
+| V3.1 | 2026-05-23 | CWD 三方同步：新增扩展码 0x1B `CMD_DISP_EXT_CWD_NOTIFY`（Core→Display 推送路径变更）；Core `cd`/`device` 成功后输出 `[CWD] <path>` 标记行供 WCH Terminal App 同步；Display 侧 ls 输出头部路径解析；app_file 支持触摸滑动/鼠标滚轮/双击打开/设备切换 |

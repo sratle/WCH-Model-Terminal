@@ -259,6 +259,13 @@ static void text_touch_event(ui_widget_t *w, ui_event_t *e)
         s_ed.scroll_line -= 5;
         if (s_ed.scroll_line < 0) s_ed.scroll_line = 0;
         ui_page_invalidate_all();
+    } else if (e->type == UI_EVENT_MOVE && e->scroll_delta != 0) {
+        int max_s = s_ed.line_count - EDIT_VISIBLE_LINES;
+        if (max_s < 0) max_s = 0;
+        s_ed.scroll_line -= e->scroll_delta;
+        if (s_ed.scroll_line > max_s) s_ed.scroll_line = max_s;
+        if (s_ed.scroll_line < 0) s_ed.scroll_line = 0;
+        ui_page_invalidate_all();
     }
 }
 

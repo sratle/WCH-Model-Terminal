@@ -26,6 +26,11 @@ class CliEngine {
   final _outputController = StreamController<String>.broadcast();
   Stream<String> get outputStream => _outputController.stream;
 
+  // CWD change notification stream: Core pushes [CWD] <path> when
+  // directory changes (via cd/device command from any client).
+  final _cwdController = StreamController<String>.broadcast();
+  Stream<String> get cwdStream => _cwdController.stream;
+
   StreamSubscription? _dataSub;
   StreamSubscription? _connSub;
 
@@ -76,6 +81,26 @@ class CliEngine {
     return completer.future;
   }
 
+  /// Check text for [CWD] notifications from Core.
+  /// Returns the text with [CWD] lines removed.
+  String _checkCwdNotifications(String text) {
+    final lines = text.split('\n');
+    final remaining = <String>[];
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('[CWD] ')) {
+        final path = trimmed.substring(6).trim();
+        if (path.isNotEmpty) {
+          print('[CLI] CWD notification: $path');
+          _cwdController.add(path);
+        }
+      } else {
+        remaining.add(line);
+      }
+    }
+    return remaining.join('\n');
+  }
+
   void _onData(List<int> data) {
     final message = _protocol.decodeFrame(data);
     if (message == null) return;
@@ -87,11 +112,13 @@ class CliEngine {
 
     if (message.type == ProtocolConstants.msgTypeCliData && message.isDirUp) {
       final text = utf8.decode(message.payload, allowMalformed: true);
+      // Extract [CWD] notifications before processing
+      final cleanedText = _checkCwdNotifications(text);
       print('[CLI] data: type=CLI isEof=${message.isEof} payloadLen=${message.payload.length} textLen=${text.length} pending=${_pending.length}');
 
       if (_pending.isNotEmpty) {
         final pending = _pending.first;
-        pending.buffer.write(text);
+        pending.buffer.write(cleanedText);
 
         if (message.isEof) {
           _pending.removeAt(0);
@@ -102,7 +129,9 @@ class CliEngine {
           );
         }
       } else {
-        _outputController.add(text);
+        if (cleanedText.isNotEmpty) {
+          _outputController.add(cleanedText);
+        }
       }
     }
   }
@@ -110,17 +139,20 @@ class CliEngine {
   void _onTimeoutFrame(FrameModel frame) {
     if (frame.type == ProtocolConstants.msgTypeCliData && frame.isDirUp) {
       final text = utf8.decode(frame.payload, allowMalformed: true);
+      final cleanedText = _checkCwdNotifications(text);
       print('[CLI] timeout frame: payloadLen=${frame.payload.length} pending=${_pending.length}');
       if (_pending.isNotEmpty) {
         final pending = _pending.first;
-        pending.buffer.write(text);
+        pending.buffer.write(cleanedText);
         _pending.removeAt(0);
         print('[CLI] timeout deliver: "${pending.command}" totalLen=${pending.buffer.length}');
         pending.completer.complete(
           CliResponse.success(pending.command, pending.buffer.toString()),
         );
       } else {
-        _outputController.add(text);
+        if (cleanedText.isNotEmpty) {
+          _outputController.add(cleanedText);
+        }
       }
     }
   }
@@ -166,5 +198,6 @@ class CliEngine {
     _connSub?.cancel();
     _dataSub?.cancel();
     _outputController.close();
+    _cwdController.close();
   }
 }
