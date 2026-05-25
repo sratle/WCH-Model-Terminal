@@ -1,11 +1,13 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : app_terminal.c
 * Author             : LCD Model Team
-* Version            : V1.0.0
+* Version            : V2.0.0
 * Date               : 2026/05/25
 * Description        : Terminal app — interactive CLI shell on screen.
 *                      Connects to Core CLI via UART CLI passthrough.
 *                      Full keyboard input, command history, scrolling output.
+*                      V2.0: pixel-level scrolling, streaming CLI output,
+*                             proper \r\n handling, auto-scroll on new output.
 ********************************************************************************/
 #include "app_terminal.h"
 #include "../UI/ui_app_common.h"
@@ -19,10 +21,8 @@
 
 #define TERM_LINE_H         16
 #define TERM_MARGIN_X       8
-#define TERM_MARGIN_Y       4
-#define TERM_TEXT_Y         (APP_TITLE_BAR_H + TERM_MARGIN_Y)
-#define TERM_TEXT_H         (UI_SCREEN_HEIGHT - APP_TITLE_BAR_H - TERM_MARGIN_Y)
-#define TERM_VISIBLE_LINES  (TERM_TEXT_H / TERM_LINE_H)
+#define TERM_TEXT_Y         (APP_TITLE_BAR_H)
+#define TERM_TEXT_H         (UI_SCREEN_HEIGHT - APP_TITLE_BAR_H)
 #define TERM_PROMPT_LEN     2   /* "> " */
 #define TERM_INPUT_MAX      128
 #define TERM_HISTORY_MAX    16
@@ -30,6 +30,10 @@
 #define TERM_LINE_MAX       256
 #define TERM_STATUS_H       20
 #define TERM_CONTENT_H      (TERM_TEXT_H - TERM_STATUS_H)
+
+/* Scroll speeds */
+#define TERM_WHEEL_PX       32  /* pixels per mouse wheel notch */
+#define TERM_SWIPE_LINES    3   /* lines per swipe gesture */
 
 /*=============================================================================
  *  Colors
@@ -63,7 +67,18 @@ typedef struct {
     term_line_t lines[TERM_OUTPUT_LINES];
     uint16_t line_count;       /* Total lines written (wraps) */
     uint16_t line_head;        /* Index of oldest line in buffer */
-    int16_t scroll_offset;     /* 0 = bottom, >0 = scrolled up */
+
+    /* Pixel-level scroll: scroll_y = pixel offset from top of content.
+     * Content height = (line_count + 1) * TERM_LINE_H  (+1 for input line)
+     * scroll_y ranges from 0 to max_scroll_y.
+     * 0 means top of content is at top of viewport.
+     * max_scroll_y means bottom of content is at bottom of viewport. */
+    int16_t scroll_y;
+
+    /* Auto-scroll: when true, scroll_y tracks content bottom automatically.
+     * Set to true initially and after user scrolls to bottom.
+     * Set to false when user scrolls up away from bottom. */
+    bool auto_scroll;
 
     /* Input line */
     char input[TERM_INPUT_MAX];
@@ -94,6 +109,44 @@ static ui_widget_t *s_terminal_widgets[3]; /* back + title + touch */
 static terminal_state_t s_term;
 
 /*=============================================================================
+ *  Scroll Helpers
+ *=============================================================================*/
+
+/* Total content height in pixels (output lines + input line) */
+static int16_t term_content_height(void)
+{
+    return ((int16_t)s_term.line_count + 1) * TERM_LINE_H;
+}
+
+/* Maximum scroll_y value (clamped so bottom of content = bottom of viewport) */
+static int16_t term_max_scroll(void)
+{
+    int16_t ch = term_content_height();
+    int16_t max = ch - TERM_CONTENT_H;
+    return (max > 0) ? max : 0;
+}
+
+/* Clamp scroll_y to valid range, update auto_scroll flag */
+static void term_clamp_scroll(void)
+{
+    int16_t max = term_max_scroll();
+    if (s_term.scroll_y > max) s_term.scroll_y = max;
+    if (s_term.scroll_y < 0) s_term.scroll_y = 0;
+
+    /* If scrolled to bottom, re-enable auto-scroll */
+    if (s_term.scroll_y >= max) {
+        s_term.auto_scroll = true;
+    }
+}
+
+/* Scroll to bottom (for auto-scroll on new output) */
+static void term_scroll_to_bottom(void)
+{
+    s_term.scroll_y = term_max_scroll();
+    s_term.auto_scroll = true;
+}
+
+/*=============================================================================
  *  Dirty Region Helpers
  *=============================================================================*/
 
@@ -117,12 +170,23 @@ static void term_invalidate_status(void)
 
 static void term_invalidate_input_line(void)
 {
-    /* Invalidate the last visible line area (where input is drawn) */
-    int16_t input_y = TERM_TEXT_Y + (TERM_VISIBLE_LINES - 1) * TERM_LINE_H;
-    if (input_y >= TERM_TEXT_Y && input_y < TERM_TEXT_Y + TERM_CONTENT_H) {
-        ui_rect_t r = {0, input_y, UI_SCREEN_WIDTH, TERM_LINE_H};
-        ui_page_invalidate(&r);
-    }
+    /* Calculate the pixel Y position of the input line on screen */
+    int16_t input_y_in_content = (int16_t)s_term.line_count * TERM_LINE_H;
+    int16_t input_y_on_screen = TERM_TEXT_Y + input_y_in_content - s_term.scroll_y;
+
+    /* Check if input line is visible */
+    if (input_y_on_screen + TERM_LINE_H <= TERM_TEXT_Y ||
+        input_y_on_screen >= TERM_TEXT_Y + TERM_CONTENT_H)
+        return;
+
+    /* Clamp to content area */
+    int16_t y = (input_y_on_screen > TERM_TEXT_Y) ? input_y_on_screen : TERM_TEXT_Y;
+    int16_t bot = input_y_on_screen + TERM_LINE_H;
+    int16_t content_bot = TERM_TEXT_Y + TERM_CONTENT_H;
+    if (bot > content_bot) bot = content_bot;
+
+    ui_rect_t r = {0, y, UI_SCREEN_WIDTH, (uint16_t)(bot - y)};
+    ui_page_invalidate(&r);
 }
 
 /*=============================================================================
@@ -157,12 +221,18 @@ static void term_add_line(const char *text, uint16_t len)
     s_term.line_count++;
 }
 
-/* Split text into lines at '\n' characters and add to buffer */
+/* Split text into lines at '\n' characters, skip '\r', and add to buffer */
 static void term_add_output(const char *text, uint16_t len)
 {
     uint16_t start = 0;
     for (uint16_t i = 0; i < len; i++) {
-        if (text[i] == '\n') {
+        if (text[i] == '\r') {
+            /* Flush text before \r as a line */
+            if (i > start) {
+                term_add_line(&text[start], i - start);
+            }
+            start = i + 1;
+        } else if (text[i] == '\n') {
             if (i > start) {
                 term_add_line(&text[start], i - start);
             }
@@ -174,50 +244,10 @@ static void term_add_output(const char *text, uint16_t len)
         term_add_line(&text[start], len - start);
     }
 
-    /* Auto-scroll to bottom */
-    s_term.scroll_offset = 0;
-}
-
-/* Invalidate only the newly added lines (from old line_count to new) */
-static void term_invalidate_new_lines(uint16_t old_count, uint16_t new_count)
-{
-    if (new_count <= old_count) return;
-
-    int16_t total_new = (int16_t)new_count + 1;
-    int16_t max_scroll = total_new - TERM_VISIBLE_LINES;
-    if (max_scroll < 0) max_scroll = 0;
-
-    /* If scrolled, content shifted — need full content update */
-    if (s_term.scroll_offset > 0) {
-        term_invalidate_content();
-        return;
+    /* Auto-scroll to bottom if enabled */
+    if (s_term.auto_scroll) {
+        term_scroll_to_bottom();
     }
-
-    /* Calculate Y range of new lines */
-    int16_t start_vis = total_new - TERM_VISIBLE_LINES;
-    if (start_vis < 0) start_vis = 0;
-
-    int16_t first_new_vis = (int16_t)old_count;
-    if (first_new_vis < start_vis) first_new_vis = start_vis;
-
-    int16_t last_new_vis = (int16_t)new_count; /* inclusive */
-    if (last_new_vis >= start_vis + TERM_VISIBLE_LINES)
-        last_new_vis = start_vis + TERM_VISIBLE_LINES - 1;
-
-    if (first_new_vis > last_new_vis) return;
-
-    int16_t y1 = TERM_TEXT_Y + (first_new_vis - start_vis) * TERM_LINE_H;
-    int16_t y2 = TERM_TEXT_Y + (last_new_vis - start_vis + 1) * TERM_LINE_H;
-
-    /* If old content scrolled up, invalidate the whole area from first changed line */
-    if (old_count >= (uint16_t)(start_vis + TERM_VISIBLE_LINES)) {
-        /* Lines shifted — need full content invalidation */
-        term_invalidate_content();
-        return;
-    }
-
-    ui_rect_t r = {0, y1, UI_SCREEN_WIDTH, (uint16_t)(y2 - y1)};
-    ui_page_invalidate(&r);
 }
 
 /*=============================================================================
@@ -241,23 +271,19 @@ static void term_history_push(const char *cmd)
 }
 
 /*=============================================================================
- *  Protocol Callbacks (forward declarations + definition)
+ *  Protocol Callbacks
  *=============================================================================*/
 
 static void on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
 {
-    uint16_t old_count = s_term.line_count;
+    (void)truncated;
     term_add_output(output, len);
-    uint16_t new_count = s_term.line_count;
-
-    if (new_count > old_count) {
-        term_invalidate_new_lines(old_count, new_count);
-    }
 
     if (is_last) {
         s_term.cli_busy = false;
     }
 
+    term_invalidate_content();
     term_invalidate_status();
 }
 
@@ -281,7 +307,6 @@ static uart_app_callbacks_t s_terminal_callbacks = {
 static void term_execute(void)
 {
     if (s_term.input_len == 0) {
-        /* Just show a new prompt */
         term_add_line("> ", 2);
         term_invalidate_content();
         return;
@@ -308,7 +333,6 @@ static void term_execute(void)
     s_term.cursor_pos = 0;
     s_term.history_idx = -1;
 
-    /* Invalidate content — prompt line added shifts content */
     term_invalidate_content();
     term_invalidate_status();
 }
@@ -383,7 +407,7 @@ static void term_handle_key_event(ui_event_t *e)
     if (e->type != UI_EVENT_KEY_DOWN && e->type != UI_EVENT_KEY_LONG_REPEAT)
         return;
 
-    /* Ctrl+C: clear input */
+    /* Ctrl+C: cancel / clear input */
     if (ctrl && e->char_code == 'c') {
         s_term.input[0] = '\0';
         s_term.input_len = 0;
@@ -470,36 +494,31 @@ static void term_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
 
-    /* Mouse wheel scrolling */
+    /* Mouse wheel: pixel-level scrolling */
     if (e->type == UI_EVENT_MOVE && e->scroll_delta != 0) {
-        s_term.scroll_offset += e->scroll_delta * 3;
-        int16_t max_scroll = (int16_t)s_term.line_count - TERM_VISIBLE_LINES + 1;
-        if (max_scroll < 0) max_scroll = 0;
-        if (s_term.scroll_offset > max_scroll) s_term.scroll_offset = max_scroll;
-        if (s_term.scroll_offset < 0) s_term.scroll_offset = 0;
+        s_term.scroll_y -= e->scroll_delta * TERM_WHEEL_PX;
+        term_clamp_scroll();
         term_invalidate_content();
         return;
     }
 
-    /* Swipe for scrolling */
+    /* Swipe: scroll by lines */
     if (e->type == UI_EVENT_SWIPE_UP) {
-        s_term.scroll_offset += 5;
-        int16_t max_scroll = (int16_t)s_term.line_count - TERM_VISIBLE_LINES + 1;
-        if (max_scroll < 0) max_scroll = 0;
-        if (s_term.scroll_offset > max_scroll) s_term.scroll_offset = max_scroll;
+        s_term.scroll_y += TERM_SWIPE_LINES * TERM_LINE_H;
+        term_clamp_scroll();
         term_invalidate_content();
         return;
     }
     if (e->type == UI_EVENT_SWIPE_DOWN) {
-        s_term.scroll_offset -= 5;
-        if (s_term.scroll_offset < 0) s_term.scroll_offset = 0;
+        s_term.scroll_y -= TERM_SWIPE_LINES * TERM_LINE_H;
+        term_clamp_scroll();
         term_invalidate_content();
         return;
     }
 
-    /* Click to scroll to bottom */
+    /* Double click: scroll to bottom */
     if (e->type == UI_EVENT_DOUBLE_CLICK) {
-        s_term.scroll_offset = 0;
+        term_scroll_to_bottom();
         term_invalidate_content();
         return;
     }
@@ -514,33 +533,40 @@ static void term_draw_output(const ui_rect_t *dirty)
     /* Fill content background (only within dirty region) */
     ui_draw_fill_rect(dirty, TERM_BG);
 
-    /* Calculate visible line range */
-    int16_t total_lines = (int16_t)s_term.line_count + 1; /* +1 for input line */
-    int16_t max_scroll = total_lines - TERM_VISIBLE_LINES;
-    if (max_scroll < 0) max_scroll = 0;
-    if (s_term.scroll_offset > max_scroll) s_term.scroll_offset = max_scroll;
+    /* Calculate which lines are visible based on pixel scroll */
+    int16_t content_h = term_content_height();
+    int16_t max_scroll = term_max_scroll();
+    if (s_term.scroll_y > max_scroll) s_term.scroll_y = max_scroll;
+    if (s_term.scroll_y < 0) s_term.scroll_y = 0;
 
-    int16_t start_line = total_lines - TERM_VISIBLE_LINES - s_term.scroll_offset;
-    if (start_line < 0) start_line = 0;
+    /* First line that intersects the viewport */
+    int16_t first_line = s_term.scroll_y / TERM_LINE_H;
+    /* Pixel offset of first_line within the viewport (negative = clipped) */
+    int16_t first_line_offset = -(s_term.scroll_y % TERM_LINE_H);
+
+    /* Number of lines that could be visible (including partially) */
+    int16_t visible_lines = (TERM_CONTENT_H - first_line_offset + TERM_LINE_H - 1) / TERM_LINE_H + 1;
 
     /* Only draw lines that intersect the dirty region */
     int16_t dirty_top = dirty->y;
     int16_t dirty_bot = dirty->y + dirty->h;
 
-    for (int16_t i = 0; i < TERM_VISIBLE_LINES; i++) {
-        int16_t y = TERM_TEXT_Y + i * TERM_LINE_H;
+    for (int16_t i = 0; i < visible_lines; i++) {
+        int16_t line_idx = first_line + i;
+        int16_t y = TERM_TEXT_Y + first_line_offset + i * TERM_LINE_H;
 
         /* Skip lines outside dirty region */
         if (y + TERM_LINE_H <= dirty_top || y >= dirty_bot)
             continue;
 
-        int16_t line_idx = start_line + i;
+        /* Skip lines outside content viewport */
+        if (y + TERM_LINE_H <= TERM_TEXT_Y || y >= TERM_TEXT_Y + TERM_CONTENT_H)
+            continue;
 
         if (line_idx < (int16_t)s_term.line_count) {
             /* Output line */
             term_line_t *line = term_get_line((uint16_t)line_idx);
             if (line && line->len > 0) {
-                /* Color prompt lines differently */
                 ui_color_t color = TERM_TEXT_COLOR;
                 const char *text = line->text;
                 uint16_t len = line->len;
@@ -597,7 +623,7 @@ static void term_draw_output(const ui_rect_t *dirty)
                     if (alen > sizeof(after) - 1) alen = sizeof(after) - 1;
                     memcpy(after, &s_term.input[s_term.cursor_pos], alen);
                     after[alen] = '\0';
-                    int16_t cursor_w = 2; /* cursor bar width approximation */
+                    int16_t cursor_w = 2;
                     ui_draw_text(text_x + cursor_w, y, after, &font_montserrat_12, TERM_INPUT_COLOR);
                 }
             } else {
@@ -633,8 +659,8 @@ static void term_draw_status(void)
             memcpy(&buf[pos], &s_term.cwd[cwd_len - max_cwd + 2], max_cwd - 2);
             pos += max_cwd - 2;
         } else {
-          memcpy(&buf[pos], s_term.cwd, cwd_len);
-          pos += cwd_len;
+            memcpy(&buf[pos], s_term.cwd, cwd_len);
+            pos += cwd_len;
         }
     } else {
         buf[pos++] = '/';
@@ -644,8 +670,9 @@ static void term_draw_status(void)
 
     if (s_term.cli_busy) {
         const char *busy = " ...";
-        memcpy(&buf[pos], busy, strlen(busy));
-        pos += (int)strlen(busy);
+        int blen = (int)strlen(busy);
+        memcpy(&buf[pos], busy, blen);
+        pos += blen;
     }
 
     buf[pos] = '\0';
@@ -733,13 +760,17 @@ void app_terminal_init(void)
     memset(&s_term, 0, sizeof(s_term));
     s_term.history_idx = -1;
     s_term.cursor_visible = true;
+    s_term.auto_scroll = true;
     strcpy(s_term.cwd, "/");
 
     /* Welcome message */
-    term_add_line("Terminal v1.0", 13);
+    term_add_line("Terminal v2.0", 13);
     term_add_line("Connected to Core CLI via UART", 30);
     term_add_line("Type 'help' for available commands.", 35);
     term_add_line("", 0);
+
+    /* Set initial scroll to bottom */
+    term_scroll_to_bottom();
 
     /* Touch area for scrolling (content area) */
     ui_rect_t touch_rect = {0, TERM_TEXT_Y, UI_SCREEN_WIDTH, TERM_CONTENT_H};

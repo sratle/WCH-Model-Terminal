@@ -119,8 +119,9 @@ static void ring_push_frame(uint8_t src, uint8_t dst, uint8_t cmd,
                              const volatile uint8_t *data, uint8_t dlen)
 {
     uint16_t total = 4 + dlen;
-    /* Simple overflow check: if not enough space, drop the frame */
-    if (s_ring_head + total - s_ring_tail > UART_RX_BUF_SIZE) return;
+    /* Overflow check: if not enough space, drop the frame.
+     * Use subtraction to avoid uint16_t overflow in addition. */
+    if ((uint16_t)(s_ring_head - s_ring_tail) + total > UART_RX_BUF_SIZE) return;
 
     uint16_t h = s_ring_head;
     s_ring[h++ % UART_RX_BUF_SIZE] = src;
@@ -663,7 +664,11 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
         /* CLI response from Core (text output).
          * New format: data[1] = flags (CLI_FLAG_SOF | CLI_FLAG_EOF), data[2..N] = text
          * Legacy format (no flags byte): data[1..N] = text, dispatch immediately.
-         * Multi-frame: accumulate until EOF flag is received, then dispatch. */
+         *
+         * Two dispatch modes:
+         * - If on_file_list is set (file manager): accumulate all frames, parse ls output
+         * - If only on_cli_response (terminal): stream each frame immediately for live output
+         */
         if (len >= 3) {
             uint8_t flags = data[1];
             bool has_sof = (flags & 0x01) != 0;  /* CLI_FLAG_SOF */
@@ -679,7 +684,19 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
             }
 
             if (s_cli_resp_accumulating || has_sof) {
-                cli_resp_append((const char *)&data[2], len - 2);
+                const char *frame_text = (const char *)&data[2];
+                uint16_t frame_len = len - 2;
+
+                /* Stream mode: if no on_file_list, deliver each frame immediately */
+                if (s_app_cb_valid && s_app_cb.on_cli_response && !s_app_cb.on_file_list) {
+                    bool truncated = (s_cli_resp_len + frame_len > CLI_RESP_BUF_SIZE - 1);
+                    s_app_cb.on_cli_response(frame_text, frame_len, truncated, has_eof);
+                    cli_resp_append(frame_text, frame_len);
+                } else {
+                    /* Accumulate mode: buffer for on_file_list parsing */
+                    cli_resp_append(frame_text, frame_len);
+                }
+
                 if (has_eof) {
                     s_cli_resp_accumulating = false;
                     printf("[CLI_RX] EOF reached, buf_len=%d, dispatching\r\n", s_cli_resp_len);
@@ -687,13 +704,25 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
                 }
             } else {
                 /* Legacy frame without SOF/EOF: dispatch immediately */
-                cli_resp_append((const char *)&data[1], len - 1);
+                const char *frame_text = (const char *)&data[1];
+                uint16_t frame_len = len - 1;
+
+                if (s_app_cb_valid && s_app_cb.on_cli_response && !s_app_cb.on_file_list) {
+                    s_app_cb.on_cli_response(frame_text, frame_len, false, true);
+                }
+                cli_resp_append(frame_text, frame_len);
                 cli_resp_dispatch();
             }
         } else if (len >= 2) {
             /* Legacy short frame: no flags byte */
             printf("[CLI_RX] legacy len=%d\r\n", len);
-            cli_resp_append((const char *)&data[1], len - 1);
+            const char *frame_text = (const char *)&data[1];
+            uint16_t frame_len = len - 1;
+
+            if (s_app_cb_valid && s_app_cb.on_cli_response && !s_app_cb.on_file_list) {
+                s_app_cb.on_cli_response(frame_text, frame_len, false, true);
+            }
+            cli_resp_append(frame_text, frame_len);
             cli_resp_dispatch();
         }
         g_pending_req = PENDING_NONE;
@@ -1014,8 +1043,9 @@ static void cli_resp_dispatch(void)
 
         printf("[CLI_DISPATCH] ls parsed %d entries\r\n", count);
         s_app_cb.on_file_list(0x00, entries, count);
-    } else if (s_app_cb.on_cli_response) {
-        /* For all other commands, pass raw CLI text */
+    } else if (s_app_cb.on_cli_response && s_app_cb.on_file_list) {
+        /* Accumulate mode (file manager): deliver full buffer at EOF.
+         * Stream mode (terminal, no on_file_list) already delivered per-frame — skip. */
         s_app_cb.on_cli_response(s_cli_resp_buf, s_cli_resp_len, false, true);
     }
 }

@@ -348,7 +348,7 @@ extern uart_disp_state_t g_disp_state;
  *  UART Configuration
  *=============================================================================*/
 
-#define UART_RX_BUF_SIZE    512
+#define UART_RX_BUF_SIZE    4096
 
 /*=============================================================================
  *  API
