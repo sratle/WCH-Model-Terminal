@@ -279,19 +279,32 @@ Display 模块与 Core 之间的文件操作、音乐控制等命令，与 Core 
 
 #### Core → Display（响应）
 
-CLI 命令执行后，Core 通过 `Display_SendCLIResponse()` 将 `CLI_Process()` 的输出文本以 **DISP_EXT_CLI 帧**返回（**不发送独立 ACK**）：
+CLI 命令执行后，Core 通过 `Display_SendCLIResponseEx()` 将 `CLI_Process()` 的输出文本以 **DISP_EXT_CLI 帧**返回（**不发送独立 ACK**）：
 
 ```
-[AA][10][00][LEN][10][1A][输出文本...][A5][5A][FC][FD]
+[AA][00][10][LEN][10][1A][FLAGS][输出文本...][A5][5A][FC][FD]
 ```
 
 - `CMD = 0x10`（扩展操作码基码）
 - `DATA[0] = 0x1A`（CLI 直通子命令，与请求相同）
-- `DATA[1..N]`：UTF-8 编码的 CLI 输出文本
+- `DATA[1] = FLAGS`（帧标志，见下方定义）
+- `DATA[2..N]`：UTF-8 编码的 CLI 输出文本
 
-**长输出处理**：当 CLI 输出超过单帧 DATA 域上限（250 字节）时，Core 分帧发送，每帧最大 240 字节 payload。Display 侧负责组装多帧响应。
+**帧标志 FLAGS 定义**：
 
-**空输出**：某些命令（如 `mkdir`、`rm`）成功执行后无输出，Core 发送 `"ok\n"` 作为响应。
+| 位 | 宏名 | 值 | 说明 |
+|----|------|-----|------|
+| bit0 | `CLI_FLAG_SOF` | `0x01` | Start of Frame — 多帧传输的首帧 |
+| bit1 | `CLI_FLAG_EOF` | `0x02` | End of Frame — 多帧传输的末帧 |
+
+- 单帧响应：`FLAGS = 0x03`（SOF + EOF 同时置位）
+- 多帧首帧：`FLAGS = 0x01`（仅 SOF）
+- 多帧中间帧：`FLAGS = 0x00`（无标志）
+- 多帧末帧：`FLAGS = 0x02`（仅 EOF）
+
+**长输出处理**：当 CLI 输出超过单帧 DATA 域上限（248 字节 payload）时，Core 分帧发送，每帧最大 248 字节 payload。首帧标记 SOF，末帧标记 EOF。Display 侧必须累积所有帧，仅在收到 EOF 后才解析和分发响应。
+
+**空输出**：某些命令（如 `mkdir`、`rm`）成功执行后无输出，Core 发送 `"ok\n"` 作为响应（`FLAGS = 0x03`）。
 
 **错误输出**：CLI 命令执行失败时，输出包含错误信息（如 `"play: cannot open 'xxx' (status=XX)\n"`），Display 侧通过解析输出内容判断成功/失败。
 
@@ -299,13 +312,14 @@ CLI 命令执行后，Core 通过 `Display_SendCLIResponse()` 将 `CLI_Process()
 
 ### 4.4 Display 侧响应组装
 
-Display 侧 `uart_module.c` 维护 CLI 响应组装缓冲区：
+Display 侧 `uart_module.c` 维护 CLI 响应组装缓冲区，基于 SOF/EOF 标记实现多帧累积：
 
-1. 收到 CLI 响应首包时，初始化组装缓冲区
-2. 追加每帧的输出文本到缓冲区
-3. 收到最后一帧后，根据发送的命令类型分发：
+1. 收到带 `CLI_FLAG_SOF` 标志的帧时，重置组装缓冲区，开始累积
+2. 将每帧 `DATA[2..N]` 的输出文本追加到缓冲区
+3. 收到带 `CLI_FLAG_EOF` 标志的帧时，停止累积，根据发送的命令类型分发：
    - `ls` 命令 → 解析输出为 `file_entry_t` 结构，调用 `on_file_list` 回调
    - 其他命令 → 调用 `on_cli_response` 回调，传递原始文本
+4. 若收到无 SOF/EOF 标志的短帧（`len < 3`），视为遗留格式，直接分发
 
 ### 4.5 ls 输出解析
 
@@ -345,16 +359,25 @@ Display                              Core
   │   CMD=0x10 EXT=0x1A                │
   │                                    │── CLI_Process() ──> cd DOC
   │                                    │
-  │<─ UART ──[ CLI resp: "\DOC\n" ]───│
+  │<─ UART ──[ CLI resp: FLAGS=0x03 ]──│
   │   CMD=0x10 EXT=0x1A                │
+  │   DATA = [0x1A][0x03]["\DOC\n"]    │
+  │   (SOF+EOF 单帧，直接 dispatch)     │
   │                                    │
   │ (s_pending_ls_after_cd=true)       │
   │── UART ──[ CLI: "ls" ]───────────>│  ← 自动发送
   │   CMD=0x10 EXT=0x1A                │
   │                                    │── CLI_Process() ──> ls 输出
   │                                    │
-  │<─ UART ──[ CLI resp + ls 输出 ]────│
+  │<─ UART ──[ CLI resp: FLAGS=0x01 ]──│  ← 首帧 (SOF)
   │   CMD=0x10 EXT=0x1A                │
+  │   DATA = [0x1A][0x01]["--- \DOC..."]│
+  │   (开始累积)                        │
+  │                                    │
+  │<─ UART ──[ CLI resp: FLAGS=0x02 ]──│  ← 末帧 (EOF)
+  │   CMD=0x10 EXT=0x1A                │
+  │   DATA = [0x1A][0x02]["...bytes)"] │
+  │   (累积完成，dispatch)              │
   │                                    │
   │ (解析 ls 输出 → file_entry_t[])    │
   │ (调用 on_file_list 回调)           │
@@ -889,3 +912,4 @@ Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | V2.0 | 2026-05-22 | 全面修正：移除以太网操作码；新增 Core 按键输入事件；修正音乐控制/状态格式对齐 CS43131 实现；合并蓝牙操作为事件转发+控制请求模式；合并 Submodel 事件为统一转发格式；合并电源事件；移除与 SCREEN_CONTROL 重叠的 SCREEN_WAKEUP/SLEEP；移除过于笼统的 REPORT_EVENT/REQUEST_DATA；修正文件列表格式对齐 CH378 LFN 支持；扩展码重新编号 |
 | V3.0 | 2026-05-23 | CLI 直通重构：废弃扩展码 0x06~0x0B、0x14、0x19 及基础码 0x1B/0x1D，统一使用 0x1A CLI 直通；Core 不再发送独立 ACK，CLI 响应通过 DISP_EXT_CLI 帧返回；删除批量传输/文件列表/文件操作/音乐控制/音量控制等废弃章节；删除以太网相关内容；章节重新编号 |
 | V3.1 | 2026-05-23 | CWD 三方同步：新增扩展码 0x1B `CMD_DISP_EXT_CWD_NOTIFY`（Core→Display 推送路径变更）；Core `cd`/`device` 成功后输出 `[CWD] <path>` 标记行供 WCH Terminal App 同步；Display 侧 ls 输出头部路径解析；app_file 支持触摸滑动/鼠标滚轮/双击打开/设备切换 |
+| V3.2 | 2026-05-25 | CLI 多帧传输协议：CLI 响应帧新增 `DATA[1]=FLAGS` 字段（`CLI_FLAG_SOF=0x01`, `CLI_FLAG_EOF=0x02`），支持长输出分帧传输；Display 侧基于 SOF/EOF 标记累积多帧响应，仅在收到 EOF 后解析分发；up 按钮和刷新按钮不再受 loading 状态阻塞 |

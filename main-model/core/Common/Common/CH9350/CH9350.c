@@ -660,11 +660,11 @@ void CH9350_Process(ch9350_t *ch9350)
 
                 if (has_curr || has_prev)
                 {
-                    printf("[CH9350] MS | Btn: 0x%02X | X: %+4d | Y: %+4d | W: %+4d\r\n",
-                           ch9350->mouse_rel_data.button,
-                           ch9350->mouse_rel_data.x_offset,
-                           ch9350->mouse_rel_data.y_offset,
-                           ch9350->mouse_rel_data.wheel);
+                    // printf("[CH9350] MS | Btn: 0x%02X | X: %+4d | Y: %+4d | W: %+4d\r\n",
+                    //        ch9350->mouse_rel_data.button,
+                    //        ch9350->mouse_rel_data.x_offset,
+                    //        ch9350->mouse_rel_data.y_offset,
+                    //        ch9350->mouse_rel_data.wheel);
 
                     /* 转发鼠标输入事件给 Display */
                     {

@@ -120,6 +120,9 @@ void Display_SendSubdispContent(display_t *display, uint8_t content_type,
 /* 发送 CLI 命令响应给 Display */
 void Display_SendCLIResponse(display_t *display, const char *output, uint16_t output_len);
 
+/* 发送 CLI 命令响应（带 SOF/EOF 标记）给 Display */
+void Display_SendCLIResponseEx(display_t *display, const char *output, uint16_t output_len, uint8_t flags);
+
 /* 发送 CWD 变更通知给 Display */
 void Display_SendCWDNotify(display_t *display, const char *path);
 

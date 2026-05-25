@@ -41,6 +41,7 @@ volatile pending_req_t g_pending_req = PENDING_NONE;
 static char s_cli_resp_buf[CLI_RESP_BUF_SIZE];
 static uint16_t s_cli_resp_len = 0;
 static bool s_cli_resp_active = false;
+static bool s_cli_resp_accumulating = false;  /* multi-frame accumulation in progress */
 
 static void cli_resp_append(const char *data, uint16_t len);
 static void cli_resp_dispatch(void);
@@ -660,9 +661,38 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
         break;
     case DISP_EXT_CLI:
         /* CLI response from Core (text output).
-         * Each frame from Core is a standalone chunk; accumulate in buffer
-         * and dispatch immediately.  Core guarantees frame-level completeness. */
-        if (len >= 2) {
+         * New format: data[1] = flags (CLI_FLAG_SOF | CLI_FLAG_EOF), data[2..N] = text
+         * Legacy format (no flags byte): data[1..N] = text, dispatch immediately.
+         * Multi-frame: accumulate until EOF flag is received, then dispatch. */
+        if (len >= 3) {
+            uint8_t flags = data[1];
+            bool has_sof = (flags & 0x01) != 0;  /* CLI_FLAG_SOF */
+            bool has_eof = (flags & 0x02) != 0;  /* CLI_FLAG_EOF */
+
+            printf("[CLI_RX] len=%d flags=0x%02X sof=%d eof=%d accum=%d\r\n",
+                   len, flags, has_sof, has_eof, s_cli_resp_accumulating);
+
+            if (has_sof) {
+                /* Start of new multi-frame response: reset buffer */
+                s_cli_resp_len = 0;
+                s_cli_resp_accumulating = true;
+            }
+
+            if (s_cli_resp_accumulating || has_sof) {
+                cli_resp_append((const char *)&data[2], len - 2);
+                if (has_eof) {
+                    s_cli_resp_accumulating = false;
+                    printf("[CLI_RX] EOF reached, buf_len=%d, dispatching\r\n", s_cli_resp_len);
+                    cli_resp_dispatch();
+                }
+            } else {
+                /* Legacy frame without SOF/EOF: dispatch immediately */
+                cli_resp_append((const char *)&data[1], len - 1);
+                cli_resp_dispatch();
+            }
+        } else if (len >= 2) {
+            /* Legacy short frame: no flags byte */
+            printf("[CLI_RX] legacy len=%d\r\n", len);
             cli_resp_append((const char *)&data[1], len - 1);
             cli_resp_dispatch();
         }
@@ -847,6 +877,7 @@ static void cli_resp_reset(void)
 {
     s_cli_resp_len = 0;
     s_cli_resp_active = true;
+    s_cli_resp_accumulating = false;
 }
 
 static void cli_resp_append(const char *data, uint16_t len)
@@ -869,6 +900,9 @@ static void cli_resp_dispatch(void)
 {
     s_cli_resp_buf[s_cli_resp_len] = '\0';
     s_cli_resp_active = false;
+
+    printf("[CLI_DISPATCH] tag=%s len=%d pending_ls=%d\r\n",
+           s_cli_cmd_tag, s_cli_resp_len, s_pending_ls_after_cd);
 
     if (!s_app_cb_valid) return;
 
@@ -978,6 +1012,7 @@ static void cli_resp_dispatch(void)
             count++;
         }
 
+        printf("[CLI_DISPATCH] ls parsed %d entries\r\n", count);
         s_app_cb.on_file_list(0x00, entries, count);
     } else if (s_app_cb.on_cli_response) {
         /* For all other commands, pass raw CLI text */

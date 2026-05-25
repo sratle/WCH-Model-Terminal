@@ -3,6 +3,7 @@
 #include "../CS43131/cs43131.h"
 #include "../CH378/CH378.h"
 #include "../CH585F/ch585f.h"
+#include "../CH585F/ch585f_bt.h"
 #include "../CLI/CLI.h"
 #include "../hardware.h"
 #include <string.h>
@@ -670,21 +671,27 @@ static uint8_t Display_HandleCLI(const protocol_frame_t *req,
     /* 停止捕获 */
     cli_capture_flag = 0;
 
-    /* 将捕获到的输出发回 Display */
+    /* 将捕获到的输出发回 Display，使用 SOF/EOF 标记多帧传输 */
     if (cli_capture_len > 0) {
-        /* 分帧发送，每帧最大 240 字节 payload */
+        /* 分帧发送，每帧最大 239 字节 payload (1 ext_code + 1 flags + payload ≤ 250) */
         uint16_t offset = 0;
+        uint8_t chunk_idx = 0;
+        uint8_t total_chunks = (uint8_t)((cli_capture_len + 238) / 239);
         while (offset < cli_capture_len) {
             uint16_t chunk = cli_capture_len - offset;
-            if (chunk > 240) chunk = 240;
-            Display_SendCLIResponse(display_ptr,
-                                    (const char *)&cli_capture_buf[offset],
-                                    chunk);
+            if (chunk > 239) chunk = 239;
+            uint8_t flags = 0;
+            if (chunk_idx == 0) flags |= CLI_FLAG_SOF;
+            if (chunk_idx == total_chunks - 1) flags |= CLI_FLAG_EOF;
+            Display_SendCLIResponseEx(display_ptr,
+                                      (const char *)&cli_capture_buf[offset],
+                                      chunk, flags);
             offset += chunk;
+            chunk_idx++;
         }
     } else {
-        /* 无输出也发一个空响应，让 Display 知道命令已执行 */
-        Display_SendCLIResponse(display_ptr, "ok\n", 3);
+        /* 无输出也发一个空响应（SOF+EOF），让 Display 知道命令已执行 */
+        Display_SendCLIResponseEx(display_ptr, "ok\n", 3, CLI_FLAG_SOF | CLI_FLAG_EOF);
     }
 
     cli_capture_len = 0;
@@ -1139,8 +1146,14 @@ void Display_SendSubdispContent(display_t *display, uint8_t content_type,
 
 void Display_SendCLIResponse(display_t *display, const char *output, uint16_t output_len)
 {
+    /* Backward-compatible wrapper: single frame with SOF+EOF */
+    Display_SendCLIResponseEx(display, output, output_len, CLI_FLAG_SOF | CLI_FLAG_EOF);
+}
+
+void Display_SendCLIResponseEx(display_t *display, const char *output, uint16_t output_len, uint8_t flags)
+{
     uint8_t buf[PROTO_MAX_FRAME_LEN];
-    uint8_t data[1 + 250]; /* ext_code + output */
+    uint8_t data[1 + 1 + 248]; /* ext_code + flags + output */
     uint16_t frame_len;
     uint16_t payload_len;
 
@@ -1148,17 +1161,18 @@ void Display_SendCLIResponse(display_t *display, const char *output, uint16_t ou
         return;
 
     data[0] = CMD_DISP_EXT_CLI;
+    data[1] = flags;
 
     payload_len = output_len;
-    if (payload_len > 250)
-        payload_len = 250;
+    if (payload_len > 248)
+        payload_len = 248;
 
     if (payload_len > 0)
-        memcpy(&data[1], output, payload_len);
+        memcpy(&data[2], output, payload_len);
 
     frame_len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
                                    CMD_DISP_EXTENSION,
-                                   data, 1 + (uint8_t)payload_len,
+                                   data, 2 + (uint8_t)payload_len,
                                    buf, sizeof(buf));
     if (frame_len > 0)
         Display_Send_Data(display, buf, frame_len);

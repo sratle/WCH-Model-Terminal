@@ -222,19 +222,18 @@ static void file_invalidate_ctx_menu(void)
 /* Invalidate the input dialog region */
 static void file_invalidate_input_dialog(void)
 {
-    int16_t dx = (UI_SCREEN_WIDTH - INPUT_DLG_W) / 2;
-    int16_t dy = (UI_SCREEN_HEIGHT - INPUT_DLG_H) / 2;
-    ui_rect_t r = {dx - 4, dy - 4, INPUT_DLG_W + 8, INPUT_DLG_H + 8};
+    /* Dialog draws a full-screen dim overlay, so we must invalidate the
+     * entire content area (not just the dialog box) to clear the overlay. */
+    ui_rect_t r = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
     ui_page_invalidate(&r);
 }
 
 /* Invalidate the stat dialog region */
 static void file_invalidate_stat_dialog(void)
 {
-    int16_t dw = 400, dh = 280;
-    int16_t dx = (UI_SCREEN_WIDTH - dw) / 2;
-    int16_t dy = (UI_SCREEN_HEIGHT - dh) / 2;
-    ui_rect_t r = {dx - 4, dy - 4, dw + 8, dh + 8};
+    /* Dialog draws a full-screen dim overlay, so we must invalidate the
+     * entire content area (not just the dialog box) to clear the overlay. */
+    ui_rect_t r = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
     ui_page_invalidate(&r);
 }
 
@@ -1281,11 +1280,11 @@ static void file_page_key_event(ui_event_t *e)
         break;
     case UI_KEY_BACK:
         /* Back: go up one level */
-        if (!s_fs.loading) file_go_up();
+        file_go_up();
         break;
     case UI_KEY_HOME:
         /* Home: go to root */
-        if (!s_fs.loading) file_go_root();
+        file_go_root();
         break;
     default:
         /* Menu key (USB HID Application key = 0x65): open context menu */
@@ -1297,7 +1296,7 @@ static void file_page_key_event(ui_event_t *e)
     }
 }
 
-static void btn_up_click(ui_widget_t *w) { (void)w; if (!s_fs.loading) file_go_up(); }
+static void btn_up_click(ui_widget_t *w) { (void)w; file_go_up(); }
 static void btn_new_folder_click(ui_widget_t *w) { (void)w; if (!s_fs.loading) file_create_folder(); }
 static void btn_new_file_click(ui_widget_t *w) { (void)w; if (!s_fs.loading) file_create_file(); }
 static void btn_delete_click(ui_widget_t *w) { (void)w; if (!s_fs.loading && s_fs.selected >= 0) file_delete_selected(); }
