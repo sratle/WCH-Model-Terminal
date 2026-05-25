@@ -102,6 +102,7 @@ typedef struct {
     bool is_loading;
     bool has_content;
     bool save_sent;
+    int16_t save_chunks_remaining;  /* pending write frames during multi-frame save */
 
     /* Cursor blink */
     uint32_t cursor_blink_ms;
@@ -625,13 +626,9 @@ static void on_cli_response(const char *output, uint16_t len, bool truncated, bo
             editor_invalidate_content();
         }
     } else {
-        /* Save response */
-        if (is_last) {
-            s_ed.save_sent = false;
-            s_ed.is_modified = false;
-            editor_update_status();
-            editor_invalidate_status();
-        }
+        /* Save response: since we mark save complete immediately after
+         * sending all frames, just ignore any late CLI responses. */
+        (void)output; (void)len; (void)truncated; (void)is_last;
     }
 }
 
@@ -658,6 +655,7 @@ void app_editor_open_file(const char *path, const char *name)
     s_ed.is_loading = true;
     s_ed.has_content = false;
     s_ed.save_sent = false;
+    s_ed.save_chunks_remaining = 0;
     s_ed.undo_top = 0;
 
     strncpy(s_ed.file_name, name, sizeof(s_ed.file_name) - 1);
@@ -677,42 +675,84 @@ static void editor_save_file(void)
 
     UART_SetAppCallbacks(&s_editor_callbacks);
     s_ed.save_sent = true;
+    editor_update_status();     /* Show "Saving..." immediately */
+    editor_invalidate_status();
 
-    /* Save via CLI: echo content > filepath
-     * Due to CLI frame size limits, we save line by line.
-     * First line: echo "line1" > filepath
-     * Subsequent: echo "line2" >> filepath
+    /* Save via CLI write command with multi-frame support:
+     *   write -s "filepath" <data>   (create/truncate + first chunk)
+     *   write -a <data>              (append chunks)
+     *   write -e [data]              (close file)
      *
-     * For simplicity, we send the whole content as one echo command.
-     * The CLI parser on Core will handle it. If content is too long,
-     * we truncate to fit one frame.
+     * PROTO_MAX_DATA_LEN = 255, UART_SendCLI uses 1 byte for DISP_EXT_CLI,
+     * so max command string = 254 bytes.
      */
     char cmd[PROTO_MAX_DATA_LEN + 32];
-    int cmd_len;
+    int path_len = strlen(s_ed.file_path);
+    int max_cmd = PROTO_MAX_DATA_LEN - 1; /* 254 bytes */
 
-    /* Use "write" CLI command if available, otherwise echo */
-    /* Build: write "filepath" <content> */
-    /* The Core CLI "write" command: write "path" <content>
-     * This is more efficient than echo redirect. */
+    /* First frame overhead: "write -s \"" (10) + path + "\" " (2) = 12 + path_len */
+    int first_overhead = 12 + path_len;
+    int first_avail = max_cmd - first_overhead;
+    if (first_avail < 0) first_avail = 0;
 
-    /* Calculate available space for content in one frame */
-    /* Frame overhead: DISP_EXT_CLI(1) + "write \"" + path + "\" " = ~10 + path_len + 2 */
-    int overhead = 10 + strlen(s_ed.file_path) + 3;
-    int max_content = PROTO_MAX_DATA_LEN - overhead - 2;
-    if (max_content < 0) max_content = 0;
+    /* Append/end overhead: "write -a " or "write -e " = 9 bytes */
+    int append_overhead = 9;
+    int append_avail = max_cmd - append_overhead;  /* 245 bytes per chunk */
 
-    uint16_t write_len = s_ed.content_len;
-    if (write_len > max_content) write_len = max_content;
+    uint16_t offset = 0;
+    uint16_t remaining = s_ed.content_len;
 
-    /* Build write command */
-    snprintf(cmd, sizeof(cmd), "write \"%s\" ", s_ed.file_path);
-    cmd_len = strlen(cmd);
-    if (cmd_len + write_len < sizeof(cmd) - 1) {
-        memcpy(&cmd[cmd_len], s_ed.content, write_len);
-        cmd[cmd_len + write_len] = '\0';
+    /* --- First frame: write -s "path" <data> --- */
+    {
+        int pos = 0;
+        memcpy(&cmd[pos], "write -s \"", 10); pos += 10;
+        memcpy(&cmd[pos], s_ed.file_path, path_len); pos += path_len;
+        memcpy(&cmd[pos], "\" ", 2); pos += 2;
+
+        uint16_t chunk = (remaining < (uint16_t)first_avail) ? remaining : (uint16_t)first_avail;
+        if (chunk > 0) {
+            memcpy(&cmd[pos], &s_ed.content[offset], chunk);
+            pos += chunk;
+        }
+        cmd[pos] = '\0';
+        printf("[editor] save frame1: len=%d cmd=\"%.40s...\"\r\n", pos, cmd);
+        UART_SendCLI(cmd);
+        offset += chunk;
+        remaining -= chunk;
     }
 
-    UART_SendCLI(cmd);
+    /* --- Middle frames: write -a <data> (only if remaining > append_avail) --- */
+    while (remaining > (uint16_t)append_avail) {
+        int pos = 0;
+        memcpy(&cmd[pos], "write -a ", append_overhead); pos += append_overhead;
+        memcpy(&cmd[pos], &s_ed.content[offset], (uint16_t)append_avail);
+        pos += append_avail;
+        cmd[pos] = '\0';
+        printf("[editor] save frame_mid: len=%d\r\n", pos);
+        UART_SendCLI(cmd);
+        offset += (uint16_t)append_avail;
+        remaining -= (uint16_t)append_avail;
+    }
+
+    /* --- Final frame: write -e [remaining data] (close file) --- */
+    {
+        int pos = 0;
+        memcpy(&cmd[pos], "write -e ", append_overhead); pos += append_overhead;
+        if (remaining > 0) {
+            memcpy(&cmd[pos], &s_ed.content[offset], remaining);
+            pos += remaining;
+        }
+        cmd[pos] = '\0';
+        printf("[editor] save frame_end: len=%d remaining=%d\r\n", pos, remaining);
+        UART_SendCLI(cmd);
+    }
+
+    /* All frames sent synchronously. Core processes CLI commands in order.
+     * Mark save complete immediately — response tracking across multiple
+     * UART_SendCLI calls is unreliable due to cli_resp_reset(). */
+    s_ed.save_sent = false;
+    s_ed.save_chunks_remaining = 0;
+    s_ed.is_modified = false;
     editor_update_status();
     editor_invalidate_status();
 }
@@ -1062,7 +1102,7 @@ static void editor_handle_key_event(ui_event_t *e)
     case UI_KEY_HOME:
         editor_move_cursor_home(shift);
         return;
-    case 0x4D:  /* HID End */
+    case UI_KEY_END:
         editor_move_cursor_end(shift);
         return;
     }
@@ -1074,8 +1114,8 @@ static void editor_handle_key_event(ui_event_t *e)
             editor_backspace();
             return;
         }
-        /* Delete (HID 0x4C) */
-        if (e->key_code == 0x4C) {
+        /* Delete via char_code (0x7F DEL) */
+        if (e->char_code == 0x7F) {
             editor_delete_char();
             return;
         }

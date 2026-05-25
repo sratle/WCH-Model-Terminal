@@ -1291,8 +1291,8 @@ static bool file_page_event(ui_page_t *page, ui_event_t *e)
             file_go_root();
             return true;
         default:
-            /* Menu key (USB HID Application key = 0x65): open context menu */
-            if (e->key_code == 0x65 && s_fs.selected >= 0) {
+            /* Menu key: open context menu */
+            if (e->key_code == UI_KEY_MENU && s_fs.selected >= 0) {
                 int16_t item_y = FILE_LIST_Y + (s_fs.selected - s_fs.scroll_offset) * FILE_ITEM_H;
                 file_show_context_menu(200, item_y, s_fs.selected);
                 return true;

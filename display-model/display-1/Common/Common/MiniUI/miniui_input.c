@@ -120,6 +120,7 @@ static uint8_t hid_to_ui_key(uint8_t hid_code)
         case 0x28: return UI_KEY_OK;        /* HID Enter */
         case 0x29: return UI_KEY_BACK;      /* HID Escape */
         case 0x4A: return UI_KEY_HOME;      /* HID Home */
+        case 0x4D: return UI_KEY_END;       /* HID End */
         case 0x65: return UI_KEY_MENU;      /* HID Application */
         default:   return UI_KEY_NONE;
     }
@@ -157,6 +158,7 @@ static uint8_t hid_to_ascii(uint8_t hid_code, uint8_t modifiers)
     if (hid_code == 0x2A) return 0x08;  /* Backspace */
     if (hid_code == 0x2B) return 0x09;  /* Tab */
     if (hid_code == 0x2C) return ' ';   /* Space */
+    if (hid_code == 0x4C) return 0x7F;  /* Delete (DEL) */
 
     /* Punctuation: HID 0x2D (Minus) .. 0x32 (Non-US #) */
     if (hid_code >= 0x2D && hid_code <= 0x32) {
@@ -550,7 +552,7 @@ void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6])
                 memset(&e, 0, sizeof(e));
                 e.source = UI_INPUT_KEYBOARD;
                 e.type = UI_EVENT_KEY_UP;
-                e.key_code = ui_key ? ui_key : released_hid;
+                e.key_code = ui_key;  /* UI_KEY_NONE for unmapped keys (avoid HID/UI_KEY collision) */
                 e.key_modifiers = modifiers;
                 e.char_code = hid_to_ascii(released_hid, modifiers);
                 queue_push(&e);
@@ -565,7 +567,7 @@ void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6])
                             /* Double click */
                             ks->click_pending = false;
                             e.type = UI_EVENT_KEY_DOUBLE_CLICK;
-                            e.key_code = ui_key ? ui_key : released_hid;
+                            e.key_code = ui_key;  /* avoid HID/UI_KEY collision */
                             e.key_modifiers = modifiers;
                             queue_push(&e);
                         } else {
@@ -618,7 +620,7 @@ void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6])
             memset(&e, 0, sizeof(e));
             e.source = UI_INPUT_KEYBOARD;
             e.type = UI_EVENT_KEY_DOWN;
-            e.key_code = ui_key ? ui_key : new_hid;
+            e.key_code = ui_key;  /* UI_KEY_NONE for unmapped keys (avoid HID/UI_KEY collision) */
             e.key_modifiers = modifiers;
             e.char_code = hid_to_ascii(new_hid, modifiers);
             queue_push(&e);
@@ -780,7 +782,7 @@ static void check_key_hold(ui_key_state_t *ks, ui_input_source_t source)
             memset(&e, 0, sizeof(e));
             e.type = UI_EVENT_KEY_LONG_PRESS;
             e.source = source;
-            e.key_code = ks->key_code;
+            e.key_code = hid_to_ui_key(ks->key_code);  /* avoid HID/UI_KEY collision */
             e.char_code = hid_to_ascii(ks->key_code, s_state.key_modifiers);
             queue_push(&e);
         }
@@ -792,7 +794,7 @@ static void check_key_hold(ui_key_state_t *ks, ui_input_source_t source)
             memset(&e, 0, sizeof(e));
             e.type = UI_EVENT_KEY_LONG_REPEAT;
             e.source = source;
-            e.key_code = ks->key_code;
+            e.key_code = hid_to_ui_key(ks->key_code);  /* avoid HID/UI_KEY collision */
             e.char_code = hid_to_ascii(ks->key_code, s_state.key_modifiers);
             queue_push(&e);
         }
@@ -826,7 +828,7 @@ static void check_click_timeouts(void)
             memset(&e, 0, sizeof(e));
             e.type = UI_EVENT_KEY_CLICK;
             e.source = UI_INPUT_KEYBOARD;
-            e.key_code = ks->key_code;
+            e.key_code = hid_to_ui_key(ks->key_code);  /* avoid HID/UI_KEY collision */
             e.char_code = hid_to_ascii(ks->key_code, s_state.key_modifiers);
             queue_push(&e);
         }

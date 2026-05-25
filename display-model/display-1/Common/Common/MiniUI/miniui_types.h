@@ -122,6 +122,7 @@ typedef enum {
     UI_KEY_BACK      = 0x06,
     UI_KEY_HOME      = 0x07,
     UI_KEY_MENU      = 0x08,
+    UI_KEY_END       = 0x09,
     /* Core onboard buttons */
     UI_KEY_CORE_PLUS  = 0x10,
     UI_KEY_CORE_MINUS = 0x11,

@@ -505,6 +505,156 @@ static void CLI_Cmd_RmRecursive(const char *dir)
     CH378_Dir_Go_Parent(&ch378_g);
 }
 
+/* ------------------------------------------------------------------------ */
+static uint8_t s_write_file_open = 0;
+static uint32_t s_write_total_bytes = 0;
+
+/* write 命令：多帧文件写入（支持最大 20KB）                                    */
+/*   write "path" content   — 单次写入（覆盖）                               */
+/*   write -s "path" data   — 开始写入：创建/截断文件 + 写第一块             */
+/*   write -a data          — 追加写入：追加数据到已打开的文件               */
+/*   write -e data          — 结束写入：追加最后一块 + 关闭文件             */
+/*   write -e               — 结束写入：关闭已打开的文件（无数据）           */
+/* ------------------------------------------------------------------------ */
+
+#define WRITE_MAX_FILE_SIZE  (20 * 1024)  /* 20KB limit */
+
+static void CLI_Cmd_Write(uint8_t argc, char **argv, char *raw_buf, uint8_t raw_len)
+{
+    uint8_t status;
+    char full_path[CH378_MAX_PATH_LEN];
+
+    if (argc < 2) {
+        printf("Usage: write \"path\" <data>\r\n");
+        printf("       write -s \"path\" <data>  (start multi-frame)\r\n");
+        printf("       write -a <data>          (append chunk)\r\n");
+        printf("       write -e [data]          (end + close)\r\n");
+        return;
+    }
+
+    /* --- Multi-frame start: write -s "path" data --- */
+    if (strcmp(argv[1], "-s") == 0) {
+        if (argc < 3) {
+            printf("write: -s requires file path\r\n");
+            return;
+        }
+        /* Close previous session if any */
+        if (s_write_file_open) {
+            CH378FileClose(0);
+            s_write_file_open = 0;
+        }
+        CH378_Path_Join(ch378_current_path_sfn, argv[2], full_path, sizeof(full_path));
+        /* Create (truncate) then open for writing */
+        status = CH378FileCreate((uint8_t*)full_path);
+        if (status != ERR_SUCCESS) {
+            printf("write: cannot create '%s' (status=%02X)\r\n", argv[2], status);
+            return;
+        }
+        CH378FileClose(1);
+        status = CH378FileOpen((uint8_t*)full_path);
+        if (status != ERR_SUCCESS) {
+            printf("write: cannot open '%s' (status=%02X)\r\n", argv[2], status);
+            return;
+        }
+        s_write_file_open = 1;
+        s_write_total_bytes = 0;
+
+        /* Data starts after: "write -s \"" (10) + path + "\" " (2) = 12 + path_len.
+         * CLI_ParseArgs replaces quotes/spaces with \0, so we cannot search
+         * for quotes in raw_buf. Instead compute the offset directly. */
+        {
+            uint16_t path_len = strlen(argv[2]);
+            uint16_t data_start = 12 + path_len;  /* "write -s \"" + path + "\" " */
+            if (data_start < raw_len) {
+                uint16_t data_len = raw_len - data_start;
+                if (data_len > 0 && s_write_total_bytes + data_len <= WRITE_MAX_FILE_SIZE) {
+                    uint16_t real_len;
+                    status = CH378ByteWrite((uint8_t*)(raw_buf + data_start), data_len, &real_len);
+                    s_write_total_bytes += real_len;
+                }
+            }
+        }
+        printf("write: started '%s' (%lu bytes)\r\n", argv[2], (unsigned long)s_write_total_bytes);
+        return;
+    }
+
+    /* --- Multi-frame append: write -a data --- */
+    if (strcmp(argv[1], "-a") == 0) {
+        if (!s_write_file_open) {
+            printf("write: no active write session\r\n");
+            return;
+        }
+        /* Raw data starts after "write -a " = 9 bytes */
+        {
+            uint16_t prefix_len = 9;
+            if (raw_len > prefix_len && s_write_total_bytes < WRITE_MAX_FILE_SIZE) {
+                uint16_t data_len = raw_len - prefix_len;
+                uint32_t remaining = WRITE_MAX_FILE_SIZE - s_write_total_bytes;
+                if (data_len > remaining) data_len = (uint16_t)remaining;
+                uint16_t real_len;
+                status = CH378ByteWrite((uint8_t*)(raw_buf + prefix_len), data_len, &real_len);
+                s_write_total_bytes += real_len;
+            }
+        }
+        printf("write: appended (%lu bytes total)\r\n", (unsigned long)s_write_total_bytes);
+        return;
+    }
+
+    /* --- Multi-frame end: write -e [data] --- */
+    if (strcmp(argv[1], "-e") == 0) {
+        if (!s_write_file_open) {
+            printf("write: no active write session\r\n");
+            return;
+        }
+        /* Write optional final data (after "write -e " = 9 bytes) */
+        {
+            uint16_t prefix_len = 9;
+            if (raw_len > prefix_len && s_write_total_bytes < WRITE_MAX_FILE_SIZE) {
+                uint16_t data_len = raw_len - prefix_len;
+                uint32_t remaining = WRITE_MAX_FILE_SIZE - s_write_total_bytes;
+                if (data_len > remaining) data_len = (uint16_t)remaining;
+                uint16_t real_len;
+                CH378ByteWrite((uint8_t*)(raw_buf + prefix_len), data_len, &real_len);
+                s_write_total_bytes += real_len;
+            }
+        }
+        CH378FileClose(1);
+        s_write_file_open = 0;
+        printf("write: done (%lu bytes total)\r\n", (unsigned long)s_write_total_bytes);
+        return;
+    }
+
+    /* --- Single-frame write: write "path" content --- */
+    {
+        CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
+        status = CH378FileCreate((uint8_t*)full_path);
+        if (status != ERR_SUCCESS) {
+            printf("write: cannot create '%s' (status=%02X)\r\n", argv[1], status);
+            return;
+        }
+        CH378FileClose(1);
+        status = CH378FileOpen((uint8_t*)full_path);
+        if (status != ERR_SUCCESS) {
+            printf("write: cannot open '%s' (status=%02X)\r\n", argv[1], status);
+            return;
+        }
+        /* Find data after path: "write \"" (8) + path + "\" " (2) = 10 + path_len */
+        {
+            uint16_t path_len = strlen(argv[1]);
+            uint16_t data_start = 10 + path_len;
+            if (data_start < raw_len) {
+                uint16_t data_len = raw_len - data_start;
+                if (data_len > WRITE_MAX_FILE_SIZE) data_len = WRITE_MAX_FILE_SIZE;
+                if (data_len > 0) {
+                    CH378ByteWrite((uint8_t*)(raw_buf + data_start), data_len, NULL);
+                }
+            }
+        }
+        CH378FileClose(1);
+        printf("Wrote to %s\r\n", argv[1]);
+    }
+}
+
 static void CLI_Cmd_Rm(uint8_t argc, char **argv)
 {
     uint8_t status;
@@ -820,6 +970,7 @@ static void CLI_Cmd_Help(void)
     printf("  touch <file>    Create empty file (supports LFN)\r\n");
     printf("  cat <file>      Display file contents (supports LFN)\r\n");
     printf("  echo [text]     Print text or write to file (use > or >>)\r\n");
+    printf("  write \"path\" <data>  Write data to file (supports multi-frame)\r\n");
     printf("  rm <file>       Remove file (supports LFN)\r\n");
     printf("  rm -rf <dir>    Clear directory recursively\r\n");
     printf("  cp <src> <dst>  Copy file (supports LFN)\r\n");
@@ -1696,6 +1847,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Cat(argc, argv);
     } else if (strcmp(argv[0], "echo") == 0) {
         CLI_Cmd_Echo(argc, argv);
+    } else if (strcmp(argv[0], "write") == 0) {
+        CLI_Cmd_Write(argc, argv, buf, len);
     } else if (strcmp(argv[0], "rm") == 0) {
         CLI_Cmd_Rm(argc, argv);
     } else if (strcmp(argv[0], "help") == 0) {
