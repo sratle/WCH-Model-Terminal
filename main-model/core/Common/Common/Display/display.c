@@ -651,14 +651,6 @@ static uint8_t Display_HandleCLI(const protocol_frame_t *req,
     if (display_ptr == NULL)
         return 0;
 
-    /* CH378 被音乐流式播放占用时，拒绝 CLI 命令 */
-    if (Audio_IsStreaming()) {
-        const char *msg = "CH378 busy (music streaming)\n";
-        uint8_t mlen = (uint8_t)strlen(msg);
-        Display_SendCLIResponse(display_ptr, msg, mlen);
-        return 1; /* ACK empty, response already sent */
-    }
-
     /* DATA[0] = ext_code, DATA[1..N] = command string */
     cmd_len = (uint8_t)(PROTO_DATA_LEN(*req) > 1 ? PROTO_DATA_LEN(*req) - 1 : 0);
     if (cmd_len > sizeof(cmd) - 1) cmd_len = sizeof(cmd) - 1;
@@ -696,6 +688,16 @@ static uint8_t Display_HandleCLI(const protocol_frame_t *req,
     }
 
     cli_capture_len = 0;
+
+    /* 音乐控制类命令执行后，主动推送 MUSIC_STATUS 给 Display 同步状态。
+     * playst 命令本身不修改状态（不会设置 dirty），但 Display 需要完整状态同步，
+     * 因此对 playst 也强制推送。其他命令（pause/resume/stop/play/vol）会设置
+     * dirty 标记，通过 IsStatusDirty 检测即可。 */
+    if (strncmp(cmd, "playst", 6) == 0 || Audio_IsStatusDirty()) {
+        Display_SendMusicStatus(display_ptr);
+        Audio_ClearStatusDirty();
+    }
+
     return 1; /* ACK 空（响应已通过 CLI response 帧发送） */
 }
 

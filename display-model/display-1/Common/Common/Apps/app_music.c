@@ -124,6 +124,7 @@ static char s_vol_text[8];
 static char s_status_text[32];
 static uint8_t s_prev_state = 0xFF;
 static uint8_t s_prev_vol = 0xFF;
+static uint32_t s_prev_dur = 0xFFFFFFFF;
 
 /* Local position estimation: frame-based counter (25fps = 40ms/frame) */
 static uint32_t s_local_pos_ms = 0;
@@ -141,6 +142,7 @@ static bool s_skip_playst = false;
  *=============================================================================*/
 
 static void music_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
+static void music_ensure_current_visible(void);
 
 static uart_app_callbacks_t s_music_callbacks = {
     .on_file_list = NULL,
@@ -177,6 +179,21 @@ static void music_play_index(int16_t index)
     s_track_ended = false;
     s_local_pos_ms = 0;
     s_local_tracking = true;
+
+    /* Immediately update displayed track name from local playlist,
+     * don't wait for async MUSIC_STATUS from Core */
+    strncpy(s_track_name, s_playlist.names[index], sizeof(s_track_name) - 1);
+    s_track_name[sizeof(s_track_name) - 1] = '\0';
+    strcpy(s_time_pos, "00:00");
+    strcpy(s_status_text, "Playing");
+
+    /* Update play/pause button to show pause icon */
+    btn_play.text = "||";
+    btn_play.base.flags |= UI_WIDGET_FLAG_DIRTY;
+
+    music_ensure_current_visible();
+    ui_page_invalidate_all();
+
     UART_SendPlayMusic(s_playlist.names[index]);
 }
 
@@ -214,7 +231,12 @@ static void music_ensure_current_visible(void)
 
 static void music_update_texts(void)
 {
-    if (g_disp_state.music_track[0] != '\0') {
+    /* Prefer local playlist name for immediate display when switching tracks;
+     * fall back to g_disp_state.music_track when no local selection */
+    if (s_playlist.current >= 0 && s_playlist.current < s_playlist.count) {
+        strncpy(s_track_name, s_playlist.names[s_playlist.current], sizeof(s_track_name) - 1);
+        s_track_name[sizeof(s_track_name) - 1] = '\0';
+    } else if (g_disp_state.music_track[0] != '\0') {
         strncpy(s_track_name, g_disp_state.music_track, sizeof(s_track_name) - 1);
         s_track_name[sizeof(s_track_name) - 1] = '\0';
     } else {
@@ -382,6 +404,7 @@ static void music_page_enter(ui_page_t *page)
     (void)page;
     s_prev_state = 0xFF;
     s_prev_vol = 0xFF;
+    s_prev_dur = 0xFFFFFFFF;
     s_local_tracking = false;
     s_local_pos_ms = g_disp_state.music_pos_ms;
     s_track_ended = false;
@@ -467,6 +490,16 @@ static void music_page_update(ui_page_t *page)
         return;
     }
 
+    /* Duration change (new track started from Core): sync position & full redraw */
+    if (g_disp_state.music_dur_ms != s_prev_dur) {
+        s_prev_dur = g_disp_state.music_dur_ms;
+        s_local_pos_ms = g_disp_state.music_pos_ms;
+        s_local_tracking = true;
+        music_update_texts();
+        ui_page_invalidate_all();
+        return;
+    }
+
     /* Volume change: only invalidate volume area */
     if (g_disp_state.music_volume != s_prev_vol) {
         s_prev_vol = g_disp_state.music_volume;
@@ -484,10 +517,15 @@ static void music_page_update(ui_page_t *page)
 static void btn_play_click(ui_widget_t *w)
 {
     (void)w;
-    if (g_disp_state.music_state == MUSIC_STATE_PLAYING)
+    if (g_disp_state.music_state == MUSIC_STATE_PLAYING) {
         UART_SendMusicControl(MUSIC_CTRL_PAUSE, 0);
-    else
-        UART_SendMusicControl(MUSIC_CTRL_PLAY, 0);
+    } else if (g_disp_state.music_state == MUSIC_STATE_PAUSED) {
+        UART_SendMusicControl(MUSIC_CTRL_PLAY, 0);  /* resume */
+    } else {
+        /* STOPPED or IDLE: play current track from playlist */
+        if (s_playlist.current >= 0 && s_playlist.current < s_playlist.count)
+            music_play_index(s_playlist.current);
+    }
 }
 
 static void btn_prev_click(ui_widget_t *w)
@@ -563,8 +601,6 @@ static void pl_touch_event(ui_widget_t *w, ui_event_t *e)
         int16_t idx = rel_y / PL_ITEM_H + s_playlist.scroll;
         if (idx >= 0 && idx < s_playlist.count) {
             music_play_index(idx);
-            music_ensure_current_visible();
-            ui_page_invalidate_all();
         }
     }
 }
