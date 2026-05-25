@@ -14,6 +14,7 @@
 #include "../UI/ui_models.h"
 #include "../UI/ui_settings.h"
 #include "../UI/ui_games.h"
+#include "../UI/ui_splash.h"
 #include "../Apps/apps.h"
 #include "../Games/games.h"
 #include "../FMC/fmc_driver.h"
@@ -85,14 +86,16 @@ void UI_Init(void)
     ui_settings_init();
     printf("[UI_Init] -> ui_games_init()\r\n");
     ui_games_init();
+    printf("[UI_Init] -> ui_splash_init()\r\n");
+    ui_splash_init();
 
     printf("[UI_Init] -> apps_init_all()\r\n");
     apps_init_all();
     printf("[UI_Init] -> games_init_all()\r\n");
     games_init_all();
 
-    printf("[UI_Init] -> ui_page_switch(&page_home)\r\n");
-    ui_page_switch(&page_home);
+    printf("[UI_Init] -> ui_page_switch(&page_splash)\r\n");
+    ui_page_switch(&page_splash);
 
     printf("[UI_Init] -> UI_FullRefresh()\r\n");
     UI_FullRefresh();
