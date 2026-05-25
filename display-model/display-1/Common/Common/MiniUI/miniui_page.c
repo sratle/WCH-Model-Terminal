@@ -386,3 +386,9 @@ void ui_page_set_update_cb(ui_page_t *page, ui_page_update_cb_t update)
     if (!page) return;
     page->on_update = update;
 }
+
+void ui_page_set_event_cb(ui_page_t *page, ui_page_event_cb_t event_cb)
+{
+    if (!page) return;
+    page->on_page_event = event_cb;
+}

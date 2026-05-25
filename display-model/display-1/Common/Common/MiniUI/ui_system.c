@@ -143,43 +143,57 @@ void UI_Tick(void)
         }
 
         if (capture) {
-            /* Capture widget receives all events until release/cancel */
-            ui_widget_event(capture, e);
-
-            /* If the event handler triggered a page change (e.g. ui_page_push
-             * inside a button's on_click), skip all further processing for this
-             * event. The old capture widget was on the old page; broadcasting or
-             * setting capture on the new page would cause spurious interactions. */
-            if (ui_page_current() != page_before) {
-                e = ui_input_poll();
-                continue;
+            /* For non-pointer events (keyboard/core-key), give page-level
+             * handler a chance to intercept before capture widget.
+             * This ensures pages with modal dialogs (input boxes, menus)
+             * can consume key events even when a pointer capture is active. */
+            bool page_consumed = false;
+            if (!is_pointer_event(e->type)) {
+                ui_page_t *pg = ui_page_current();
+                if (pg && pg->on_page_event) {
+                    page_consumed = pg->on_page_event(pg, e);
+                }
             }
 
-            /* Release capture on UP or swipe (pointer events) */
-            if (e->type == UI_EVENT_UP || e->type == UI_EVENT_CLICK ||
-                e->type == UI_EVENT_DOUBLE_CLICK) {
-                if (e->touch_id == ui_input_get_capture_touch_id() ||
-                    e->source != UI_INPUT_TOUCH) {
+            if (!page_consumed) {
+                /* Capture widget receives all events until release/cancel */
+                ui_widget_event(capture, e);
+
+                /* If the event handler triggered a page change (e.g. ui_page_push
+                 * inside a button's on_click), skip all further processing for this
+                 * event. The old capture widget was on the old page; broadcasting or
+                 * setting capture on the new page would cause spurious interactions. */
+                if (ui_page_current() != page_before) {
+                    e = ui_input_poll();
+                    continue;
+                }
+
+                /* Release capture on UP or swipe (pointer events) */
+                if (e->type == UI_EVENT_UP || e->type == UI_EVENT_CLICK ||
+                    e->type == UI_EVENT_DOUBLE_CLICK) {
+                    if (e->touch_id == ui_input_get_capture_touch_id() ||
+                        e->source != UI_INPUT_TOUCH) {
+                        ui_input_set_capture(NULL, UI_TOUCH_ID_NONE);
+                    }
+                } else if (e->type == UI_EVENT_SWIPE_UP || e->type == UI_EVENT_SWIPE_DOWN ||
+                           e->type == UI_EVENT_SWIPE_LEFT || e->type == UI_EVENT_SWIPE_RIGHT) {
+                    ui_event_t cancel_e = *e;
+                    cancel_e.type = UI_EVENT_PRESS_CANCEL;
+                    ui_widget_event(capture, &cancel_e);
                     ui_input_set_capture(NULL, UI_TOUCH_ID_NONE);
                 }
-            } else if (e->type == UI_EVENT_SWIPE_UP || e->type == UI_EVENT_SWIPE_DOWN ||
-                       e->type == UI_EVENT_SWIPE_LEFT || e->type == UI_EVENT_SWIPE_RIGHT) {
-                ui_event_t cancel_e = *e;
-                cancel_e.type = UI_EVENT_PRESS_CANCEL;
-                ui_widget_event(capture, &cancel_e);
-                ui_input_set_capture(NULL, UI_TOUCH_ID_NONE);
-            }
 
-            /* Multi-touch: broadcast DOWN/UP (NOT MOVE) to all widgets for
-             * multi-finger interaction (e.g., game buttons). */
-            if (e->source == UI_INPUT_TOUCH &&
-                e->touch_id != ui_input_get_capture_touch_id() &&
-                (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_UP)) {
-                ui_page_t *page = ui_page_current();
-                if (page) {
-                    for (uint16_t i = 0; i < page->widget_count; i++) {
-                        if (page->widgets[i]) {
-                            ui_widget_event(page->widgets[i], e);
+                /* Multi-touch: broadcast DOWN/UP (NOT MOVE) to all widgets for
+                 * multi-finger interaction (e.g., game buttons). */
+                if (e->source == UI_INPUT_TOUCH &&
+                    e->touch_id != ui_input_get_capture_touch_id() &&
+                    (e->type == UI_EVENT_DOWN || e->type == UI_EVENT_UP)) {
+                    ui_page_t *page = ui_page_current();
+                    if (page) {
+                        for (uint16_t i = 0; i < page->widget_count; i++) {
+                            if (page->widgets[i]) {
+                                ui_widget_event(page->widgets[i], e);
+                            }
                         }
                     }
                 }
@@ -187,12 +201,7 @@ void UI_Tick(void)
         } else {
             bool handled = false;
 
-            /* Handle BACK key globally */
-            if (e->type == UI_EVENT_KEY_BACK && ui_page_can_go_back()) {
-                ui_page_pop();
-                handled = true;
-            }
-
+            /* Sidebar gets first chance for non-fullscreen pages */
             if (!handled) {
                 ui_page_t *page = ui_page_current();
                 bool is_fullscreen = page && (page->flags & UI_PAGE_FLAG_FULLSCREEN);
@@ -202,6 +211,25 @@ void UI_Tick(void)
                     if (sidebar_event) {
                         handled = sidebar_event(e);
                     }
+                }
+            }
+
+            /* Page-level event interception for non-pointer events (keyboard/core-key).
+             * This allows pages to handle key events before global BACK handling
+             * and widget broadcast, enabling modal dialogs, list navigation, etc. */
+            if (!handled && !is_pointer_event(e->type)) {
+                ui_page_t *pg = ui_page_current();
+                if (pg && pg->on_page_event) {
+                    handled = pg->on_page_event(pg, e);
+                }
+            }
+
+            /* Handle BACK key globally (after page-level handler, so pages
+             * can intercept BACK for their own navigation, e.g. cd ..) */
+            if (!handled) {
+                if (e->type == UI_EVENT_KEY_BACK && ui_page_can_go_back()) {
+                    ui_page_pop();
+                    handled = true;
                 }
             }
 

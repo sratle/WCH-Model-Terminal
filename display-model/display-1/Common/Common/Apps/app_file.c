@@ -1158,74 +1158,73 @@ static void list_touch_event(ui_widget_t *w, ui_event_t *e)
     file_invalidate_item(item_idx);
 }
 
-/* Keyboard event handler for the file page */
-static void file_page_key_event(ui_event_t *e)
+/* Page-level event handler — called by UI_Tick before widget dispatch.
+ * Returns true if event was consumed (prevents further propagation). */
+static bool file_page_event(ui_page_t *page, ui_event_t *e)
 {
-    /* If input dialog is open, handle text input */
+    (void)page;
+
+    /* Only handle keyboard and core-key events */
+    if (e->source != UI_INPUT_KEYBOARD && e->source != UI_INPUT_CORE_KEY)
+        return false;
+
+    /* --- Input dialog is open: consume ALL key events --- */
     if (s_fs.input.visible) {
         input_dlg_t *dlg = &s_fs.input;
-        if (e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_CLICK) {
-            /* ESC/Back: cancel */
-            if (e->key_code == UI_KEY_BACK || e->key_code == UI_KEY_OK + 1) {
-                file_hide_input_dialog();
-                return;
-            }
-            /* Enter: confirm */
-            if (e->key_code == UI_KEY_OK) {
-                file_input_dialog_confirm();
-                return;
-            }
+
+        /* ESC/Back: cancel dialog */
+        if (e->type == UI_EVENT_KEY_DOWN && e->key_code == UI_KEY_BACK) {
+            file_hide_input_dialog();
+            return true;
         }
-        if (e->type == UI_EVENT_KEY_CLICK) {
-            /* Backspace */
-            if (e->key_code == 0x2A) {  /* USB HID Backspace */
-                if (dlg->cursor_pos > 0) {
-                    memmove(&dlg->buffer[dlg->cursor_pos - 1],
-                            &dlg->buffer[dlg->cursor_pos],
-                            dlg->buf_len - dlg->cursor_pos + 1);
-                    dlg->cursor_pos--;
-                    dlg->buf_len--;
-                }
-                file_invalidate_input_dialog();
-                return;
-            }
-            /* Printable ASCII from USB HID — handled via raw key_code */
-            /* For now, USB HID key codes are mapped by the input system.
-             * We handle the common ASCII range. */
-            if (e->key_code >= 0x20 && e->key_code <= 0x7E &&
-                dlg->buf_len < FILE_NAME_MAX_LEN) {
-                char ch = (char)e->key_code;
-                /* Apply shift modifier for uppercase */
-                if (e->key_modifiers & (UI_MOD_LSHIFT | UI_MOD_RSHIFT)) {
-                    /* Basic shift mapping */
-                    if (ch >= 'a' && ch <= 'z') ch -= 32;
-                }
-                memmove(&dlg->buffer[dlg->cursor_pos + 1],
+        /* Enter: confirm dialog */
+        if (e->type == UI_EVENT_KEY_DOWN && e->key_code == UI_KEY_OK) {
+            file_input_dialog_confirm();
+            return true;
+        }
+        /* Character input via char_code (KEY_DOWN = immediate, KEY_LONG_REPEAT = held repeat) */
+        if ((e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) &&
+            e->char_code >= 0x20 && e->char_code <= 0x7E &&
+            dlg->buf_len < FILE_NAME_MAX_LEN) {
+            memmove(&dlg->buffer[dlg->cursor_pos + 1],
+                    &dlg->buffer[dlg->cursor_pos],
+                    dlg->buf_len - dlg->cursor_pos + 1);
+            dlg->buffer[dlg->cursor_pos] = (char)e->char_code;
+            dlg->cursor_pos++;
+            dlg->buf_len++;
+            file_invalidate_input_dialog();
+            return true;
+        }
+        /* Backspace via char_code (KEY_DOWN + KEY_LONG_REPEAT for held delete) */
+        if ((e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) &&
+            e->char_code == 0x08) {
+            if (dlg->cursor_pos > 0) {
+                memmove(&dlg->buffer[dlg->cursor_pos - 1],
                         &dlg->buffer[dlg->cursor_pos],
                         dlg->buf_len - dlg->cursor_pos + 1);
-                dlg->buffer[dlg->cursor_pos] = ch;
-                dlg->cursor_pos++;
-                dlg->buf_len++;
-                file_invalidate_input_dialog();
-                return;
+                dlg->cursor_pos--;
+                dlg->buf_len--;
             }
+            file_invalidate_input_dialog();
+            return true;
         }
-        return;
+        /* Consume all other key events to prevent widgets from receiving them */
+        return true;
     }
 
-    /* If stat dialog is open, any key closes it */
+    /* --- Stat dialog is open: any key closes it --- */
     if (s_fs.stat_visible) {
         if (e->type == UI_EVENT_KEY_CLICK || e->type == UI_EVENT_KEY_DOWN) {
             s_fs.stat_visible = false;
             file_invalidate_stat_dialog();
         }
-        return;
+        return true;  /* Consume all key events while stat dialog is visible */
     }
 
-    /* If context menu is open */
+    /* --- Context menu is open --- */
     if (s_fs.ctx.visible) {
         ctx_menu_t *ctx = &s_fs.ctx;
-        if (e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_CLICK) {
+        if (e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) {
             switch (e->key_code) {
             case UI_KEY_UP:
                 if (ctx->selected < 0) ctx->selected = ctx->count - 1;
@@ -1237,63 +1236,72 @@ static void file_page_key_event(ui_event_t *e)
                 else if (ctx->selected < ctx->count - 1) ctx->selected++;
                 file_invalidate_ctx_menu();
                 break;
-            case UI_KEY_OK:
-                file_ctx_menu_execute();
-                break;
-            case UI_KEY_BACK:
-                file_hide_context_menu();
-                break;
             default:
                 break;
             }
         }
-        return;
+        if (e->type == UI_EVENT_KEY_CLICK) {
+            if (e->key_code == UI_KEY_OK) {
+                file_ctx_menu_execute();
+            } else if (e->key_code == UI_KEY_BACK) {
+                file_hide_context_menu();
+            }
+        }
+        return true;  /* Consume all key events while context menu is visible */
     }
 
-    /* Normal list navigation */
-    if (e->type != UI_EVENT_KEY_DOWN && e->type != UI_EVENT_KEY_CLICK &&
-        e->type != UI_EVENT_KEY_LONG_PRESS && e->type != UI_EVENT_KEY_LONG_REPEAT)
-        return;
+    /* --- Normal list navigation --- */
 
-    switch (e->key_code) {
-    case UI_KEY_UP:
-        if (s_fs.count > 0) {
-            int16_t old_sel = s_fs.selected;
-            if (s_fs.selected < 0) s_fs.selected = 0;
-            else if (s_fs.selected > 0) s_fs.selected--;
-            file_ensure_selected_visible();
-            file_invalidate_selection_change(old_sel, s_fs.selected);
+    /* Arrow keys: KEY_DOWN for immediate response, KEY_LONG_REPEAT for continuous scroll */
+    if (e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) {
+        switch (e->key_code) {
+        case UI_KEY_UP:
+            if (s_fs.count > 0) {
+                int16_t old_sel = s_fs.selected;
+                if (s_fs.selected < 0) s_fs.selected = 0;
+                else if (s_fs.selected > 0) s_fs.selected--;
+                file_ensure_selected_visible();
+                file_invalidate_selection_change(old_sel, s_fs.selected);
+            }
+            return true;
+        case UI_KEY_DOWN:
+            if (s_fs.count > 0) {
+                int16_t old_sel = s_fs.selected;
+                if (s_fs.selected < 0) s_fs.selected = 0;
+                else if (s_fs.selected < s_fs.count - 1) s_fs.selected++;
+                file_ensure_selected_visible();
+                file_invalidate_selection_change(old_sel, s_fs.selected);
+            }
+            return true;
+        default:
+            break;
         }
-        break;
-    case UI_KEY_DOWN:
-        if (s_fs.count > 0) {
-            int16_t old_sel = s_fs.selected;
-            if (s_fs.selected < 0) s_fs.selected = 0;
-            else if (s_fs.selected < s_fs.count - 1) s_fs.selected++;
-            file_ensure_selected_visible();
-            file_invalidate_selection_change(old_sel, s_fs.selected);
-        }
-        break;
-    case UI_KEY_OK:
-        /* Enter: open selected item */
-        if (s_fs.selected >= 0) file_open_selected();
-        break;
-    case UI_KEY_BACK:
-        /* Back: go up one level */
-        file_go_up();
-        break;
-    case UI_KEY_HOME:
-        /* Home: go to root */
-        file_go_root();
-        break;
-    default:
-        /* Menu key (USB HID Application key = 0x65): open context menu */
-        if (e->key_code == 0x65 && s_fs.selected >= 0) {
-            int16_t item_y = FILE_LIST_Y + (s_fs.selected - s_fs.scroll_offset) * FILE_ITEM_H;
-            file_show_context_menu(200, item_y, s_fs.selected);
-        }
-        break;
     }
+
+    /* KEY_CLICK for confirm/back (prevents double-handling with KEY_DOWN) */
+    if (e->type == UI_EVENT_KEY_CLICK) {
+        switch (e->key_code) {
+        case UI_KEY_OK:
+            if (s_fs.selected >= 0) file_open_selected();
+            return true;
+        case UI_KEY_BACK:
+            file_go_up();
+            return true;
+        case UI_KEY_HOME:
+            file_go_root();
+            return true;
+        default:
+            /* Menu key (USB HID Application key = 0x65): open context menu */
+            if (e->key_code == 0x65 && s_fs.selected >= 0) {
+                int16_t item_y = FILE_LIST_Y + (s_fs.selected - s_fs.scroll_offset) * FILE_ITEM_H;
+                file_show_context_menu(200, item_y, s_fs.selected);
+                return true;
+            }
+            break;
+        }
+    }
+
+    return false;  /* Unhandled: let global handlers / widgets process */
 }
 
 static void btn_up_click(ui_widget_t *w) { (void)w; file_go_up(); }
@@ -1304,24 +1312,15 @@ static void btn_refresh_click(ui_widget_t *w) { (void)w; file_request_list(); }
 static void btn_device_click(ui_widget_t *w) { (void)w; file_switch_device(); }
 
 /*=============================================================================
- *  Page Update (per-frame logic for keyboard routing)
+ *  Page Update (per-frame logic — keyboard handled by on_page_event now)
  *=============================================================================*/
 
 static void file_page_update(ui_page_t *page)
 {
     (void)page;
-    /* Poll keyboard events from the input system */
-    ui_event_t *ev = ui_input_poll();
-    while (ev != NULL) {
-        if (ev->source == UI_INPUT_KEYBOARD || ev->source == UI_INPUT_CORE_KEY) {
-            /* Only handle key events that aren't consumed by widgets */
-            if (ev->type == UI_EVENT_KEY_DOWN || ev->type == UI_EVENT_KEY_CLICK ||
-                ev->type == UI_EVENT_KEY_LONG_PRESS || ev->type == UI_EVENT_KEY_LONG_REPEAT) {
-                file_page_key_event(ev);
-            }
-        }
-        ev = ui_input_poll();
-    }
+    /* Keyboard events are now handled by file_page_event (on_page_event callback),
+     * which is called during UI_Tick's event dispatch phase.
+     * No need to poll ui_input_poll() here — that was the old broken approach. */
 }
 
 /*=============================================================================
@@ -1388,6 +1387,7 @@ void app_file_init(void)
     ui_page_set_widgets(&s_app_file.page, s_file_widgets, 9);
     ui_page_set_callbacks(&s_app_file.page, file_page_enter, NULL, file_page_draw, NULL);
     ui_page_set_update_cb(&s_app_file.page, file_page_update);
+    ui_page_set_event_cb(&s_app_file.page, file_page_event);
     ui_page_register(&s_app_file.page);
 }
 

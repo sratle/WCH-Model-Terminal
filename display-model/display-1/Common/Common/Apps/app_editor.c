@@ -204,6 +204,16 @@ static void editor_update_cursor_coords(void)
         else
             lo = mid + 1;
     }
+
+    /* Fix: if cursor_pos is exactly at the start of the next line (i.e., the
+     * current line ends with '\n' and cursor is positioned right after it),
+     * the cursor should be on the next line, not at the end of the current one.
+     * Without this, pressing Enter leaves the cursor visually on the old line. */
+    if (s_ed.cursor_line + 1 < s_ed.line_count &&
+        s_ed.cursor_pos == s_ed.line_offsets[s_ed.cursor_line + 1]) {
+        s_ed.cursor_line++;
+    }
+
     /* Column is offset within the line */
     uint16_t line_start = s_ed.line_offsets[s_ed.cursor_line];
     s_ed.cursor_col = s_ed.cursor_pos - line_start;
@@ -380,7 +390,15 @@ static void editor_backspace(void)
 
 static void editor_insert_newline(void)
 {
+    int16_t old_line = s_ed.cursor_line;
     editor_insert_char('\n');
+    /* Ensure both old and new cursor lines are invalidated.
+     * editor_insert_char already calls editor_invalidate_content(),
+     * but explicitly invalidating both lines guarantees the old cursor
+     * is erased and the new cursor line is redrawn even if the full
+     * text area invalidation is somehow incomplete. */
+    editor_invalidate_line(old_line);
+    editor_invalidate_line(s_ed.cursor_line);
 }
 
 static void editor_move_cursor_left(bool extend_sel)
@@ -966,9 +984,11 @@ static void text_touch_event(ui_widget_t *w, ui_event_t *e)
         }
 
         s_ed.cursor_pos = best_pos;
+        int16_t old_cursor_line = s_ed.cursor_line;
         editor_update_cursor_coords();
         editor_ensure_cursor_visible();
         editor_update_status();
+        editor_invalidate_line(old_cursor_line);
         editor_invalidate_line(s_ed.cursor_line);
         editor_invalidate_status();
     }
@@ -1014,29 +1034,23 @@ static void editor_handle_key_event(ui_event_t *e)
     /* Handle KEY_DOWN / KEY_CLICK for other keys */
     if (e->type != UI_EVENT_KEY_DOWN && e->type != UI_EVENT_KEY_CLICK) return;
 
-    /* Ctrl+key shortcuts */
-    if (ctrl) {
-        switch (e->key_code) {
-        /* Ctrl+S: Save */
-        case 0x16:  /* HID 's' */
+    /* Ctrl+key shortcuts (using char_code for letter identification) */
+    if (ctrl && e->char_code) {
+        switch (e->char_code) {
+        case 's':  /* Ctrl+S: Save */
             editor_save_file();
             return;
-        /* Ctrl+Z: Undo */
-        case 0x1D:  /* HID 'z' */
+        case 'z':  /* Ctrl+Z: Undo */
             editor_undo();
             return;
-        /* Ctrl+A: Select all */
-        case 0x04:  /* HID 'a' */
+        case 'a':  /* Ctrl+A: Select all */
             editor_select_all();
             return;
-        /* Ctrl+C: Copy (not implemented - would need clipboard) */
-        case 0x06:  /* HID 'c' */
+        case 'c':  /* Ctrl+C: Copy (not implemented) */
             return;
-        /* Ctrl+V: Paste (not implemented) */
-        case 0x19:  /* HID 'v' */
+        case 'v':  /* Ctrl+V: Paste (not implemented) */
             return;
-        /* Ctrl+X: Cut (not implemented) */
-        case 0x1B:  /* HID 'x' */
+        case 'x':  /* Ctrl+X: Cut (not implemented) */
             return;
         default:
             break;
@@ -1053,10 +1067,10 @@ static void editor_handle_key_event(ui_event_t *e)
         return;
     }
 
-    /* For KEY_CLICK events, handle printable character input */
-    if (e->type == UI_EVENT_KEY_CLICK || e->type == UI_EVENT_KEY_DOWN) {
-        /* Backspace (HID 0x2A) */
-        if (e->key_code == 0x2A) {
+    /* Backspace / Delete / Tab — KEY_DOWN (immediate) + KEY_LONG_REPEAT (held repeat) */
+    if (e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) {
+        /* Backspace via char_code */
+        if (e->char_code == 0x08) {
             editor_backspace();
             return;
         }
@@ -1065,79 +1079,18 @@ static void editor_handle_key_event(ui_event_t *e)
             editor_delete_char();
             return;
         }
-        /* Tab (HID 0x2B) */
-        if (e->key_code == 0x2B) {
-            for (int t = 0; t < EDIT_TAB_SIZE; t++)
-                editor_insert_char(' ');
-            return;
-        }
+    }
+    /* Tab (no repeat) */
+    if (e->type == UI_EVENT_KEY_DOWN && e->char_code == 0x09) {
+        for (int t = 0; t < EDIT_TAB_SIZE; t++)
+            editor_insert_char(' ');
+        return;
     }
 
-    /* Printable characters: USB HID usage IDs 0x04-0x1D map to a-z (with shift for A-Z)
-     * and 0x1E-0x26 map to 1-0, 0x2D-0x38 map to -=[]\ etc.
-     * The input system passes the raw HID code as key_code for unmapped keys.
-     * We need a HID-to-ASCII mapping. */
-    if (e->type == UI_EVENT_KEY_DOWN) {
-        /* USB HID keyboard usage ID to ASCII mapping */
-        static const char hid_ascii_lower[] = {
-            /* 0x04-0x1D: a-z */
-            'a','b','c','d','e','f','g','h','i','j',
-            'k','l','m','n','o','p','q','r','s','t',
-            'u','v','w','x','y','z'
-        };
-        static const char hid_ascii_upper[] = {
-            'A','B','C','D','E','F','G','H','I','J',
-            'K','L','M','N','O','P','Q','R','S','T',
-            'U','V','W','X','Y','Z'
-        };
-        static const char hid_num_shift[] = {
-            '!','@','#','$','%','^','&','*','(',')'
-        };
-        static const char hid_punct[] = {
-            /* 0x2D: - */  '-',
-            /* 0x2E: = */  '=',
-            /* 0x2F: [ */  '[',
-            /* 0x30: ] */  ']',
-            /* 0x31: \ */  '\\',
-            /* 0x33: ; */  ';',
-            /* 0x34: ' */  '\'',
-            /* 0x35: ` */  '`',
-            /* 0x36: , */  ',',
-            /* 0x37: . */  '.',
-            /* 0x38: / */  '/',
-        };
-        static const char hid_punct_shift[] = {
-            '_','+','{','}','|',
-            ':','"','~','<','>','?'
-        };
-
-        char ch = 0;
-
-        if (e->key_code >= 0x04 && e->key_code <= 0x1D) {
-            /* a-z / A-Z */
-            int idx = e->key_code - 0x04;
-            ch = shift ? hid_ascii_upper[idx] : hid_ascii_lower[idx];
-        } else if (e->key_code >= 0x1E && e->key_code <= 0x27) {
-            /* 1-0 / !@#$%^&*() */
-            int idx = e->key_code - 0x1E;
-            ch = shift ? hid_num_shift[idx] : ('1' + idx);
-        } else if (e->key_code == 0x2C) {
-            /* Space */
-            ch = ' ';
-        } else if (e->key_code >= 0x2D && e->key_code <= 0x38) {
-            /* Punctuation */
-            int idx = e->key_code - 0x2D;
-            if (e->key_code == 0x32) {
-                /* HID 0x32 = Non-US # (skip) */
-                ch = 0;
-            } else if (idx < 11) {
-                ch = shift ? hid_punct_shift[idx] : hid_punct[idx];
-            }
-        }
-
-        if (ch != 0) {
-            editor_insert_char(ch);
-        }
+    /* Printable characters via char_code (KEY_DOWN + KEY_LONG_REPEAT for held repeat) */
+    if ((e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) &&
+        e->char_code >= 0x20 && e->char_code <= 0x7E) {
+        editor_insert_char((char)e->char_code);
     }
 }
 
@@ -1148,7 +1101,27 @@ static void btn_save_click(ui_widget_t *w)
 }
 
 /*=============================================================================
- *  Page Update (per-frame logic)
+ *  Page Event Handler (keyboard intercept before widget dispatch)
+ *=============================================================================*/
+
+static bool editor_page_event(ui_page_t *page, ui_event_t *e)
+{
+    (void)page;
+
+    /* Only handle keyboard and core-key events */
+    if (e->source != UI_INPUT_KEYBOARD && e->source != UI_INPUT_CORE_KEY)
+        return false;
+
+    /* Reset cursor blink on any key activity */
+    s_ed.cursor_visible = true;
+    s_ed.cursor_blink_ms = 0;
+
+    editor_handle_key_event(e);
+    return true;  /* Consume all key events */
+}
+
+/*=============================================================================
+ *  Page Update (per-frame logic — keyboard handled by on_page_event now)
  *=============================================================================*/
 
 static void editor_page_update(ui_page_t *page)
@@ -1170,19 +1143,7 @@ static void editor_page_update(ui_page_t *page)
             editor_invalidate_cursor();
         }
     }
-
-    /* Poll keyboard events */
-    ui_event_t *ev = ui_input_poll();
-    while (ev != NULL) {
-        if (ev->source == UI_INPUT_KEYBOARD || ev->source == UI_INPUT_CORE_KEY) {
-            /* Reset cursor blink on any key activity */
-            s_ed.cursor_visible = true;
-            s_ed.cursor_blink_ms = 0;
-
-            editor_handle_key_event(ev);
-        }
-        ev = ui_input_poll();
-    }
+    /* Keyboard events are now handled by editor_page_event (on_page_event callback). */
 }
 
 /*=============================================================================
@@ -1216,6 +1177,7 @@ void app_editor_init(void)
     ui_page_set_widgets(&s_app_editor.page, s_editor_widgets, 4);
     ui_page_set_callbacks(&s_app_editor.page, editor_page_enter, NULL, editor_page_draw, NULL);
     ui_page_set_update_cb(&s_app_editor.page, editor_page_update);
+    ui_page_set_event_cb(&s_app_editor.page, editor_page_event);
     ui_page_register(&s_app_editor.page);
 }
 

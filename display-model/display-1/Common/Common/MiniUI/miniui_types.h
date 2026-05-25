@@ -175,6 +175,11 @@ typedef struct {
 
     /* Scroll wheel delta — valid for MOUSE events */
     int8_t scroll_delta;
+
+    /* Printable ASCII character code (0 if not printable).
+     * Populated by input system for KEYBOARD key-down/click events.
+     * Accounts for shift modifier (e.g. 'a' -> 'A', '1' -> '!'). */
+    uint8_t char_code;
 } ui_event_t;
 
 /*=============================================================================
@@ -221,6 +226,7 @@ typedef void (*ui_page_exit_cb_t)(ui_page_t *page);
 typedef void (*ui_page_draw_cb_t)(ui_page_t *page, ui_rect_t *dirty);
 typedef void (*ui_page_back_cb_t)(ui_page_t *page);
 typedef void (*ui_page_update_cb_t)(ui_page_t *page);  /* Per-frame logic update */
+typedef bool (*ui_page_event_cb_t)(ui_page_t *page, ui_event_t *e);  /* Page-level event intercept */
 typedef void (*ui_anim_update_cb_t)(int32_t value, void *user_data);
 
 #ifdef __cplusplus

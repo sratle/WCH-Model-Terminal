@@ -125,6 +125,56 @@ static uint8_t hid_to_ui_key(uint8_t hid_code)
     }
 }
 
+/* Convert USB HID usage ID to printable ASCII character.
+ * Uses standard US QWERTY mapping per USB HID Usage Tables (Page 0x07).
+ * HID codes are determined by physical key position, independent of
+ * what characters are printed on the keycaps (keyboard layout).
+ * Returns 0 for non-printable keys.  Applies shift modifier. */
+static uint8_t hid_to_ascii(uint8_t hid_code, uint8_t modifiers)
+{
+    bool shift = (modifiers & (UI_MOD_LSHIFT | UI_MOD_RSHIFT)) != 0;
+
+    /* Letters: HID 0x04 (A) .. 0x1D (Z) */
+    if (hid_code >= 0x04 && hid_code <= 0x1D) {
+        uint8_t c = 'a' + (hid_code - 0x04);
+        if (shift) c -= 32;  /* uppercase */
+        return c;
+    }
+
+    /* Numbers: HID 0x1E (1) .. 0x26 (9), 0x27 (0) */
+    if (hid_code >= 0x1E && hid_code <= 0x26) {
+        if (shift) {
+            static const char shifted[] = "!@#$%^&*(";
+            return shifted[hid_code - 0x1E];
+        }
+        return '1' + (hid_code - 0x1E);
+    }
+    if (hid_code == 0x27) return shift ? ')' : '0';
+
+    /* Control characters */
+    if (hid_code == 0x28) return 0x0D;  /* Enter */
+    if (hid_code == 0x29) return 0x1B;  /* Escape */
+    if (hid_code == 0x2A) return 0x08;  /* Backspace */
+    if (hid_code == 0x2B) return 0x09;  /* Tab */
+    if (hid_code == 0x2C) return ' ';   /* Space */
+
+    /* Punctuation: HID 0x2D (Minus) .. 0x32 (Non-US #) */
+    if (hid_code >= 0x2D && hid_code <= 0x32) {
+        static const char normal[]  = "-=[]\\'";
+        static const char shifted_c[] = "_+{}|\"";
+        return shift ? shifted_c[hid_code - 0x2D] : normal[hid_code - 0x2D];
+    }
+
+    /* Punctuation: HID 0x33 (Semicolon) .. 0x38 (Slash) */
+    if (hid_code >= 0x33 && hid_code <= 0x38) {
+        static const char normal[]  = ";'`,./";
+        static const char shifted_c[] = ":\"~<>?";
+        return shift ? shifted_c[hid_code - 0x33] : normal[hid_code - 0x33];
+    }
+
+    return 0;  /* Non-printable */
+}
+
 /* Emit a convenience logical key event if the key maps to one */
 static void emit_logical_key_event(uint8_t ui_key, ui_input_source_t source)
 {
@@ -502,6 +552,7 @@ void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6])
                 e.type = UI_EVENT_KEY_UP;
                 e.key_code = ui_key ? ui_key : released_hid;
                 e.key_modifiers = modifiers;
+                e.char_code = hid_to_ascii(released_hid, modifiers);
                 queue_push(&e);
 
                 /* Check for click (short press) */
@@ -569,6 +620,7 @@ void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6])
             e.type = UI_EVENT_KEY_DOWN;
             e.key_code = ui_key ? ui_key : new_hid;
             e.key_modifiers = modifiers;
+            e.char_code = hid_to_ascii(new_hid, modifiers);
             queue_push(&e);
 
             /* Convenience logical key event */
@@ -729,6 +781,7 @@ static void check_key_hold(ui_key_state_t *ks, ui_input_source_t source)
             e.type = UI_EVENT_KEY_LONG_PRESS;
             e.source = source;
             e.key_code = ks->key_code;
+            e.char_code = hid_to_ascii(ks->key_code, s_state.key_modifiers);
             queue_push(&e);
         }
     } else {
@@ -740,6 +793,7 @@ static void check_key_hold(ui_key_state_t *ks, ui_input_source_t source)
             e.type = UI_EVENT_KEY_LONG_REPEAT;
             e.source = source;
             e.key_code = ks->key_code;
+            e.char_code = hid_to_ascii(ks->key_code, s_state.key_modifiers);
             queue_push(&e);
         }
     }
@@ -773,6 +827,7 @@ static void check_click_timeouts(void)
             e.type = UI_EVENT_KEY_CLICK;
             e.source = UI_INPUT_KEYBOARD;
             e.key_code = ks->key_code;
+            e.char_code = hid_to_ascii(ks->key_code, s_state.key_modifiers);
             queue_push(&e);
         }
     }
