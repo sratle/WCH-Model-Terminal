@@ -1,10 +1,11 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : ui_games.c
 * Author             : LCD Model Team
-* Version            : V3.0.0
-* Date               : 2025/04/20
+* Version            : V4.0.0
+* Date               : 2026/05/25
 * Description        : Games page implementation.
-*                      4 games in a single page grid (3x4 layout, no pagination).
+*                      8 games in a single page grid (3x4 layout, no pagination).
+*                      V4.0: Keyboard navigation support (arrow keys + Enter).
 ********************************************************************************/
 #include "ui_games.h"
 #include "ui_main.h"
@@ -54,9 +55,34 @@ static const game_entry_t s_games[GAME_TOTAL] = {
  *  Games Page Widgets
  *=============================================================================*/
 
+static int8_t s_focus_idx = -1;   /* Keyboard focus index (-1 = none) */
+
 static ui_label_t lbl_title;
 static ui_icon_button_t btn_games[GAME_TOTAL];
 static ui_widget_t *s_games_widgets[1 + GAME_TOTAL];
+
+/*=============================================================================
+ *  Focus Management
+ *=============================================================================*/
+
+static void games_clear_focus(void)
+{
+    if (s_focus_idx >= 0 && s_focus_idx < GAME_TOTAL) {
+        btn_games[s_focus_idx].base.flags &= ~UI_WIDGET_FLAG_PRESSED;
+        ui_widget_invalidate((ui_widget_t *)&btn_games[s_focus_idx]);
+    }
+    s_focus_idx = -1;
+}
+
+static void games_set_focus(int8_t idx)
+{
+    games_clear_focus();
+    if (idx >= 0 && idx < GAME_TOTAL) {
+        s_focus_idx = idx;
+        btn_games[s_focus_idx].base.flags |= UI_WIDGET_FLAG_PRESSED;
+        ui_widget_invalidate((ui_widget_t *)&btn_games[s_focus_idx]);
+    }
+}
 
 /*=============================================================================
  *  Game Button Callback
@@ -71,6 +97,73 @@ static void game_button_click(ui_widget_t *w)
             ui_page_push(target);
         }
     }
+}
+
+/*=============================================================================
+ *  Keyboard Event Handler (page-level)
+ *=============================================================================*/
+
+static bool games_handle_event(ui_page_t *page, ui_event_t *e)
+{
+    (void)page;
+
+    if (e->type == UI_EVENT_KEY_DOWN_ARROW) {
+        if (s_focus_idx < 0) {
+            games_set_focus(0);
+        } else if (s_focus_idx + GAME_GRID_COLS < GAME_TOTAL) {
+            games_set_focus(s_focus_idx + GAME_GRID_COLS);
+        }
+        return true;
+    }
+
+    if (e->type == UI_EVENT_KEY_UP_ARROW) {
+        if (s_focus_idx < 0) {
+            games_set_focus(0);
+        } else if (s_focus_idx >= GAME_GRID_COLS) {
+            games_set_focus(s_focus_idx - GAME_GRID_COLS);
+        }
+        return true;
+    }
+
+    if (e->type == UI_EVENT_KEY_RIGHT_ARROW) {
+        if (s_focus_idx < 0) {
+            games_set_focus(0);
+        } else if (s_focus_idx + 1 < GAME_TOTAL) {
+            /* Check we stay in the same row */
+            int cur_row = s_focus_idx / GAME_GRID_COLS;
+            int new_row = (s_focus_idx + 1) / GAME_GRID_COLS;
+            if (new_row == cur_row) {
+                games_set_focus(s_focus_idx + 1);
+            }
+        }
+        return true;
+    }
+
+    if (e->type == UI_EVENT_KEY_LEFT_ARROW) {
+        if (s_focus_idx < 0) {
+            games_set_focus(0);
+        } else if (s_focus_idx > 0) {
+            /* Check we stay in the same row */
+            int cur_row = s_focus_idx / GAME_GRID_COLS;
+            int new_row = (s_focus_idx - 1) / GAME_GRID_COLS;
+            if (new_row == cur_row) {
+                games_set_focus(s_focus_idx - 1);
+            }
+        }
+        return true;
+    }
+
+    if (e->type == UI_EVENT_KEY_OK) {
+        if (s_focus_idx >= 0 && s_focus_idx < GAME_TOTAL) {
+            game_button_click((ui_widget_t *)&btn_games[s_focus_idx]);
+            return true;
+        }
+        /* No focus: set focus to first item */
+        games_set_focus(0);
+        return true;
+    }
+
+    return false;
 }
 
 /*=============================================================================
@@ -112,9 +205,11 @@ void ui_games_init(void)
 
     ui_page_set_widgets(&page_games, s_games_widgets, 1 + GAME_TOTAL);
     ui_page_set_callbacks(&page_games, ui_games_enter, NULL, NULL, NULL);
+    ui_page_set_event_cb(&page_games, games_handle_event);
 }
 
 void ui_games_enter(ui_page_t *page)
 {
     (void)page;
+    games_clear_focus();
 }

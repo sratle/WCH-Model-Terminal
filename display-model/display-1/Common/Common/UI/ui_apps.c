@@ -1,10 +1,11 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : ui_apps.c
 * Author             : LCD Model Team
-* Version            : V3.0.0
-* Date               : 2025/04/20
+* Version            : V4.0.0
+* Date               : 2026/05/25
 * Description        : Apps page implementation.
 *                      16 apps in a single 4x4 grid (no pagination needed).
+*                      V4.0: Keyboard navigation support (arrow keys + Enter).
 ********************************************************************************/
 #include "ui_apps.h"
 #include "ui_main.h"
@@ -61,6 +62,7 @@ static const app_entry_t s_apps[APPS_TOTAL] = {
  *=============================================================================*/
 
 static uint8_t s_current_page = 0;
+static int8_t  s_focus_idx = -1;   /* Keyboard focus index within current page grid (-1 = none) */
 
 static ui_label_t lbl_title;
 static ui_label_t lbl_page;
@@ -68,6 +70,37 @@ static ui_button_t btn_prev;
 static ui_button_t btn_next;
 static ui_icon_button_t btn_apps[APPS_PER_PAGE];
 static ui_widget_t *s_apps_widgets[4 + APPS_PER_PAGE];
+
+/*=============================================================================
+ *  Focus Management
+ *=============================================================================*/
+
+/* Get the number of visible apps on the current page */
+static int apps_on_page(void)
+{
+    int page_offset = s_current_page * APPS_PER_PAGE;
+    int remaining = APPS_TOTAL - page_offset;
+    return (remaining < APPS_PER_PAGE) ? remaining : APPS_PER_PAGE;
+}
+
+static void apps_clear_focus(void)
+{
+    if (s_focus_idx >= 0 && s_focus_idx < APPS_PER_PAGE) {
+        btn_apps[s_focus_idx].base.flags &= ~UI_WIDGET_FLAG_PRESSED;
+        ui_widget_invalidate((ui_widget_t *)&btn_apps[s_focus_idx]);
+    }
+    s_focus_idx = -1;
+}
+
+static void apps_set_focus(int8_t idx)
+{
+    apps_clear_focus();
+    if (idx >= 0 && idx < apps_on_page()) {
+        s_focus_idx = idx;
+        btn_apps[s_focus_idx].base.flags |= UI_WIDGET_FLAG_PRESSED;
+        ui_widget_invalidate((ui_widget_t *)&btn_apps[s_focus_idx]);
+    }
+}
 
 /*=============================================================================
  *  Page Navigation
@@ -116,6 +149,9 @@ static void apps_update_grid(void)
 
     ui_widget_set_visible((ui_widget_t *)&btn_prev, s_current_page > 0);
     ui_widget_set_visible((ui_widget_t *)&btn_next, s_current_page < APPS_PAGE_COUNT - 1);
+
+    /* Reset focus */
+    apps_clear_focus();
 }
 
 static void prev_page_click(ui_widget_t *w)
@@ -151,6 +187,75 @@ static void app_button_click(ui_widget_t *w)
             ui_page_push(target);
         }
     }
+}
+
+/*=============================================================================
+ *  Keyboard Event Handler (page-level)
+ *=============================================================================*/
+
+static bool apps_handle_event(ui_page_t *page, ui_event_t *e)
+{
+    (void)page;
+
+    if (e->type == UI_EVENT_KEY_DOWN_ARROW) {
+        int count = apps_on_page();
+        if (s_focus_idx < 0) {
+            apps_set_focus(0);
+        } else if (s_focus_idx + APPS_GRID_COLS < count) {
+            apps_set_focus(s_focus_idx + APPS_GRID_COLS);
+        }
+        return true;
+    }
+
+    if (e->type == UI_EVENT_KEY_UP_ARROW) {
+        if (s_focus_idx < 0) {
+            apps_set_focus(0);
+        } else if (s_focus_idx >= APPS_GRID_COLS) {
+            apps_set_focus(s_focus_idx - APPS_GRID_COLS);
+        }
+        return true;
+    }
+
+    if (e->type == UI_EVENT_KEY_RIGHT_ARROW) {
+        int count = apps_on_page();
+        if (s_focus_idx < 0) {
+            apps_set_focus(0);
+        } else if (s_focus_idx + 1 < count) {
+            /* Check we stay in the same row */
+            int cur_row = s_focus_idx / APPS_GRID_COLS;
+            int new_row = (s_focus_idx + 1) / APPS_GRID_COLS;
+            if (new_row == cur_row) {
+                apps_set_focus(s_focus_idx + 1);
+            }
+        }
+        return true;
+    }
+
+    if (e->type == UI_EVENT_KEY_LEFT_ARROW) {
+        if (s_focus_idx < 0) {
+            apps_set_focus(0);
+        } else if (s_focus_idx > 0) {
+            /* Check we stay in the same row */
+            int cur_row = s_focus_idx / APPS_GRID_COLS;
+            int new_row = (s_focus_idx - 1) / APPS_GRID_COLS;
+            if (new_row == cur_row) {
+                apps_set_focus(s_focus_idx - 1);
+            }
+        }
+        return true;
+    }
+
+    if (e->type == UI_EVENT_KEY_OK) {
+        if (s_focus_idx >= 0 && s_focus_idx < apps_on_page()) {
+            app_button_click((ui_widget_t *)&btn_apps[s_focus_idx]);
+            return true;
+        }
+        /* No focus: set focus to first item */
+        apps_set_focus(0);
+        return true;
+    }
+
+    return false;
 }
 
 /*=============================================================================
@@ -211,6 +316,7 @@ void ui_apps_init(void)
 
     ui_page_set_widgets(&page_apps, s_apps_widgets, 4 + APPS_PER_PAGE);
     ui_page_set_callbacks(&page_apps, ui_apps_enter, NULL, NULL, NULL);
+    ui_page_set_event_cb(&page_apps, apps_handle_event);
 }
 
 void ui_apps_enter(ui_page_t *page)

@@ -230,7 +230,14 @@ static void button_event_cb(ui_widget_t *w, ui_event_t *e)
         if (btn->on_click) btn->on_click(w);
         break;
     case UI_EVENT_KEY_OK:
-        if (btn->on_click) btn->on_click(w);
+        /* Only activate if this button has focus (PRESSED flag set by page
+         * keyboard handler). Prevents KEY_OK broadcast from activating
+         * all buttons simultaneously. */
+        if ((w->flags & UI_WIDGET_FLAG_PRESSED) && btn->on_click) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            ui_widget_invalidate(w);
+            btn->on_click(w);
+        }
         break;
     case UI_EVENT_SWIPE_UP:
     case UI_EVENT_SWIPE_DOWN:
@@ -370,7 +377,14 @@ static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
         if (btn->on_click) btn->on_click(w);
         break;
     case UI_EVENT_KEY_OK:
-        if (btn->on_click) btn->on_click(w);
+        /* Only activate if this button has focus (PRESSED flag set by page
+         * keyboard handler). Prevents KEY_OK broadcast from activating
+         * all buttons simultaneously. */
+        if ((w->flags & UI_WIDGET_FLAG_PRESSED) && btn->on_click) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            ui_widget_invalidate(w);
+            btn->on_click(w);
+        }
         break;
     case UI_EVENT_SWIPE_UP:
     case UI_EVENT_SWIPE_DOWN:
