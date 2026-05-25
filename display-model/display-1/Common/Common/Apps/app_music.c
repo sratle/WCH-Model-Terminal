@@ -555,11 +555,24 @@ static void btn_mode_click(ui_widget_t *w)
     music_update_texts();
 }
 
+static bool s_vol_dragging = false;
+
 static void vol_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
-    if (e->type != UI_EVENT_CLICK && e->type != UI_EVENT_DOWN && e->type != UI_EVENT_MOVE)
+
+    /* Only adjust volume on DOWN (start drag) or MOVE while dragging */
+    if (e->type == UI_EVENT_DOWN) {
+        s_vol_dragging = true;
+    } else if (e->type == UI_EVENT_UP || e->type == UI_EVENT_CLICK) {
+        s_vol_dragging = false;
+    } else if (e->type == UI_EVENT_PRESS_CANCEL) {
+        s_vol_dragging = false;
         return;
+    }
+
+    if (!s_vol_dragging) return;
+
     int16_t rel_x = e->pos.x - VOL_X;
     if (rel_x < 0) rel_x = 0;
     if (rel_x > VOL_W) rel_x = VOL_W;

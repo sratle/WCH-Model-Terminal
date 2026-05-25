@@ -1111,8 +1111,11 @@ void UART_RequestFileRead(const char *path)
 
 void UART_RequestFileSave(const char *path)
 {
-    /* File save via CLI is limited; for now just a placeholder.
-     * Full file save would need bulk transfer or echo redirect. */
+    /* File save via CLI "write" command.
+     * Note: this only sends the command header; the caller (editor)
+     * typically builds the full "write <path> <content>" command
+     * via UART_SendCLI directly to include file content.
+     * This function is kept for API compatibility. */
     (void)path;
 }
 
