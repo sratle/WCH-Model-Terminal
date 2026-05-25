@@ -90,7 +90,7 @@
  *  Playlist & Play Mode
  *=============================================================================*/
 
-#define MUSIC_PLAYLIST_MAX  12
+#define MUSIC_PLAYLIST_MAX  64
 #define MUSIC_NAME_LEN      64
 
 /* Play modes — managed locally, no Core command needed */
