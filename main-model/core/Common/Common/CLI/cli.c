@@ -515,14 +515,44 @@ static uint32_t s_write_total_bytes = 0;
 /*   write -a data          — 追加写入：追加数据到已打开的文件               */
 /*   write -e data          — 结束写入：追加最后一块 + 关闭文件             */
 /*   write -e               — 结束写入：关闭已打开的文件（无数据）           */
-/* ------------------------------------------------------------------------ */
+/* raw_buf 是 CLI_ParseArgs 之前的原始命令副本，数据提取基于此缓冲区。        */
+/* 每帧写入后立即关闭文件（与 echo 相同模式），确保数据落盘。                  */
 
 #define WRITE_MAX_FILE_SIZE  (20 * 1024)  /* 20KB limit */
+
+/* 在原始缓冲区中定位 "path" 的起止位置以及其后的数据起始偏移 */
+static uint8_t cli_write_find_path(const char *raw, uint8_t raw_len,
+                                    uint8_t search_from,
+                                    char *path_out, uint8_t path_max,
+                                    uint8_t *data_start_out)
+{
+    uint8_t i = search_from;
+    uint8_t p1, p2, plen;
+    while (i < raw_len && raw[i] != '"') i++;
+    if (i >= raw_len) return 0;
+    p1 = i + 1;
+    i = p1;
+    while (i < raw_len && raw[i] != '"') i++;
+    if (i >= raw_len) return 0;
+    p2 = i;
+    plen = p2 - p1;
+    if (plen == 0 || plen >= path_max) return 0;
+    memcpy(path_out, raw + p1, plen);
+    path_out[plen] = '\0';
+    *data_start_out = p2 + 2;
+    return 1;
+}
+
+/* 保存多帧写入的目标路径 */
+static char s_write_path[128];
 
 static void CLI_Cmd_Write(uint8_t argc, char **argv, char *raw_buf, uint8_t raw_len)
 {
     uint8_t status;
     char full_path[CH378_MAX_PATH_LEN];
+    char path[128];
+    uint8_t data_start;
+    uint8_t prefix_len;
 
     if (argc < 2) {
         printf("Usage: write \"path\" <data>\r\n");
@@ -538,43 +568,42 @@ static void CLI_Cmd_Write(uint8_t argc, char **argv, char *raw_buf, uint8_t raw_
             printf("write: -s requires file path\r\n");
             return;
         }
-        /* Close previous session if any */
-        if (s_write_file_open) {
-            CH378FileClose(0);
-            s_write_file_open = 0;
+        if (!cli_write_find_path(raw_buf, raw_len, 8, path, sizeof(path), &data_start)) {
+            printf("write: cannot parse path\r\n");
+            return;
         }
-        CH378_Path_Join(ch378_current_path_sfn, argv[2], full_path, sizeof(full_path));
-        /* Create (truncate) then open for writing */
+        /* Save path for subsequent -a/-e frames */
+        strncpy(s_write_path, path, sizeof(s_write_path) - 1);
+        s_write_path[sizeof(s_write_path) - 1] = '\0';
+
+        CH378_Path_Join(ch378_current_path_sfn, path, full_path, sizeof(full_path));
+        /* Create (truncate) then open, write, close — same pattern as echo */
         status = CH378FileCreate((uint8_t*)full_path);
         if (status != ERR_SUCCESS) {
-            printf("write: cannot create '%s' (status=%02X)\r\n", argv[2], status);
+            printf("write: cannot create '%s' (status=%02X)\r\n", path, status);
             return;
         }
         CH378FileClose(1);
         status = CH378FileOpen((uint8_t*)full_path);
         if (status != ERR_SUCCESS) {
-            printf("write: cannot open '%s' (status=%02X)\r\n", argv[2], status);
+            printf("write: cannot open '%s' (status=%02X)\r\n", path, status);
             return;
         }
         s_write_file_open = 1;
         s_write_total_bytes = 0;
 
-        /* Data starts after: "write -s \"" (10) + path + "\" " (2) = 12 + path_len.
-         * CLI_ParseArgs replaces quotes/spaces with \0, so we cannot search
-         * for quotes in raw_buf. Instead compute the offset directly. */
-        {
-            uint16_t path_len = strlen(argv[2]);
-            uint16_t data_start = 12 + path_len;  /* "write -s \"" + path + "\" " */
-            if (data_start < raw_len) {
-                uint16_t data_len = raw_len - data_start;
-                if (data_len > 0 && s_write_total_bytes + data_len <= WRITE_MAX_FILE_SIZE) {
-                    uint16_t real_len;
-                    status = CH378ByteWrite((uint8_t*)(raw_buf + data_start), data_len, &real_len);
+        if (data_start < raw_len) {
+            uint16_t data_len = raw_len - data_start;
+            if (data_len > 0 && data_len <= WRITE_MAX_FILE_SIZE) {
+                uint16_t real_len = 0;
+                status = CH378ByteWrite((uint8_t*)(raw_buf + data_start), data_len, &real_len);
+                if (status == ERR_SUCCESS)
                     s_write_total_bytes += real_len;
-                }
             }
         }
-        printf("write: started '%s' (%lu bytes)\r\n", argv[2], (unsigned long)s_write_total_bytes);
+        /* Close file immediately to flush data to disk */
+        CH378FileClose(1);
+        printf("write: started '%s' (%lu bytes)\r\n", path, (unsigned long)s_write_total_bytes);
         return;
     }
 
@@ -584,17 +613,29 @@ static void CLI_Cmd_Write(uint8_t argc, char **argv, char *raw_buf, uint8_t raw_
             printf("write: no active write session\r\n");
             return;
         }
-        /* Raw data starts after "write -a " = 9 bytes */
-        {
-            uint16_t prefix_len = 9;
-            if (raw_len > prefix_len && s_write_total_bytes < WRITE_MAX_FILE_SIZE) {
-                uint16_t data_len = raw_len - prefix_len;
-                uint32_t remaining = WRITE_MAX_FILE_SIZE - s_write_total_bytes;
-                if (data_len > remaining) data_len = (uint16_t)remaining;
-                uint16_t real_len;
-                status = CH378ByteWrite((uint8_t*)(raw_buf + prefix_len), data_len, &real_len);
-                s_write_total_bytes += real_len;
+        prefix_len = 9;  /* "write -a " */
+        if (raw_len > prefix_len && s_write_total_bytes < WRITE_MAX_FILE_SIZE) {
+            uint16_t data_len = raw_len - prefix_len;
+            uint32_t remaining = WRITE_MAX_FILE_SIZE - s_write_total_bytes;
+            if (data_len > remaining) data_len = (uint16_t)remaining;
+
+            /* Open file, seek to end, write, close */
+            CH378_Path_Join(ch378_current_path_sfn, s_write_path, full_path, sizeof(full_path));
+            status = CH378FileOpen((uint8_t*)full_path);
+            if (status != ERR_SUCCESS) {
+                printf("write: reopen failed (status=%02X)\r\n", status);
+                return;
             }
+            if (s_write_total_bytes > 0) {
+                CH378ByteLocate(s_write_total_bytes);
+            }
+            {
+                uint16_t real_len = 0;
+                status = CH378ByteWrite((uint8_t*)(raw_buf + prefix_len), data_len, &real_len);
+                if (status == ERR_SUCCESS)
+                    s_write_total_bytes += real_len;
+            }
+            CH378FileClose(1);
         }
         printf("write: appended (%lu bytes total)\r\n", (unsigned long)s_write_total_bytes);
         return;
@@ -606,19 +647,29 @@ static void CLI_Cmd_Write(uint8_t argc, char **argv, char *raw_buf, uint8_t raw_
             printf("write: no active write session\r\n");
             return;
         }
-        /* Write optional final data (after "write -e " = 9 bytes) */
-        {
-            uint16_t prefix_len = 9;
-            if (raw_len > prefix_len && s_write_total_bytes < WRITE_MAX_FILE_SIZE) {
-                uint16_t data_len = raw_len - prefix_len;
-                uint32_t remaining = WRITE_MAX_FILE_SIZE - s_write_total_bytes;
-                if (data_len > remaining) data_len = (uint16_t)remaining;
-                uint16_t real_len;
+        prefix_len = 9;  /* "write -e " */
+        if (raw_len > prefix_len && s_write_total_bytes < WRITE_MAX_FILE_SIZE) {
+            uint16_t data_len = raw_len - prefix_len;
+            uint32_t remaining = WRITE_MAX_FILE_SIZE - s_write_total_bytes;
+            if (data_len > remaining) data_len = (uint16_t)remaining;
+
+            CH378_Path_Join(ch378_current_path_sfn, s_write_path, full_path, sizeof(full_path));
+            status = CH378FileOpen((uint8_t*)full_path);
+            if (status != ERR_SUCCESS) {
+                printf("write: reopen failed (status=%02X)\r\n", status);
+                s_write_file_open = 0;
+                return;
+            }
+            if (s_write_total_bytes > 0) {
+                CH378ByteLocate(s_write_total_bytes);
+            }
+            {
+                uint16_t real_len = 0;
                 CH378ByteWrite((uint8_t*)(raw_buf + prefix_len), data_len, &real_len);
                 s_write_total_bytes += real_len;
             }
+            CH378FileClose(1);
         }
-        CH378FileClose(1);
         s_write_file_open = 0;
         printf("write: done (%lu bytes total)\r\n", (unsigned long)s_write_total_bytes);
         return;
@@ -626,32 +677,31 @@ static void CLI_Cmd_Write(uint8_t argc, char **argv, char *raw_buf, uint8_t raw_
 
     /* --- Single-frame write: write "path" content --- */
     {
-        CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
+        if (!cli_write_find_path(raw_buf, raw_len, 6, path, sizeof(path), &data_start)) {
+            printf("write: cannot parse path\r\n");
+            return;
+        }
+        CH378_Path_Join(ch378_current_path_sfn, path, full_path, sizeof(full_path));
         status = CH378FileCreate((uint8_t*)full_path);
         if (status != ERR_SUCCESS) {
-            printf("write: cannot create '%s' (status=%02X)\r\n", argv[1], status);
+            printf("write: cannot create '%s' (status=%02X)\r\n", path, status);
             return;
         }
         CH378FileClose(1);
         status = CH378FileOpen((uint8_t*)full_path);
         if (status != ERR_SUCCESS) {
-            printf("write: cannot open '%s' (status=%02X)\r\n", argv[1], status);
+            printf("write: cannot open '%s' (status=%02X)\r\n", path, status);
             return;
         }
-        /* Find data after path: "write \"" (8) + path + "\" " (2) = 10 + path_len */
-        {
-            uint16_t path_len = strlen(argv[1]);
-            uint16_t data_start = 10 + path_len;
-            if (data_start < raw_len) {
-                uint16_t data_len = raw_len - data_start;
-                if (data_len > WRITE_MAX_FILE_SIZE) data_len = WRITE_MAX_FILE_SIZE;
-                if (data_len > 0) {
-                    CH378ByteWrite((uint8_t*)(raw_buf + data_start), data_len, NULL);
-                }
+        if (data_start < raw_len) {
+            uint16_t data_len = raw_len - data_start;
+            if (data_len > WRITE_MAX_FILE_SIZE) data_len = WRITE_MAX_FILE_SIZE;
+            if (data_len > 0) {
+                CH378ByteWrite((uint8_t*)(raw_buf + data_start), data_len, NULL);
             }
         }
         CH378FileClose(1);
-        printf("Wrote to %s\r\n", argv[1]);
+        printf("Wrote to %s\r\n", path);
     }
 }
 
@@ -1821,6 +1871,7 @@ void CLI_Init(void)
 void CLI_Process(uint8_t *cmd, uint8_t len)
 {
     char buf[CLI_BUF_SIZE];
+    char raw_buf[CLI_BUF_SIZE];  /* pristine copy for commands that need unmodified data */
     char *argv[CLI_MAX_ARGC];
     uint8_t argc;
 
@@ -1829,6 +1880,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
 
     memcpy(buf, cmd, len);
     buf[len] = '\0';
+    memcpy(raw_buf, cmd, len);
+    raw_buf[len] = '\0';
 
     argc = CLI_ParseArgs(buf, argv, CLI_MAX_ARGC);
     if (argc == 0) return;
@@ -1848,7 +1901,7 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
     } else if (strcmp(argv[0], "echo") == 0) {
         CLI_Cmd_Echo(argc, argv);
     } else if (strcmp(argv[0], "write") == 0) {
-        CLI_Cmd_Write(argc, argv, buf, len);
+        CLI_Cmd_Write(argc, argv, raw_buf, len);
     } else if (strcmp(argv[0], "rm") == 0) {
         CLI_Cmd_Rm(argc, argv);
     } else if (strcmp(argv[0], "help") == 0) {
