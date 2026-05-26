@@ -122,6 +122,7 @@ static uint8_t hid_to_ui_key(uint8_t hid_code)
         case 0x4A: return UI_KEY_HOME;      /* HID Home */
         case 0x4D: return UI_KEY_END;       /* HID End */
         case 0x65: return UI_KEY_MENU;      /* HID Application */
+        case 0x2B: return UI_KEY_TAB;       /* HID Tab */
         default:   return UI_KEY_NONE;
     }
 }
@@ -192,6 +193,7 @@ static void emit_logical_key_event(uint8_t ui_key, ui_input_source_t source)
         case UI_KEY_RIGHT: e.type = UI_EVENT_KEY_RIGHT_ARROW; break;
         case UI_KEY_OK:    e.type = UI_EVENT_KEY_OK; break;
         case UI_KEY_BACK:  e.type = UI_EVENT_KEY_BACK; break;
+        case UI_KEY_TAB:   e.type = UI_EVENT_KEY_TAB; break;
         default: return;
     }
     queue_push(&e);

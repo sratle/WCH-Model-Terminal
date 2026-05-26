@@ -106,6 +106,7 @@ typedef enum {
     UI_EVENT_KEY_RIGHT_ARROW,   /* Right arrow */
     UI_EVENT_KEY_OK,            /* OK / Enter */
     UI_EVENT_KEY_BACK,          /* Back / Escape */
+    UI_EVENT_KEY_TAB,           /* Tab - for page switching */
 
     /* --- Legacy compat --- */
     UI_EVENT_PRESS_CANCEL,      /* Press cancelled (e.g. swipe ended capture) */
@@ -123,6 +124,7 @@ typedef enum {
     UI_KEY_HOME      = 0x07,
     UI_KEY_MENU      = 0x08,
     UI_KEY_END       = 0x09,
+    UI_KEY_TAB       = 0x0A,
     /* Core onboard buttons */
     UI_KEY_CORE_PLUS  = 0x10,
     UI_KEY_CORE_MINUS = 0x11,

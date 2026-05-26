@@ -1006,10 +1006,22 @@ static void cli_resp_dispatch(void)
 
             entries[count].attr = is_dir ? FILE_ATTR_IS_DIR : 0;
 
-            /* Parse size for files: look for "(NNN bytes)" */
+            /* Parse size for files: look for "(NNN bytes)" at end of name.
+             * File names may contain parentheses, e.g.
+             *   "Showtek - Dream (Adrenalize Remix).wav  (35927704 bytes)"
+             * so we search from the END for the last '(' which is the size field. */
             entries[count].size = 0;
             if (!is_dir) {
-                const char *size_start = strstr(entries[count].name, "(");
+                const char *size_start = NULL;
+                {
+                    uint8_t nlen2 = (uint8_t)strlen(entries[count].name);
+                    for (int8_t k = (int8_t)nlen2 - 1; k >= 0; k--) {
+                        if (entries[count].name[k] == '(') {
+                            size_start = &entries[count].name[k];
+                            break;
+                        }
+                    }
+                }
                 if (size_start) {
                     /* Trim name at '(' */
                     uint8_t trim_pos = (uint8_t)(size_start - entries[count].name);

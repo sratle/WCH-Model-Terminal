@@ -126,6 +126,13 @@ bool ui_main_handle_event(ui_event_t *e)
 {
     if (!e) return false;
 
+    /* Tab key: cycle through pages */
+    if (e->type == UI_EVENT_KEY_TAB) {
+        menu_item_t next = (menu_item_t)((s_active_menu + 1) % SIDEBAR_ITEM_COUNT);
+        ui_main_set_menu(next);
+        return true;
+    }
+
     if (e->type == UI_EVENT_CLICK) {
         if (e->pos.x < SIDEBAR_WIDTH) {
             int item_idx = (e->pos.y - 80) / SIDEBAR_ITEM_HEIGHT;
