@@ -1153,8 +1153,10 @@ static void list_touch_event(ui_widget_t *w, ui_event_t *e)
         return;
     }
 
+    int16_t old_sel = s_fs.selected;
     s_fs.selected = item_idx;
     s_last_click_ms = now;
+    if (old_sel >= 0 && old_sel != item_idx) file_invalidate_item(old_sel);
     file_invalidate_item(item_idx);
 }
 
