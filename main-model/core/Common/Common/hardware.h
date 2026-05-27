@@ -30,6 +30,30 @@ extern ch585f_t ch585f_g;
 extern display_t display_g;
 
 /*=============================================================================
+ *  V3F → V5F 跨核配置请求
+ *=============================================================================*/
+
+/* 配置请求类型 */
+typedef enum {
+    CONFIG_REQ_NONE = 0,        /* 无请求 */
+    CONFIG_REQ_SET_INT,         /* 设置整型配置 */
+    CONFIG_REQ_SET_STRING,      /* 设置字符串配置 */
+    CONFIG_REQ_SAVE,            /* 请求保存到文件 */
+    CONFIG_REQ_RESET,           /* 请求恢复默认值 */
+    CONFIG_REQ_APPLY            /* 请求重新应用配置到硬件 */
+} config_req_type_t;
+
+/* 配置请求结构体（V3F 写入，V5F 读取并处理） */
+typedef struct {
+    config_req_type_t type;     /* 请求类型 */
+    uint8_t  pending;           /* 1=有新请求待处理 */
+    char     module_key[5];     /* 模块键 "TTSS" */
+    char     key[16];           /* 配置键名 */
+    int      int_val;           /* 整型值（SET_INT 时使用） */
+    char     str_val[32];       /* 字符串值（SET_STRING 时使用） */
+} config_request_t;
+
+/*=============================================================================
  *  心跳 / 模块在线检测
  *=============================================================================*/
 
@@ -59,6 +83,7 @@ typedef struct
     uint8_t hardware_init_flag; /* Hardware init flag */
     hb_slot_t hb_slots[HB_MAX_SLOTS]; /* 心跳槽位 */
     uint32_t hb_tick;           /* 心跳计时计数器 (ms) */
+    config_request_t config_req; /* V3F→V5F 跨核配置请求 */
 } hardware_t;
 
 extern volatile hardware_t hardware_g;

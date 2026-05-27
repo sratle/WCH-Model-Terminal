@@ -1,0 +1,36 @@
+{
+    "version": 1,
+    "0000": {
+        "volume": 50,
+        "audio_mode": 0,
+        "screen_timeout": 30
+    },
+    "0101": {
+        "brightness": 80,
+        "rotation": 0
+    },
+    "0102": {
+        "brightness": 50,
+        "rotation": 0
+    },
+    "0201": {
+        "discoverable": 0
+    },
+    "0301": {
+        "charge_policy": 0,
+        "output_policy": 0,
+        "alarm_threshold": 15
+    },
+    "0401": {
+        "backlight": 50
+    },
+    "0402": {
+        "backlight": 50
+    },
+    "0403": {
+        "backlight": 50
+    },
+    "0505": {
+        "rgb_mode": 0
+    }
+}

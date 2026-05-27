@@ -10,6 +10,7 @@
 #include "hardware.h"
 #include "CH378/CH378.h"
 #include "CH585F/ch585f_bt.h"
+#include "Config/config.h"
 #include "Test/test.h"
 
 /*********************************************************************
@@ -49,6 +50,7 @@ int main(void)
         Debug_CLI_Process();
         CH585F_BT_Poll();
         Hardware_Heartbeat();
+        Config_Process();
         Delay_Ms(1);
     }
 }

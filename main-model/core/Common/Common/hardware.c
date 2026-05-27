@@ -17,6 +17,7 @@
 #include "CH585F/ch585f.h"
 #include "Key/key.h"
 #include "CLI/CLI.h"
+#include "Config/config.h"
 #include "Protocol/protocol.h"
 
 /**
@@ -233,7 +234,9 @@ void Hardware_V5F_Init(void)
     CH378_Init(&ch378_g);
     hardware_g.hardware_init_flag |= 0x02;
 
-    CH378_Device_Select(&ch378_g, CH378_Device_TF);
+    CH378_Device_Select(&ch378_g, CH378_Device_USB);
+
+    Config_Init();
 
     CLI_Init();
 

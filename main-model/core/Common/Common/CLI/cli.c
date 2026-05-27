@@ -8,6 +8,8 @@
 #include "CS43131/cs43131.h"
 #include "Display/display.h"
 #include "Protocol/protocol.h"
+#include "Config/config.h"
+#include "CJSON/cJSON.h"
 #include "hardware.h"
 #include "debug.h"
 
@@ -1048,6 +1050,16 @@ static void CLI_Cmd_Help(void)
     printf("  mouse <L/R/none> <dx> <dy>  Send mouse click event\r\n");
     printf("  roll <delta>    Send mouse scroll event\r\n");
     printf("  keyboard <key>  Send keyboard event (a-z 0-9 SPACE ENTER UP DOWN LEFT RIGHT)\r\n");
+    printf("  config get [module|file.json [key]]  Get config value\r\n");
+    printf("  config set <key|module key|file.json key> <value>  Set config value\r\n");
+    printf("  config addkey <module|file.json> <key> <value>  Add new config key\r\n");
+    printf("  config newfile <file.json>  Create data file\r\n");
+    printf("  config save     Save config to file\r\n");
+    printf("  config backup   Backup config\r\n");
+    printf("  config rollback Rollback config from backup\r\n");
+    printf("  config reset    Reset to defaults\r\n");
+    printf("  config ls       List CONFIG directory\r\n");
+    printf("  config rm <file.json>  Remove data file\r\n");
     printf("  clear           Clear screen\r\n");
     printf("  help            Show this help message\r\n");
 }
@@ -1794,6 +1806,335 @@ static void CLI_Cmd_Chmod(uint8_t argc, char **argv)
     }
 }
 
+/* ------------------------------------------------------------------------ */
+/* config 命令实现 */
+/* ------------------------------------------------------------------------ */
+
+/* 判断字符串是否为 4 位十六进制模块键名 */
+static uint8_t CLI_IsModuleKey(const char *s)
+{
+    uint8_t i;
+    if (strlen(s) != 4) return 0;
+    for (i = 0; i < 4; i++) {
+        char c = s[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+            return 0;
+    }
+    return 1;
+}
+
+/* 判断字符串是否以 .json 结尾（不区分大小写） */
+static uint8_t CLI_IsJsonFile(const char *s)
+{
+    uint16_t len = strlen(s);
+    if (len < 6) return 0;  /* 至少 "a.json" */
+    return (s[len-5] == '.' &&
+            (s[len-4] == 'j' || s[len-4] == 'J') &&
+            (s[len-3] == 's' || s[len-3] == 'S') &&
+            (s[len-2] == 'o' || s[len-2] == 'O') &&
+            (s[len-1] == 'n' || s[len-1] == 'N'));
+}
+
+/* config get 子命令 */
+static void CLI_Cmd_Config_Get(uint8_t argc, char **argv)
+{
+    /* config get — 获取 Core 配置 */
+    if (argc < 3) {
+        /* 无参数或仅 "config get"：显示 Core 配置 */
+        const char *module_key = CONFIG_CORE_KEY;
+        {
+            /* 遍历默认配置表中属于 Core 的键 */
+            extern const config_default_entry_t config_defaults[];
+            extern const uint16_t config_default_count;
+            uint16_t i;
+            int val;
+            for (i = 0; i < config_default_count; i++) {
+                if (strcmp(config_defaults[i].module_key, module_key) == 0) {
+                    if (Config_GetInt(module_key, config_defaults[i].key, &val) == 0) {
+                        printf("%s:%d\r\n", config_defaults[i].key, val);
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    /* config get <module> [key] — 获取指定模块配置 */
+    if (CLI_IsModuleKey(argv[2])) {
+        const char *module_key = argv[2];
+
+        /* config get <module> <key> — 返回单个值 */
+        if (argc >= 4) {
+            int val;
+            const char *str_val;
+            if (Config_GetInt(module_key, argv[3], &val) == 0) {
+                printf("%d\r\n", val);
+            } else if (Config_GetString(module_key, argv[3], &str_val) == 0) {
+                printf("%s\r\n", str_val);
+            } else {
+                printf("Error: key not found\r\n");
+            }
+            return;
+        }
+
+        /* config get <module> — 列出模块全部键值 */
+        {
+            extern const config_default_entry_t config_defaults[];
+            extern const uint16_t config_default_count;
+            uint16_t i;
+            int val;
+            uint8_t found = 0;
+
+            for (i = 0; i < config_default_count; i++) {
+                if (strcmp(config_defaults[i].module_key, module_key) == 0) {
+                    found = 1;
+                    if (Config_GetInt(module_key, config_defaults[i].key, &val) == 0) {
+                        printf("%s:%d\r\n", config_defaults[i].key, val);
+                    }
+                }
+            }
+            if (!found) {
+                printf("Error: module not found\r\n");
+            }
+        }
+        return;
+    }
+
+    /* config get <file.json> — 获取数据文件全部配置 */
+    if (CLI_IsJsonFile(argv[2])) {
+        cJSON *json = (cJSON*)Config_LoadFile(argv[2]);
+        if (!json) {
+            printf("Error: file not found\r\n");
+            return;
+        }
+
+        if (argc >= 4) {
+            /* config get <file.json> <key> — 获取指定键 */
+            cJSON *item = cJSON_GetObjectItem(json, argv[3]);
+            if (!item) {
+                printf("Error: key not found\r\n");
+                cJSON_Delete(json);
+                return;
+            }
+            if (cJSON_IsNumber(item)) {
+                printf("%d\r\n", item->valueint);
+            } else if (cJSON_IsString(item)) {
+                printf("%s\r\n", item->valuestring);
+            } else {
+                char *str = cJSON_PrintUnformatted(item);
+                if (str) { printf("%s\r\n", str); cJSON_free(str); }
+            }
+        } else {
+            /* 显示全部键值 */
+            cJSON *item;
+            cJSON_ArrayForEach(item, json) {
+                if (cJSON_IsNumber(item)) {
+                    printf("%s:%d\r\n", item->string, item->valueint);
+                } else if (cJSON_IsString(item)) {
+                    printf("%s:%s\r\n", item->string, item->valuestring);
+                } else {
+                    char *str = cJSON_PrintUnformatted(item);
+                    if (str) { printf("%s:%s\r\n", item->string, str); cJSON_free(str); }
+                }
+            }
+        }
+        cJSON_Delete(json);
+        return;
+    }
+
+    /* config get <key> — 获取 Core 单个配置值 */
+    {
+        int val;
+        const char *str_val;
+        if (Config_GetInt(CONFIG_CORE_KEY, argv[2], &val) == 0) {
+            printf("%d\r\n", val);
+        } else if (Config_GetString(CONFIG_CORE_KEY, argv[2], &str_val) == 0) {
+            printf("%s\r\n", str_val);
+        } else {
+            printf("Error: key not found\r\n");
+        }
+    }
+}
+
+/* config set 子命令 */
+static void CLI_Cmd_Config_Set(uint8_t argc, char **argv)
+{
+    /* config set <key> <value> — 设置 Core 配置 */
+    if (argc >= 4 && !CLI_IsModuleKey(argv[2]) && !CLI_IsJsonFile(argv[2])) {
+        int val = atoi(argv[3]);
+        int ret = Config_SetInt(CONFIG_CORE_KEY, argv[2], val);
+        if (ret == 0) printf("OK\r\n");
+        else if (ret == -1) printf("Error: module not found\r\n");
+        else printf("Error: key not found\r\n");
+        return;
+    }
+
+    /* config set <module> <key> <value> — 设置模块配置 */
+    if (argc >= 5 && CLI_IsModuleKey(argv[2])) {
+        int val = atoi(argv[4]);
+        int ret = Config_SetInt(argv[2], argv[3], val);
+        if (ret == 0) printf("OK\r\n");
+        else if (ret == -1) printf("Error: module not found\r\n");
+        else printf("Error: key not found\r\n");
+        return;
+    }
+
+    /* config set <file.json> <key> <value> — 设置数据文件配置 */
+    if (argc >= 5 && CLI_IsJsonFile(argv[2])) {
+        int val = atoi(argv[4]);
+        int ret = Config_SetFileInt(argv[2], argv[3], val);
+        if (ret == 0) printf("OK\r\n");
+        else if (ret == -1) printf("Error: file not found\r\n");
+        else printf("Error: key not found\r\n");
+        return;
+    }
+
+    printf("Usage: config set <key> <value>\r\n");
+    printf("       config set <module> <key> <value>\r\n");
+    printf("       config set <file.json> <key> <value>\r\n");
+}
+
+/* config addkey 子命令 */
+static void CLI_Cmd_Config_AddKey(uint8_t argc, char **argv)
+{
+    /* config addkey <module> <key> <value> */
+    if (argc >= 5 && CLI_IsModuleKey(argv[2])) {
+        int val = atoi(argv[4]);
+        int ret = Config_AddKeyInt(argv[2], argv[3], val);
+        if (ret == 0) printf("OK\r\n");
+        else if (ret == -2) printf("Error: key already exists\r\n");
+        else printf("Error: failed\r\n");
+        return;
+    }
+
+    /* config addkey <file.json> <key> <value> */
+    if (argc >= 5 && CLI_IsJsonFile(argv[2])) {
+        int val = atoi(argv[4]);
+        int ret = Config_AddFileKeyInt(argv[2], argv[3], val);
+        if (ret == 0) printf("OK\r\n");
+        else if (ret == -1) printf("Error: file not found\r\n");
+        else if (ret == -2) printf("Error: key already exists\r\n");
+        else printf("Error: failed\r\n");
+        return;
+    }
+
+    printf("Usage: config addkey <module> <key> <value>\r\n");
+    printf("       config addkey <file.json> <key> <value>\r\n");
+}
+
+/* config 主命令 */
+static void CLI_Cmd_Config(uint8_t argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Usage: config <get|set|addkey|newfile|save|backup|rollback|reset|ls|rm> ...\r\n");
+        return;
+    }
+
+    /* 写操作需要设备匹配检查 */
+    if (strcmp(argv[1], "set") == 0 ||
+        strcmp(argv[1], "addkey") == 0 ||
+        strcmp(argv[1], "newfile") == 0 ||
+        strcmp(argv[1], "save") == 0 ||
+        strcmp(argv[1], "backup") == 0 ||
+        strcmp(argv[1], "rollback") == 0 ||
+        strcmp(argv[1], "reset") == 0 ||
+        strcmp(argv[1], "rm") == 0) {
+        if (!Config_IsDeviceMatch()) {
+            printf("Error: current device != config target (%s), switch device first\r\n",
+                   Config_GetTargetDeviceName());
+            return;
+        }
+    }
+
+    if (strcmp(argv[1], "get") == 0) {
+        CLI_Cmd_Config_Get(argc, argv);
+    } else if (strcmp(argv[1], "set") == 0) {
+        CLI_Cmd_Config_Set(argc, argv);
+    } else if (strcmp(argv[1], "addkey") == 0) {
+        CLI_Cmd_Config_AddKey(argc, argv);
+    } else if (strcmp(argv[1], "newfile") == 0) {
+        if (argc < 3) {
+            printf("Usage: config newfile <file.json>\r\n");
+            return;
+        }
+        int ret = Config_NewFile(argv[2]);
+        if (ret == 0) printf("Created\r\n");
+        else if (ret == -1) printf("Error: file already exists\r\n");
+        else if (ret == -3) printf("Error: cannot create config.json\r\n");
+        else printf("Error: failed\r\n");
+    } else if (strcmp(argv[1], "save") == 0) {
+        uint8_t ret = Config_Save();
+        if (ret == ERR_SUCCESS && !Config_IsDirty()) {
+            /* 检查是否真的有变更被保存 */
+            printf("No changes\r\n");
+        } else if (ret == ERR_SUCCESS) {
+            printf("Saved\r\n");
+        } else if (ret == 0x04) {
+            printf("Busy (audio streaming), will save later\r\n");
+        } else {
+            printf("Error: save failed (status=%02X)\r\n", ret);
+        }
+    } else if (strcmp(argv[1], "backup") == 0) {
+        uint8_t ret = Config_Backup();
+        if (ret == ERR_SUCCESS) printf("Backed up\r\n");
+        else printf("Error: backup failed (status=%02X)\r\n", ret);
+    } else if (strcmp(argv[1], "rollback") == 0) {
+        uint8_t ret = Config_Rollback();
+        if (ret == ERR_SUCCESS) printf("Rolled back\r\n");
+        else if (ret == 0xFE) printf("Error: device mismatch\r\n");
+        else printf("Error: rollback failed (status=%02X)\r\n", ret);
+    } else if (strcmp(argv[1], "reset") == 0) {
+        Config_ResetDefaults();
+        printf("Reset to defaults and saved\r\n");
+    } else if (strcmp(argv[1], "ls") == 0) {
+        /* 列出 CONFIG 目录下所有文件 */
+        char saved_path[CH378_MAX_PATH_LEN];
+        uint8_t status;
+        uint8_t i;
+
+        /* 保存当前路径 */
+        strncpy(saved_path, ch378_current_path_sfn, sizeof(saved_path) - 1);
+        saved_path[sizeof(saved_path) - 1] = '\0';
+
+        /* 进入 CONFIG 目录 */
+        status = CH378_Dir_Enter(&ch378_g, CONFIG_ROOT_DIR);
+        if (status != ERR_SUCCESS) {
+            printf("Error: cannot enter CONFIG dir\r\n");
+            return;
+        }
+
+        g_cli_entries.count = 0;
+        CH378_Dir_List(&ch378_g, CLI_RmCollectCallback);
+
+        for (i = 0; i < g_cli_entries.count; i++) {
+            printf("%-16s %lu\r\n", g_cli_entries.names[i], g_cli_entries.size[i]);
+        }
+
+        /* 恢复原路径 */
+        CH378_Dir_Go_Root(&ch378_g);
+        if (saved_path[0] != '\0' && strcmp(saved_path, "\\") != 0) {
+            /* 简单恢复：重新进入原路径 */
+            /* 注意：完整路径恢复需要逐级进入，这里简化处理 */
+        }
+    } else if (strcmp(argv[1], "rm") == 0) {
+        if (argc < 3) {
+            printf("Usage: config rm <file.json>\r\n");
+            return;
+        }
+        if (strcmp(argv[2], CONFIG_MAIN_FILE) == 0) {
+            printf("Cannot delete config.json\r\n");
+            return;
+        }
+        {
+            uint8_t status = Config_DeleteFile(argv[2]);
+            if (status == ERR_SUCCESS) printf("Deleted\r\n");
+            else printf("Error: delete failed (status=%02X)\r\n", status);
+        }
+    } else {
+        printf("Unknown config subcommand: %s\r\n", argv[1]);
+    }
+}
+
 static void CLI_Cmd_Play(uint8_t argc, char **argv)
 {
     char full_path[CH378_MAX_PATH_LEN];
@@ -1960,6 +2301,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Roll(argc, argv);
     } else if (strcmp(argv[0], "keyboard") == 0) {
         CLI_Cmd_Keyboard(argc, argv);
+    } else if (strcmp(argv[0], "config") == 0) {
+        CLI_Cmd_Config(argc, argv);
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }
