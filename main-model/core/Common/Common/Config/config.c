@@ -1014,6 +1014,32 @@ int Config_NewFile(const char *filename)
     return -1;
 }
 
+int Config_ListKeys(const char *target, uint8_t is_file)
+{
+    cJSON *obj = NULL;
+    cJSON *item;
+    uint8_t need_delete = 0;
+
+    if (is_file) {
+        /* 数据文件：加载并遍历 */
+        obj = (cJSON*)Config_LoadFile(target);
+        if (!obj) return -1;
+        need_delete = 1;
+    } else {
+        /* config.json 中的模块段 */
+        if (!config_root) return -1;
+        obj = cJSON_GetObjectItem(config_root, target);
+        if (!obj) return -1;
+    }
+
+    cJSON_ArrayForEach(item, obj) {
+        printf("%s\r\n", item->string);
+    }
+
+    if (need_delete) cJSON_Delete(obj);
+    return 0;
+}
+
 uint8_t Config_DeleteFile(const char *filename)
 {
     char path[CH378_MAX_PATH_LEN];

@@ -208,6 +208,14 @@ int Config_AddFileKeyString(const char *filename, const char *key, const char *v
 int Config_NewFile(const char *filename);
 
 /**
+ * @brief  列出配置中的所有键名（基于实际 JSON 数据，非预设表）
+ * @param  target  模块键名（如 "0101"）或数据文件名（如 "game.json"）
+ * @param  is_file 0=模块键名，1=数据文件名
+ * @return 0=成功，-1=模块/文件不存在
+ */
+int Config_ListKeys(const char *target, uint8_t is_file);
+
+/**
  * @brief  删除 CONFIG 目录下的数据文件（支持 LFN）
  * @param  filename  文件名（不允许为 config.json）
  * @return ERR_SUCCESS 或 CH378 错误码；0xFE=设备不匹配

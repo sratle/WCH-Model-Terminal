@@ -1051,6 +1051,7 @@ static void CLI_Cmd_Help(void)
     printf("  roll <delta>    Send mouse scroll event\r\n");
     printf("  keyboard <key>  Send keyboard event (a-z 0-9 SPACE ENTER UP DOWN LEFT RIGHT)\r\n");
     printf("  config get [module|file.json [key]]  Get config value\r\n");
+    printf("  config getkey [module|file.json]  List all key names\r\n");
     printf("  config set <key|module key|file.json key> <value>  Set config value\r\n");
     printf("  config addkey <module|file.json> <key> <value>  Add new config key\r\n");
     printf("  config newfile <file.json>  Create data file\r\n");
@@ -2026,7 +2027,7 @@ static void CLI_Cmd_Config_AddKey(uint8_t argc, char **argv)
 static void CLI_Cmd_Config(uint8_t argc, char **argv)
 {
     if (argc < 2) {
-        printf("Usage: config <get|set|addkey|newfile|save|backup|rollback|reset|ls|rm> ...\r\n");
+        printf("Usage: config <get|getkey|set|addkey|newfile|save|backup|rollback|reset|ls|rm> ...\r\n");
         return;
     }
 
@@ -2048,6 +2049,24 @@ static void CLI_Cmd_Config(uint8_t argc, char **argv)
 
     if (strcmp(argv[1], "get") == 0) {
         CLI_Cmd_Config_Get(argc, argv);
+    } else if (strcmp(argv[1], "getkey") == 0) {
+        if (argc < 3) {
+            /* config getkey — 列出 Core 所有键名 */
+            if (Config_ListKeys(CONFIG_CORE_KEY, 0) != 0)
+                printf("Error: core module not found\r\n");
+        } else if (CLI_IsModuleKey(argv[2])) {
+            /* config getkey <module> — 列出模块所有键名 */
+            if (Config_ListKeys(argv[2], 0) != 0)
+                printf("Error: module not found\r\n");
+        } else if (CLI_IsJsonFile(argv[2])) {
+            /* config getkey <file.json> — 列出数据文件所有键名 */
+            if (Config_ListKeys(argv[2], 1) != 0)
+                printf("Error: file not found\r\n");
+        } else {
+            /* config getkey <key> — 当作 Core 键名尝试 */
+            if (Config_ListKeys(argv[2], 0) != 0)
+                printf("Error: module not found\r\n");
+        }
     } else if (strcmp(argv[1], "set") == 0) {
         CLI_Cmd_Config_Set(argc, argv);
     } else if (strcmp(argv[1], "addkey") == 0) {
