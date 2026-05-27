@@ -237,7 +237,14 @@ static uint8_t Config_WriteBufToFile(const char *path, const uint8_t *buf, uint3
     uint16_t real_len;
     uint32_t written = 0;
 
-    /* 创建/截断文件 */
+    /* 先尝试删除已有文件，避免 LFN 重复创建目录条目 */
+    status = Config_LFN_Open(path);
+    if (status == ERR_SUCCESS) {
+        CH378FileClose(0);
+        Config_LFN_Erase(path);
+    }
+
+    /* 创建文件 */
     status = Config_LFN_Create(path);
     if (status != ERR_SUCCESS) return status;
     CH378FileClose(1);
