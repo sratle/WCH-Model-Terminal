@@ -176,6 +176,7 @@ uint8_t CH378DirCreate(uint8_t *PathName);
 uint8_t CH378FileErase(uint8_t *PathName);
 uint8_t CH378FileClose(uint8_t UpdateSz);
 uint8_t CH378ByteLocate(uint32_t offset);
+void CH378SetFileSize(uint32_t filesize);
 uint8_t CH378ByteRead(uint8_t *buf, uint16_t ReqCount, uint16_t *RealCount);
 uint8_t CH378ByteWrite(uint8_t *buf, uint16_t ReqCount, uint16_t *RealCount);
 uint16_t CH378ReadReqBlock(uint8_t *buf);

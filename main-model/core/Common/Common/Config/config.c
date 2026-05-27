@@ -237,21 +237,19 @@ static uint8_t Config_WriteBufToFile(const char *path, const uint8_t *buf, uint3
     uint16_t real_len;
     uint32_t written = 0;
 
-    /* 先尝试删除已有文件，避免 LFN 重复创建目录条目 */
+    /* 先尝试打开已有文件 */
     status = Config_LFN_Open(path);
     if (status == ERR_SUCCESS) {
-        CH378FileClose(0);
-        Config_LFN_Erase(path);
+        /* 文件存在：截断后覆盖写入 */
+        CH378SetFileSize(0);
+        CH378ByteLocate(0);
+    } else if (status == ERR_MISS_FILE) {
+        /* 文件不存在：创建新文件 */
+        status = Config_LFN_Create(path);
+        if (status != ERR_SUCCESS) return status;
+    } else {
+        return status;
     }
-
-    /* 创建文件 */
-    status = Config_LFN_Create(path);
-    if (status != ERR_SUCCESS) return status;
-    CH378FileClose(1);
-
-    /* 打开并写入 */
-    status = Config_LFN_Open(path);
-    if (status != ERR_SUCCESS) return status;
 
     while (written < len) {
         uint16_t to_write = (len - written > 256) ? 256 : (uint16_t)(len - written);
@@ -447,20 +445,16 @@ void Config_Init(void)
     file_len = Config_ReadFileToBuf(path, file_buf, CONFIG_MAX_FILE_SIZE - 1);
 
     if (file_len == 0) {
-        /* 文件不存在，创建默认配置并保存 */
-        printf("[Config] config.json not found, creating defaults\r\n");
+        /* 文件不存在，使用默认配置（不自动创建文件） */
+        printf("[Config] config.json not found, using defaults\r\n");
         Config_BuildDefaults();
-        config_dirty = 1;
-        Config_Save();
     } else {
         /* 解析 JSON */
         file_buf[file_len] = '\0';
         config_root = cJSON_Parse((char*)file_buf);
         if (!config_root) {
-            printf("[Config] JSON parse failed, rebuilding defaults\r\n");
+            printf("[Config] JSON parse failed, using defaults\r\n");
             Config_BuildDefaults();
-            config_dirty = 1;
-            Config_Save();
         } else {
             printf("[Config] Loaded config.json (%lu bytes)\r\n", file_len);
         }
