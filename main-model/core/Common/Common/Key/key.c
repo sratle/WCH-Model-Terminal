@@ -143,6 +143,7 @@ void Key_ProcessEvents(void)
         {
             if (kevt.key_id == KEY_SUB)
             {
+                printf("[KEY] SUB pressed\r\n");
                 uint8_t vol = Audio_GetVolume();
                 if (vol >= 5)
                     Audio_SetVolume(vol - 5);
@@ -151,6 +152,7 @@ void Key_ProcessEvents(void)
             }
             else if (kevt.key_id == KEY_PLUS)
             {
+                printf("[KEY] PLUS pressed\r\n");
                 uint8_t vol = Audio_GetVolume();
                 if (vol <= 95)
                     Audio_SetVolume(vol + 5);

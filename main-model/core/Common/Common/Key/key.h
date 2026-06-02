@@ -10,8 +10,8 @@
 #define KEY_ENTER   3
 
 #define KEY_GPIO_PORT       GPIOF
-#define KEY_SUB_PIN         GPIO_Pin_10
-#define KEY_PLUS_PIN        GPIO_Pin_9
+#define KEY_PLUS_PIN        GPIO_Pin_10
+#define KEY_SUB_PIN         GPIO_Pin_9
 #define KEY_ENTER_PIN       GPIO_Pin_8
 #define KEY_ALL_PINS        (KEY_PLUS_PIN | KEY_SUB_PIN | KEY_ENTER_PIN)
 
