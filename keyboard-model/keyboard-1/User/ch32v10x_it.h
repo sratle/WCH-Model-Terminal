@@ -13,5 +13,6 @@
 #define __CH32V10x_IT_H
 
 #include "debug.h"
+#include "protocol/protocol.h"
 
 #endif /* __CH32V10x_IT_H */

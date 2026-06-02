@@ -14,17 +14,11 @@
 void NMI_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void HardFault_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void TIM2_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
+void USART1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 
-/* Defined in main.c */
 extern volatile uint8_t g_scan_flag;
+extern protocol_rx_ctx_t uart_core_rx_ctx;
 
-/*********************************************************************
- * @fn      NMI_Handler
- *
- * @brief   This function handles NMI exception.
- *
- * @return  none
- *********************************************************************/
 void NMI_Handler(void)
 {
     while(1)
@@ -32,13 +26,6 @@ void NMI_Handler(void)
     }
 }
 
-/*********************************************************************
- * @fn      HardFault_Handler
- *
- * @brief   This function handles Hard Fault exception.
- *
- * @return  none
- *********************************************************************/
 void HardFault_Handler(void)
 {
     NVIC_SystemReset();
@@ -47,20 +34,20 @@ void HardFault_Handler(void)
     }
 }
 
-/*********************************************************************
- * @fn      TIM2_IRQHandler
- *
- * @brief   TIM2 update interrupt handler.
- *          Sets g_scan_flag to trigger key matrix read in main loop.
- *          Period: 2ms (72MHz / 72 / 2000).
- *
- * @return  none
- *********************************************************************/
 void TIM2_IRQHandler(void)
 {
     if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET)
     {
         TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
         g_scan_flag = 1;
+    }
+}
+
+void USART1_IRQHandler(void)
+{
+    if (USART_GetITStatus(USART1, USART_IT_RXNE) != RESET)
+    {
+        uint8_t byte = (uint8_t)USART_ReceiveData(USART1);
+        Protocol_ParseByte(&uart_core_rx_ctx, byte);
     }
 }
