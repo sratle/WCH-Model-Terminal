@@ -1,5 +1,6 @@
 #include "keyboard.h"
 #include "../Protocol/protocol_common.h"
+#include "../Display/display.h"
 #include "../hardware.h"
 
 keyboard_t *keyboard_ptr = NULL;
@@ -319,8 +320,47 @@ static uint8_t Keyboard_HandleGetStatus(const protocol_frame_t *req,
 /* ---- 事件类 handler ---- */
 static void Keyboard_HandleHidReport(const protocol_frame_t *req)
 {
-    (void)req;
-    /* TODO: 解析 HID 报告类型（键盘/鼠标），转发到 CH9350 或 Core 输入系统 */
+    uint8_t report_type;
+    uint8_t report_len;
+    const uint8_t *report_data;
+
+    if (req->len < 2)
+        return;
+
+    report_type = req->data[0];
+    report_data = &req->data[1];
+    report_len = req->len - 1;
+
+    if (report_type == 0x00)
+    {
+        if (report_len < 8)
+            return;
+
+        printf("[KBD] HID KB | Mod: 0x%02X | Keys:", report_data[0]);
+        for (uint8_t i = 2; i < 8; i++)
+        {
+            if (report_data[i])
+                printf(" 0x%02X", report_data[i]);
+        }
+        printf("\r\n");
+
+        Display_SendInputEvent(&display_g, INPUT_DEV_KEYBOARD,
+                               report_data, 8);
+    }
+    else if (report_type == 0x01)
+    {
+        if (report_len < 4)
+            return;
+
+        printf("[KBD] HID MS | Btn: 0x%02X | X: %+4d | Y: %+4d | W: %+4d\r\n",
+               report_data[0],
+               (int8_t)report_data[1],
+               (int8_t)report_data[2],
+               (int8_t)report_data[3]);
+
+        Display_SendInputEvent(&display_g, INPUT_DEV_MOUSE,
+                               report_data, 4);
+    }
 }
 
 static void Keyboard_HandleMusicKeys(const protocol_frame_t *req)

@@ -12,6 +12,7 @@
 #include "CH585F/ch585f_bt.h"
 #include "Config/config.h"
 #include "Test/test.h"
+#include "Key/key.h"
 
 /*********************************************************************
  * @fn      main
@@ -49,6 +50,7 @@ int main(void)
         Audio_Process();
         Debug_CLI_Process();
         CH585F_BT_Poll();
+        Key_ProcessEvents();
         Hardware_Heartbeat();
         Config_Process();
         Delay_Ms(1);

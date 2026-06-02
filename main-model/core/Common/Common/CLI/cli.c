@@ -1109,10 +1109,24 @@ static void CLI_Cmd_Playst(void)
     uint32_t sec = time_ms / 1000;
     uint32_t min = sec / 60;
     sec = sec % 60;
+    audio_state_t st = Audio_GetState();
+    speaker_channel_t spk = Speaker_GetState();
 
-    printf("Track: %s\r\n", (track && track[0]) ? track : "(none)");
-    printf("Time:  %02lu:%02lu\r\n", min, sec);
+    const char *state_str;
+    switch (st) {
+        case AUDIO_STATE_PLAYING: state_str = "Playing"; break;
+        case AUDIO_STATE_PAUSED:  state_str = "Paused";  break;
+        case AUDIO_STATE_STOPPED: state_str = "Stopped"; break;
+        default:                  state_str = "Idle";    break;
+    }
+
+    printf("State:  %s\r\n", state_str);
+    printf("Track:  %s\r\n", (track && track[0]) ? track : "(none)");
+    printf("Time:   %02lu:%02lu\r\n", min, sec);
     printf("Volume: %d\r\n", Audio_GetVolume());
+    printf("Speaker: L=%s R=%s\r\n",
+           (spk & SPEAKER_CHANNEL_LEFT) ? "ON" : "OFF",
+           (spk & SPEAKER_CHANNEL_RIGHT) ? "ON" : "OFF");
 }
 
 static void CLI_Cmd_Ver(void)

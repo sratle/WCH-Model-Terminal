@@ -54,6 +54,23 @@ typedef struct {
 } config_request_t;
 
 /*=============================================================================
+ *  V3F → V5F Core 按键事件
+ *=============================================================================*/
+
+#define CORE_KEY_QUEUE_SIZE  8
+
+typedef struct {
+    uint8_t key_id;
+    uint8_t event;
+} core_key_event_t;
+
+typedef struct {
+    core_key_event_t queue[CORE_KEY_QUEUE_SIZE];
+    volatile uint8_t head;
+    volatile uint8_t tail;
+} core_key_queue_t;
+
+/*=============================================================================
  *  心跳 / 模块在线检测
  *=============================================================================*/
 
@@ -84,6 +101,7 @@ typedef struct
     hb_slot_t hb_slots[HB_MAX_SLOTS]; /* 心跳槽位 */
     uint32_t hb_tick;           /* 心跳计时计数器 (ms) */
     config_request_t config_req; /* V3F→V5F 跨核配置请求 */
+    core_key_queue_t key_queue;  /* V3F→V5F 核心按键事件队列 */
 } hardware_t;
 
 extern volatile hardware_t hardware_g;
@@ -96,6 +114,9 @@ void Hardware_Heartbeat(void);
 
 /* 由各模块 Process 在收到 GET_TYPE ACK 时调用，标记槽位在线 */
 void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype);
+
+void Hardware_KeyQueue_Push(uint8_t key_id, uint8_t event);
+uint8_t Hardware_KeyQueue_Pop(core_key_event_t *evt);
 
 #ifdef __cplusplus
 }

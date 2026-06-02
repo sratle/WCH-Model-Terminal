@@ -1,9 +1,9 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : app_music.c
 * Author             : LCD Model Team
-* Version            : V3.2.0
-* Date               : 2026/05/24
-* Description        : Music Player app (V3.2 CLI passthrough + local playlist).
+* Version            : V3.3.0
+* Date               : 2026/06/02
+* Description        : Music Player app (V3.3 CLI passthrough + local playlist).
 *                      Playlist built from file browser's wav list.
 *                      Prev/next via local playlist, play <name> to Core.
 *                      Play mode (single/repeat/sequential) managed locally.
@@ -11,6 +11,8 @@
 *                      Registers own UART callbacks to avoid file app interference.
 *                      V3.2: Right-side playlist panel, allow exit while playing,
 *                            send playst on re-enter to sync state.
+*                      V3.3: Speaker toggle (on/off via CLI), refresh button to
+*                            send playst and sync speaker state.
 ********************************************************************************/
 #include "app_music.h"
 #include "../UI/ui_app_common.h"
@@ -56,6 +58,13 @@
 #define VOL_X               60
 #define VOL_W               (LEFT_W - 120)
 #define VOL_H               20
+
+/* Speaker & Refresh row */
+#define SPK_Y               (VOL_Y + VOL_H + 12)
+#define SPK_BTN_W           80
+#define SPK_BTN_H           36
+#define SPK_BTN_GAP         16
+#define SPK_BTN_X           ((LEFT_W - 2 * SPK_BTN_W - SPK_BTN_GAP) / 2)
 
 /* Right-side playlist panel */
 #define PL_X                LEFT_W
@@ -114,9 +123,10 @@ static music_playlist_t s_playlist;
 
 static ui_app_page_t s_app_music;
 static ui_button_t btn_play, btn_prev, btn_next, btn_stop, btn_mode;
+static ui_button_t btn_speaker, btn_refresh;
 static ui_widget_t s_vol_touch;
 static ui_widget_t s_pl_touch;  /* Playlist touch area */
-static ui_widget_t *s_music_widgets[9];
+static ui_widget_t *s_music_widgets[11];
 static char s_track_name[68];
 static char s_time_pos[12];
 static char s_time_dur[12];
@@ -125,6 +135,9 @@ static char s_status_text[32];
 static uint8_t s_prev_state = 0xFF;
 static uint8_t s_prev_vol = 0xFF;
 static uint32_t s_prev_dur = 0xFFFFFFFF;
+
+/* Speaker state: true = external speaker ON, false = headphone only (default) */
+static bool s_speaker_on = false;
 
 /* Local position estimation: frame-based counter (25fps = 40ms/frame) */
 static uint32_t s_local_pos_ms = 0;
@@ -278,9 +291,75 @@ static void music_update_texts(void)
 
 static void music_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
 {
-    (void)output; (void)len; (void)truncated; (void)is_last;
-    /* Music app CLI responses (play/pause/resume/stop/vol) — ignore text,
-     * we rely on Core's MUSIC_STATUS periodic updates for state. */
+    (void)truncated;
+    if (!is_last) return;
+    if (!output || len == 0) return;
+
+    if (strcmp(UART_GetLastCLITag(), "playst") == 0) {
+        const char *p;
+
+        p = strstr(output, "State:");
+        if (p) {
+            p += 6;
+            while (*p == ' ') p++;
+            if (strncmp(p, "Playing", 7) == 0)      g_disp_state.music_state = MUSIC_STATE_PLAYING;
+            else if (strncmp(p, "Paused", 6) == 0)   g_disp_state.music_state = MUSIC_STATE_PAUSED;
+            else if (strncmp(p, "Stopped", 7) == 0)  g_disp_state.music_state = MUSIC_STATE_STOPPED;
+            else                                     g_disp_state.music_state = MUSIC_STATE_IDLE;
+        }
+
+        p = strstr(output, "Track:");
+        if (p) {
+            p += 6;
+            while (*p == ' ') p++;
+            const char *eol = strchr(p, '\r');
+            if (!eol) eol = strchr(p, '\n');
+            uint16_t tlen = eol ? (uint16_t)(eol - p) : (uint16_t)strlen(p);
+            if (tlen > sizeof(g_disp_state.music_track) - 1)
+                tlen = sizeof(g_disp_state.music_track) - 1;
+            if (tlen > 0 && !(tlen == 6 && strncmp(p, "(none)", 6) == 0)) {
+                memcpy(g_disp_state.music_track, p, tlen);
+                g_disp_state.music_track[tlen] = '\0';
+            }
+        }
+
+        p = strstr(output, "Time:");
+        if (p) {
+            p += 5;
+            while (*p == ' ') p++;
+            unsigned long mm = 0, ss = 0;
+            char *ep;
+            mm = strtoul(p, &ep, 10);
+            if (ep && *ep == ':') {
+                ss = strtoul(ep + 1, NULL, 10);
+            }
+            g_disp_state.music_pos_ms = (uint32_t)(mm * 60 + ss) * 1000;
+            s_local_pos_ms = g_disp_state.music_pos_ms;
+            s_local_tracking = true;
+        }
+
+        p = strstr(output, "Volume:");
+        if (p) {
+            p += 7;
+            while (*p == ' ') p++;
+            g_disp_state.music_volume = (uint8_t)strtoul(p, NULL, 10);
+        }
+
+        p = strstr(output, "Speaker:");
+        if (p) {
+            const char *l_pos = strstr(p, "L=");
+            const char *r_pos = strstr(p, "R=");
+            bool l_on = false, r_on = false;
+            if (l_pos && l_pos[2] == 'O' && l_pos[3] == 'N') l_on = true;
+            if (r_pos && r_pos[2] == 'O' && r_pos[3] == 'N') r_on = true;
+            s_speaker_on = (l_on || r_on);
+            btn_speaker.text = s_speaker_on ? "Spk ON" : "Spk OFF";
+            btn_speaker.base.flags |= UI_WIDGET_FLAG_DIRTY;
+        }
+
+        music_update_texts();
+        ui_page_invalidate_all();
+    }
 }
 
 /*=============================================================================
@@ -341,6 +420,11 @@ static void music_draw_volume(void)
 
     ui_draw_text(VOL_X - 36, VOL_Y + 4, "Vol", &font_montserrat_12, MUSIC_TEXT_DIM);
     ui_draw_text(VOL_X + VOL_W + 6, VOL_Y + 4, s_vol_text, &font_montserrat_12, MUSIC_TEXT_DIM);
+}
+
+static void music_draw_speaker_row(void)
+{
+    ui_draw_text(SPK_BTN_X - 36, SPK_Y + 10, "Out", &font_montserrat_12, MUSIC_TEXT_DIM);
 }
 
 static void music_draw_playlist(void)
@@ -445,6 +529,7 @@ static void music_page_draw(ui_page_t *page, ui_rect_t *dirty)
     music_draw_info();
     music_draw_progress();
     music_draw_volume();
+    music_draw_speaker_row();
     music_draw_playlist();
 }
 
@@ -555,6 +640,21 @@ static void btn_mode_click(ui_widget_t *w)
     music_update_texts();
 }
 
+static void btn_speaker_click(ui_widget_t *w)
+{
+    (void)w;
+    s_speaker_on = !s_speaker_on;
+    btn_speaker.text = s_speaker_on ? "Spk ON" : "Spk OFF";
+    btn_speaker.base.flags |= UI_WIDGET_FLAG_DIRTY;
+    UART_SendCLI(s_speaker_on ? "speaker on" : "speaker off");
+}
+
+static void btn_refresh_click(ui_widget_t *w)
+{
+    (void)w;
+    UART_SendCLI("playst");
+}
+
 static bool s_vol_dragging = false;
 
 static void vol_touch_event(ui_widget_t *w, ui_event_t *e)
@@ -661,6 +761,20 @@ void app_music_init(void)
     ui_button_set_colors(&btn_stop, MUSIC_CTRL_BG, MUSIC_ACCENT, MUSIC_TEXT);
     btn_stop.radius = 12;
 
+    /* Speaker toggle button */
+    ui_rect_t r_speaker = {SPK_BTN_X, SPK_Y, SPK_BTN_W, SPK_BTN_H};
+    ui_button_init(&btn_speaker, &r_speaker, "Spk OFF", &font_montserrat_12);
+    ui_button_set_callback(&btn_speaker, btn_speaker_click);
+    ui_button_set_colors(&btn_speaker, MUSIC_CTRL_BG, MUSIC_ACCENT, MUSIC_TEXT);
+    btn_speaker.radius = 12;
+
+    /* Refresh button */
+    ui_rect_t r_refresh = {SPK_BTN_X + SPK_BTN_W + SPK_BTN_GAP, SPK_Y, SPK_BTN_W, SPK_BTN_H};
+    ui_button_init(&btn_refresh, &r_refresh, "Refresh", &font_montserrat_12);
+    ui_button_set_callback(&btn_refresh, btn_refresh_click);
+    ui_button_set_colors(&btn_refresh, MUSIC_CTRL_BG, MUSIC_ACCENT, MUSIC_TEXT);
+    btn_refresh.radius = 12;
+
     ui_rect_t vol_rect = {VOL_X, VOL_Y, VOL_W, VOL_H};
     ui_widget_init(&s_vol_touch, &vol_rect);
     s_vol_touch.bg_color = UI_COLOR_TRANSPARENT;
@@ -681,8 +795,10 @@ void app_music_init(void)
     s_music_widgets[6] = (ui_widget_t *)&btn_stop;
     s_music_widgets[7] = &s_vol_touch;
     s_music_widgets[8] = &s_pl_touch;
+    s_music_widgets[9] = (ui_widget_t *)&btn_speaker;
+    s_music_widgets[10] = (ui_widget_t *)&btn_refresh;
 
-    ui_page_set_widgets(&s_app_music.page, s_music_widgets, 9);
+    ui_page_set_widgets(&s_app_music.page, s_music_widgets, 11);
     ui_page_set_callbacks(&s_app_music.page, music_page_enter, NULL, music_page_draw, NULL);
     ui_page_set_update_cb(&s_app_music.page, music_page_update);
     ui_page_register(&s_app_music.page);

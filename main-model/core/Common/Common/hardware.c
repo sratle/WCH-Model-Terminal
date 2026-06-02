@@ -38,6 +38,34 @@ submodels_t submodels_g[3];
 volatile hardware_t hardware_g; // Hardware global variable
 
 /*=============================================================================
+ *  V3F → V5F Core 按键事件队列
+ *=============================================================================*/
+
+void Hardware_KeyQueue_Push(uint8_t key_id, uint8_t event)
+{
+    uint8_t next;
+
+    next = (hardware_g.key_queue.head + 1) % CORE_KEY_QUEUE_SIZE;
+    if (next == hardware_g.key_queue.tail)
+        return;
+
+    hardware_g.key_queue.queue[hardware_g.key_queue.head].key_id = key_id;
+    hardware_g.key_queue.queue[hardware_g.key_queue.head].event = event;
+    hardware_g.key_queue.head = next;
+}
+
+uint8_t Hardware_KeyQueue_Pop(core_key_event_t *evt)
+{
+    if (hardware_g.key_queue.tail == hardware_g.key_queue.head)
+        return 0;
+
+    evt->key_id = hardware_g.key_queue.queue[hardware_g.key_queue.tail].key_id;
+    evt->event  = hardware_g.key_queue.queue[hardware_g.key_queue.tail].event;
+    hardware_g.key_queue.tail = (hardware_g.key_queue.tail + 1) % CORE_KEY_QUEUE_SIZE;
+    return 1;
+}
+
+/*=============================================================================
  *  心跳 / 模块在线检测
  *=============================================================================*/
 
@@ -212,8 +240,8 @@ void Hardware_V3F_Init(void)
     // Power_Init(&power_g);
     // hardware_g.hardware_init_flag |= 0x10;
 
-    // Keyboard_Init(&keyboard_g);
-    // hardware_g.hardware_init_flag |= 0x20;
+    Keyboard_Init(&keyboard_g);
+    hardware_g.hardware_init_flag |= 0x20;
 
     CH9350_Init(&ch9350_g);
     hardware_g.hardware_init_flag |= 0x40;

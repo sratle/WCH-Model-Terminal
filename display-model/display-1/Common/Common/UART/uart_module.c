@@ -1069,11 +1069,15 @@ static void cli_resp_dispatch(void)
 void UART_NotifyActivity(void)
 {
     g_disp_state.last_activity_ms = ui_get_real_ms();
-    /* Wake screen if off */
     if (!g_disp_state.screen_on) {
         g_disp_state.screen_on = true;
         SSD1963_SetBacklight(g_settings.backlight);
     }
+}
+
+const char *UART_GetLastCLITag(void)
+{
+    return s_cli_cmd_tag;
 }
 
 void UART_SendCLI(const char *cmd)

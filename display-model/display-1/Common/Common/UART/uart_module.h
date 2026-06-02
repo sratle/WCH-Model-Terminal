@@ -416,6 +416,9 @@ void UART_SendErrorReport(uint8_t error_code, const char *msg);
 /* Notify activity (reset auto-off timer) — called from input system */
 void UART_NotifyActivity(void);
 
+/* Get the tag (first word) of the last CLI command sent, for context-aware parsing */
+const char *UART_GetLastCLITag(void);
+
 #ifdef __cplusplus
 }
 #endif
