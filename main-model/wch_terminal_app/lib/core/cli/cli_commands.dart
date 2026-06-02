@@ -26,6 +26,7 @@ class CliCommands {
   static String pause() => 'pause';
   static String resume() => 'resume';
   static String vol(int level) => 'vol $level';
+  static String speaker(bool on) => on ? 'speaker on' : 'speaker off';
 
   // ── 系统 ──
   static String df() => 'df';

@@ -74,7 +74,7 @@ class FileSystemState {
   final String? error;
 
   const FileSystemState({
-    this.currentDevice = StorageDevice.sd,
+    this.currentDevice = StorageDevice.usb,
     this.currentPath = '\\',
     this.cache = const {},
     this.isLoading = false,

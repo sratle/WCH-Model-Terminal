@@ -197,6 +197,8 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
                               _buildControls(status, colorScheme, isPlaying),
                               const SizedBox(height: 28),
                               _buildVolumeSection(status, colorScheme),
+                              const SizedBox(height: 16),
+                              _buildSpeakerSection(status, colorScheme),
                               const SizedBox(height: 24),
                             ],
                           ),
@@ -578,6 +580,55 @@ class _MusicPlayerSheetState extends ConsumerState<MusicPlayerSheet>
           foregroundColor: colorScheme.onSurfaceVariant,
         ),
         onPressed: onPressed,
+      ),
+    );
+  }
+
+  Widget _buildSpeakerSection(MusicStatus status, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            status.speakerOn ? Icons.speaker : Icons.headphones,
+            size: 20,
+            color: colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              status.speakerOn ? '外放' : '耳机',
+              style: TextStyle(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          Switch(
+            value: status.speakerOn,
+            onChanged: (_) {
+              ref.read(musicProvider.notifier).toggleSpeaker();
+            },
+            activeThumbColor: colorScheme.primary,
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 20),
+            padding: EdgeInsets.zero,
+            style: IconButton.styleFrom(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: colorScheme.onSurfaceVariant,
+            ),
+            onPressed: () {
+              ref.read(musicProvider.notifier).refreshStatus();
+            },
+            tooltip: '刷新状态',
+          ),
+        ],
       ),
     );
   }

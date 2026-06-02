@@ -125,6 +125,31 @@ class MusicNotifier extends StateNotifier<MusicStatus> {
     state = state.copyWith(playMode: mode);
   }
 
+  Future<void> toggleSpeaker() async {
+    final newState = !state.speakerOn;
+    state = state.copyWith(speakerOn: newState);
+    await _cli.execute(CliCommands.speaker(newState));
+  }
+
+  Future<void> refreshStatus() async {
+    final resp = await _cli.execute(CliCommands.playst());
+    if (resp.isSuccess) {
+      final parsed = MusicStatus.parsePlaystResponse(resp.output);
+      state = state.copyWith(
+        state: parsed.state,
+        title: parsed.title ?? state.title,
+        position: parsed.position ?? state.position,
+        volume: parsed.volume ?? state.volume,
+        speakerOn: parsed.speakerOn,
+      );
+      if (parsed.state == PlayerState.playing) {
+        _startPositionTick();
+      } else {
+        _stopPositionTick();
+      }
+    }
+  }
+
   void stop() {
     _stopPositionTick();
     state = const MusicStatus(state: PlayerState.stopped);
