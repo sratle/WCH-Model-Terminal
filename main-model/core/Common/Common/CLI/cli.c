@@ -1061,6 +1061,7 @@ static void CLI_Cmd_Help(void)
     printf("  config reset    Reset to defaults\r\n");
     printf("  config ls       List CONFIG directory\r\n");
     printf("  config rm <file.json>  Remove data file\r\n");
+    printf("  speaker <on|off> [left|right]  Control speaker output\r\n");
     printf("  clear           Clear screen\r\n");
     printf("  help            Show this help message\r\n");
 }
@@ -2219,6 +2220,48 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
     }
 }
 
+static void CLI_Cmd_Speaker(uint8_t argc, char **argv)
+{
+    speaker_channel_t ch;
+    speaker_channel_t state;
+
+    if (argc < 2) {
+        state = Speaker_GetState();
+        printf("Speaker: L=%s R=%s\r\n",
+               (state & SPEAKER_CHANNEL_LEFT) ? "ON" : "OFF",
+               (state & SPEAKER_CHANNEL_RIGHT) ? "ON" : "OFF");
+        printf("Usage: speaker <on|off> [left|right]\r\n");
+        return;
+    }
+
+    if (argc >= 3) {
+        if (strcmp(argv[2], "left") == 0)
+            ch = SPEAKER_CHANNEL_LEFT;
+        else if (strcmp(argv[2], "right") == 0)
+            ch = SPEAKER_CHANNEL_RIGHT;
+        else {
+            printf("speaker: unknown channel '%s' (use left/right)\r\n", argv[2]);
+            return;
+        }
+    } else {
+        ch = SPEAKER_CHANNEL_BOTH;
+    }
+
+    if (strcmp(argv[1], "on") == 0) {
+        Speaker_On(ch);
+        printf("Speaker %s ON\r\n",
+               ch == SPEAKER_CHANNEL_LEFT  ? "left" :
+               ch == SPEAKER_CHANNEL_RIGHT ? "right" : "both");
+    } else if (strcmp(argv[1], "off") == 0) {
+        Speaker_Off(ch);
+        printf("Speaker %s OFF\r\n",
+               ch == SPEAKER_CHANNEL_LEFT  ? "left" :
+               ch == SPEAKER_CHANNEL_RIGHT ? "right" : "both");
+    } else {
+        printf("speaker: unknown action '%s' (use on/off)\r\n", argv[1]);
+    }
+}
+
 /* ------------------------------------------------------------------------ */
 /* CLI 主入口 */
 /* ------------------------------------------------------------------------ */
@@ -2322,6 +2365,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Keyboard(argc, argv);
     } else if (strcmp(argv[0], "config") == 0) {
         CLI_Cmd_Config(argc, argv);
+    } else if (strcmp(argv[0], "speaker") == 0) {
+        CLI_Cmd_Speaker(argc, argv);
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }

@@ -112,6 +112,88 @@ static uint8_t CS43131_I2C_ReadReg(uint32_t addr)
 }
 
 /*********************************************************************
+ * @fn      Speaker_Init
+ *
+ * @brief   Initialize FM8002A speaker amplifier SHUTDOWN pins.
+ *          PD10 = right channel, PD11 = left channel.
+ *          SHUTDOWN low = sound output, high = mute.
+ *          Default: both channels muted (SHUTDOWN high).
+ *
+ * @return  none
+ *********************************************************************/
+void Speaker_Init(void)
+{
+    GPIO_InitTypeDef GPIO_InitStructure = {0};
+
+    RCC_HB2PeriphClockCmd(RCC_HB2Periph_GPIOD, ENABLE);
+
+    GPIO_InitStructure.GPIO_Pin = SPEAKER_LEFT_SHUTDOWN_PIN | SPEAKER_RIGHT_SHUTDOWN_PIN;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_Very_High;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+    GPIO_Init(GPIOD, &GPIO_InitStructure);
+
+    GPIO_SetBits(SPEAKER_LEFT_SHUTDOWN_GPIO_PORT, SPEAKER_LEFT_SHUTDOWN_PIN);
+    GPIO_SetBits(SPEAKER_RIGHT_SHUTDOWN_GPIO_PORT, SPEAKER_RIGHT_SHUTDOWN_PIN);
+
+    printf("Speaker_Init: FM8002A shutdown pins initialized (muted)\r\n");
+}
+
+/*********************************************************************
+ * @fn      Speaker_On
+ *
+ * @brief   Enable speaker output by pulling SHUTDOWN low.
+ *
+ * @param   channel - SPEAKER_CHANNEL_LEFT / RIGHT / BOTH
+ *
+ * @return  none
+ *********************************************************************/
+void Speaker_On(speaker_channel_t channel)
+{
+    if (channel & SPEAKER_CHANNEL_LEFT)
+        GPIO_ResetBits(SPEAKER_LEFT_SHUTDOWN_GPIO_PORT, SPEAKER_LEFT_SHUTDOWN_PIN);
+    if (channel & SPEAKER_CHANNEL_RIGHT)
+        GPIO_ResetBits(SPEAKER_RIGHT_SHUTDOWN_GPIO_PORT, SPEAKER_RIGHT_SHUTDOWN_PIN);
+}
+
+/*********************************************************************
+ * @fn      Speaker_Off
+ *
+ * @brief   Disable speaker output by pulling SHUTDOWN high.
+ *
+ * @param   channel - SPEAKER_CHANNEL_LEFT / RIGHT / BOTH
+ *
+ * @return  none
+ *********************************************************************/
+void Speaker_Off(speaker_channel_t channel)
+{
+    if (channel & SPEAKER_CHANNEL_LEFT)
+        GPIO_SetBits(SPEAKER_LEFT_SHUTDOWN_GPIO_PORT, SPEAKER_LEFT_SHUTDOWN_PIN);
+    if (channel & SPEAKER_CHANNEL_RIGHT)
+        GPIO_SetBits(SPEAKER_RIGHT_SHUTDOWN_GPIO_PORT, SPEAKER_RIGHT_SHUTDOWN_PIN);
+}
+
+/*********************************************************************
+ * @fn      Speaker_GetState
+ *
+ * @brief   Get current speaker channel enable state.
+ *
+ * @return  speaker_channel_t bitmask of enabled channels
+ *********************************************************************/
+speaker_channel_t Speaker_GetState(void)
+{
+    speaker_channel_t state = 0;
+
+    if (GPIO_ReadOutputDataBit(SPEAKER_LEFT_SHUTDOWN_GPIO_PORT,
+                               SPEAKER_LEFT_SHUTDOWN_PIN) == Bit_RESET)
+        state |= SPEAKER_CHANNEL_LEFT;
+    if (GPIO_ReadOutputDataBit(SPEAKER_RIGHT_SHUTDOWN_GPIO_PORT,
+                               SPEAKER_RIGHT_SHUTDOWN_PIN) == Bit_RESET)
+        state |= SPEAKER_CHANNEL_RIGHT;
+
+    return state;
+}
+
+/*********************************************************************
  * @fn      CS43131_I2C_Config
  *
  * @brief   Configure CS43131 via software I2C.
@@ -276,6 +358,8 @@ void CS43131_init(cs43131_t *cs43131)
     I2S1_DMA_DoubleBufferInit();
 
     I2S_Cmd (SPI2, ENABLE);
+
+    Speaker_Init();
 
     cs43131->enable = 1;
 }

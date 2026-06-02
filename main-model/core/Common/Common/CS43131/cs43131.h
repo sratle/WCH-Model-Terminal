@@ -36,6 +36,12 @@
 #define I2S_SDO_PIN             GPIO_Pin_15
 #define I2S_SDO_AF              GPIO_AF5
 
+/* Speaker (FM8002A) SHUTDOWN GPIO definitions */
+#define SPEAKER_RIGHT_SHUTDOWN_GPIO_PORT   GPIOD
+#define SPEAKER_RIGHT_SHUTDOWN_PIN         GPIO_Pin_10
+#define SPEAKER_LEFT_SHUTDOWN_GPIO_PORT    GPIOD
+#define SPEAKER_LEFT_SHUTDOWN_PIN          GPIO_Pin_11
+
 typedef struct {
     uint8_t enable;               /* cs43131 enable */
     uint8_t volume;               /* 音量 0~100 */
@@ -67,6 +73,18 @@ typedef struct {
     uint32_t data_offset;
     uint32_t data_size;
 } wav_info_t;
+
+/* Speaker 通道选择 */
+typedef enum {
+    SPEAKER_CHANNEL_LEFT  = 0x01,
+    SPEAKER_CHANNEL_RIGHT = 0x02,
+    SPEAKER_CHANNEL_BOTH  = 0x03
+} speaker_channel_t;
+
+void Speaker_Init(void);
+void Speaker_On(speaker_channel_t channel);
+void Speaker_Off(speaker_channel_t channel);
+speaker_channel_t Speaker_GetState(void);
 
 void CS43131_init(cs43131_t *cs43131);
 void CS43131_I2C_Config(void);
