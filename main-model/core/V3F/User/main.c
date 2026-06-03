@@ -22,6 +22,7 @@
 
 #include "debug.h"
 #include "hardware.h"
+#include "shared.h"
 #include "Key/key.h"
 
 int main(void)
@@ -29,6 +30,8 @@ int main(void)
     SystemInit();
     SystemAndCoreClockUpdate();
     Delay_Init();
+
+    Shared_Init();
 
     USART_Printf_Init(115200);
     Debug_EnableRxIRQ();

@@ -54,12 +54,14 @@ key_event_t Key_Scan(uint8_t *key_id)
 
         if (pin_val && !key_states[i].pressed)
         {
+            /* 按键按下中，尚未确认 */
             if (key_states[i].press_tick == 0)
             {
                 key_states[i].press_tick = key_tick;
             }
             else if ((key_tick - key_states[i].press_tick) >= (KEY_DEBOUNCE_MS / 10))
             {
+                /* 去抖通过，确认按下 */
                 key_states[i].pressed = 1;
                 key_states[i].long_pressed = 0;
                 *key_id = key_ids[i];
@@ -68,6 +70,7 @@ key_event_t Key_Scan(uint8_t *key_id)
         }
         else if (pin_val && key_states[i].pressed && !key_states[i].long_pressed)
         {
+            /* 已按下，检测长按 */
             if ((key_tick - key_states[i].press_tick) >= (KEY_LONG_PRESS_MS / 10))
             {
                 key_states[i].long_pressed = 1;
@@ -77,16 +80,19 @@ key_event_t Key_Scan(uint8_t *key_id)
         }
         else if (!pin_val && key_states[i].pressed)
         {
+            /* 已确认的按键释放 */
             key_states[i].pressed = 0;
             key_states[i].long_pressed = 0;
             key_states[i].press_tick = 0;
             *key_id = key_ids[i];
             return KEY_EVT_RELEASE;
         }
-        else
+        else if (!pin_val && !key_states[i].pressed)
         {
+            /* 按键空闲，清除去抖计数器 */
             key_states[i].press_tick = 0;
         }
+        /* pin_val=1 && pressed=1 && long_pressed=1: 长按持续中，不产生事件 */
     }
 
     return KEY_EVT_NONE;

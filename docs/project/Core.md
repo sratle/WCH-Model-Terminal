@@ -41,6 +41,132 @@
 
 ---
 
+## 核间通信机制
+
+CH32H417 内置 V5F（主执行核心）和 V3F（辅助核心）两个 RISC-V 核心，两者拥有各自独立的 RAM 区域，
+但可以通过 **共享 SRAM** 和 **硬件信号量（HSEM）** 实现数据交换与同步。
+
+### 内存布局
+
+| 区域          | 起始地址       | 大小   | 归属       | 用途                  |
+| ----------- | ---------- | ---- | -------- | ------------------- |
+| ITCM        | 0x200A0000 | 128K | V5F 代码   | V5F 指令运行            |
+| DTCM        | 0x200C0000 | 256K | V5F 数据   | V5F .data .bss 栈堆    |
+| RAM_CODE    | 0x20100000 | 64K  | V3F 代码   | V3F 指令运行            |
+| SRAM        | 0x20110000 | 448K | V3F 数据   | V3F .data .bss 栈堆   |
+| **RAM_SHARED** | **0x20178000** | **32K** | **双核共享** | **核间通信共享数据**        |
+
+### 共享数据实现
+
+#### 1. 链接脚本配置
+
+V3F 和 V5F 的链接脚本（`Link_v3f.ld` / `Link_v5f.ld`）中均定义了 `RAM_SHARED` 内存区域和 `.shared_data` 段：
+
+```ld
+/* MEMORY 区域 */
+RAM_SHARED (xrw) : ORIGIN = 0x20178000, LENGTH = 32K
+
+/* SECTIONS 中 */
+.shared (NOLOAD) :
+{
+    . = ALIGN(4);
+    KEEP(*(SORT_NONE(.shared_data)))
+    . = ALIGN(4);
+} >RAM_SHARED
+```
+
+两个核心的 `RAM_SHARED` 起始地址完全相同（`0x20178000`），确保物理内存一致性。
+
+> **注意**：V3F 的 RAM 区域从 448K 缩减为 416K（448K - 32K），为共享内存腾出空间。
+
+#### 2. 共享变量声明
+
+使用 `__attribute__((section(".shared_data")))` 将变量放入共享内存段：
+
+```c
+/* hardware.c */
+__attribute__((section(".shared_data")))
+volatile hardware_t hardware_g;
+```
+
+由于 V3F 和 V5F 是独立编译的工程，各自编译 `hardware.c` 后 `hardware_g` 都会被链接器放置在 `0x20178000`，
+因此两个核心访问的是同一块物理内存，实现了真正的数据共享。
+
+#### 3. 共享数据初始化
+
+`Shared_Init()` 在两个核心的 `main()` 中最先调用（在 `USART_Printf_Init` 之前），
+将 `hardware_g` 清零。由于 V3F 先启动并唤醒 V5F，V3F 的 `Shared_Init()` 先执行，
+V5F 的 `Shared_Init()` 会再次清零但此时 V3F 可能已经开始写入数据，因此 V5F 的
+`Shared_Init()` 在双核模式下应跳过（由 V3F 统一初始化）。
+
+### 硬件信号量（HSEM）保护
+
+对共享数据的并发访问使用 CH32H417 内置的硬件信号量（HSEM）进行互斥保护：
+
+| 信号量       | 用途                          |
+| --------- | --------------------------- |
+| HSEM_ID0  | 双核启动同步（V3F 唤醒 V5F 时使用）     |
+| HSEM_ID1  | `key_queue` 按键事件队列互斥保护      |
+
+#### 使用模式
+
+```c
+/* 获取信号量 */
+if (HSEM_FastTake(HSEM_ID1) != READY)
+    return;  /* 另一核心正在访问，放弃本次操作 */
+
+/* ... 访问共享数据 ... */
+
+/* 释放信号量 */
+HSEM_ReleaseOneSem(HSEM_ID1, 0);
+```
+
+- `HSEM_FastTake()` 尝试获取信号量，返回 `READY` 表示成功，`ERROR` 表示被另一核心占用。
+- `HSEM_ReleaseOneSem()` 释放信号量，第二个参数为 ProcessID（当前固定为 0）。
+- 所有对 `hardware_g.key_queue` 的访问（Push/Pop）均受 HSEM_ID1 保护。
+
+### 核间数据流
+
+#### 按键事件传递（V3F → V5F）
+
+V3F 核心扫描 GPIO 按键（PF8/PF9/PF10），检测到按键事件后推入共享环形队列，
+V5F 核心从队列中取出事件并处理（音量调节、发送 Enter 信号等）：
+
+```
+V3F 主循环                    共享内存 (0x20178000)              V5F 主循环
+┌──────────┐                ┌──────────────────┐            ┌──────────────┐
+│Key_PollAndPush│ ──Push──> │  key_queue (环形)   │ ──Pop──> │Key_ProcessEvents│
+│(PF8/PF9/PF10) │           │  HSEM_ID1 互斥保护  │          │(音量/Enter)    │
+└──────────┘                └──────────────────┘            └──────────────┘
+```
+
+#### 心跳状态（双核各自管理）
+
+`hardware_g.hb_slots` 和 `hardware_g.hb_tick` 由两个核心各自管理不同模块的心跳，
+V5F 负责 Display，V3F 负责 Keyboard/Power/Submodels，字段无并发冲突。
+
+### 环形队列实现
+
+```c
+#define CORE_KEY_QUEUE_SIZE 16
+
+typedef struct {
+    uint8_t key_id;   /* 按键标识: 0x01=PLUS, 0x02=SUB, 0x03=ENTER */
+    uint8_t event;    /* 事件类型: 0x00=释放, 0x01=按下, 0x02=长按 */
+} core_key_event_t;
+
+typedef struct {
+    core_key_event_t queue[CORE_KEY_QUEUE_SIZE];
+    volatile uint8_t head;
+    volatile uint8_t tail;
+} core_key_queue_t;
+```
+
+- 队列满时 Push 静默丢弃，队列空时 Pop 返回 0。
+- `head` 和 `tail` 声明为 `volatile`，确保编译器不会缓存寄存器值。
+
+---
+
 ## 项目目录结构
 
 ```

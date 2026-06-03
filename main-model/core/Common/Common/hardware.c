@@ -6,6 +6,8 @@
  * Description        : This file provides all the hardware firmware functions.
  *******************************************************************************/
 #include "hardware.h"
+#include "shared.h"
+#include "ch32h417_hsem.h"
 
 #include "CS43131/cs43131.h"
 #include "Submodels/submodels.h"
@@ -35,7 +37,17 @@ keyboard_t keyboard_g;
 ch9350_t ch9350_g;
 submodels_t submodels_g[3];
 
-volatile hardware_t hardware_g; // Hardware global variable
+__attribute__((section(".shared_data")))
+volatile hardware_t hardware_g;
+
+void Shared_Init(void)
+{
+    volatile hardware_t *p = &hardware_g;
+    uint8_t *dst = (uint8_t *)p;
+    uint32_t len = sizeof(hardware_t);
+    while (len--)
+        *dst++ = 0;
+}
 
 /*=============================================================================
  *  V3F → V5F Core 按键事件队列
@@ -45,23 +57,39 @@ void Hardware_KeyQueue_Push(uint8_t key_id, uint8_t event)
 {
     uint8_t next;
 
+    if (HSEM_FastTake(HSEM_ID1) != READY)
+        return;
+
     next = (hardware_g.key_queue.head + 1) % CORE_KEY_QUEUE_SIZE;
     if (next == hardware_g.key_queue.tail)
+    {
+        HSEM_ReleaseOneSem(HSEM_ID1, 0);
         return;
+    }
 
     hardware_g.key_queue.queue[hardware_g.key_queue.head].key_id = key_id;
     hardware_g.key_queue.queue[hardware_g.key_queue.head].event = event;
     hardware_g.key_queue.head = next;
+
+    HSEM_ReleaseOneSem(HSEM_ID1, 0);
 }
 
 uint8_t Hardware_KeyQueue_Pop(core_key_event_t *evt)
 {
-    if (hardware_g.key_queue.tail == hardware_g.key_queue.head)
+    if (HSEM_FastTake(HSEM_ID1) != READY)
         return 0;
+
+    if (hardware_g.key_queue.tail == hardware_g.key_queue.head)
+    {
+        HSEM_ReleaseOneSem(HSEM_ID1, 0);
+        return 0;
+    }
 
     evt->key_id = hardware_g.key_queue.queue[hardware_g.key_queue.tail].key_id;
     evt->event  = hardware_g.key_queue.queue[hardware_g.key_queue.tail].event;
     hardware_g.key_queue.tail = (hardware_g.key_queue.tail + 1) % CORE_KEY_QUEUE_SIZE;
+
+    HSEM_ReleaseOneSem(HSEM_ID1, 0);
     return 1;
 }
 

@@ -8,6 +8,7 @@
 
 #include "debug.h"
 #include "hardware.h"
+#include "shared.h"
 #include "CH378/CH378.h"
 #include "CH585F/ch585f_bt.h"
 #include "Config/config.h"
@@ -25,6 +26,7 @@ int main(void)
 {
     SystemAndCoreClockUpdate();
     Delay_Init();
+    Shared_Init();
     USART_Printf_Init(921600);
     printf("V5F SystemCoreClk:%d\r\n", SystemCoreClock);
 

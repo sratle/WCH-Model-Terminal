@@ -419,6 +419,34 @@ Guest: [AA][10][00][01][04][A5][5A][FC][FD]
 - **Display 访问**：UART4 由 V5F 独占，V3F 通过跨核消息让 V5F 代发，
   Display 模块无需处理并发冲突。
 
+#### 10.1 共享内存机制
+
+CH32H417 的 V3F 和 V5F 拥有各自独立的 RAM 区域（V3F: SRAM `0x20110000`，V5F: DTCM `0x200C0000`），
+默认无法直接共享数据。为实现核间通信，在 SRAM 高地址区域 `0x20178000` 分配了 32KB 的 `RAM_SHARED` 区域，
+两个核心的链接脚本均将 `.shared_data` 段映射到此地址，实现物理内存共享。
+
+核心全局变量 `hardware_g` 使用 `__attribute__((section(".shared_data")))` 放入共享内存，
+两个核心编译后该变量均位于 `0x20178000`，访问同一块物理内存。
+
+#### 10.2 硬件信号量（HSEM）保护
+
+对共享数据的并发访问使用 CH32H417 内置的硬件信号量进行互斥保护：
+
+- **HSEM_ID0**：双核启动同步（V3F 唤醒 V5F 时使用）
+- **HSEM_ID1**：`key_queue` 按键事件队列互斥保护
+
+访问共享数据时，先 `HSEM_FastTake()` 获取信号量，操作完成后 `HSEM_ReleaseOneSem()` 释放。
+获取失败表示另一核心正在访问，当前操作应放弃或重试。
+
+#### 10.3 核间数据流
+
+- **按键事件（V3F → V5F）**：V3F 扫描 GPIO 按键（PF8/PF9/PF10），检测到事件后
+  通过 `Hardware_KeyQueue_Push()` 推入共享环形队列（HSEM_ID1 保护），
+  V5F 通过 `Hardware_KeyQueue_Pop()` 取出事件并处理（音量调节、Enter 信号等）。
+- **心跳状态**：`hardware_g.hb_slots` 由两个核心各自管理不同模块的心跳，
+  V5F 负责 Display，V3F 负责 Keyboard/Power/Submodels，字段无并发冲突。
+- **配置请求（V3F → V5F）**：`hardware_g.config_req` 用于 V3F 向 V5F 提交跨核配置请求。
+
 ### 11. 版本与扩展
 
 - 本协议版本号为 **V1.0**，帧结构中暂不包含版本字段。
