@@ -53,7 +53,6 @@ int main(void)
         Debug_CLI_Process();
         CH585F_BT_Poll();
         Key_ProcessEvents();
-        Hardware_Heartbeat();
         Config_Process();
         Delay_Ms(1);
     }

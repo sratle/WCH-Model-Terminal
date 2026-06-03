@@ -2,6 +2,7 @@
 #define __PROTOCOL_H
 
 #include "CH58x_common.h"
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -10,27 +11,18 @@ extern "C" {
 /* ==================================================================== */
 /*  Frame Delimiters                                                    */
 /* ==================================================================== */
-#define PROTO_HEAD          0xAA
-#define PROTO_TAIL0         0xA5
-#define PROTO_TAIL1         0x5A
-#define PROTO_TAIL2         0xFC
-#define PROTO_TAIL3         0xFD
+#define PROTO_FRAME_HEAD        0xAA
 
-/* LEN = 0xFF indicates streaming frame: DATA length determined by tail scan */
-#define PROTO_LEN_STREAMING 0xFF
-
-/* Standard frame limits */
-#define PROTO_FRAME_MAX_LEN     264     /* 1+1+1+1+1+255+4 */
-#define PROTO_DATA_MAX_LEN      255
-
-/* Streaming frame max DATA (implementation limit, ~20KB) */
-#define PROTO_STREAM_MAX_DATA   20480
+#define PROTO_FRAME_TAIL0       0xA5
+#define PROTO_FRAME_TAIL1       0x5A
+#define PROTO_FRAME_TAIL2       0xFC
+#define PROTO_FRAME_TAIL3       0xFD
 
 /* ==================================================================== */
 /*  Module IDs                                                          */
 /* ==================================================================== */
 #define MODULE_ID_CORE          0x00
-#define MODULE_ID_WIRELESS      0x01
+#define MODULE_ID_SUBMODEL      0x40    /* Submodel slot 1 (UART6) */
 
 /* ==================================================================== */
 /*  Generic Opcodes (0x00 ~ 0x0F)                                       */
@@ -45,68 +37,39 @@ extern "C" {
 #define CMD_DATA_STREAM         0x07
 
 /* ==================================================================== */
-/*  Wireless Opcodes (0x51 ~ 0x5F)                                      */
+/*  Submodel Opcodes (0x40 ~ 0x4F)                                      */
 /* ==================================================================== */
-#define CMD_BT_GET_STATUS       0x51
-#define CMD_BT_SEND_DATA        0x52
-#define CMD_BT_CONN_EVT         0x54
-#define CMD_BT_RECV_DATA        0x55
-#define CMD_BT_HID_REPORT       0x56
-#define CMD_BT_SET_DISCOVERABLE 0x58
-#define CMD_BT_RESET            0x59
-
-/* ==================================================================== */
-/*  Extended Opcodes (CMD = 0x50, DATA[0] = sub-cmd)                    */
-/* ==================================================================== */
-#define CMD_BT_EXT_BASE         0x50
-#define CMD_BT_EXT_SCAN         0x01
-#define CMD_BT_EXT_DEVICE_LIST  0x02
-#define CMD_BT_EXT_CONNECT      0x03
-#define CMD_BT_EXT_PAIRING_MGMT 0x04
-#define CMD_BT_EXT_SET_MODE     0x05
-#define CMD_BT_EXT_CLI_DATA     0x07
+#define CMD_SUB_EVT_NOTIFY      0x40
+#define CMD_SUB_SET_MODE        0x41
+#define CMD_SUB_GET_STATUS      0x42
+#define CMD_SUB_DATA_REPORT     0x43
+#define CMD_SUB_SET_CONFIG      0x44
+#define CMD_SUB_ACTION_RESULT   0x45
+#define CMD_SUB_BULK_TRANSFER   0x46
 
 /* ==================================================================== */
 /*  NACK Error Codes                                                    */
 /* ==================================================================== */
-#define PROTO_ERR_NONE                  0x00
 #define PROTO_ERR_UNSUPPORTED_CMD       0x01
 #define PROTO_ERR_INVALID_PARAM         0x02
 #define PROTO_ERR_LEN_MISMATCH          0x03
 #define PROTO_ERR_BUSY                  0x04
 #define PROTO_ERR_HW_FAULT              0x05
-#define PROTO_ERR_TIMEOUT               0x06
 
 /* ==================================================================== */
-/*  CLI Data Flags                                                      */
+/*  Module Type & Subtype                                               */
 /* ==================================================================== */
-#define CLI_FLAG_SOF                    0x01
-#define CLI_FLAG_EOF                    0x02
+#define MODULE_TYPE_SUBMODEL            0x05
+#define MODULE_SUBTYPE_SUBMODEL_RGB     0x05
+#define MODULE_HW_VERSION               0x01
+#define MODULE_FW_MAJOR                 0x01
+#define MODULE_FW_MINOR                 0x00
 
 /* ==================================================================== */
-/*  Frame Structure                                                     */
+/*  Limits                                                              */
 /* ==================================================================== */
-typedef struct {
-    uint8_t head;
-    uint8_t src;
-    uint8_t dst;
-    uint8_t len;
-    uint8_t cmd;
-    uint8_t data[PROTO_DATA_MAX_LEN];   /* For standard frames */
-    uint8_t tail[4];
-} proto_frame_t;
-
-/* Streaming frame: data pointer + length (data stored externally) */
-typedef struct {
-    uint8_t head;
-    uint8_t src;
-    uint8_t dst;
-    uint8_t len;        /* Always 0xFF */
-    uint8_t cmd;
-    uint8_t *data;      /* Pointer to external buffer */
-    uint16_t data_len;  /* Actual data length */
-    uint8_t tail[4];
-} proto_stream_frame_t;
+#define PROTO_MAX_DATA_LEN      64
+#define PROTO_MAX_FRAME_LEN     (5 + PROTO_MAX_DATA_LEN + 4)
 
 /* ==================================================================== */
 /*  Parse State Machine                                                 */
@@ -122,64 +85,37 @@ typedef enum {
     PROTO_STATE_WAIT_TAIL1,
     PROTO_STATE_WAIT_TAIL2,
     PROTO_STATE_WAIT_TAIL3,
-    /* Streaming states (tail-terminated) */
-    PROTO_STATE_STREAM_DATA,
-    PROTO_STATE_TENTATIVE_TAIL1,
-    PROTO_STATE_TENTATIVE_TAIL2,
-    PROTO_STATE_TENTATIVE_TAIL3,
     PROTO_STATE_FRAME_READY
-} proto_state_t;
+} protocol_state_t;
 
 /* ==================================================================== */
-/*  Callbacks                                                           */
+/*  Frame & Parser Context                                              */
 /* ==================================================================== */
+typedef struct {
+    uint8_t  head;
+    uint8_t  src;
+    uint8_t  dst;
+    uint8_t  len;
+    uint8_t  cmd;
+    uint8_t  data[PROTO_MAX_DATA_LEN];
+} protocol_frame_t;
 
-/* Standard frame completed callback */
-typedef void (*proto_std_frame_cb_t)(const proto_frame_t *frame);
-
-/* Streaming frame data chunk callback (called incrementally) */
-typedef void (*proto_stream_chunk_cb_t)(const uint8_t *chunk, uint16_t chunk_len,
-                                         uint8_t is_final, uint8_t flags);
+typedef struct {
+    protocol_state_t  state;
+    protocol_frame_t  frame;
+    uint16_t          data_idx;
+    uint8_t           frame_ready;
+} protocol_rx_ctx_t;
 
 /* ==================================================================== */
 /*  API Functions                                                       */
 /* ==================================================================== */
-
-void Protocol_Init(void);
-
-/* Register callbacks for frame processing */
-void Protocol_RegisterCallbacks(proto_std_frame_cb_t std_cb,
-                                proto_stream_chunk_cb_t stream_cb);
-
-/* Feed one byte to the parser. Returns TRUE when a frame is ready. */
-bool Protocol_ParseByte(uint8_t byte);
-
-/* Get the current parser state */
-proto_state_t Protocol_GetState(void);
-
-/* Pack a standard frame into output buffer. Returns packed length. */
+void     Protocol_InitRxCtx(protocol_rx_ctx_t *ctx);
+void     Protocol_ResetRxCtx(protocol_rx_ctx_t *ctx);
 uint16_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
                             const uint8_t *data, uint8_t data_len,
-                            uint8_t *out_buf, uint16_t out_buf_len);
-
-/* Pack a streaming frame (LEN=0xFF) into output buffer.
- * The caller must ensure out_buf is large enough (9 + data_len).
- * Returns packed length. */
-uint16_t Protocol_PackStreamFrame(uint8_t src, uint8_t dst, uint8_t cmd,
-                                  const uint8_t *data, uint16_t data_len,
-                                  uint8_t *out_buf, uint16_t out_buf_len);
-
-/* Convenience: pack ACK frame */
-uint16_t Protocol_PackAck(uint8_t src, uint8_t dst,
-                          const uint8_t *rsp_data, uint8_t rsp_len,
-                          uint8_t *out_buf, uint16_t out_buf_len);
-
-/* Convenience: pack NACK frame */
-uint16_t Protocol_PackNack(uint8_t src, uint8_t dst, uint8_t err_code,
-                           uint8_t *out_buf, uint16_t out_buf_len);
-
-/* Reset parser state machine */
-void Protocol_Reset(void);
+                            uint8_t *out_buf, uint16_t out_size);
+uint8_t  Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte);
 
 #ifdef __cplusplus
 }

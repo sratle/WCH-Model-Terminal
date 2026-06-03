@@ -39,7 +39,7 @@ void Submodels_Init(submodels_t *submodels)
     GPIO_PinAFConfig(SUBMODELS2_UART_TX_PORT, GPIO_PinSource6, SUBMODELS2_UART_TX_AF);
     GPIO_PinAFConfig(SUBMODELS2_UART_RX_PORT, GPIO_PinSource5, SUBMODELS2_UART_RX_AF);
 
-    GPIO_PinAFConfig(SUBMODELS3_UART_TX_PORT, GPIO_PinSource7, SUBMODELS3_UART_TX_AF);
+    GPIO_PinAFConfig(SUBMODELS3_UART_TX_PORT, GPIO_PinSource15, SUBMODELS3_UART_TX_AF);
     GPIO_PinAFConfig(SUBMODELS3_UART_RX_PORT, GPIO_PinSource8, SUBMODELS3_UART_RX_AF);
 
     GPIO_InitStructure.GPIO_Pin = SUBMODELS1_UART_TX_PIN;
@@ -558,43 +558,48 @@ static uint8_t submodels_touch_dispatch(submodels_t *submodel, const protocol_fr
     return 1;
 }
 
-/* ---- 5. RGB 灯效 (type = 0x05) ---- */
+/* ---- 5. RGB 灯效 (type = 0x05) ----
+ *
+ * Core → RGB 方向的命令（SET_MODE/GET_STATUS）由专用 API 函数发送，
+ * 不经过 dispatch。此函数仅处理 RGB → Core 方向的帧：
+ *   - CMD_SUB_DATA_REPORT: RGB 主动上报当前模式/状态
+ *   - CMD_SUB_EVT_NOTIFY:  RGB 事件通知（预留）
+ */
 static uint8_t submodels_rgb_dispatch(submodels_t *submodel, const protocol_frame_t *req,
                                       uint8_t *resp, uint16_t resp_size, uint8_t *resp_len)
 {
     uint8_t cmd = req->cmd;
     uint8_t subcmd = (req->len >= 2) ? req->data[0] : 0;
     (void)submodel;
+    (void)resp;
+    (void)resp_size;
 
     switch (cmd)
     {
-        case CMD_SUB_SET_MODE:
-            switch (subcmd)
-            {
-                case 0x01: /* 设置 RGB 模式 */
-                    /* TODO: data[1]=模式, data[2]=R, data[3]=G, data[4]=B, data[5]=亮度, data[6]=速度 */
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-            }
-            break;
-
-        case CMD_SUB_GET_STATUS:
-            switch (subcmd)
-            {
-                case 0x00: /* 查询当前模式 */
-                    /* TODO: resp = [模式:1][R:1][G:1][B:1][亮度:1][速度:1] */
-                    *resp_len = 0;
-                    return 0;
-            }
-            break;
-
         case CMD_SUB_DATA_REPORT:
             switch (subcmd)
             {
-                case 0x01: /* 当前模式上报 */
-                    /* TODO: data[1]=模式, data[2]=R, data[3]=G, data[4]=B, data[5]=亮度, data[6]=速度 */
-                    return 1;
+                case 0x01: /* 当前模式上报
+                            * data[1]=mode, data[2]=R, data[3]=G, data[4]=B,
+                            * data[5]=brightness, data[6]=speed */
+                    if (req->len >= 7)
+                    {
+                        printf("[RGB] mode=%d R=%d G=%d B=%d bright=%d speed=%d\r\n",
+                               req->data[1], req->data[2], req->data[3],
+                               req->data[4], req->data[5], req->data[6]);
+                    }
+                    *resp_len = 0;
+                    return 1;   /* 事件帧无需回复 */
+
+                default:
+                    break;
             }
             break;
+
+        case CMD_SUB_EVT_NOTIFY:
+            /* RGB 事件通知（预留扩展） */
+            *resp_len = 0;
+            return 1;
 
         default:
             break;
@@ -690,4 +695,182 @@ static uint8_t submodels_subdisp_dispatch(submodels_t *submodel, const protocol_
     *resp_len = ProtocolCommon_Nack(req->dst, req->src, PROTO_ERR_UNSUPPORTED_CMD,
                                     resp, resp_size);
     return 1;
+}
+
+/* ============================================================================
+ * RGB Submodel Control API Implementation
+ * ============================================================================
+ * Core → RGB submodel-5 命令发送函数。
+ * 所有函数均为 fire-and-forget：打包协议帧并通过 UART 发送，不等待响应。
+ * 响应由 Submodels_Process 在主循环中异步处理。
+ * ============================================================================ */
+
+/* 计算 submodel 对应的协议模块 ID */
+static uint8_t submodel_module_id(const submodels_t *submodel)
+{
+    return MODULE_ID_SUBMODEL_1 + (submodel->submodels_id - 1);
+}
+
+/*********************************************************************
+ * @fn      Submodels_SendCommand
+ *
+ * @brief   向 submodel 发送通用命令（fire-and-forget）。
+ *
+ * @param   submodel  - 目标 submodel 实例
+ * @param   cmd       - 操作码
+ * @param   data      - 数据域指针（可为 NULL）
+ * @param   data_len  - 数据域长度
+ *
+ * @return  1=发送成功, 0=参数错误或打包失败
+ *********************************************************************/
+uint8_t Submodels_SendCommand(submodels_t *submodel, uint8_t cmd,
+                               const uint8_t *data, uint8_t data_len)
+{
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint16_t frame_len;
+
+    if (submodel == NULL)
+        return 0;
+
+    frame_len = Protocol_PackFrame(MODULE_ID_CORE,
+                                   submodel_module_id(submodel),
+                                   cmd, data, data_len,
+                                   buf, sizeof(buf));
+    if (frame_len == 0)
+        return 0;
+
+    Submodels_Send_Data(submodel, buf, frame_len);
+    return 1;
+}
+
+/*********************************************************************
+ * @fn      Submodels_RGB_SetMode
+ *
+ * @brief   设置 RGB 灯效模式。
+ *          发送 CMD_SUB_SET_MODE SUB=0x01。
+ *
+ * @param   submodel   - 目标 RGB submodel
+ * @param   mode       - 0=自定义, 1=常亮, 2=呼吸, 3=跑马灯
+ * @param   r, g, b    - 基础颜色 RGB888
+ * @param   brightness - 全局亮度 0-255
+ * @param   speed      - 动画速度 0-255
+ *
+ * @return  1=发送成功, 0=失败
+ *********************************************************************/
+uint8_t Submodels_RGB_SetMode(submodels_t *submodel, uint8_t mode,
+                               uint8_t r, uint8_t g, uint8_t b,
+                               uint8_t brightness, uint8_t speed)
+{
+    /* DATA: [SUB=0x01][mode:1][R:1][G:1][B:1][brightness:1][speed:1] */
+    uint8_t data[7] = { 0x01, mode, r, g, b, brightness, speed };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 7);
+}
+
+/*********************************************************************
+ * @fn      Submodels_RGB_SendFrame
+ *
+ * @brief   传输一帧自定义 RGB888 动画数据。
+ *          发送 CMD_SUB_SET_MODE SUB=0x02。
+ *          每帧 DATA 共 149 字节: [SUB:1][frame_idx:1][RGB888:147]
+ *
+ * @param   submodel   - 目标 RGB submodel
+ * @param   frame_idx  - 帧序号 (0 ~ RGB_MAX_CUSTOM_FRAMES-1)
+ * @param   rgb_data   - RGB888 数据, 49*3=147 字节
+ *
+ * @return  1=发送成功, 0=失败
+ *********************************************************************/
+uint8_t Submodels_RGB_SendFrame(submodels_t *submodel, uint8_t frame_idx,
+                                 const uint8_t *rgb_data)
+{
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint16_t frame_len;
+    uint8_t data[2 + RGB_FRAME_DATA_SIZE]; /* SUB(1) + idx(1) + RGB888(147) = 149 */
+
+    if (submodel == NULL || rgb_data == NULL)
+        return 0;
+
+    if (frame_idx >= RGB_MAX_CUSTOM_FRAMES)
+        return 0;
+
+    data[0] = 0x02; /* sub-command: transfer frame */
+    data[1] = frame_idx;
+    memcpy(&data[2], rgb_data, RGB_FRAME_DATA_SIZE);
+
+    frame_len = Protocol_PackFrame(MODULE_ID_CORE,
+                                   submodel_module_id(submodel),
+                                   CMD_SUB_SET_MODE,
+                                   data, (uint8_t)(2 + RGB_FRAME_DATA_SIZE),
+                                   buf, sizeof(buf));
+    if (frame_len == 0)
+        return 0;
+
+    Submodels_Send_Data(submodel, buf, frame_len);
+    return 1;
+}
+
+/*********************************************************************
+ * @fn      Submodels_RGB_PlayAnimation
+ *
+ * @brief   启动自定义帧动画播放。
+ *          发送 CMD_SUB_SET_MODE SUB=0x03。
+ *
+ * @param   submodel       - 目标 RGB submodel
+ * @param   frame_count    - 总帧数 (1 ~ RGB_MAX_CUSTOM_FRAMES)
+ * @param   frame_interval - 帧间隔 (ms, 50~1000)
+ *
+ * @return  1=发送成功, 0=失败
+ *********************************************************************/
+uint8_t Submodels_RGB_PlayAnimation(submodels_t *submodel, uint8_t frame_count,
+                                     uint16_t frame_interval)
+{
+    /* DATA: [SUB=0x03][frame_count:1][frame_interval:2(big-endian)] */
+    uint8_t data[4];
+
+    if (submodel == NULL)
+        return 0;
+
+    data[0] = 0x03;
+    data[1] = frame_count;
+    data[2] = (uint8_t)(frame_interval >> 8);   /* high byte */
+    data[3] = (uint8_t)(frame_interval & 0xFF); /* low byte */
+
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 4);
+}
+
+/*********************************************************************
+ * @fn      Submodels_RGB_QueryStatus
+ *
+ * @brief   查询 RGB 当前状态（异步）。
+ *          发送 CMD_SUB_GET_STATUS SUB=0x00。
+ *          响应由 Submodels_Process 异步处理。
+ *
+ * @param   submodel - 目标 RGB submodel
+ *
+ * @return  1=发送成功, 0=失败
+ *********************************************************************/
+uint8_t Submodels_RGB_QueryStatus(submodels_t *submodel)
+{
+    /* DATA: [SUB=0x00] */
+    uint8_t data[1] = { 0x00 };
+    return Submodels_SendCommand(submodel, CMD_SUB_GET_STATUS, data, 1);
+}
+
+/*********************************************************************
+ * @fn      Submodels_FindRgbSlot
+ *
+ * @brief   在 submodels_g[0..2] 中查找已识别为 RGB 类型的 submodel。
+ *
+ * @return  RGB submodel 指针, 未找到返回 NULL
+ *********************************************************************/
+submodels_t *Submodels_FindRgbSlot(void)
+{
+    extern submodels_t submodels_g[3];
+    uint8_t i;
+
+    for (i = 0; i < 3; i++)
+    {
+        if (submodels_g[i].type_id == MODULE_SUBTYPE_SUBMODEL_RGB)
+            return &submodels_g[i];
+    }
+    return NULL;
 }

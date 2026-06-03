@@ -127,9 +127,16 @@ static const uint8_t hb_init_flags[HB_MAX_SLOTS] = {
     0x80,   /* Submodel3 -> V3F bit7 */
 };
 
+#define HB_INIT_MAGIC  0xDEADDEADu
+
 static void hb_init_slots(void)
 {
     uint8_t i;
+
+    /* 防止双核重复初始化：V3F 先调用写入 magic，V5F 检测并跳过 */
+    if (hardware_g.hb_tick == HB_INIT_MAGIC)
+        return;
+
     for (i = 0; i < HB_MAX_SLOTS; i++)
     {
         hardware_g.hb_slots[i].module_id  = hb_module_ids[i];
@@ -138,7 +145,7 @@ static void hb_init_slots(void)
         hardware_g.hb_slots[i].type       = MODULE_TYPE_RESERVED;
         hardware_g.hb_slots[i].subtype    = 0;
     }
-    hardware_g.hb_tick = 0;
+    hardware_g.hb_tick = HB_INIT_MAGIC;
 }
 
 /* 向指定槽位发送 CMD_GET_TYPE（仅当模块已初始化时） */
@@ -265,8 +272,8 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
 void Hardware_V3F_Init(void)
 {
     Key_Init();
-    // Power_Init(&power_g);
-    // hardware_g.hardware_init_flag |= 0x10;
+    Power_Init(&power_g);
+    hardware_g.hardware_init_flag |= 0x10;
 
     Keyboard_Init(&keyboard_g);
     hardware_g.hardware_init_flag |= 0x20;
@@ -274,8 +281,8 @@ void Hardware_V3F_Init(void)
     CH9350_Init(&ch9350_g);
     hardware_g.hardware_init_flag |= 0x40;
 
-    // Submodels_Init(submodels_g);
-    // hardware_g.hardware_init_flag |= 0x80;
+    Submodels_Init(submodels_g);
+    hardware_g.hardware_init_flag |= 0x80;
 
     hb_init_slots();
 
