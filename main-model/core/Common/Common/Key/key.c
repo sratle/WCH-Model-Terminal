@@ -3,6 +3,7 @@
 #include "Protocol/protocol.h"
 #include "Display/display.h"
 #include "CS43131/cs43131.h"
+#include "Config/config.h"
 
 static key_state_t key_states[3];
 static uint32_t key_tick = 0;
@@ -150,18 +151,22 @@ void Key_ProcessEvents(void)
             if (kevt.key_id == KEY_SUB)
             {
                 printf("[KEY] SUB pressed\r\n");
+                int step = 5;
+                Config_GetInt("0000", "volume_step", &step);
                 uint8_t vol = Audio_GetVolume();
-                if (vol >= 5)
-                    Audio_SetVolume(vol - 5);
+                if (vol >= step)
+                    Audio_SetVolume(vol - step);
                 else
                     Audio_SetVolume(0);
             }
             else if (kevt.key_id == KEY_PLUS)
             {
                 printf("[KEY] PLUS pressed\r\n");
+                int step = 5;
+                Config_GetInt("0000", "volume_step", &step);
                 uint8_t vol = Audio_GetVolume();
-                if (vol <= 95)
-                    Audio_SetVolume(vol + 5);
+                if (vol <= 100 - step)
+                    Audio_SetVolume(vol + step);
                 else
                     Audio_SetVolume(100);
             }

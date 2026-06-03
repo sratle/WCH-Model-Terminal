@@ -5,6 +5,7 @@
 #include "../CH585F/ch585f.h"
 #include "../CH585F/ch585f_bt.h"
 #include "../CLI/CLI.h"
+#include "../Config/config.h"
 #include "../hardware.h"
 #include <string.h>
 
@@ -465,12 +466,11 @@ static uint8_t Display_HandleGetBrightness(const protocol_frame_t *req,
                                            uint8_t *resp_len)
 {
     (void)req;
-    /* 亮度由 Display 自身管理，Core 不存储亮度值。
-     * 此 handler 在 Core 侧被调用说明 Display 发来了 GET_BRIGHTNESS，
-     * 返回默认值或上次设置的值。 */
+    int val = 50;
+    Config_GetInt("0101", "brightness", &val);
     if (resp_size < 1)
         return 0;
-    resp_buf[0] = 50; /* 默认亮度 */
+    resp_buf[0] = (uint8_t)val;
     *resp_len = 1;
     return 1;
 }
@@ -481,9 +481,11 @@ static uint8_t Display_HandleGetRotation(const protocol_frame_t *req,
                                          uint8_t *resp_len)
 {
     (void)req;
+    int val = 0;
+    Config_GetInt("0101", "rotation", &val);
     if (resp_size < 1)
         return 0;
-    resp_buf[0] = 0; /* 默认角度 0 */
+    resp_buf[0] = (uint8_t)val;
     *resp_len = 1;
     return 1;
 }

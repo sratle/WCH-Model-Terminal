@@ -182,6 +182,7 @@
 #define CMD_PWR_STATUS_REPORT           0x36
 #define CMD_PWR_CHARGE_EVENT            0x37
 #define CMD_PWR_ALARM_EVENT             0x38
+#define CMD_PWR_SET_REPORT_INTERVAL     0x39
 
 /* ============================================================================
  * Submodel 基础操作码 (CMD = 0x40 ~ 0x4F)

@@ -2,7 +2,7 @@
     "version": 1,
     "0000": {
         "volume": 50,
-        "audio_mode": 0,
+        "volume_step": 5,
         "screen_timeout": 30
     },
     "0101": {
@@ -17,9 +17,7 @@
         "discoverable": 0
     },
     "0301": {
-        "charge_policy": 0,
-        "output_policy": 0,
-        "alarm_threshold": 15
+        "report_interval": 10
     },
     "0401": {
         "backlight": 50
@@ -30,7 +28,22 @@
     "0403": {
         "backlight": 50
     },
+    "0502": {
+        "monitor_interval": 10
+    },
+    "0504": {
+        "sensitivity": 50
+    },
     "0505": {
-        "rgb_mode": 0
+        "rgb_mode": 1,
+        "rgb_brightness": 80,
+        "rgb_speed": 50
+    },
+    "0506": {
+        "detect_threshold": 50
+    },
+    "0507": {
+        "brightness": 80,
+        "content_mode": 0
     }
 }

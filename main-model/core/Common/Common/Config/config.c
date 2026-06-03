@@ -11,6 +11,7 @@
 #include "Keyboard/keyboard.h"
 #include "Power/power.h"
 #include "CH585F/ch585f_bt.h"
+#include "Submodels/submodels.h"
 #include "Protocol/protocol.h"
 #include "hardware.h"
 
@@ -19,19 +20,23 @@
 static cJSON *config_root = NULL;   /* config.json 的 cJSON 根对象 */
 static uint8_t config_dirty = 0;    /* 脏标记：有未写回的变更 */
 
+/* 前向声明 */
+static void Config_SyncFromHardware(void);
+
 extern ch378_t ch378_g;
 extern cs43131_t CS43131_g;
 extern display_t display_g;
 extern keyboard_t keyboard_g;
 extern power_t power_g;
 extern ch585f_t ch585f_g;
+extern submodels_t submodels_g[3];
 
 /************************* 默认配置表 *************************/
 
 const config_default_entry_t config_defaults[] = {
     /* Core (0000) */
     { "0000", "volume",          50  },
-    { "0000", "audio_mode",      0   },
+    { "0000", "volume_step",     5   },
     { "0000", "screen_timeout",  30  },
 
     /* Display-LCD (0101) */
@@ -46,9 +51,7 @@ const config_default_entry_t config_defaults[] = {
     { "0201", "discoverable",    0   },
 
     /* Power (0301) */
-    { "0301", "charge_policy",   0   },
-    { "0301", "output_policy",   0   },
-    { "0301", "alarm_threshold", 15  },
+    { "0301", "report_interval", 10  },
 
     /* Keyboard-Main (0401) */
     { "0401", "backlight",       50  },
@@ -59,8 +62,23 @@ const config_default_entry_t config_defaults[] = {
     /* Keyboard-Music (0403) */
     { "0403", "backlight",       50  },
 
-    /* Submodel-RGB (0505) */
-    { "0505", "rgb_mode",        0   },
+    /* Submodel-Health (0502) */
+    { "0502", "monitor_interval", 10  },
+
+    /* Submodel-RGB (0505) — 0=自定义(rgb.json), 1~3=预设模式 */
+    { "0505", "rgb_mode",        1   },
+    { "0505", "rgb_brightness",  80  },
+    { "0505", "rgb_speed",       50  },
+
+    /* Submodel-TouchRing (0504) */
+    { "0504", "sensitivity",     50  },
+
+    /* Submodel-Infrared (0506) */
+    { "0506", "detect_threshold", 50  },
+
+    /* Submodel-SubDisplay (0507) */
+    { "0507", "brightness",      80  },
+    { "0507", "content_mode",   0   },
 };
 
 #define CONFIG_DEFAULT_COUNT  (sizeof(config_defaults) / sizeof(config_defaults[0]))
@@ -473,8 +491,6 @@ uint8_t Config_Save(void)
     uint8_t status;
     uint32_t json_len;
 
-    if (!config_dirty) return ERR_SUCCESS;
-
     /* 当前设备不匹配，不允许保存 */
     if (!Config_IsDeviceMatch()) {
         printf("[Config] Save rejected: current device != target (%s)\r\n",
@@ -486,6 +502,15 @@ uint8_t Config_Save(void)
     if (Audio_IsStreaming()) return 0x04; /* PROTO_ERR_BUSY */
 
     if (!config_root) return ERR_SUCCESS;
+
+    /* 保存前从硬件同步运行时状态到 config_root */
+    Config_SyncFromHardware();
+
+    /* 无变更则跳过写盘 */
+    if (!config_dirty) {
+        printf("[Config] No changes\r\n");
+        return ERR_SUCCESS;
+    }
 
     json_str = cJSON_PrintUnformatted(config_root);
     if (!json_str) {
@@ -1053,6 +1078,25 @@ uint8_t Config_DeleteFile(const char *filename)
     return Config_LFN_Erase(path);
 }
 
+/************************* 运行时状态同步 *************************/
+
+/**
+ * @brief  从硬件运行时状态同步到 config_root
+ *         在 Config_Save() 时调用，确保运行时变更（如音量调节）被持久化
+ * @note   仅同步 Core 自身管理的运行时状态，不涉及外部模块
+ */
+static void Config_SyncFromHardware(void)
+{
+    int cfg_vol;
+
+    /* 同步音量：CS43131_g.volume 是当前实际值 */
+    if (Config_GetInt("0000", "volume", &cfg_vol) == 0) {
+        if (cfg_vol != (int)Audio_GetVolume()) {
+            Config_SetInt("0000", "volume", (int)Audio_GetVolume());
+        }
+    }
+}
+
 /************************* 配置应用 *************************/
 
 void Config_Apply(void)
@@ -1069,7 +1113,7 @@ void Config_Apply(void)
         Audio_SetVolume((uint8_t)val);
     }
 
-    /* 2. Display: brightness, rotation (仅当 Display 在线时) */
+    /* 2. Display: brightness, rotation, screen_timeout (仅当 Display 在线时) */
     for (i = 0; i < HB_MAX_SLOTS; i++) {
         if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY &&
             hardware_g.hb_slots[i].status == HB_STATUS_ONLINE) {
@@ -1078,13 +1122,12 @@ void Config_Apply(void)
             uint8_t type = hardware_g.hb_slots[i].type;
             uint8_t subtype = hardware_g.hb_slots[i].subtype;
 
-            /* 根据模块子类型选择配置键 */
             if (type == MODULE_TYPE_DISPLAY && subtype == MODULE_SUBTYPE_DISPLAY_LCD) {
                 disp_key = "0101";
             } else if (type == MODULE_TYPE_DISPLAY && subtype == MODULE_SUBTYPE_DISPLAY_EINK) {
                 disp_key = "0102";
             } else {
-                disp_key = "0101";  /* 默认 LCD */
+                disp_key = "0101";
             }
 
             /* brightness */
@@ -1105,7 +1148,16 @@ void Config_Apply(void)
                 if (len > 0) Display_Send_Data(&display_g, buf, len);
             }
 
-            break;  /* 只处理第一个 Display 槽位 */
+            /* screen_timeout */
+            if (Config_GetInt("0000", "screen_timeout", &val) == 0) {
+                len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
+                                         CMD_DISP_SCREEN_CONTROL,
+                                         (uint8_t[]){SCREEN_CTRL_SET_TIMEOUT, (uint8_t)val}, 2,
+                                         buf, sizeof(buf));
+                if (len > 0) Display_Send_Data(&display_g, buf, len);
+            }
+
+            break;
         }
     }
 
@@ -1124,7 +1176,7 @@ void Config_Apply(void)
             } else if (subtype == MODULE_SUBTYPE_KEYBOARD_MUSIC) {
                 kbd_key = "0403";
             } else {
-                kbd_key = "0401";  /* 默认主键盘 */
+                kbd_key = "0401";
             }
 
             if (Config_GetInt(kbd_key, "backlight", &val) == 0) {
@@ -1139,30 +1191,14 @@ void Config_Apply(void)
         }
     }
 
-    /* 4. Power: charge_policy, output_policy, alarm_threshold */
+    /* 4. Power: report_interval (仅当 Power 在线时) */
     for (i = 0; i < HB_MAX_SLOTS; i++) {
         if (hardware_g.hb_slots[i].module_id == MODULE_ID_POWER &&
             hardware_g.hb_slots[i].status == HB_STATUS_ONLINE) {
 
-            if (Config_GetInt("0301", "charge_policy", &val) == 0) {
+            if (Config_GetInt("0301", "report_interval", &val) == 0) {
                 len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_POWER,
-                                         CMD_PWR_SET_CHARGE_POLICY,
-                                         (uint8_t[]){(uint8_t)val}, 1,
-                                         buf, sizeof(buf));
-                if (len > 0) Power_Send_Data(&power_g, buf, len);
-            }
-
-            if (Config_GetInt("0301", "output_policy", &val) == 0) {
-                len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_POWER,
-                                         CMD_PWR_SET_OUTPUT_POLICY,
-                                         (uint8_t[]){(uint8_t)val}, 1,
-                                         buf, sizeof(buf));
-                if (len > 0) Power_Send_Data(&power_g, buf, len);
-            }
-
-            if (Config_GetInt("0301", "alarm_threshold", &val) == 0) {
-                len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_POWER,
-                                         CMD_PWR_SET_ALARM_THRESHOLD,
+                                         CMD_PWR_SET_REPORT_INTERVAL,
                                          (uint8_t[]){(uint8_t)val}, 1,
                                          buf, sizeof(buf));
                 if (len > 0) Power_Send_Data(&power_g, buf, len);
@@ -1183,6 +1219,39 @@ void Config_Apply(void)
                                          (uint8_t[]){(uint8_t)val}, 1,
                                          buf, sizeof(buf));
                 if (len > 0) CH585F_Send_Data(&ch585f_g, buf, len);
+            }
+
+            break;
+        }
+    }
+
+    /* 6. Submodel: RGB mode (仅当 RGB 子模块在线时) */
+    for (i = 0; i < HB_MAX_SLOTS; i++) {
+        if ((hardware_g.hb_slots[i].module_id == MODULE_ID_SUBMODEL_1 ||
+             hardware_g.hb_slots[i].module_id == MODULE_ID_SUBMODEL_2 ||
+             hardware_g.hb_slots[i].module_id == MODULE_ID_SUBMODEL_3) &&
+            hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_SUBMODEL_RGB &&
+            hardware_g.hb_slots[i].status == HB_STATUS_ONLINE) {
+
+            int brightness, speed;
+            uint8_t mode = 0, r = 0, g = 0, b = 0;
+
+            Config_GetInt("0505", "rgb_mode", &val);
+            mode = (uint8_t)val;
+            Config_GetInt("0505", "rgb_brightness", &brightness);
+            Config_GetInt("0505", "rgb_speed", &speed);
+
+            /* CMD_SUB_SET_MODE + SUB=0x01 设置RGB模式 */
+            len = Protocol_PackFrame(MODULE_ID_CORE,
+                                     hardware_g.hb_slots[i].module_id,
+                                     CMD_SUB_SET_MODE,
+                                     (uint8_t[]){0x01, mode, r, g, b,
+                                                 (uint8_t)brightness,
+                                                 (uint8_t)speed}, 7,
+                                     buf, sizeof(buf));
+            if (len > 0) {
+                uint8_t idx = hardware_g.hb_slots[i].module_id - MODULE_ID_SUBMODEL_1;
+                if (idx < 3) Submodels_Send_Data(&submodels_g[idx], buf, len);
             }
 
             break;

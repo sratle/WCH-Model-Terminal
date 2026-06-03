@@ -28,6 +28,7 @@ CH378 下挂存储介质根目录下的 `\CONFIG` 目录为持久化根路径：
 ```
 \CONFIG\
 ├── config.json           # 系统配置（启动时加载）
+├── rgb.json              # RGB 自定义帧动画数据（按需加载）
 ├── game.json             # 游戏数据（按需加载）
 ├── ebook.json            # 电子书进度（按需加载）
 ├── piano.json            # 电子琴数据（按需加载）
@@ -43,7 +44,7 @@ CH378 下挂存储介质根目录下的 `\CONFIG` 目录为持久化根路径：
   "version": 1,
   "0000": {
     "volume": 50,
-    "audio_mode": 0,
+    "volume_step": 5,
     "screen_timeout": 30
   },
   "0101": {
@@ -58,9 +59,7 @@ CH378 下挂存储介质根目录下的 `\CONFIG` 目录为持久化根路径：
     "discoverable": 0
   },
   "0301": {
-    "charge_policy": 0,
-    "output_policy": 0,
-    "alarm_threshold": 15
+    "report_interval": 10
   },
   "0401": {
     "backlight": 50
@@ -71,9 +70,23 @@ CH378 下挂存储介质根目录下的 `\CONFIG` 目录为持久化根路径：
   "0403": {
     "backlight": 50
   },
-  "0501": {},
+  "0502": {
+    "monitor_interval": 10
+  },
+  "0504": {
+    "sensitivity": 50
+  },
   "0505": {
-    "rgb_mode": 0
+    "rgb_mode": 1,
+    "rgb_brightness": 80,
+    "rgb_speed": 50
+  },
+  "0506": {
+    "detect_threshold": 50
+  },
+  "0507": {
+    "brightness": 80,
+    "content_mode": 0
   }
 }
 ```
@@ -406,13 +419,22 @@ uint8_t Config_DeleteFile(const char *filename);
 ```c
 /**
  * @brief  将当前配置应用到各硬件模块
- *         - Audio_SetVolume(config_g.audio.volume)
- *         - Display_Send brightness/rotation
+ *         - Audio_SetVolume(volume)
+ *         - Display_Send brightness/rotation/screen_timeout
  *         - Keyboard_Send backlight
- *         - Power_Send charge_policy 等
+ *         - Power_Send report_interval
+ *         - Wireless_Send discoverable
+ *         - Submodel_Send rgb_mode/brightness/speed
  * @note   在 Config_Init() 末尾和 Config_ResetDefaults() 后调用
  */
 void Config_Apply(void);
+
+/**
+ * @brief  从硬件运行时状态同步到 config_root
+ *         在 Config_Save() 时调用，确保运行时变更（如音量调节）被持久化
+ * @note   仅同步 Core 自身管理的运行时状态
+ */
+void Config_SyncFromHardware(void);
 ```
 
 ---
@@ -462,7 +484,7 @@ config rm <file.json>                      删除数据文件
 ```
 > config get
 volume:50
-audio_mode:0
+volume_step:5
 screen_timeout:30
 ```
 
@@ -488,7 +510,9 @@ brightness:80
 rotation:0
 
 > config get 0505
-rgb_mode:0
+rgb_mode:1
+rgb_brightness:80
+rgb_speed:50
 ```
 
 若模块键不存在，输出 `Error: module not found`。
@@ -626,7 +650,7 @@ Error: rollback failed (status=FF)
 ```
 > config getkey
 volume
-audio_mode
+volume_step
 screen_timeout
 ```
 
