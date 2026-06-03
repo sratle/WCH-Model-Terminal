@@ -22,39 +22,15 @@ extern "C" {
 #define UART_RX_BUF_SIZE        512
 
 /* ==================================================================== */
-/*  SysTick millisecond counter                                         */
-/* ==================================================================== */
-
-extern volatile uint32_t g_systick_ms;
-
-/**
- * @brief  Get current millisecond counter (wraps every ~49 days).
- */
-static inline uint32_t App_GetMs(void) { return g_systick_ms; }
-
-/**
- * @brief  Calculate elapsed time with wrap-around handling.
- */
-static inline uint32_t App_ElapsedMs(uint32_t from, uint32_t to)
-{
-    return to - from;
-}
-
-/* ==================================================================== */
 /*  API Functions                                                       */
 /* ==================================================================== */
 
 /**
  * @brief  Initialize UART0 for Core communication.
- *         PA14 = TX, PA15 = RX (default pin mapping).
+ *         PA14 = TX, PA15 = RX (remapped pins).
  *         115200/8-N-1, RX interrupt enabled.
  */
 void App_UART_Init(void);
-
-/**
- * @brief  Initialize SysTick for 1ms tick counter.
- */
-void App_SysTick_Init(void);
 
 /**
  * @brief  Initialize all application modules (protocol, ws2812, effect).

@@ -140,9 +140,13 @@ void Display_Get_Type(display_t *display)
                              buf, sizeof(buf));
     if (len > 0)
     {
+        printf("[Display] CMD_GET_TYPE sent, %d bytes:", len);
+        for (uint16_t i = 0; i < len; i++) {
+            printf(" %02X", buf[i]);
+        }
+        printf("\r\n");
         Display_Send_Data(display, buf, len);
         display->type_requested = 1;
-        printf("[Display] CMD_GET_TYPE sent\r\n");
     }
 }
 

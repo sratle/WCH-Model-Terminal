@@ -86,20 +86,22 @@ static void EncodePixel(uint8_t g, uint8_t r, uint8_t b, uint8_t *out)
 
 static void SPI0_SendBuffer(const uint8_t *buf, uint16_t len)
 {
-    uint16_t i;
+    uint16_t sendlen = len;
 
-    for (i = 0; i < len; i++) {
-        /* Wait until FIFO has space (FIFO is 8 bytes deep) */
-        while (R8_SPI0_FIFO_COUNT >= 7)
-            ;
-        R8_SPI0_FIFO = buf[i];
+    R8_SPI0_CTRL_MOD &= ~RB_SPI_FIFO_DIR;   /* FIFO direction = TX */
+    R16_SPI0_TOTAL_CNT = sendlen;            /* 设置总发送字节数 */
+    R8_SPI0_INT_FLAG = RB_SPI_IF_CNT_END;    /* 清除计数结束标志 */
+
+    while (sendlen) {
+        if (R8_SPI0_FIFO_COUNT < SPI_FIFO_SIZE) {
+            R8_SPI0_FIFO = *buf;
+            buf++;
+            sendlen--;
+        }
     }
 
-    /* Wait for all FIFO bytes to finish transmitting */
-    while (R8_SPI0_FIFO_COUNT)
-        ;
-    /* Wait for shift register to empty */
-    while (!(R8_SPI0_INT_FLAG & RB_SPI_FREE))
+    /* 等待 FIFO 中所有数据发送完毕 */
+    while (R8_SPI0_FIFO_COUNT != 0)
         ;
 }
 
