@@ -978,6 +978,12 @@ uint8_t ui_tabview_get_active(ui_tabview_t *tv)
     return tv->active_tab;
 }
 
+void ui_tabview_set_callback(ui_tabview_t *tv, void (*on_tab_change)(ui_widget_t *, uint8_t))
+{
+    if (!tv) return;
+    tv->on_tab_change = on_tab_change;
+}
+
 /*=============================================================================
  *  Status Dot Widget Implementation
  *=============================================================================*/

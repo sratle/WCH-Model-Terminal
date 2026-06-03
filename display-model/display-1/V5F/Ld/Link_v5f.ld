@@ -55,9 +55,6 @@ SECTIONS
 		KEEP(*(SORT_NONE(.vector_handler)))
 		*(.text)
 		*(.text.*)
-		*(.rodata)
-		*(.rodata*)
-        *(.sdata2.*)
 		*(.glue_7)
 		*(.glue_7t)
 		*(.gnu.linkonce.t.*)
@@ -168,6 +165,9 @@ SECTIONS
     	*(.sdata .sdata.*)
 		*(.sdata2.*)
     	*(.gnu.linkonce.s.*)
+    	. = ALIGN(4);
+    	*(.rodata)
+    	*(.rodata*)
     	. = ALIGN(8);
     	*(.srodata.cst16)
     	*(.srodata.cst8)

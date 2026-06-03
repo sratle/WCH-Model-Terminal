@@ -19,6 +19,7 @@
 #include "../UART/uart_module.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /*=============================================================================
  *  Layout Configuration (800x480)

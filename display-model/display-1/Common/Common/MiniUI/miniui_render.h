@@ -65,6 +65,14 @@ void ui_render_begin_rect(const ui_rect_t *rect);
 /* Get the current compositing target rectangle */
 void ui_render_get_target(ui_rect_t *rect);
 
+/* Push a narrowed compositing target (intersection of current target and clip).
+ * Use before drawing sub-elements that must be confined to a viewport.
+ * MUST be paired with ui_render_pop_target(). Max nesting depth: 4. */
+void ui_render_push_target(const ui_rect_t *clip);
+
+/* Restore the compositing target saved by ui_render_push_target(). */
+void ui_render_pop_target(void);
+
 /* Fill a range of the line buffer with a solid color (fast background fill) */
 void ui_render_fill_line_buf(int16_t x_start, int16_t width, ui_color_t color);
 

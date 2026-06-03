@@ -43,6 +43,11 @@ static ui_color_t g_compose_buf[UI_SCREEN_WIDTH * COMPOSE_BATCH];
  * Can be up to COMPOSE_BATCH rows tall. */
 static ui_rect_t g_target = {0, 0, UI_SCREEN_WIDTH, 1};
 
+/* Target stack for push/pop nesting (max depth 4) */
+#define TARGET_STACK_DEPTH 4
+static ui_rect_t g_target_stack[TARGET_STACK_DEPTH];
+static int8_t    g_target_sp = 0;
+
 /*=============================================================================
  *  Helper Functions
  *=============================================================================*/
@@ -99,6 +104,7 @@ void ui_render_init(void)
     g_target.y = 0;
     g_target.w = UI_SCREEN_WIDTH;
     g_target.h = 1;
+    g_target_sp = 0;
     memset(g_compose_buf, 0, sizeof(g_compose_buf));
     printf("[ui_render_init] done\r\n");
 }
@@ -110,11 +116,43 @@ void ui_render_init(void)
 void ui_render_begin_rect(const ui_rect_t *rect)
 {
     if (rect) g_target = *rect;
+    /* Reset target stack for safety — each batch starts fresh */
+    g_target_sp = 0;
 }
 
 void ui_render_get_target(ui_rect_t *rect)
 {
     if (rect) *rect = g_target;
+}
+
+void ui_render_push_target(const ui_rect_t *clip)
+{
+    if (!clip) return;
+    if (g_target_sp < TARGET_STACK_DEPTH) {
+        g_target_stack[g_target_sp++] = g_target;
+    }
+    /* Intersect current target with clip rect */
+    int16_t x1 = g_target.x > clip->x ? g_target.x : clip->x;
+    int16_t y1 = g_target.y > clip->y ? g_target.y : clip->y;
+    int16_t x2 = (g_target.x + g_target.w) < (clip->x + clip->w)
+                 ? (g_target.x + g_target.w) : (clip->x + clip->w);
+    int16_t y2 = (g_target.y + g_target.h) < (clip->y + clip->h)
+                 ? (g_target.y + g_target.h) : (clip->y + clip->h);
+    if (x2 <= x1 || y2 <= y1) {
+        /* Empty intersection — set zero-size target */
+        g_target.w = 0;
+        g_target.h = 0;
+    } else {
+        g_target.x = x1; g_target.y = y1;
+        g_target.w = x2 - x1; g_target.h = y2 - y1;
+    }
+}
+
+void ui_render_pop_target(void)
+{
+    if (g_target_sp > 0) {
+        g_target = g_target_stack[--g_target_sp];
+    }
 }
 
 ui_color_t* ui_render_get_line_buf(void)

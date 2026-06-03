@@ -534,7 +534,6 @@ static void term_draw_output(const ui_rect_t *dirty)
     ui_draw_fill_rect(dirty, TERM_BG);
 
     /* Calculate which lines are visible based on pixel scroll */
-    int16_t content_h = term_content_height();
     int16_t max_scroll = term_max_scroll();
     if (s_term.scroll_y > max_scroll) s_term.scroll_y = max_scroll;
     if (s_term.scroll_y < 0) s_term.scroll_y = 0;

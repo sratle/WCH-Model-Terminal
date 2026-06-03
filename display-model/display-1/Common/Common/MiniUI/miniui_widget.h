@@ -226,6 +226,7 @@ void ui_tabview_init(ui_tabview_t *tv, const ui_rect_t *rect, uint8_t tab_count)
 void ui_tabview_set_label(ui_tabview_t *tv, uint8_t idx, const char *label);
 void ui_tabview_set_active(ui_tabview_t *tv, uint8_t idx);
 uint8_t ui_tabview_get_active(ui_tabview_t *tv);
+void ui_tabview_set_callback(ui_tabview_t *tv, void (*on_tab_change)(ui_widget_t *, uint8_t));
 
 /*=============================================================================
  *  Status Dot Widget
