@@ -6,7 +6,7 @@
 #include "debug.h"
 #include "../Protocol/protocol.h"
 
-#define KEYBOARD_UART_BAUDRATE 115200
+#define KEYBOARD_UART_BAUDRATE 230400
 #define KEYBOARD_UART USART3
 #define KEYBOARD_UART_IRQn USART3_IRQn
 

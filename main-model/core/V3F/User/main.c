@@ -33,7 +33,7 @@ int main(void)
 
     Shared_Init();
 
-    USART_Printf_Init(115200);
+    USART_Printf_Init(921600);
     Debug_EnableRxIRQ();
     Delay_Ms(1000);
 

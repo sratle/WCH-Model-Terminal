@@ -18,7 +18,7 @@ extern "C" {
 /* ==================================================================== */
 /*  UART0 Configuration                                                 */
 /* ==================================================================== */
-#define UART_BAUDRATE           115200
+#define UART_BAUDRATE           230400
 #define UART_RX_BUF_SIZE        512
 
 /* ==================================================================== */
@@ -28,7 +28,7 @@ extern "C" {
 /**
  * @brief  Initialize UART0 for Core communication.
  *         PA14 = TX, PA15 = RX (remapped pins).
- *         115200/8-N-1, RX interrupt enabled.
+ *         230400/8-N-1, RX interrupt enabled.
  */
 void App_UART_Init(void);
 

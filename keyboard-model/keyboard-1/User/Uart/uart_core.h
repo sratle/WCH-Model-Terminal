@@ -10,7 +10,7 @@
 
 #define UART_CORE_USART         USART1
 #define UART_CORE_IRQn         USART1_IRQn
-#define UART_CORE_BAUDRATE     115200
+#define UART_CORE_BAUDRATE     230400
 
 #define UART_CORE_TX_PORT      GPIOA
 #define UART_CORE_TX_PIN       GPIO_Pin_9

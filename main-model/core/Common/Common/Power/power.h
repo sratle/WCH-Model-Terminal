@@ -6,7 +6,7 @@
 #include "debug.h"
 #include "../Protocol/protocol.h"
 
-#define POWER_UART_BAUDRATE 115200
+#define POWER_UART_BAUDRATE 230400
 #define POWER_UART USART5
 #define POWER_UART_IRQn USART5_IRQn
 

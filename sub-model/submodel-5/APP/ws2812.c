@@ -95,6 +95,12 @@ static void SPI0_SendBuffer(const uint8_t *buf, uint16_t len)
 {
     uint16_t sendlen = len;
 
+    /* 禁用 UART0 RX 中断，防止 ISR 抢占 CPU 导致 SPI FIFO 欠载。
+     * FIFO 欠载会使 MOSI 出现空闲间隙，WS2812 误判为 reset，
+     * 导致只有前几个 LED 正确显示，其余全黑。
+     * 中断期间到达的字节仍由硬件存入 ring buffer，不会丢失。 */
+    PFIC_DisableIRQ(UART0_IRQn);
+
     R8_SPI0_CTRL_MOD &= ~RB_SPI_FIFO_DIR;   /* FIFO direction = TX */
     R16_SPI0_TOTAL_CNT = sendlen;            /* 设置总发送字节数 */
     R8_SPI0_INT_FLAG = RB_SPI_IF_CNT_END;    /* 清除计数结束标志 */
@@ -114,6 +120,9 @@ static void SPI0_SendBuffer(const uint8_t *buf, uint16_t len)
     /* 等待所有字节完全移位发送完毕（含最后一个字节） */
     while (!(R8_SPI0_INT_FLAG & RB_SPI_IF_CNT_END))
         ;
+
+    /* 恢复 UART0 RX 中断 */
+    PFIC_EnableIRQ(UART0_IRQn);
 }
 
 /* ==================================================================== */

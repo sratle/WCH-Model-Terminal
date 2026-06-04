@@ -6,7 +6,7 @@
 #include "debug.h"
 #include "../Protocol/protocol.h"
 
-#define SUBMODELS_UART_BAUDRATE 115200
+#define SUBMODELS_UART_BAUDRATE 230400
 
 /* ============================================================================
  * RGB Submodel Constants
