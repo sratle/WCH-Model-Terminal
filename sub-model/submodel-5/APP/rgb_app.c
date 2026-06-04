@@ -252,7 +252,7 @@ void App_Init(void)
     Effect_Init();
 
     /* 测试阶段：直接设置绿色常亮，验证 WS2812 硬件 */
-    Effect_SetMode(RGB_MODE_SOLID, 0, 255, 0, 128, 128);
+    Effect_SetMode(RGB_MODE_SOLID, 0, 255, 0, 50, 128);
     WS2812_Refresh();
 }
 
