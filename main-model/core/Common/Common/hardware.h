@@ -87,8 +87,8 @@ typedef struct {
  *=============================================================================*/
 
 #define HB_MAX_SLOTS        6   /* Display, Keyboard, Power, Submodel1~3 */
-#define HB_TIMEOUT_LIMIT    5   /* 连续 N 次无回应标记失联 */
-#define HB_INTERVAL_MS      1000 /* 心跳发送间隔 (ms) */
+#define HB_TIMEOUT_LIMIT    8   /* 连续 N 次无回应标记失联 */
+#define HB_INTERVAL_MS      500 /* 心跳发送间隔 (ms) */
 
 /* 模块在线状态 */
 typedef enum {

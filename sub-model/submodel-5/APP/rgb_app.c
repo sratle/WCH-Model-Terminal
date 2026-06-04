@@ -151,9 +151,11 @@ static void HandleSetMode(const protocol_frame_t *frame)
                     App_SendNack(PROTO_ERR_INVALID_PARAM);
                     return;
                 }
+                /* TODO: 测试阶段暂不应用 core 发来的模式，仅回复 ACK
                 Effect_SetMode((rgb_mode_t)mode,
                                frame->data[2], frame->data[3], frame->data[4],
                                frame->data[5], frame->data[6]);
+                */
                 App_SendAck(NULL, 0);
             } else {
                 App_SendNack(PROTO_ERR_LEN_MISMATCH);
@@ -248,7 +250,10 @@ void App_Init(void)
 {
     WS2812_Init();
     Effect_Init();
-    WS2812_Clear();
+
+    /* 测试阶段：直接设置绿色常亮，验证 WS2812 硬件 */
+    Effect_SetMode(RGB_MODE_SOLID, 0, 255, 0, 128, 128);
+    WS2812_Refresh();
 }
 
 void App_ProcessUART(void)
@@ -275,11 +280,11 @@ void App_UpdateEffect(void)
     Effect_Update();
 
     /* 使用 __NOP() 循环控制 RGB 变化速度
-     * speed 0 = 最慢 (~30000 cycles), speed 255 = 最快 (~500 cycles)
+     * speed 0 = 最慢 (~30000 cycles), speed 255 = 最快 (~50 cycles)
      * CH585F @ 60MHz: 1 cycle ≈ 16.7ns
-     * 30000 cycles ≈ 500us, 500 cycles ≈ 8.3us */
-    delay_count = (uint32_t)(30000 - ((uint32_t)st->speed * 29500 / 255));
-    if (delay_count < 500) delay_count = 500;
+     * 30000 cycles ≈ 500us, 50 cycles ≈ 0.8us */
+    delay_count = (uint32_t)(30000 - ((uint32_t)st->speed * 29950 / 255));
+    if (delay_count < 50) delay_count = 50;
     while (delay_count--) {
         __asm__ volatile("nop");
     }

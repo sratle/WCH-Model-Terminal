@@ -146,6 +146,9 @@ void Effect_Init(void)
 {
     memset(&s_state, 0, sizeof(s_state));
     s_state.mode = RGB_MODE_SOLID;
+    s_state.r = 255;
+    s_state.g = 255;
+    s_state.b = 255;
     s_state.brightness = 128;
     s_state.speed = 128;
     s_state.custom_frame_interval = 100;

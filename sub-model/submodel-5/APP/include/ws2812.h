@@ -24,9 +24,9 @@ extern "C" {
 #define WS2812_ROWS             7
 #define WS2812_COLS             7
 
-/* SPI encoding: 3 SPI bits per WS2812 bit, 24 bits per LED */
-#define WS2812_SPI_BYTES_PER_LED    9       /* 24 * 3 / 8 */
-#define WS2812_RESET_BYTES          16      /* ~52us at 2.5MHz, > 50us reset */
+/* SPI encoding: 10 SPI bits per WS2812 bit, 24 bits per LED */
+#define WS2812_SPI_BYTES_PER_LED    30      /* 24 * 10 / 8 */
+#define WS2812_RESET_BYTES          60      /* ~64us at 7.5MHz, > 50us reset */
 
 /* Total SPI buffer size for one frame */
 #define WS2812_SPI_BUF_SIZE         (WS2812_LED_COUNT * WS2812_SPI_BYTES_PER_LED + WS2812_RESET_BYTES)
