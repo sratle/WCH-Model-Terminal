@@ -87,19 +87,21 @@ static void EncodePixel(uint8_t g, uint8_t r, uint8_t b, uint8_t *out)
 
 /* ==================================================================== */
 /*  Internal: Send buffer via SPI0 FIFO                                 */
-/*  UART0 RX 现在由中断驱动，SPI 发送期间不需要轮询 UART。              */
-/*  这确保 SPI 时序连续不断，WS2812 不会因间隙而误判为 reset。          */
+/*  UART0 RX 中断在整个 SPI 传输期间保持启用。                          */
+/*  UART0 ISR 仅读 RBR 写 ring buffer（~0.5µs），远小于 SPI FIFO      */
+/*  8 字节深度（~8.5µs），不会导致 FIFO 欠载。                         */
+/*  这确保 UART 数据在 SPI 传输期间也能被完整接收，                     */
+/*  对 mode 0 自定义帧传输（149 字节/帧）至关重要。                     */
 /* ==================================================================== */
 
 static void SPI0_SendBuffer(const uint8_t *buf, uint16_t len)
 {
     uint16_t sendlen = len;
 
-    /* 禁用 UART0 RX 中断，防止 ISR 抢占 CPU 导致 SPI FIFO 欠载。
-     * FIFO 欠载会使 MOSI 出现空闲间隙，WS2812 误判为 reset，
-     * 导致只有前几个 LED 正确显示，其余全黑。
-     * 中断期间到达的字节仍由硬件存入 ring buffer，不会丢失。 */
-    PFIC_DisableIRQ(UART0_IRQn);
+    /* 不禁用 UART0 RX 中断。
+     * UART0 ISR 极短（~0.5µs），SPI FIFO 8 字节深度可承受 ISR 抢占，
+     * 不会出现 FIFO 欠载导致 WS2812 误判 reset 的情况。
+     * 保持 UART 中断启用确保 mode 0 自定义帧数据不会丢失。 */
 
     R8_SPI0_CTRL_MOD &= ~RB_SPI_FIFO_DIR;   /* FIFO direction = TX */
     R16_SPI0_TOTAL_CNT = sendlen;            /* 设置总发送字节数 */
@@ -120,9 +122,6 @@ static void SPI0_SendBuffer(const uint8_t *buf, uint16_t len)
     /* 等待所有字节完全移位发送完毕（含最后一个字节） */
     while (!(R8_SPI0_INT_FLAG & RB_SPI_IF_CNT_END))
         ;
-
-    /* 恢复 UART0 RX 中断 */
-    PFIC_EnableIRQ(UART0_IRQn);
 }
 
 /* ==================================================================== */

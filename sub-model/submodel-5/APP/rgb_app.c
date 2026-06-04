@@ -14,11 +14,13 @@
 
 /* ==================================================================== */
 /*  Frame Rate Tuning                                                   */
-/*  do-while(nop) ≈ 3 cycles/iter on CH585 RISC-V @ 62.4MHz            */
-/*  3120 iters × 10 chunks ≈ 15ms delay + SPI ~1.6ms ≈ 16.6ms → ~60fps */
-/*  调大 = 更慢更平滑，调小 = 更快                                         */
+/*  do-while(nop) ≈ 5 cycles/iter on CH585 RISC-V @ 62.4MHz            */
+/*  10000 iters × 10 chunks ≈ 48ms delay + SPI ~1.6ms ≈ 49.6ms → ~20fps*/
+/*  20fps 下 SPI 仅占 ~3% 时间，UART 有 ~48ms/帧的接收窗口，            */
+/*  确保 mode 0 自定义帧（149 字节 @ 230400baud ≈ 6.5ms）可靠接收。    */
+/*  调大 = 更慢更平滑，调小 = 更快                                       */
 /* ==================================================================== */
-#define CHUNK_DELAY_ITERS   3120
+#define CHUNK_DELAY_ITERS   10000
 
 /* ==================================================================== */
 /*  UART0 RX ring buffer (ISR → main loop)                              */
@@ -313,9 +315,13 @@ void App_UpdateEffect(void)
     /* 动画模式：调用 Effect_Update 渲染当前帧并刷新 WS2812
      * speed 控制每多少帧步进一次（在 Effect_Update 中实现）
      *
-     * 分块延时：每块 ~1.5ms，块间处理 UART，防止 ring buffer 溢出丢帧
-     * do-while(nop) 在 RISC-V 上约 3 cycles/iter，
-     * 62.4MHz 下 1.5ms ≈ 93600 cycles / 3 ≈ 3120 iters
+     * 分块延时：每块 ~4.8ms，块间处理 UART，防止 ring buffer 溢出丢帧
+     * do-while(nop) 在 RISC-V 上约 5 cycles/iter，
+     * 62.4MHz 下 4.8ms ≈ 300000 cycles / 5 / 10 ≈ 10000 iters
+     *
+     * 20fps 设计：SPI 传输期间 UART 中断保持启用（ISR 极短不会导致
+     * SPI FIFO 欠载），帧间有 ~48ms 的 UART 接收窗口，确保 mode 0
+     * 自定义帧数据（149 字节 @ 230400baud ≈ 6.5ms）可靠到达。
      *
      * 校准方法：如果动画太快，增大 CHUNK_DELAY_ITERS；
      *           如果动画太慢，减小 CHUNK_DELAY_ITERS。
