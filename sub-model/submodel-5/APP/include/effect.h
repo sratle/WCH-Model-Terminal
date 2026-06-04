@@ -89,12 +89,12 @@ void Effect_SetCustomFrame(uint8_t frame_idx, const uint8_t *data);
 void Effect_PlayCustom(uint8_t frame_count, uint16_t frame_interval);
 
 /**
- * @brief  Update the effect engine (call periodically, ~30Hz).
+ * @brief  Update the effect engine (call in main loop).
  *         Computes current frame colors and writes to WS2812 buffer.
- * @param  now_ms - Current time in milliseconds (from SysTick)
+ *         Animation speed is controlled by the caller's delay between calls.
  * @return TRUE if WS2812 was refreshed, FALSE if no update needed.
  */
-bool Effect_Update(uint32_t now_ms);
+bool Effect_Update(void);
 
 /**
  * @brief  Get the current effect state (for status queries).

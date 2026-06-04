@@ -36,6 +36,9 @@
     },
     "0505": {
         "rgb_mode": 1,
+        "rgb_color_r": 255,
+        "rgb_color_g": 255,
+        "rgb_color_b": 255,
         "rgb_brightness": 80,
         "rgb_speed": 50
     },

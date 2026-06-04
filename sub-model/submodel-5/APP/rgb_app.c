@@ -130,22 +130,58 @@ static void HandleGetType(const protocol_frame_t *frame)
 static void HandleGetStatus(const protocol_frame_t *frame)
 {
     (void)frame;
-    uint8_t status_data[4] = { 0x00, 0x00, 0x00, 0x00 };
+    const effect_state_t *st = Effect_GetState();
+    /* DATA: [mode:1][R:1][G:1][B:1][brightness:1][speed:1] */
+    uint8_t status_data[6] = {
+        (uint8_t)st->mode, st->r, st->g, st->b,
+        st->brightness, st->speed
+    };
     App_SendAck(status_data, sizeof(status_data));
 }
 
 static void HandleSetMode(const protocol_frame_t *frame)
 {
-    if (frame->len >= 2 && frame->data[0] < 4) {
-        uint8_t r = (frame->len >= 3) ? frame->data[1] : 0xFF;
-        uint8_t g = (frame->len >= 4) ? frame->data[2] : 0xFF;
-        uint8_t b = (frame->len >= 5) ? frame->data[3] : 0xFF;
-        uint8_t br = (frame->len >= 6) ? frame->data[4] : 0xFF;
-        uint8_t sp = (frame->len >= 7) ? frame->data[5] : 0x80;
-        Effect_SetMode((rgb_mode_t)frame->data[0], r, g, b, br, sp);
-        App_SendAck(NULL, 0);
-    } else {
-        App_SendNack(PROTO_ERR_INVALID_PARAM);
+    uint8_t subcmd = (frame->len >= 1) ? frame->data[0] : 0;
+
+    switch (subcmd) {
+        case 0x01: /* 设置 RGB 模式: [SUB=0x01][mode][R][G][B][brightness][speed] */
+            if (frame->len >= 7) {
+                uint8_t mode = frame->data[1];
+                if (mode > RGB_MODE_MARQUEE) {
+                    App_SendNack(PROTO_ERR_INVALID_PARAM);
+                    return;
+                }
+                Effect_SetMode((rgb_mode_t)mode,
+                               frame->data[2], frame->data[3], frame->data[4],
+                               frame->data[5], frame->data[6]);
+                App_SendAck(NULL, 0);
+            } else {
+                App_SendNack(PROTO_ERR_LEN_MISMATCH);
+            }
+            break;
+
+        case 0x02: /* 传输自定义帧: [SUB=0x02][frame_idx][RGB888:147] */
+            if (frame->len >= 2 + WS2812_LED_COUNT * 3) {
+                Effect_SetCustomFrame(frame->data[1], &frame->data[2]);
+                App_SendAck(NULL, 0);
+            } else {
+                App_SendNack(PROTO_ERR_LEN_MISMATCH);
+            }
+            break;
+
+        case 0x03: /* 播放自定义动画: [SUB=0x03][frame_count][interval_hi][interval_lo] */
+            if (frame->len >= 4) {
+                uint16_t interval = ((uint16_t)frame->data[2] << 8) | frame->data[3];
+                Effect_PlayCustom(frame->data[1], interval);
+                App_SendAck(NULL, 0);
+            } else {
+                App_SendNack(PROTO_ERR_LEN_MISMATCH);
+            }
+            break;
+
+        default:
+            App_SendNack(PROTO_ERR_INVALID_PARAM);
+            break;
     }
 }
 
@@ -232,11 +268,19 @@ void App_ProcessUART(void)
 
 void App_UpdateEffect(void)
 {
-    /* 不使用 SysTick，用简单计数器做粗略延时 */
-    static uint32_t cnt = 0;
-    cnt++;
-    if (cnt >= 10000) {
-        cnt = 0;
-        Effect_Update(0);
+    uint32_t delay_count;
+    const effect_state_t *st = Effect_GetState();
+
+    /* 更新效果渲染 */
+    Effect_Update();
+
+    /* 使用 __NOP() 循环控制 RGB 变化速度
+     * speed 0 = 最慢 (~30000 cycles), speed 255 = 最快 (~500 cycles)
+     * CH585F @ 60MHz: 1 cycle ≈ 16.7ns
+     * 30000 cycles ≈ 500us, 500 cycles ≈ 8.3us */
+    delay_count = (uint32_t)(30000 - ((uint32_t)st->speed * 29500 / 255));
+    if (delay_count < 500) delay_count = 500;
+    while (delay_count--) {
+        __asm__ volatile("nop");
     }
 }

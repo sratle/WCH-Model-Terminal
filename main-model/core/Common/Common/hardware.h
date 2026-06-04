@@ -54,6 +54,18 @@ typedef struct {
 } config_request_t;
 
 /*=============================================================================
+ *  V5F → V3F RGB 配置传递
+ *=============================================================================*/
+
+typedef struct {
+    uint8_t pending;        /* 1=V5F 有新的 RGB 配置待发送 */
+    uint8_t mode;           /* RGB 模式: 0=自定义, 1=常亮, 2=呼吸, 3=跑马灯 */
+    uint8_t r, g, b;       /* 基础颜色 RGB888 */
+    uint8_t brightness;    /* 亮度 0-255 */
+    uint8_t speed;         /* 速度 0-255 */
+} rgb_config_t;
+
+/*=============================================================================
  *  V3F → V5F Core 按键事件
  *=============================================================================*/
 
@@ -101,6 +113,7 @@ typedef struct
     hb_slot_t hb_slots[HB_MAX_SLOTS]; /* 心跳槽位 */
     uint32_t hb_tick;           /* 心跳计时计数器 (ms) */
     config_request_t config_req; /* V3F→V5F 跨核配置请求 */
+    rgb_config_t    rgb_config; /* V5F→V3F RGB 配置传递 */
     core_key_queue_t key_queue;  /* V3F→V5F 核心按键事件队列 */
 } hardware_t;
 

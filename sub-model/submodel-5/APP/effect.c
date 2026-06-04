@@ -12,22 +12,8 @@
 /* ==================================================================== */
 static effect_state_t s_state;
 
-/* Timing for animation */
-static uint32_t s_last_update_ms = 0;
-static uint32_t s_anim_phase = 0;     /* Internal animation phase counter */
-
-/* Update interval based on speed: 33ms (30fps) default */
-#define DEFAULT_UPDATE_INTERVAL     33
-
-/* ==================================================================== */
-/*  Internal: Compute update interval from speed parameter              */
-/*  speed=0 -> 100ms (10fps), speed=255 -> 16ms (60fps)               */
-/* ==================================================================== */
-static uint16_t GetUpdateInterval(void)
-{
-    /* Invert: higher speed = shorter interval */
-    return (uint16_t)(100 - ((uint32_t)s_state.speed * 84 / 255));
-}
+/* Animation phase counter */
+static uint32_t s_anim_phase = 0;
 
 /* ==================================================================== */
 /*  Mode: Solid - All LEDs same color with brightness                   */
@@ -127,7 +113,7 @@ static void RenderMarquee(void)
 /*  Each frame stores per-LED RGB888 color. Global brightness is        */
 /*  applied via HSV with saturation forced to maximum (255).            */
 /* ==================================================================== */
-static void RenderCustom(uint32_t now_ms)
+static void RenderCustom(void)
 {
     uint8_t frame_idx;
     uint8_t i;
@@ -140,11 +126,10 @@ static void RenderCustom(uint32_t now_ms)
         return;
     }
 
-    /* Determine current frame based on time */
-    uint32_t elapsed = now_ms / s_state.custom_frame_interval;
-    frame_idx = (uint8_t)(elapsed % s_state.custom_frame_count);
+    /* Determine current frame based on animation phase */
+    frame_idx = (uint8_t)(s_anim_phase % s_state.custom_frame_count);
 
-    /* Apply per-LED RGB888 color with global brightness (HSV S forced to max) */
+    /* Apply per-LED RGB888 color with global brightness */
     for (i = 0; i < WS2812_LED_COUNT; i++) {
         const rgb888_t *led_color = &s_state.custom_frames[frame_idx][i];
         rgb888_t out;
@@ -164,7 +149,6 @@ void Effect_Init(void)
     s_state.brightness = 128;
     s_state.speed = 128;
     s_state.custom_frame_interval = 100;
-    s_last_update_ms = 0;
     s_anim_phase = 0;
 }
 
@@ -178,7 +162,6 @@ void Effect_SetMode(rgb_mode_t mode, uint8_t r, uint8_t g, uint8_t b,
     s_state.brightness = brightness;
     s_state.speed = speed;
     s_anim_phase = 0;
-    s_last_update_ms = 0;
 }
 
 void Effect_SetCustomFrame(uint8_t frame_idx, const uint8_t *data)
@@ -205,29 +188,10 @@ void Effect_PlayCustom(uint8_t frame_count, uint16_t frame_interval)
     s_state.custom_frame_interval = frame_interval;
     s_state.mode = RGB_MODE_CUSTOM;
     s_anim_phase = 0;
-    s_last_update_ms = 0;
 }
 
-bool Effect_Update(uint32_t now_ms)
+bool Effect_Update(void)
 {
-    uint16_t interval;
-
-    /* For custom mode, use frame_interval; for others use speed-based interval */
-    if (s_state.mode == RGB_MODE_CUSTOM) {
-        interval = s_state.custom_frame_interval;
-        if (interval == 0) interval = 100;
-    } else {
-        interval = GetUpdateInterval();
-    }
-
-    /* Check if enough time has passed */
-    if (s_last_update_ms != 0 &&
-        (now_ms - s_last_update_ms) < interval) {
-        return FALSE;
-    }
-
-    s_last_update_ms = now_ms;
-
     /* Render current frame based on mode */
     switch (s_state.mode) {
         case RGB_MODE_SOLID:
@@ -243,7 +207,7 @@ bool Effect_Update(uint32_t now_ms)
             break;
 
         case RGB_MODE_CUSTOM:
-            RenderCustom(now_ms);
+            RenderCustom();
             break;
 
         default:

@@ -225,6 +225,28 @@ void Hardware_Heartbeat(void)
         if (hardware_g.hb_slots[i].miss_count == 0)
             hardware_g.hb_slots[i].miss_count = 1;
     }
+
+    /* 检查是否有 pending 的 RGB 配置需要发送给已在线的 RGB 子模块 */
+    if (hardware_g.rgb_config.pending)
+    {
+        for (i = 3; i < HB_MAX_SLOTS; i++)
+        {
+            if (hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_SUBMODEL_RGB &&
+                hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+            {
+                uint8_t idx = i - 3;
+                Submodels_RGB_SetMode(&submodels_g[idx],
+                                      hardware_g.rgb_config.mode,
+                                      hardware_g.rgb_config.r,
+                                      hardware_g.rgb_config.g,
+                                      hardware_g.rgb_config.b,
+                                      hardware_g.rgb_config.brightness,
+                                      hardware_g.rgb_config.speed);
+                hardware_g.rgb_config.pending = 0;
+                break;
+            }
+        }
+    }
 }
 
 /*********************************************************************
@@ -256,6 +278,24 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
                 hardware_g.hb_slots[i].status = HB_STATUS_ONLINE;
                 printf("[HB] %s ONLINE type=0x%02X subtype=0x%02X\r\n",
                        hb_slot_names[i], type, subtype);
+
+                /* RGB 子模块上线时，立即发送 pending 的配置 */
+                if (type == MODULE_TYPE_SUBMODEL &&
+                    subtype == MODULE_SUBTYPE_SUBMODEL_RGB &&
+                    hardware_g.rgb_config.pending)
+                {
+                    uint8_t idx = i - 3; /* slot 3,4,5 → submodels_g[0,1,2] */
+                    if (idx < 3) {
+                        Submodels_RGB_SetMode(&submodels_g[idx],
+                                              hardware_g.rgb_config.mode,
+                                              hardware_g.rgb_config.r,
+                                              hardware_g.rgb_config.g,
+                                              hardware_g.rgb_config.b,
+                                              hardware_g.rgb_config.brightness,
+                                              hardware_g.rgb_config.speed);
+                        hardware_g.rgb_config.pending = 0;
+                    }
+                }
             }
             return;
         }

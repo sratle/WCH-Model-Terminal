@@ -67,6 +67,9 @@ const config_default_entry_t config_defaults[] = {
 
     /* Submodel-RGB (0505) — 0=自定义(rgb.json), 1~3=预设模式 */
     { "0505", "rgb_mode",        1   },
+    { "0505", "rgb_color_r",     255 },
+    { "0505", "rgb_color_g",     255 },
+    { "0505", "rgb_color_b",     255 },
     { "0505", "rgb_brightness",  80  },
     { "0505", "rgb_speed",       50  },
 
@@ -1225,37 +1228,23 @@ void Config_Apply(void)
         }
     }
 
-    /* 6. Submodel: RGB mode (仅当 RGB 子模块在线时) */
-    for (i = 0; i < HB_MAX_SLOTS; i++) {
-        if ((hardware_g.hb_slots[i].module_id == MODULE_ID_SUBMODEL_1 ||
-             hardware_g.hb_slots[i].module_id == MODULE_ID_SUBMODEL_2 ||
-             hardware_g.hb_slots[i].module_id == MODULE_ID_SUBMODEL_3) &&
-            hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_SUBMODEL_RGB &&
-            hardware_g.hb_slots[i].status == HB_STATUS_ONLINE) {
+    /* 6. Submodel: RGB mode — 写入共享内存，由 V3F 在子模块上线时发送 */
+    {
+        int val;
 
-            int brightness, speed;
-            uint8_t mode = 0, r = 0, g = 0, b = 0;
-
-            Config_GetInt("0505", "rgb_mode", &val);
-            mode = (uint8_t)val;
-            Config_GetInt("0505", "rgb_brightness", &brightness);
-            Config_GetInt("0505", "rgb_speed", &speed);
-
-            /* CMD_SUB_SET_MODE + SUB=0x01 设置RGB模式 */
-            len = Protocol_PackFrame(MODULE_ID_CORE,
-                                     hardware_g.hb_slots[i].module_id,
-                                     CMD_SUB_SET_MODE,
-                                     (uint8_t[]){0x01, mode, r, g, b,
-                                                 (uint8_t)brightness,
-                                                 (uint8_t)speed}, 7,
-                                     buf, sizeof(buf));
-            if (len > 0) {
-                uint8_t idx = hardware_g.hb_slots[i].module_id - MODULE_ID_SUBMODEL_1;
-                if (idx < 3) Submodels_Send_Data(&submodels_g[idx], buf, len);
-            }
-
-            break;
-        }
+        Config_GetInt("0505", "rgb_mode", &val);
+        hardware_g.rgb_config.mode = (uint8_t)val;
+        Config_GetInt("0505", "rgb_color_r", &val);
+        hardware_g.rgb_config.r = (uint8_t)val;
+        Config_GetInt("0505", "rgb_color_g", &val);
+        hardware_g.rgb_config.g = (uint8_t)val;
+        Config_GetInt("0505", "rgb_color_b", &val);
+        hardware_g.rgb_config.b = (uint8_t)val;
+        Config_GetInt("0505", "rgb_brightness", &val);
+        hardware_g.rgb_config.brightness = (uint8_t)val;
+        Config_GetInt("0505", "rgb_speed", &val);
+        hardware_g.rgb_config.speed = (uint8_t)val;
+        hardware_g.rgb_config.pending = 1;
     }
 }
 
