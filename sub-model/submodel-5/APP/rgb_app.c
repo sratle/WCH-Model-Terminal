@@ -13,7 +13,7 @@
 #include "effect.h"
 
 /* ==================================================================== */
-/*  UART0 RX ring buffer                                                */
+/*  UART0 RX ring buffer (ISR → main loop)                              */
 /* ==================================================================== */
 static uint8_t  s_uart_rx_buf[UART_RX_BUF_SIZE];
 static volatile uint16_t s_uart_rx_head = 0;
@@ -35,9 +35,22 @@ static uint8_t s_mode_received = 0;
 /* UART TX output buffer */
 static uint8_t s_uart_tx_buf[PROTO_MAX_FRAME_LEN];
 
+/* ==================================================================== */
+/*  UART0 RX Interrupt Handler                                          */
+/*  ISR 只做一件事：读 RBR 并写入 ring buffer，不做协议解析。           */
+/*  这样 ISR 极短（~20 cycles），不会干扰 SPI/WS2812 时序。             */
+/* ==================================================================== */
 __INTERRUPT __HIGH_CODE void UART0_IRQHandler(void)
 {
-    /* 不使用中断，轮询方式接收 */
+    while (R8_UART0_LSR & RB_LSR_DATA_RDY) {
+        uint8_t b = R8_UART0_RBR;
+        uint16_t next = (s_uart_rx_head + 1) % UART_RX_BUF_SIZE;
+        if (next != s_uart_rx_tail) {
+            s_uart_rx_buf[s_uart_rx_head] = b;
+            s_uart_rx_head = next;
+        }
+        /* 如果 ring buffer 满则丢弃字节（不应发生，buffer 足够大） */
+    }
 }
 
 /* ==================================================================== */
@@ -63,10 +76,11 @@ void App_UART_Init(void)
     R8_UART0_FCR = (0 << 6) | RB_FCR_TX_FIFO_CLR | RB_FCR_RX_FIFO_CLR | RB_FCR_FIFO_EN;
     R8_UART0_LCR = RB_LCR_WORD_SZ;   /* 8N1 */
     R8_UART0_DIV = 1;
-    R8_UART0_IER = RB_IER_TXD_EN;    /* 仅使能 TXD 引脚，不使能 RX 中断 */
 
-    /* 不使能 UART0 NVIC 中断，使用轮询方式接收 */
-    /* PFIC_EnableIRQ(UART0_IRQn); */
+    /* 使能 UART0 RX 中断：ISR 将接收字节写入 ring buffer */
+    R8_UART0_IER = RB_IER_TXD_EN;
+    UART0_INTCfg(ENABLE, RB_IER_RECV_RDY);
+    PFIC_EnableIRQ(UART0_IRQn);
 
     /* 初始化协议解析上下文 */
     Protocol_InitRxCtx(&s_proto_rx_ctx);
@@ -260,9 +274,10 @@ void App_Init(void)
 
 void App_ProcessUART(void)
 {
-    /* 轮询方式接收 */
-    while (R8_UART0_LSR & RB_LSR_DATA_RDY) {
-        uint8_t b = R8_UART0_RBR;
+    /* 从 ring buffer 中取出 ISR 已接收的字节，送入协议解析器 */
+    while (s_uart_rx_tail != s_uart_rx_head) {
+        uint8_t b = s_uart_rx_buf[s_uart_rx_tail];
+        s_uart_rx_tail = (s_uart_rx_tail + 1) % UART_RX_BUF_SIZE;
         Protocol_ParseByte(&s_proto_rx_ctx, b);
     }
 
@@ -275,21 +290,26 @@ void App_ProcessUART(void)
 
 void App_UpdateEffect(void)
 {
-    uint32_t delay_count;
     const effect_state_t *st = Effect_GetState();
 
     /* 收到 Core 的 SET_MODE 前不刷新 WS2812，避免上电显示默认颜色 */
     if (!s_mode_received)
         return;
 
-    /* 更新效果渲染 */
+    /* Solid 模式下参数未变时跳过刷新（dirty flag），直接返回 */
+    if (st->mode == RGB_MODE_SOLID) {
+        Effect_Update();
+        return;
+    }
+
+    /* 动画模式：更新效果 + 延时控制帧率 */
     Effect_Update();
 
     /* 使用 __NOP() 循环控制 RGB 变化速度
      * speed 0 = 最慢 (~30000 cycles), speed 255 = 最快 (~50 cycles)
      * CH585F @ 60MHz: 1 cycle ≈ 16.7ns
      * 30000 cycles ≈ 500us, 50 cycles ≈ 0.8us */
-    delay_count = (uint32_t)(30000 - ((uint32_t)st->speed * 29950 / 255));
+    uint32_t delay_count = (uint32_t)(30000 - ((uint32_t)st->speed * 29950 / 255));
     if (delay_count < 50) delay_count = 50;
     while (delay_count--) {
         __asm__ volatile("nop");
