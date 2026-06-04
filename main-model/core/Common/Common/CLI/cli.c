@@ -2406,9 +2406,21 @@ static void CLI_Cmd_Rgb(uint8_t argc, char **argv)
         hardware_g.rgb_frame.frame_interval = (uint16_t)frame_interval;
         hardware_g.rgb_frame.pending = 1;
 
-        /* Also set mode to custom (0) */
-        hardware_g.rgb_config.mode = 0;
-        hardware_g.rgb_config.pending = 1;
+        /* Also set mode to custom (0), preserving current brightness/speed/color */
+        {
+            uint8_t prev_r = hardware_g.rgb_config.r;
+            uint8_t prev_g = hardware_g.rgb_config.g;
+            uint8_t prev_b = hardware_g.rgb_config.b;
+            uint8_t prev_bright = hardware_g.rgb_config.brightness;
+            uint8_t prev_speed = hardware_g.rgb_config.speed;
+            hardware_g.rgb_config.mode = 0;
+            hardware_g.rgb_config.r = prev_r;
+            hardware_g.rgb_config.g = prev_g;
+            hardware_g.rgb_config.b = prev_b;
+            hardware_g.rgb_config.brightness = prev_bright;
+            hardware_g.rgb_config.speed = prev_speed;
+            hardware_g.rgb_config.pending = 1;
+        }
 
         printf("rgb: %d frames queued, interval=%dms\r\n",
                frame_count, frame_interval);

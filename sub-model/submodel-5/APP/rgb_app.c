@@ -13,6 +13,14 @@
 #include "effect.h"
 
 /* ==================================================================== */
+/*  Frame Rate Tuning                                                   */
+/*  do-while(nop) ≈ 3 cycles/iter on CH585 RISC-V @ 62.4MHz            */
+/*  3120 iters × 10 chunks ≈ 15ms delay + SPI ~1.6ms ≈ 16.6ms → ~60fps */
+/*  调大 = 更慢更平滑，调小 = 更快                                         */
+/* ==================================================================== */
+#define CHUNK_DELAY_ITERS   3120
+
+/* ==================================================================== */
 /*  UART0 RX ring buffer (ISR → main loop)                              */
 /* ==================================================================== */
 static uint8_t  s_uart_rx_buf[UART_RX_BUF_SIZE];
@@ -302,22 +310,25 @@ void App_UpdateEffect(void)
         return;
     }
 
-    /* 动画模式：固定 ~60fps 帧率
-     * SPI 发送 ~1.5ms + 延时 ~14.5ms ≈ 16ms/帧 ≈ 60fps
-     * speed 控制 phase 步进（在 Effect_Update 中实现），不控制帧率
+    /* 动画模式：调用 Effect_Update 渲染当前帧并刷新 WS2812
+     * speed 控制每多少帧步进一次（在 Effect_Update 中实现）
      *
      * 分块延时：每块 ~1.5ms，块间处理 UART，防止 ring buffer 溢出丢帧
-     * while(d--) 循环约 4 cycles/iter (nop+subi+cmp+branch)，
-     * 60MHz 下 1.5ms ≈ 90000 cycles / 4 ≈ 22500 iters */
+     * do-while(nop) 在 RISC-V 上约 3 cycles/iter，
+     * 62.4MHz 下 1.5ms ≈ 93600 cycles / 3 ≈ 3120 iters
+     *
+     * 校准方法：如果动画太快，增大 CHUNK_DELAY_ITERS；
+     *           如果动画太慢，减小 CHUNK_DELAY_ITERS。
+     * 10 chunks × CHUNK_DELAY_ITERS + SPI(~1.6ms) = 总帧时间 */
     Effect_Update();
 
     {
         uint8_t chunk;
         for (chunk = 0; chunk < 10; chunk++) {
-            uint32_t d = 22500;
-            while (d--) {
+            uint32_t d = CHUNK_DELAY_ITERS;
+            do {
                 __asm__ volatile("nop");
-            }
+            } while (--d);
             /* 每块之间处理 UART，避免 ring buffer 溢出 */
             App_ProcessUART();
         }

@@ -5,6 +5,9 @@
  *                      - UART0 (PA14-TX, PA15-RX) for Core protocol
  *                      - SPI0 MOSI (PB14) for WS2812 LED chain
  *                      - 49x WS2812 7x7 matrix, 4 effect modes
+ *
+ *                      Frame rate controlled by NOP delays inside
+ *                      App_UpdateEffect() (see rgb_app.c).
  *********************************************************************/
 
 #include "CH58x_common.h"

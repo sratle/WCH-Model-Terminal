@@ -4,6 +4,11 @@
  *                      Supports 4 modes: custom, solid, breathing,
  *                      marquee. HSV color space is used internally
  *                      for smooth transitions and brightness control.
+ *
+ *                      Speed mechanism (frame-based, unified):
+ *                        speed=N means animation advances every N frames.
+ *                        speed=0 is treated as speed=1.
+ *                        At ~60fps: speed=1 → 60 steps/s, speed=60 → 1 step/s.
  *********************************************************************/
 
 #ifndef __EFFECT_H
@@ -23,16 +28,19 @@ extern "C" {
 typedef enum {
     RGB_MODE_CUSTOM   = 0x00,   /* Custom frame animation from Core */
     RGB_MODE_SOLID    = 0x01,   /* All LEDs same color */
-    RGB_MODE_BREATHING = 0x02,  /* Breathing effect */
-    RGB_MODE_MARQUEE  = 0x03,   /* Running light (chase) */
+    RGB_MODE_BREATHING = 0x02,  /* Hue rotation 0→359→0 */
+    RGB_MODE_MARQUEE  = 0x03,   /* Bounce running light */
 } rgb_mode_t;
 
 /* ==================================================================== */
 /*  Custom Frame Animation                                              */
 /* ==================================================================== */
 #define EFFECT_MAX_CUSTOM_FRAMES    20
-#define EFFECT_MIN_FRAME_INTERVAL   50      /* ms */
-#define EFFECT_MAX_FRAME_INTERVAL   1000    /* ms */
+
+/* ==================================================================== */
+/*  Marquee Configuration                                               */
+/* ==================================================================== */
+#define MARQUEE_TRAIL_LEN   5   /* Number of trail LEDs behind head */
 
 /* ==================================================================== */
 /*  Effect State                                                        */
@@ -43,7 +51,16 @@ typedef struct {
     uint8_t     g;              /* Base color G */
     uint8_t     b;              /* Base color B */
     uint8_t     brightness;     /* Global brightness 0-255 */
-    uint8_t     speed;          /* Animation speed parameter 0-255 */
+    uint8_t     speed;          /* Animation speed: advance every N frames (0=1) */
+
+    /* Frame counter: incremented each Effect_Update() call.
+     * When frame_counter >= effective_speed, animation advances one step
+     * and frame_counter is reset to 0. */
+    uint32_t    frame_counter;
+
+    /* Direction flag for bounce animations (breathing hue, marquee head).
+     * 0 = forward (increasing), 1 = backward (decreasing). */
+    uint8_t     direction;
 
     /* Internal animation state */
     uint32_t    tick;           /* Frame counter (incremented each update) */
@@ -51,7 +68,6 @@ typedef struct {
     /* Custom frame data: each frame stores per-LED RGB888 color.
      * Global brightness is applied during rendering via HSV (S forced to max). */
     uint8_t     custom_frame_count;
-    uint16_t    custom_frame_interval;  /* ms */
     rgb888_t    custom_frames[EFFECT_MAX_CUSTOM_FRAMES][WS2812_LED_COUNT];
 } effect_state_t;
 
@@ -69,7 +85,7 @@ void Effect_Init(void);
  * @param  mode       - RGB mode (0-3)
  * @param  r, g, b    - Base color (RGB888)
  * @param  brightness - Global brightness (0-255)
- * @param  speed      - Animation speed (0-255)
+ * @param  speed      - Animation speed: advance every N frames (0 treated as 1)
  */
 void Effect_SetMode(rgb_mode_t mode, uint8_t r, uint8_t g, uint8_t b,
                     uint8_t brightness, uint8_t speed);
@@ -84,14 +100,14 @@ void Effect_SetCustomFrame(uint8_t frame_idx, const uint8_t *data);
 /**
  * @brief  Configure custom animation playback.
  * @param  frame_count   - Total number of frames
- * @param  frame_interval - Delay between frames in ms
+ * @param  frame_interval - Ignored (speed is used instead), kept for protocol compat
  */
 void Effect_PlayCustom(uint8_t frame_count, uint16_t frame_interval);
 
 /**
  * @brief  Update the effect engine (call in main loop).
  *         Computes current frame colors and writes to WS2812 buffer.
- *         Animation speed is controlled by the caller's delay between calls.
+ *         Animation speed is controlled by frame_counter vs speed.
  * @return TRUE if WS2812 was refreshed, FALSE if no update needed.
  */
 bool Effect_Update(void);

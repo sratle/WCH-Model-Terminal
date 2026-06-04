@@ -63,8 +63,8 @@ void Color_HSVtoRGB(const hsv_t *hsv, rgb888_t *rgb)
 
         /* Scale remainder to 0-255 range for integer math */
         uint8_t p = (uint8_t)((uint32_t)hsv->v * (255 - hsv->s) / 255);
-        uint8_t q = (uint8_t)((uint32_t)hsv->v * (255 - (uint16_t)hsv->s * remainder / 60) / 255);
-        uint8_t t = (uint8_t)((uint32_t)hsv->v * (255 - (uint16_t)hsv->s * (60 - remainder) / 60) / 255);
+        uint8_t q = (uint8_t)((uint32_t)hsv->v * (255 - (uint16_t)hsv->s * (60 - remainder) / 60) / 255);
+        uint8_t t = (uint8_t)((uint32_t)hsv->v * (255 - (uint16_t)hsv->s * remainder / 60) / 255);
 
         switch (region) {
             case 0:  r = hsv->v; g = t;     b = p;     break;
