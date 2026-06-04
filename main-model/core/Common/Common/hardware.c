@@ -227,7 +227,8 @@ void Hardware_Heartbeat(void)
     }
 
     /* 检查是否有 pending 的 RGB 配置需要发送给已在线的 RGB 子模块 */
-    if (hardware_g.rgb_config.pending)
+    /* 仅当 Config_Apply 已执行后才发送，避免 CH378 初始化前发送零值/默认配置 */
+    if (hardware_g.config_applied && hardware_g.rgb_config.pending)
     {
         for (i = 3; i < HB_MAX_SLOTS; i++)
         {
@@ -249,7 +250,7 @@ void Hardware_Heartbeat(void)
     }
 
     /* 检查是否有 pending 的 RGB 自定义帧需要传输 */
-    if (hardware_g.rgb_frame.pending)
+    if (hardware_g.config_applied && hardware_g.rgb_frame.pending)
     {
         for (i = 3; i < HB_MAX_SLOTS; i++)
         {
@@ -311,9 +312,10 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
 
             /* RGB 子模块上线时，不直接发送 SetMode。
              * 设置 pending=1 让心跳统一发送，这样可以确保：
-             * 1) 首次上线（Config 未加载）：心跳发现 pending=1 但 rgb_config
-             *    是零值，submodel-5 收到 mode=0 + brightness=0 → 保持黑色
-             * 2) Config_Apply 后：心跳发送正确的配置
+             * 1) 首次上线（Config 未加载）：心跳检查 config_applied=0，
+             *    不会发送零值配置，submodel-5 保持黑色
+             * 2) Config_Apply 后：心跳发现 config_applied=1 且 pending=1，
+             *    发送正确的配置
              * 3) 拔插重连：pending 重新置 1，心跳重发当前配置 */
             if (type == MODULE_TYPE_SUBMODEL &&
                 subtype == MODULE_SUBTYPE_SUBMODEL_RGB)

@@ -191,9 +191,9 @@ static void RenderCustom(void)
         return;
     }
 
-    /* Always show frame 0 (static display, no animation) */
+    /* Always show frame 1 (static display, no animation) */
     for (i = 0; i < WS2812_LED_COUNT; i++) {
-        const rgb888_t *led_color = &s_state.custom_frames[0][i];
+        const rgb888_t *led_color = &s_state.custom_frames[1][i];
         rgb888_t out;
         Color_ApplyBrightness(led_color, s_state.brightness, &out);
         WS2812_SetPixel(i, out.r, out.g, out.b);
@@ -208,10 +208,10 @@ void Effect_Init(void)
 {
     memset(&s_state, 0, sizeof(s_state));
     s_state.mode = RGB_MODE_SOLID;
-    s_state.r = 255;
-    s_state.g = 255;
-    s_state.b = 255;
-    s_state.brightness = 128;
+    s_state.r = 0;
+    s_state.g = 0;
+    s_state.b = 0;
+    s_state.brightness = 0;
     s_state.speed = 5;
 
     s_breath_hue = 0;

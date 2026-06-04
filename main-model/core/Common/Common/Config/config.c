@@ -70,7 +70,7 @@ const config_default_entry_t config_defaults[] = {
     { "0505", "rgb_mode",        1   },
     { "0505", "rgb_color_r",     255 },
     { "0505", "rgb_color_g",     255 },
-    { "0505", "rgb_color_b",     255 },
+    { "0505", "rgb_color_b",     0   },
     { "0505", "rgb_brightness",  80  },
     { "0505", "rgb_speed",       50  },
 
@@ -1248,6 +1248,7 @@ void Config_Apply(void)
         hardware_g.rgb_config.pending = 1;
     }
 
+    hardware_g.config_applied = 1;
     s_config_applied = 1;
 }
 

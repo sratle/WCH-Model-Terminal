@@ -128,6 +128,7 @@ typedef struct
     hb_slot_t hb_slots[HB_MAX_SLOTS]; /* 心跳槽位 */
     uint32_t hb_tick;           /* 心跳计时计数器 (ms) */
     config_request_t config_req; /* V3F→V5F 跨核配置请求 */
+    uint8_t         config_applied; /* V5F Config_Apply 已执行，1=配置已就绪 */
     rgb_config_t    rgb_config; /* V5F→V3F RGB 配置传递 */
     rgb_frame_transfer_t rgb_frame; /* V5F→V3F RGB 自定义帧传输 */
     core_key_queue_t key_queue;  /* V3F→V5F 核心按键事件队列 */
