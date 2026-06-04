@@ -309,22 +309,16 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
                        hb_slot_names[i], type, subtype);
             }
 
-            /* RGB 子模块上线时，每次都发送当前 RGB 配置
-             * 确保拔插后（即使 status 未变 OFFLINE）也能重新设置模式 */
+            /* RGB 子模块上线时，不直接发送 SetMode。
+             * 设置 pending=1 让心跳统一发送，这样可以确保：
+             * 1) 首次上线（Config 未加载）：心跳发现 pending=1 但 rgb_config
+             *    是零值，submodel-5 收到 mode=0 + brightness=0 → 保持黑色
+             * 2) Config_Apply 后：心跳发送正确的配置
+             * 3) 拔插重连：pending 重新置 1，心跳重发当前配置 */
             if (type == MODULE_TYPE_SUBMODEL &&
                 subtype == MODULE_SUBTYPE_SUBMODEL_RGB)
             {
-                uint8_t idx = i - 3; /* slot 3,4,5 → submodels_g[0,1,2] */
-                if (idx < 3) {
-                    Submodels_RGB_SetMode(&submodels_g[idx],
-                                          hardware_g.rgb_config.mode,
-                                          hardware_g.rgb_config.r,
-                                          hardware_g.rgb_config.g,
-                                          hardware_g.rgb_config.b,
-                                          hardware_g.rgb_config.brightness,
-                                          hardware_g.rgb_config.speed);
-                    hardware_g.rgb_config.pending = 0;
-                }
+                hardware_g.rgb_config.pending = 1;
             }
             return;
         }

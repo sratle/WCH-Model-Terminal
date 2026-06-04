@@ -19,6 +19,7 @@
 
 static cJSON *config_root = NULL;   /* config.json 的 cJSON 根对象 */
 static uint8_t config_dirty = 0;    /* 脏标记：有未写回的变更 */
+static uint8_t s_config_applied = 0; /* Config_Apply 至少成功调用过一次 */
 
 /* 前向声明 */
 static void Config_SyncFromHardware(void);
@@ -1246,6 +1247,8 @@ void Config_Apply(void)
         hardware_g.rgb_config.speed = (uint8_t)val;
         hardware_g.rgb_config.pending = 1;
     }
+
+    s_config_applied = 1;
 }
 
 /************************* 脏标记查询 *************************/
@@ -1253,6 +1256,11 @@ void Config_Apply(void)
 uint8_t Config_IsDirty(void)
 {
     return config_dirty;
+}
+
+uint8_t Config_IsApplied(void)
+{
+    return s_config_applied;
 }
 
 /************************* 设备匹配检查 *************************/

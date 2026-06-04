@@ -243,6 +243,12 @@ void Config_Apply(void);
 uint8_t Config_IsDirty(void);
 
 /**
+ * @brief  查询 Config_Apply 是否已至少成功调用过一次
+ * @return 1=已加载配置，0=尚未加载
+ */
+uint8_t Config_IsApplied(void);
+
+/**
  * @brief  检查当前挂载设备是否与配置保存目标一致
  * @return 1=设备匹配可操作，0=设备不匹配
  */

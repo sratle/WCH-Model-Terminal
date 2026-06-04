@@ -35,7 +35,7 @@ static uint16_t s_breath_hue = 0;       /* 0-359 degrees */
 static uint8_t  s_marquee_head = 0;     /* current head LED index (0-48) */
 
 /* ---- Custom state ---- */
-static uint8_t  s_custom_frame_idx = 0; /* current frame being displayed */
+/* (frame index always 0 — static display) */
 
 /* ==================================================================== */
 /*  Speed helper: effective speed (minimum 1 to avoid stall)            */
@@ -176,8 +176,8 @@ static void StepMarquee(void)
 }
 
 /* ==================================================================== */
-/*  Mode: Custom - Play pre-loaded frame animation                      */
-/*  Speed controls frame interval (advance every N frames).             */
+/*  Mode: Custom - Show first received frame as static display           */
+/*  No animation stepping; always renders frame 0.                       */
 /*  Brightness applied via HSV: S forced to 255, V scaled.             */
 /* ==================================================================== */
 static void RenderCustom(void)
@@ -191,21 +191,12 @@ static void RenderCustom(void)
         return;
     }
 
+    /* Always show frame 0 (static display, no animation) */
     for (i = 0; i < WS2812_LED_COUNT; i++) {
-        const rgb888_t *led_color = &s_state.custom_frames[s_custom_frame_idx][i];
+        const rgb888_t *led_color = &s_state.custom_frames[0][i];
         rgb888_t out;
-        /* Apply brightness via HSV: force S=255 for vivid colors,
-         * scale V by brightness for smooth intensity control */
         Color_ApplyBrightness(led_color, s_state.brightness, &out);
         WS2812_SetPixel(i, out.r, out.g, out.b);
-    }
-}
-
-static void StepCustom(void)
-{
-    s_custom_frame_idx++;
-    if (s_custom_frame_idx >= s_state.custom_frame_count) {
-        s_custom_frame_idx = 0;
     }
 }
 
@@ -225,7 +216,6 @@ void Effect_Init(void)
 
     s_breath_hue = 0;
     s_marquee_head = 0;
-    s_custom_frame_idx = 0;
 }
 
 void Effect_SetMode(rgb_mode_t mode, uint8_t r, uint8_t g, uint8_t b,
@@ -256,9 +246,7 @@ void Effect_SetMode(rgb_mode_t mode, uint8_t r, uint8_t g, uint8_t b,
     s_marquee_head = 0;
 
     /* For custom mode: do NOT clear custom_frame_count here.
-     * Frame data may already be loaded (or will be loaded via SendFrame).
-     * Only reset the frame index. */
-    s_custom_frame_idx = 0;
+     * Frame data may already be loaded (or will be loaded via SendFrame). */
 
     s_dirty = 1;
 }
@@ -281,7 +269,6 @@ void Effect_PlayCustom(uint8_t frame_count, uint16_t frame_interval)
     s_state.custom_frame_count = frame_count;
     s_state.mode = RGB_MODE_CUSTOM;
     s_state.frame_counter = 0;
-    s_custom_frame_idx = 0;
     s_dirty = 1;
 }
 
@@ -318,14 +305,7 @@ bool Effect_Update(void)
 
         case RGB_MODE_CUSTOM:
             RenderCustom();
-            /* Advance frame based on speed */
-            if (s_state.custom_frame_count > 0) {
-                s_state.frame_counter++;
-                if (s_state.frame_counter >= eff_speed) {
-                    s_state.frame_counter = 0;
-                    StepCustom();
-                }
-            }
+            /* No animation stepping — static display of frame 0 */
             break;
 
         default:
