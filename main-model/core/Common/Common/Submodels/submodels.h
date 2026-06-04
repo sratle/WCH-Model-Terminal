@@ -10,10 +10,17 @@
 
 /* ============================================================================
  * RGB Submodel Constants
+ * (also defined in hardware.h for shared memory; guarded to avoid conflicts)
  * ============================================================================ */
+#ifndef RGB_LED_COUNT
 #define RGB_LED_COUNT           49      /* 7x7 matrix */
+#endif
+#ifndef RGB_FRAME_DATA_SIZE
 #define RGB_FRAME_DATA_SIZE     (RGB_LED_COUNT * 3)  /* 147 bytes RGB888 */
+#endif
+#ifndef RGB_MAX_CUSTOM_FRAMES
 #define RGB_MAX_CUSTOM_FRAMES   20
+#endif
 
 #define SUBMODELS1_UART USART6
 #define SUBMODELS2_UART USART7

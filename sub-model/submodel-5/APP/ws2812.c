@@ -87,7 +87,14 @@ static void EncodePixel(uint8_t g, uint8_t r, uint8_t b, uint8_t *out)
 
 /* ==================================================================== */
 /*  Internal: Send buffer via SPI0 FIFO                                 */
+/*  During SPI transmission (which takes ~1.5ms for 49 LEDs), the       */
+/*  UART0 RX FIFO can overflow and lose heartbeat ACK responses,       */
+/*  causing ONLINE/OFFLINE toggling. We poll UART0 RX during SPI      */
+/*  wait loops to prevent data loss.                                     */
 /* ==================================================================== */
+
+/* Forward declaration: defined in rgb_app.c */
+extern void App_ProcessUART(void);
 
 static void SPI0_SendBuffer(const uint8_t *buf, uint16_t len)
 {
@@ -103,15 +110,25 @@ static void SPI0_SendBuffer(const uint8_t *buf, uint16_t len)
             buf++;
             sendlen--;
         }
+        /* Poll UART0 RX while waiting for SPI FIFO space */
+        if (R8_UART0_LSR & RB_LSR_DATA_RDY) {
+            App_ProcessUART();
+        }
     }
 
     /* 等待 FIFO 中所有数据发送完毕 */
-    while (R8_SPI0_FIFO_COUNT != 0)
-        ;
+    while (R8_SPI0_FIFO_COUNT != 0) {
+        if (R8_UART0_LSR & RB_LSR_DATA_RDY) {
+            App_ProcessUART();
+        }
+    }
 
     /* 等待所有字节完全移位发送完毕（含最后一个字节） */
-    while (!(R8_SPI0_INT_FLAG & RB_SPI_IF_CNT_END))
-        ;
+    while (!(R8_SPI0_INT_FLAG & RB_SPI_IF_CNT_END)) {
+        if (R8_UART0_LSR & RB_LSR_DATA_RDY) {
+            App_ProcessUART();
+        }
+    }
 }
 
 /* ==================================================================== */

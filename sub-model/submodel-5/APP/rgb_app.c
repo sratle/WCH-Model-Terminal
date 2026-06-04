@@ -27,6 +27,11 @@ protocol_rx_ctx_t s_proto_rx_ctx;
  * Initially MODULE_ID_SUBMODEL (0x40), updated on first frame reception. */
 static uint8_t s_my_module_id = MODULE_ID_SUBMODEL;
 
+/* Flag: set to 1 after receiving CMD_SUB_SET_MODE from Core.
+ * Before this, App_UpdateEffect() skips WS2812 refresh to avoid
+ * displaying uninitialized/default color on power-up. */
+static uint8_t s_mode_received = 0;
+
 /* UART TX output buffer */
 static uint8_t s_uart_tx_buf[PROTO_MAX_FRAME_LEN];
 
@@ -151,11 +156,10 @@ static void HandleSetMode(const protocol_frame_t *frame)
                     App_SendNack(PROTO_ERR_INVALID_PARAM);
                     return;
                 }
-                /* TODO: 测试阶段暂不应用 core 发来的模式，仅回复 ACK
                 Effect_SetMode((rgb_mode_t)mode,
                                frame->data[2], frame->data[3], frame->data[4],
                                frame->data[5], frame->data[6]);
-                */
+                s_mode_received = 1;
                 App_SendAck(NULL, 0);
             } else {
                 App_SendNack(PROTO_ERR_LEN_MISMATCH);
@@ -251,9 +255,7 @@ void App_Init(void)
     WS2812_Init();
     Effect_Init();
 
-    /* 测试阶段：直接设置绿色常亮，验证 WS2812 硬件 */
-    Effect_SetMode(RGB_MODE_SOLID, 0, 255, 0, 50, 128);
-    WS2812_Refresh();
+    /* 正式模式：等待 Core 发送 CMD_SUB_SET_MODE 后再显示 */
 }
 
 void App_ProcessUART(void)
@@ -275,6 +277,10 @@ void App_UpdateEffect(void)
 {
     uint32_t delay_count;
     const effect_state_t *st = Effect_GetState();
+
+    /* 收到 Core 的 SET_MODE 前不刷新 WS2812，避免上电显示默认颜色 */
+    if (!s_mode_received)
+        return;
 
     /* 更新效果渲染 */
     Effect_Update();

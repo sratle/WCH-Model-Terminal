@@ -15,6 +15,10 @@ static effect_state_t s_state;
 /* Animation phase counter */
 static uint32_t s_anim_phase = 0;
 
+/* Dirty flag: set when mode/color parameters change.
+ * In solid mode, skip WS2812_Refresh() when not dirty to save SPI bandwidth. */
+static uint8_t s_dirty = 1;
+
 /* ==================================================================== */
 /*  Mode: Solid - All LEDs same color with brightness                   */
 /* ==================================================================== */
@@ -165,6 +169,7 @@ void Effect_SetMode(rgb_mode_t mode, uint8_t r, uint8_t g, uint8_t b,
     s_state.brightness = brightness;
     s_state.speed = speed;
     s_anim_phase = 0;
+    s_dirty = 1;
 }
 
 void Effect_SetCustomFrame(uint8_t frame_idx, const uint8_t *data)
@@ -198,7 +203,11 @@ bool Effect_Update(void)
     /* Render current frame based on mode */
     switch (s_state.mode) {
         case RGB_MODE_SOLID:
+            /* In solid mode, only refresh when parameters changed */
+            if (!s_dirty)
+                return FALSE;
             RenderSolid();
+            s_dirty = 0;
             break;
 
         case RGB_MODE_BREATHING:
@@ -214,7 +223,10 @@ bool Effect_Update(void)
             break;
 
         default:
+            if (!s_dirty)
+                return FALSE;
             RenderSolid();
+            s_dirty = 0;
             break;
     }
 

@@ -2277,6 +2277,164 @@ static void CLI_Cmd_Speaker(uint8_t argc, char **argv)
 }
 
 /* ------------------------------------------------------------------------ */
+/*  RGB Submodel Commands                                                   */
+/*  Note: CLI runs on V5F, but submodel UART is on V3F.                    */
+/*  Commands write to shared memory (hardware_g) and V3F picks them up.    */
+/* ------------------------------------------------------------------------ */
+
+static void CLI_Cmd_Rgb(uint8_t argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Usage:\r\n");
+        printf("  rgb mode <mode> <r> <g> <b> <brightness> <speed>\r\n");
+        printf("  rgb refresh json\r\n");
+        printf("  rgb status\r\n");
+        printf("Modes: 0=custom, 1=solid, 2=breathing, 3=marquee\r\n");
+        return;
+    }
+
+    if (strcmp(argv[1], "mode") == 0) {
+        /* rgb mode <mode> <r> <g> <b> <brightness> <speed> */
+        uint8_t mode, r, g, b, brightness, speed;
+
+        if (argc < 8) {
+            printf("Usage: rgb mode <mode> <r> <g> <b> <brightness> <speed>\r\n");
+            return;
+        }
+
+        mode       = (uint8_t)atoi(argv[2]);
+        r          = (uint8_t)atoi(argv[3]);
+        g          = (uint8_t)atoi(argv[4]);
+        b          = (uint8_t)atoi(argv[5]);
+        brightness = (uint8_t)atoi(argv[6]);
+        speed      = (uint8_t)atoi(argv[7]);
+
+        if (mode > 3) {
+            printf("rgb: invalid mode %d (0-3)\r\n", mode);
+            return;
+        }
+
+        /* Write to shared memory; V3F heartbeat will send to submodel */
+        hardware_g.rgb_config.mode = mode;
+        hardware_g.rgb_config.r = r;
+        hardware_g.rgb_config.g = g;
+        hardware_g.rgb_config.b = b;
+        hardware_g.rgb_config.brightness = brightness;
+        hardware_g.rgb_config.speed = speed;
+        hardware_g.rgb_config.pending = 1;
+
+        printf("rgb: mode=%d R=%d G=%d B=%d bright=%d speed=%d (pending)\r\n",
+               mode, r, g, b, brightness, speed);
+    }
+    else if (strcmp(argv[1], "refresh") == 0) {
+        /* rgb refresh json - load rgb.json and queue custom frames for V3F */
+        cJSON *rgb_json;
+        cJSON *frames_arr, *fc_item, *fi_item;
+        int frame_count, frame_interval;
+        uint8_t frame_idx;
+
+        if (argc < 3 || strcmp(argv[2], "json") != 0) {
+            printf("Usage: rgb refresh json\r\n");
+            return;
+        }
+
+        /* Load rgb.json from CONFIG directory */
+        rgb_json = (cJSON *)Config_LoadFile("rgb.json");
+        if (rgb_json == NULL) {
+            printf("rgb: rgb.json not found or parse failed\r\n");
+            return;
+        }
+
+        /* Parse frame_count and frame_interval */
+        fc_item = cJSON_GetObjectItem(rgb_json, "frame_count");
+        fi_item = cJSON_GetObjectItem(rgb_json, "frame_interval");
+        if (!fc_item || !cJSON_IsNumber(fc_item)) {
+            printf("rgb: invalid frame_count in rgb.json\r\n");
+            cJSON_Delete(rgb_json);
+            return;
+        }
+        frame_count = fc_item->valueint;
+        frame_interval = fi_item ? fi_item->valueint : 100;
+
+        if (frame_count <= 0 || frame_count > RGB_MAX_CUSTOM_FRAMES) {
+            printf("rgb: frame_count %d out of range (1-%d)\r\n",
+                   frame_count, RGB_MAX_CUSTOM_FRAMES);
+            cJSON_Delete(rgb_json);
+            return;
+        }
+
+        /* Get frames array */
+        frames_arr = cJSON_GetObjectItem(rgb_json, "frames");
+        if (!frames_arr || !cJSON_IsArray(frames_arr)) {
+            printf("rgb: missing or invalid 'frames' array\r\n");
+            cJSON_Delete(rgb_json);
+            return;
+        }
+
+        /* Write frame data to shared memory for V3F to send */
+        for (frame_idx = 0; frame_idx < frame_count; frame_idx++) {
+            cJSON *frame = cJSON_GetArrayItem(frames_arr, frame_idx);
+            int led_idx;
+
+            if (!frame || !cJSON_IsArray(frame) ||
+                cJSON_GetArraySize(frame) < RGB_LED_COUNT) {
+                printf("rgb: frame %d invalid or incomplete\r\n", frame_idx);
+                continue;
+            }
+
+            /* Convert JSON frame to flat RGB888 byte array in shared memory */
+            for (led_idx = 0; led_idx < RGB_LED_COUNT; led_idx++) {
+                cJSON *led = cJSON_GetArrayItem(frame, led_idx);
+                if (led && cJSON_IsArray(led) && cJSON_GetArraySize(led) >= 3) {
+                    hardware_g.rgb_frame.frame_data[frame_idx][led_idx * 3 + 0] =
+                        (uint8_t)cJSON_GetArrayItem(led, 0)->valueint;
+                    hardware_g.rgb_frame.frame_data[frame_idx][led_idx * 3 + 1] =
+                        (uint8_t)cJSON_GetArrayItem(led, 1)->valueint;
+                    hardware_g.rgb_frame.frame_data[frame_idx][led_idx * 3 + 2] =
+                        (uint8_t)cJSON_GetArrayItem(led, 2)->valueint;
+                } else {
+                    hardware_g.rgb_frame.frame_data[frame_idx][led_idx * 3 + 0] = 0;
+                    hardware_g.rgb_frame.frame_data[frame_idx][led_idx * 3 + 1] = 0;
+                    hardware_g.rgb_frame.frame_data[frame_idx][led_idx * 3 + 2] = 0;
+                }
+            }
+            printf("rgb: queued frame %d/%d\r\n", frame_idx + 1, frame_count);
+        }
+
+        /* Set transfer parameters in shared memory */
+        hardware_g.rgb_frame.frame_count = (uint8_t)frame_count;
+        hardware_g.rgb_frame.frame_interval = (uint16_t)frame_interval;
+        hardware_g.rgb_frame.pending = 1;
+
+        /* Also set mode to custom (0) */
+        hardware_g.rgb_config.mode = 0;
+        hardware_g.rgb_config.pending = 1;
+
+        printf("rgb: %d frames queued, interval=%dms\r\n",
+               frame_count, frame_interval);
+
+        cJSON_Delete(rgb_json);
+    }
+    else if (strcmp(argv[1], "status") == 0) {
+        /* rgb status - print current shared memory config */
+        printf("rgb: mode=%d R=%d G=%d B=%d bright=%d speed=%d pending=%d\r\n",
+               hardware_g.rgb_config.mode,
+               hardware_g.rgb_config.r,
+               hardware_g.rgb_config.g,
+               hardware_g.rgb_config.b,
+               hardware_g.rgb_config.brightness,
+               hardware_g.rgb_config.speed,
+               hardware_g.rgb_config.pending);
+        printf("rgb: frame_pending=%d frame_count=%d interval=%dms\r\n",
+               hardware_g.rgb_frame.pending,
+               hardware_g.rgb_frame.frame_count,
+               hardware_g.rgb_frame.frame_interval);
+    }
+    else {
+        printf("rgb: unknown subcommand '%s'\r\n", argv[1]);
+    }
+}
+
 /* CLI 主入口 */
 /* ------------------------------------------------------------------------ */
 
@@ -2381,6 +2539,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Config(argc, argv);
     } else if (strcmp(argv[0], "speaker") == 0) {
         CLI_Cmd_Speaker(argc, argv);
+    } else if (strcmp(argv[0], "rgb") == 0) {
+        CLI_Cmd_Rgb(argc, argv);
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }

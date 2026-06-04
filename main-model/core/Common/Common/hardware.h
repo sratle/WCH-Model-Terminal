@@ -66,6 +66,21 @@ typedef struct {
 } rgb_config_t;
 
 /*=============================================================================
+ *  V5F → V3F RGB 自定义帧传输
+ *=============================================================================*/
+
+#define RGB_LED_COUNT           49
+#define RGB_FRAME_DATA_SIZE     (RGB_LED_COUNT * 3)  /* 147 bytes RGB888 */
+#define RGB_MAX_CUSTOM_FRAMES   20
+
+typedef struct {
+    uint8_t pending;                        /* 1=V5F 有帧数据待传输 */
+    uint8_t frame_count;                    /* 总帧数 (1~20) */
+    uint16_t frame_interval;                /* 帧间隔 (ms) */
+    uint8_t frame_data[RGB_MAX_CUSTOM_FRAMES][RGB_FRAME_DATA_SIZE]; /* 帧数据 */
+} rgb_frame_transfer_t;
+
+/*=============================================================================
  *  V3F → V5F Core 按键事件
  *=============================================================================*/
 
@@ -114,6 +129,7 @@ typedef struct
     uint32_t hb_tick;           /* 心跳计时计数器 (ms) */
     config_request_t config_req; /* V3F→V5F 跨核配置请求 */
     rgb_config_t    rgb_config; /* V5F→V3F RGB 配置传递 */
+    rgb_frame_transfer_t rgb_frame; /* V5F→V3F RGB 自定义帧传输 */
     core_key_queue_t key_queue;  /* V3F→V5F 核心按键事件队列 */
 } hardware_t;
 

@@ -247,6 +247,35 @@ void Hardware_Heartbeat(void)
             }
         }
     }
+
+    /* 检查是否有 pending 的 RGB 自定义帧需要传输 */
+    if (hardware_g.rgb_frame.pending)
+    {
+        for (i = 3; i < HB_MAX_SLOTS; i++)
+        {
+            if (hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_SUBMODEL_RGB &&
+                hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+            {
+                uint8_t idx = i - 3;
+                uint8_t f;
+
+                /* 逐帧发送自定义帧数据 */
+                for (f = 0; f < hardware_g.rgb_frame.frame_count; f++)
+                {
+                    Submodels_RGB_SendFrame(&submodels_g[idx], f,
+                                             hardware_g.rgb_frame.frame_data[f]);
+                }
+
+                /* 发送播放命令 */
+                Submodels_RGB_PlayAnimation(&submodels_g[idx],
+                                            hardware_g.rgb_frame.frame_count,
+                                            hardware_g.rgb_frame.frame_interval);
+
+                hardware_g.rgb_frame.pending = 0;
+                break;
+            }
+        }
+    }
 }
 
 /*********************************************************************
@@ -279,10 +308,10 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
                 printf("[HB] %s ONLINE type=0x%02X subtype=0x%02X\r\n",
                        hb_slot_names[i], type, subtype);
 
-                /* RGB 子模块上线时，立即发送 pending 的配置 */
+                /* RGB 子模块上线时，发送当前 RGB 配置（无论 pending 状态）
+                 * 确保从 OFFLINE 恢复后也能重新设置模式 */
                 if (type == MODULE_TYPE_SUBMODEL &&
-                    subtype == MODULE_SUBTYPE_SUBMODEL_RGB &&
-                    hardware_g.rgb_config.pending)
+                    subtype == MODULE_SUBTYPE_SUBMODEL_RGB)
                 {
                     uint8_t idx = i - 3; /* slot 3,4,5 → submodels_g[0,1,2] */
                     if (idx < 3) {
