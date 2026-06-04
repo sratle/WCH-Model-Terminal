@@ -81,6 +81,14 @@ void Color_HSVtoRGB(const hsv_t *hsv, rgb888_t *rgb)
     rgb->b = b;
 }
 
+void Color_ScaleBrightness(const rgb888_t *in, uint8_t brightness, rgb888_t *out)
+{
+    /* Simple linear brightness scaling - preserves original color/hue */
+    out->r = (uint8_t)((uint16_t)in->r * brightness / 255);
+    out->g = (uint8_t)((uint16_t)in->g * brightness / 255);
+    out->b = (uint8_t)((uint16_t)in->b * brightness / 255);
+}
+
 void Color_ApplyBrightness(const rgb888_t *in, uint8_t brightness, rgb888_t *out)
 {
     hsv_t hsv;

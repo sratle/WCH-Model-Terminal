@@ -51,11 +51,22 @@ void Color_HSVtoRGB(const hsv_t *hsv, rgb888_t *rgb);
 /**
  * @brief  Apply brightness (0-255) to an RGB color via HSV conversion.
  *         Converts RGB->HSV, scales V by brightness, converts HSV->RGB.
+ *         Forces S=255 for vivid colors (may shift hue for pastels/whites).
  * @param  in         - Input RGB888
  * @param  brightness - Brightness factor (0=off, 255=full)
  * @param  out        - Output RGB888 with brightness applied
  */
 void Color_ApplyBrightness(const rgb888_t *in, uint8_t brightness, rgb888_t *out);
+
+/**
+ * @brief  Scale brightness by simple linear multiplication.
+ *         Preserves original color/hue exactly (no HSV conversion).
+ *         Use this when color fidelity matters (e.g., custom frames).
+ * @param  in         - Input RGB888
+ * @param  brightness - Brightness factor (0=off, 255=full)
+ * @param  out        - Output RGB888 with brightness scaled
+ */
+void Color_ScaleBrightness(const rgb888_t *in, uint8_t brightness, rgb888_t *out);
 
 /**
  * @brief  Linear interpolation between two RGB888 colors.

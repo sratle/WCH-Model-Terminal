@@ -302,16 +302,24 @@ void App_UpdateEffect(void)
         return;
     }
 
-    /* 动画模式：更新效果 + 延时控制帧率 */
+    /* 动画模式：固定 ~60fps 帧率
+     * SPI 发送 ~1.5ms + 延时 ~14.5ms ≈ 16ms/帧 ≈ 60fps
+     * speed 控制 phase 步进（在 Effect_Update 中实现），不控制帧率
+     *
+     * 分块延时：每块 ~1.5ms，块间处理 UART，防止 ring buffer 溢出丢帧
+     * while(d--) 循环约 4 cycles/iter (nop+subi+cmp+branch)，
+     * 60MHz 下 1.5ms ≈ 90000 cycles / 4 ≈ 22500 iters */
     Effect_Update();
 
-    /* 使用 __NOP() 循环控制 RGB 变化速度
-     * speed 0 = 最慢 (~30000 cycles), speed 255 = 最快 (~50 cycles)
-     * CH585F @ 60MHz: 1 cycle ≈ 16.7ns
-     * 30000 cycles ≈ 500us, 50 cycles ≈ 0.8us */
-    uint32_t delay_count = (uint32_t)(30000 - ((uint32_t)st->speed * 29950 / 255));
-    if (delay_count < 50) delay_count = 50;
-    while (delay_count--) {
-        __asm__ volatile("nop");
+    {
+        uint8_t chunk;
+        for (chunk = 0; chunk < 10; chunk++) {
+            uint32_t d = 22500;
+            while (d--) {
+                __asm__ volatile("nop");
+            }
+            /* 每块之间处理 UART，避免 ring buffer 溢出 */
+            App_ProcessUART();
+        }
     }
 }
