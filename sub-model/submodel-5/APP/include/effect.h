@@ -67,7 +67,8 @@ typedef struct {
 
     /* Custom frame data: each frame stores per-LED RGB888 color.
      * Global brightness is applied during rendering via HSV (S forced to max). */
-    uint8_t     custom_frame_count;
+    uint8_t     custom_frame_count;       /* Total loaded frames */
+    uint8_t     custom_current_frame;     /* Current display frame index (cycles 0..count-1) */
     rgb888_t    custom_frames[EFFECT_MAX_CUSTOM_FRAMES][WS2812_LED_COUNT];
 } effect_state_t;
 

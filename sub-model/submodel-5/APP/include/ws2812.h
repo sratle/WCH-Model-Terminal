@@ -47,7 +47,8 @@ void WS2812_SetAll(uint8_t r, uint8_t g, uint8_t b);
 
 /**
  * @brief  Send LED buffer to WS2812 chain via GPIO bit-bang.
- *         Blocking ~1.5ms, interrupts disabled during transmission.
+ *         IRQ disabled per-LED (~24µs), re-enabled between LEDs
+ *         to allow UART0 ISR to drain FIFO.
  */
 void WS2812_Refresh(void);
 

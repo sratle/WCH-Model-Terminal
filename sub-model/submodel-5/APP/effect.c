@@ -2,17 +2,17 @@
  * File Name          : effect.c
  * Description        : RGB LED effect engine for 7x7 WS2812 matrix.
  *
- * Architecture: frame-based @ 50fps
+ * Architecture: frame-based @ 100fps
  *   Effect_Update() is called once per frame. It renders the current
  *   state into the LED buffer and calls WS2812_Refresh() to send.
  *   Speed controls animation stepping:
  *     speed=255 → advance every frame (fastest)
  *     speed=1   → advance every 255 frames (slowest)
  *     speed=0   → treated as speed=1 (slowest)
- *   Render rate is always 50fps regardless of speed.
+ *   Render rate is always 100fps regardless of speed.
  *
  * Modes:
- *   0 (Custom):    Pre-loaded frame, static display of frame 0
+ *   0 (Custom):    Frame animation cycling through loaded frames
  *   1 (Solid):     All LEDs same color, brightness via Color_Scale
  *   2 (Breathing): Hue rotation 0→359→0
  *   3 (Marquee):   Bounce 0→48→0 with trail
@@ -32,7 +32,7 @@ static uint16_t s_breath_hue = 0;       /* 0-359 degrees */
 static uint8_t  s_marquee_head = 0;     /* current head LED index (0-48) */
 
 /* ---- Custom state ---- */
-/* (frame index always 0 — static display) */
+/* custom_current_frame tracks which frame to display (cycles 0..count-1) */
 
 /* ==================================================================== */
 /*  Speed helper: effective speed (minimum 1 to avoid stall)            */
@@ -173,24 +173,25 @@ static void StepMarquee(void)
 }
 
 /* ==================================================================== */
-/*  Mode: Custom - Show first received frame as static display           */
-/*  No animation stepping; always renders frame 0.                       */
-/*  Brightness applied via HSV: S forced to 255, V scaled.             */
+/*  Mode: Custom - Cycle through loaded frames                          */
+/*  speed=255 → advance every RGB refresh (fastest)                    */
+/*  speed=1   → advance every 255 RGB refreshes (slowest)              */
+/*  Brightness applied via Color_ScaleBrightness.                      */
 /* ==================================================================== */
 static void RenderCustom(void)
 {
     uint8_t i;
+    uint8_t fi = s_state.custom_current_frame;
 
-    if (s_state.custom_frame_count == 0) {
+    if (s_state.custom_frame_count == 0 || fi >= s_state.custom_frame_count) {
         for (i = 0; i < WS2812_LED_COUNT; i++) {
             WS2812_SetPixel(i, 0, 0, 0);
         }
         return;
     }
 
-    /* 显示第一帧 (frame 0) 作为静态画面 */
     for (i = 0; i < WS2812_LED_COUNT; i++) {
-        const rgb888_t *led_color = &s_state.custom_frames[0][i];
+        const rgb888_t *led_color = &s_state.custom_frames[fi][i];
         rgb888_t out;
         Color_ScaleBrightness(led_color, s_state.brightness, &out);
         WS2812_SetPixel(i, out.r, out.g, out.b);
@@ -262,6 +263,7 @@ void Effect_PlayCustom(uint8_t frame_count, uint16_t frame_interval)
         frame_count = EFFECT_MAX_CUSTOM_FRAMES;
     }
     s_state.custom_frame_count = frame_count;
+    s_state.custom_current_frame = 0;  /* 从第 0 帧开始播放 */
     s_state.mode = RGB_MODE_CUSTOM;
     s_state.frame_counter = 0;
 }
@@ -297,7 +299,17 @@ bool Effect_Update(void)
 
         case RGB_MODE_CUSTOM:
             RenderCustom();
-            /* No animation stepping — static display of frame 0 */
+            /* Advance custom frame based on speed */
+            if (s_state.custom_frame_count > 1) {
+                s_state.frame_counter++;
+                if (s_state.frame_counter >= eff_speed) {
+                    s_state.frame_counter = 0;
+                    s_state.custom_current_frame++;
+                    if (s_state.custom_current_frame >= s_state.custom_frame_count) {
+                        s_state.custom_current_frame = 0;
+                    }
+                }
+            }
             break;
 
         default:

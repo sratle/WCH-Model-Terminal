@@ -1,8 +1,8 @@
 /*********************************************************************
  * File Name          : rgb_app.c
- * Description        : RGB application layer — 50fps frame-based arch.
+ * Description        : RGB application layer — 100fps frame-based arch.
  *                      UART0 (PA14-TX, PA15-RX) @ 230400 with Core.
- *                      Each frame: render → WS2812 send → 18ms delay.
+ *                      Each frame: render → WS2812 send → 8ms delay.
  *********************************************************************/
 
 #include "rgb_app.h"
@@ -12,13 +12,13 @@
 #include "effect.h"
 
 /* ==================================================================== */
-/*  50fps Frame Timing                                                  */
-/*  帧周期 = 20ms，其中 WS2812 传输 ≈ 1.5ms，剩余 ≈ 18ms 分块延时   */
-/*  do-while(nop) ≈ 3 cycles/iter @ 62.4MHz                           */
-/*  18ms / 10 chunks = 1.8ms/chunk = 112320 cycles / 3 ≈ 37440 iters  */
+/*  100fps Frame Timing                                                 */
+/*  帧周期 = 10ms，其中 WS2812 传输 ≈ 1.5ms，剩余 ≈ 8ms 分块延时    */
+/*  实测 1 nop ≈ 300ns (含循环开销)                                   */
+/*  8ms / 100 chunks = 0.08ms/chunk ÷ 300ns ≈ 266 iters                */
 /* ==================================================================== */
-#define FRAME_DELAY_CHUNKS      10
-#define FRAME_DELAY_ITERS       37440
+#define FRAME_DELAY_CHUNKS      100
+#define FRAME_DELAY_ITERS       266
 
 /* ==================================================================== */
 /*  UART0 RX ring buffer (ISR → main loop)                              */
@@ -46,7 +46,8 @@ static uint8_t s_uart_tx_buf[PROTO_MAX_FRAME_LEN];
 /* ==================================================================== */
 /*  UART0 RX Interrupt Handler                                          */
 /*  ISR 只做一件事：读 RBR 并写入 ring buffer，不做协议解析。           */
-/*  这样 ISR 极短（~20 cycles），不会干扰 SPI/WS2812 时序。             */
+/*  这样 ISR 极短（~20 cycles），WS2812 发送期间也允许其打断，         */
+/*  避免 FIFO 溢出丢数据。                                              */
 /* ==================================================================== */
 __INTERRUPT __HIGH_CODE void UART0_IRQHandler(void)
 {
@@ -305,7 +306,7 @@ void App_UpdateEffect(void)
      *    传输期间全局中断禁用，保证时序精确 (~1.5ms) */
     Effect_Update();
 
-    /* 2. 帧间延时 ≈ 18ms，分 10 块，块间处理 UART
+    /* 2. 帧间延时 ≈ 8ms，分 10 块，块间处理 UART
      *    保持 PB14 低电平（WS2812 reset 状态） */
     {
         uint8_t chunk;

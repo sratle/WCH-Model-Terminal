@@ -1,13 +1,13 @@
 /*********************************************************************
  * File Name          : rgb_main.c
  * Description        : Submodel-5 (RGB LED) main entry.
- *                      CH585F MCU, simple superloop @ 50fps.
+ *                      CH585F MCU, simple superloop @ 100fps.
  *                      - UART0 (PA14-TX, PA15-RX) @ 230400 for Core
  *                      - GPIO PB14 for WS2812 LED chain (bit-bang)
  *                      - 49x WS2812 7x7 matrix, 4 effect modes
  *
  *                      Frame timing: render(~0ms) + send(~1.5ms)
- *                      + delay(~18ms) = 20ms → 50fps
+ *                      + delay(~8ms) = 10ms → 100fps
  *********************************************************************/
 
 #include "CH58x_common.h"

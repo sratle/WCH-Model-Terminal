@@ -61,10 +61,12 @@ void Color_HSVtoRGB(const hsv_t *hsv, rgb888_t *rgb)
         uint16_t region = hsv->h / 60;
         uint16_t remainder = (hsv->h - (region * 60));
 
-        /* Scale remainder to 0-255 range for integer math */
+        /* Standard HSV→RGB formulas (q and t naming matches textbook):
+         * q = v * (1 - s * (h - 60*region) / 60)
+         * t = v * (1 - s * (60 - (h - 60*region)) / 60) */
         uint8_t p = (uint8_t)((uint32_t)hsv->v * (255 - hsv->s) / 255);
-        uint8_t q = (uint8_t)((uint32_t)hsv->v * (255 - (uint16_t)hsv->s * (60 - remainder) / 60) / 255);
-        uint8_t t = (uint8_t)((uint32_t)hsv->v * (255 - (uint16_t)hsv->s * remainder / 60) / 255);
+        uint8_t q = (uint8_t)((uint32_t)hsv->v * (255 - (uint16_t)hsv->s * remainder / 60) / 255);
+        uint8_t t = (uint8_t)((uint32_t)hsv->v * (255 - (uint16_t)hsv->s * (60 - remainder) / 60) / 255);
 
         switch (region) {
             case 0:  r = hsv->v; g = t;     b = p;     break;

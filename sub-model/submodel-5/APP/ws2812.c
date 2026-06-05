@@ -122,17 +122,12 @@ void WS2812_Init(void)
     /* 发送全 bit-0 数据帧（49×24bit GRB = 0），让 WS2812 锁存全黑 */
     {
         uint8_t i;
-        uint32_t irq_state;
-        PFIC_DisableIRQ(UART0_IRQn);
-        irq_state = __risc_v_disable_irq();
-
         for (i = 0; i < WS2812_LED_COUNT; i++) {
+            uint32_t irq_state = __risc_v_disable_irq();
             send_led(0, 0, 0);   /* G=0, R=0, B=0 — 全 bit-0 */
+            __risc_v_enable_irq(irq_state);
         }
         send_reset();
-
-        __risc_v_enable_irq(irq_state);
-        PFIC_EnableIRQ(UART0_IRQn);
     }
 
     /* 清 LED 缓冲 */
@@ -169,22 +164,18 @@ void WS2812_SetAll(uint8_t r, uint8_t g, uint8_t b)
 void WS2812_Refresh(void)
 {
     uint8_t i;
-    uint32_t irq_state;
 
-    /* WS2812 传输期间禁用中断，保证时序精确 */
-    PFIC_DisableIRQ(UART0_IRQn);
-    irq_state = __risc_v_disable_irq();
-
+    /* 每个 LED 的 24-bit 传输期间(~24µs)禁用全局中断保证时序，
+     * LED 之间重新启用中断让 UART0 ISR 可以排空 FIFO。
+     * UART FIFO 8 字节 @ 230400 可撑 344µs，每 24µs 排一次不会溢出。 */
     for (i = 0; i < WS2812_LED_COUNT; i++) {
+        uint32_t irq_state = __risc_v_disable_irq();
         send_led(s_led_buf[i].g, s_led_buf[i].r, s_led_buf[i].b);
+        __risc_v_enable_irq(irq_state);
     }
 
     /* Reset: LOW > 300µs，也作为帧间间隔的低电平 */
     send_reset();
-
-    /* 恢复中断 */
-    __risc_v_enable_irq(irq_state);
-    PFIC_EnableIRQ(UART0_IRQn);
 }
 
 void WS2812_Clear(void)
