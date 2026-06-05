@@ -75,9 +75,100 @@ void App_Init(void)
     g_refresh_pending = 0;
     g_bulk_ready = 0;
 
-    /* Draw default idle screen */
-    App_DrawStatusBar();
-    UI_DrawString(10, 100, "SubDisp Ready", UI_COLOR_BLACK, &font_montserrat_12);
+    /* ---- Demo screen for driver verification ---- */
+
+    /* 1. Top status bar (black background) */
+    UI_FillRect(0, 0, UI_SCREEN_WIDTH, LAYOUT_STATUS_BAR_H, UI_COLOR_BLACK);
+    UI_DrawIcon(2, 4, icon_battery_full_12_bitmap,
+                ICON_BATTERY_FULL_12_WIDTH, ICON_BATTERY_FULL_12_HEIGHT,
+                UI_COLOR_WHITE);
+    UI_DrawString(20, 5, "85%", UI_COLOR_WHITE, &font_montserrat_12);
+    UI_DrawIcon(UI_SCREEN_WIDTH - 14, 4, icon_bluetooth_12_bitmap,
+                ICON_BLUETOOTH_12_WIDTH, ICON_BLUETOOTH_12_HEIGHT,
+                UI_COLOR_WHITE);
+
+    /* 2. Title text */
+    UI_DrawString(4, 24, "SubDisp v1.0", UI_COLOR_BLACK, &font_montserrat_12);
+
+    /* 3. Separator line */
+    UI_DrawHLine(0, 40, UI_SCREEN_WIDTH, UI_COLOR_BLACK);
+
+    /* 4. Icon row: home, settings, wifi, audio */
+    UI_DrawIcon(4,  46, icon_home_12_bitmap,
+                ICON_HOME_12_WIDTH, ICON_HOME_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawIcon(22, 46, icon_settings_12_bitmap,
+                ICON_SETTINGS_12_WIDTH, ICON_SETTINGS_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawIcon(40, 46, icon_wifi_12_bitmap,
+                ICON_WIFI_12_WIDTH, ICON_WIFI_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawIcon(60, 46, icon_audio_12_bitmap,
+                ICON_AUDIO_12_WIDTH, ICON_AUDIO_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawIcon(78, 46, icon_play_12_bitmap,
+                ICON_PLAY_12_WIDTH, ICON_PLAY_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawIcon(96, 46, icon_bell_12_bitmap,
+                ICON_BELL_12_WIDTH, ICON_BELL_12_HEIGHT, UI_COLOR_BLACK);
+
+    /* 5. Second icon row: keyboard, usb, sd_card, power */
+    UI_DrawIcon(4,  64, icon_keyboard_12_bitmap,
+                ICON_KEYBOARD_12_WIDTH, ICON_KEYBOARD_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawIcon(24, 64, icon_usb_12_bitmap,
+                ICON_USB_12_WIDTH, ICON_USB_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawIcon(46, 64, icon_sd_card_12_bitmap,
+                ICON_SD_CARD_12_WIDTH, ICON_SD_CARD_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawIcon(60, 64, icon_power_12_bitmap,
+                ICON_POWER_12_WIDTH, ICON_POWER_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawIcon(78, 64, icon_warning_12_bitmap,
+                ICON_WARNING_12_WIDTH, ICON_WARNING_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawIcon(98, 64, icon_envelope_12_bitmap,
+                ICON_ENVELOPE_12_WIDTH, ICON_ENVELOPE_12_HEIGHT, UI_COLOR_BLACK);
+
+    /* 6. Separator */
+    UI_DrawHLine(0, 82, UI_SCREEN_WIDTH, UI_COLOR_BLACK);
+
+    /* 7. Graphics: filled rectangle, outlined rectangle */
+    UI_FillRect(4, 88, 30, 20, UI_COLOR_BLACK);
+    UI_DrawRect(40, 88, 30, 20, UI_COLOR_BLACK);
+
+    /* 8. Graphics: filled circle, outlined circle */
+    UI_FillCircle(80, 98, 10, UI_COLOR_BLACK);
+    UI_DrawCircle(108, 98, 10, UI_COLOR_BLACK);
+
+    /* 9. Separator */
+    UI_DrawHLine(0, 112, UI_SCREEN_WIDTH, UI_COLOR_BLACK);
+
+    /* 10. Text lines: digits, uppercase, lowercase */
+    UI_DrawString(4, 116, "0123456789", UI_COLOR_BLACK, &font_montserrat_12);
+    UI_DrawString(4, 132, "ABCDEFGHIJ", UI_COLOR_BLACK, &font_montserrat_12);
+    UI_DrawString(4, 148, "abcdefghij", UI_COLOR_BLACK, &font_montserrat_12);
+    UI_DrawString(4, 164, "Hello World", UI_COLOR_BLACK, &font_montserrat_12);
+
+    /* 11. Separator */
+    UI_DrawHLine(0, 180, UI_SCREEN_WIDTH, UI_COLOR_BLACK);
+
+    /* 12. Inverted text on black bar */
+    UI_FillRect(0, 184, UI_SCREEN_WIDTH, 16, UI_COLOR_BLACK);
+    UI_DrawString(4, 186, "Driver Test OK", UI_COLOR_WHITE, &font_montserrat_12);
+
+    /* 13. Bottom: diagonal line pattern */
+    {
+        int16_t i;
+        for (i = 0; i < UI_SCREEN_WIDTH; i += 4)
+        {
+            UI_DrawPixel(i, 206, UI_COLOR_BLACK);
+            UI_DrawPixel(i, 210, UI_COLOR_BLACK);
+            UI_DrawPixel(i, 214, UI_COLOR_BLACK);
+            UI_DrawPixel(i, 218, UI_COLOR_BLACK);
+        }
+        for (i = 0; i < 20; i += 4)
+        {
+            UI_DrawVLine(i * 6, 206, 16, UI_COLOR_BLACK);
+        }
+    }
+
+    /* 14. Bottom border */
+    UI_DrawRect(0, 228, UI_SCREEN_WIDTH, 20, UI_COLOR_BLACK);
+    UI_DrawString(8, 232, "ST7305 122x250", UI_COLOR_BLACK, &font_montserrat_12);
+
+    /* Flush to display */
     UI_Refresh();
 }
 

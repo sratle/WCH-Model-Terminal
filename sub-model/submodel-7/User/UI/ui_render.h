@@ -80,6 +80,12 @@ void UI_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color);
 /** Draw rectangle outline */
 void UI_DrawRect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color);
 
+/** Draw circle outline (Bresenham) */
+void UI_DrawCircle(int16_t cx, int16_t cy, int16_t r, uint8_t color);
+
+/** Draw filled circle (Bresenham) */
+void UI_FillCircle(int16_t cx, int16_t cy, int16_t r, uint8_t color);
+
 /*=============================================================================
  *  Text Rendering
  *=============================================================================*/
