@@ -1,13 +1,13 @@
 /*********************************************************************
  * File Name          : rgb_main.c
  * Description        : Submodel-5 (RGB LED) main entry.
- *                      CH585F MCU, no BLE/TMOS, simple superloop.
- *                      - UART0 (PA14-TX, PA15-RX) for Core protocol
- *                      - SPI0 MOSI (PB14) for WS2812 LED chain
+ *                      CH585F MCU, simple superloop @ 50fps.
+ *                      - UART0 (PA14-TX, PA15-RX) @ 230400 for Core
+ *                      - GPIO PB14 for WS2812 LED chain (bit-bang)
  *                      - 49x WS2812 7x7 matrix, 4 effect modes
  *
- *                      Frame rate controlled by NOP delays inside
- *                      App_UpdateEffect() (see rgb_app.c).
+ *                      Frame timing: render(~0ms) + send(~1.5ms)
+ *                      + delay(~18ms) = 20ms → 50fps
  *********************************************************************/
 
 #include "CH58x_common.h"

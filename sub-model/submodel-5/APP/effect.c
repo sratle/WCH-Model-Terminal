@@ -2,20 +2,20 @@
  * File Name          : effect.c
  * Description        : RGB LED effect engine for 7x7 WS2812 matrix.
  *
- * Design principles:
- *   1. Each mode has its own state variables for clean control
- *   2. Speed mechanism is unified and frame-based:
- *        speed=N means animation advances one step every N frames.
- *        speed=0 is treated as speed=1 (advance every frame).
- *        At ~60fps: speed=1 → 60 steps/s, speed=6 → 10 steps/s,
- *                   speed=60 → 1 step/s.
- *   3. Frame rate is fixed ~60fps (controlled by App_UpdateEffect)
+ * Architecture: frame-based @ 50fps
+ *   Effect_Update() is called once per frame. It renders the current
+ *   state into the LED buffer and calls WS2812_Refresh() to send.
+ *   Speed controls animation stepping:
+ *     speed=255 → advance every frame (fastest)
+ *     speed=1   → advance every 255 frames (slowest)
+ *     speed=0   → treated as speed=1 (slowest)
+ *   Render rate is always 50fps regardless of speed.
  *
  * Modes:
- *   0 (Custom):    Pre-loaded frame animation, speed = frame interval
- *   1 (Solid):     All LEDs same color+brightness, no animation
- *   2 (Breathing): Hue rotation 0→359→0, speed = hue step interval
- *   3 (Marquee):   Bounce 0→48→0, speed = position step interval
+ *   0 (Custom):    Pre-loaded frame, static display of frame 0
+ *   1 (Solid):     All LEDs same color, brightness via Color_Scale
+ *   2 (Breathing): Hue rotation 0→359→0
+ *   3 (Marquee):   Bounce 0→48→0 with trail
  *********************************************************************/
 
 #include "effect.h"
@@ -24,9 +24,6 @@
 /*  Internal State                                                      */
 /* ==================================================================== */
 static effect_state_t s_state;
-
-/* Dirty flag: set when mode/color parameters change */
-static uint8_t s_dirty = 1;
 
 /* ---- Breathing state ---- */
 static uint16_t s_breath_hue = 0;       /* 0-359 degrees */
@@ -247,8 +244,6 @@ void Effect_SetMode(rgb_mode_t mode, uint8_t r, uint8_t g, uint8_t b,
 
     /* For custom mode: do NOT clear custom_frame_count here.
      * Frame data may already be loaded (or will be loaded via SendFrame). */
-
-    s_dirty = 1;
 }
 
 void Effect_SetCustomFrame(uint8_t frame_idx, const uint8_t *data)
@@ -269,7 +264,6 @@ void Effect_PlayCustom(uint8_t frame_count, uint16_t frame_interval)
     s_state.custom_frame_count = frame_count;
     s_state.mode = RGB_MODE_CUSTOM;
     s_state.frame_counter = 0;
-    s_dirty = 1;
 }
 
 bool Effect_Update(void)
@@ -278,9 +272,7 @@ bool Effect_Update(void)
 
     switch (s_state.mode) {
         case RGB_MODE_SOLID:
-            if (!s_dirty) return FALSE;
             RenderSolid();
-            s_dirty = 0;
             break;
 
         case RGB_MODE_BREATHING:
@@ -309,9 +301,7 @@ bool Effect_Update(void)
             break;
 
         default:
-            if (!s_dirty) return FALSE;
             RenderSolid();
-            s_dirty = 0;
             break;
     }
 

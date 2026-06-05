@@ -1,9 +1,8 @@
 /*********************************************************************
  * File Name          : rgb_app.c
- * Description        : RGB application layer implementation.
- *                      UART0 (PA14-TX, PA15-RX) communication with Core.
- *                      Protocol command dispatch for RGB submodel.
- *                      Uses frame_ready flag pattern (like keyboard-1).
+ * Description        : RGB application layer — 50fps frame-based arch.
+ *                      UART0 (PA14-TX, PA15-RX) @ 230400 with Core.
+ *                      Each frame: render → WS2812 send → 18ms delay.
  *********************************************************************/
 
 #include "rgb_app.h"
@@ -13,14 +12,13 @@
 #include "effect.h"
 
 /* ==================================================================== */
-/*  Frame Rate Tuning                                                   */
-/*  do-while(nop) ≈ 5 cycles/iter on CH585 RISC-V @ 62.4MHz            */
-/*  10000 iters × 10 chunks ≈ 48ms delay + SPI ~1.6ms ≈ 49.6ms → ~20fps*/
-/*  20fps 下 SPI 仅占 ~3% 时间，UART 有 ~48ms/帧的接收窗口，            */
-/*  确保 mode 0 自定义帧（149 字节 @ 230400baud ≈ 6.5ms）可靠接收。    */
-/*  调大 = 更慢更平滑，调小 = 更快                                       */
+/*  50fps Frame Timing                                                  */
+/*  帧周期 = 20ms，其中 WS2812 传输 ≈ 1.5ms，剩余 ≈ 18ms 分块延时   */
+/*  do-while(nop) ≈ 3 cycles/iter @ 62.4MHz                           */
+/*  18ms / 10 chunks = 1.8ms/chunk = 112320 cycles / 3 ≈ 37440 iters  */
 /* ==================================================================== */
-#define CHUNK_DELAY_ITERS   10000
+#define FRAME_DELAY_CHUNKS      10
+#define FRAME_DELAY_ITERS       37440
 
 /* ==================================================================== */
 /*  UART0 RX ring buffer (ISR → main loop)                              */
@@ -302,42 +300,20 @@ void App_ProcessUART(void)
 
 void App_UpdateEffect(void)
 {
-    const effect_state_t *st = Effect_GetState();
-
-    /* 收到 Core 的 SET_MODE 前不刷新 WS2812，避免上电显示默认颜色 */
-    if (!s_mode_received)
-        return;
-
-    /* Solid 模式下参数未变时跳过刷新（dirty flag），直接返回 */
-    if (st->mode == RGB_MODE_SOLID) {
-        Effect_Update();
-        return;
-    }
-
-    /* 动画模式：调用 Effect_Update 渲染当前帧并刷新 WS2812
-     * speed 控制每多少帧步进一次（在 Effect_Update 中实现）
-     *
-     * 分块延时：每块 ~4.8ms，块间处理 UART，防止 ring buffer 溢出丢帧
-     * do-while(nop) 在 RISC-V 上约 5 cycles/iter，
-     * 62.4MHz 下 4.8ms ≈ 300000 cycles / 5 / 10 ≈ 10000 iters
-     *
-     * 20fps 设计：SPI 传输期间 UART 中断保持启用（ISR 极短不会导致
-     * SPI FIFO 欠载），帧间有 ~48ms 的 UART 接收窗口，确保 mode 0
-     * 自定义帧数据（149 字节 @ 230400baud ≈ 6.5ms）可靠到达。
-     *
-     * 校准方法：如果动画太快，增大 CHUNK_DELAY_ITERS；
-     *           如果动画太慢，减小 CHUNK_DELAY_ITERS。
-     * 10 chunks × CHUNK_DELAY_ITERS + SPI(~1.6ms) = 总帧时间 */
+    /* 1. 渲染当前帧数据到 LED buffer + 发送到 WS2812
+     *    Effect_Update() 内部调用 WS2812_Refresh()
+     *    传输期间全局中断禁用，保证时序精确 (~1.5ms) */
     Effect_Update();
 
+    /* 2. 帧间延时 ≈ 18ms，分 10 块，块间处理 UART
+     *    保持 PB14 低电平（WS2812 reset 状态） */
     {
         uint8_t chunk;
-        for (chunk = 0; chunk < 10; chunk++) {
-            uint32_t d = CHUNK_DELAY_ITERS;
+        for (chunk = 0; chunk < FRAME_DELAY_CHUNKS; chunk++) {
+            uint32_t d = FRAME_DELAY_ITERS;
             do {
                 __asm__ volatile("nop");
             } while (--d);
-            /* 每块之间处理 UART，避免 ring buffer 溢出 */
             App_ProcessUART();
         }
     }

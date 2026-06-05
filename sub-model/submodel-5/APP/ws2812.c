@@ -1,12 +1,14 @@
 /*********************************************************************
  * File Name          : ws2812.c
- * Description        : WS2812 LED driver using SPI0 Master MOSI.
- *                      SPI0 remapped to PB12(SCK)/PB14(MOSI).
- *                      7.5 MHz SPI clock (60MHz/8) encodes WS2812 timing:
- *                        10 SPI bits per WS2812 bit:
- *                        bit '1' = 1111100000  (T1H=667ns, T1L=667ns)
- *                        bit '0' = 1100000000  (T0H=267ns, T0L=1067ns)
- *                      Total bit period = 1.33us (WS2812B: 1.25us +/- 600ns)
+ * Description        : WS2812 LED driver using GPIO bit-banging on PB14.
+ *                      Single inline assembly block for bit transmission
+ *                      to prevent compiler optimization of NOP timing.
+ *
+ *                      Timing @ 62.4 MHz (user-adjusted for MCU delay):
+ *                        T0H = 250ns (15 nop)   T0L = 750ns (47 nop)
+ *                        T1H = 750ns (47 nop)   T1L = 250ns (15 nop)
+ *                        Reset: LOW > 300µs
+ *                        Bit period: 1µs
  *********************************************************************/
 
 #include "ws2812.h"
@@ -14,114 +16,89 @@
 /* ==================================================================== */
 /*  Internal buffers                                                    */
 /* ==================================================================== */
-
-/* LED color buffer (RGB888) */
 static rgb888_t s_led_buf[WS2812_LED_COUNT];
 
-/* SPI encoded output buffer */
-static uint8_t s_spi_buf[WS2812_SPI_BUF_SIZE];
-
 /* ==================================================================== */
-/*  4-bit nibble to 40-bit SPI pattern lookup table                     */
-/*  WS2812 bit '1' -> SPI 1111110000, bit '0' -> SPI 1110000000       */
-/*  4 WS2812 bits -> 40 SPI bits = 5 bytes                            */
+/*  WS2812 bit-bang: single inline assembly block                       */
+/*  编译器无法重排或优化 asm volatile 块内的指令                           */
+/*  改 NOP 数量即可调整时序，立竿见影                                      */
 /* ==================================================================== */
-
-/*
- * Encoding: nibble b3 b2 b1 b0 (MSB first)
- * Each bit maps to 10 SPI bits:
- *   '1' -> 1111110000 (0x3F0)
- *   '0' -> 1110000000 (0x380)
- * 4 bits -> 40 bits, stored as 5 bytes [byte0]..[byte4]
- *
- * Timing at 7.5MHz (133ns/SPI bit):
- *   bit '1': T1H = 6*133 = 800ns, T1L = 4*133 = 533ns
- *   bit '0': T0H = 3*133 = 400ns, T0L = 7*133 = 933ns
- */
-static const uint8_t s_nibble_lut[16][5] = {
-    /* 0b0000 */ { 0xE0, 0x38, 0x0E, 0x03, 0x80 },
-    /* 0b0001 */ { 0xE0, 0x38, 0x0E, 0x03, 0xF0 },
-    /* 0b0010 */ { 0xE0, 0x38, 0x0F, 0xC3, 0x80 },
-    /* 0b0011 */ { 0xE0, 0x38, 0x0F, 0xC3, 0xF0 },
-    /* 0b0100 */ { 0xE0, 0x3F, 0x0E, 0x03, 0x80 },
-    /* 0b0101 */ { 0xE0, 0x3F, 0x0E, 0x03, 0xF0 },
-    /* 0b0110 */ { 0xE0, 0x3F, 0x0F, 0xC3, 0x80 },
-    /* 0b0111 */ { 0xE0, 0x3F, 0x0F, 0xC3, 0xF0 },
-    /* 0b1000 */ { 0xFC, 0x38, 0x0E, 0x03, 0x80 },
-    /* 0b1001 */ { 0xFC, 0x38, 0x0E, 0x03, 0xF0 },
-    /* 0b1010 */ { 0xFC, 0x38, 0x0F, 0xC3, 0x80 },
-    /* 0b1011 */ { 0xFC, 0x38, 0x0F, 0xC3, 0xF0 },
-    /* 0b1100 */ { 0xFC, 0x3F, 0x0E, 0x03, 0x80 },
-    /* 0b1101 */ { 0xFC, 0x3F, 0x0E, 0x03, 0xF0 },
-    /* 0b1110 */ { 0xFC, 0x3F, 0x0F, 0xC3, 0x80 },
-    /* 0b1111 */ { 0xFC, 0x3F, 0x0F, 0xC3, 0xF0 },
-};
-
-/* ==================================================================== */
-/*  Internal: Encode one LED's GRB data into 30 SPI bytes              */
-/* ==================================================================== */
-
-static void EncodePixel(uint8_t g, uint8_t r, uint8_t b, uint8_t *out)
+static inline void send_bit(uint8_t bit) __attribute__((always_inline));
+static inline void send_bit(uint8_t bit)
 {
-    /* WS2812 expects GRB order, MSB first */
-    /* 24 bits = 6 nibbles, each nibble -> 5 SPI bytes */
-    uint8_t nibbles[6];
-    uint8_t i, n;
+    __asm__ volatile (
+        /* PB14 = HIGH */
+        "li   a4, 0x400010D8  \n"  /* PB_SET 寄存器地址 */
+        "li   a5, 0x4000      \n"  /* GPIO_Pin_14 掩码 */
+        "sw   a5, 0(a4)       \n"  /* PB14 = HIGH */
 
-    nibbles[0] = (g >> 4) & 0x0F;
-    nibbles[1] =  g       & 0x0F;
-    nibbles[2] = (r >> 4) & 0x0F;
-    nibbles[3] =  r       & 0x0F;
-    nibbles[4] = (b >> 4) & 0x0F;
-    nibbles[5] =  b       & 0x0F;
+        "bnez %[b], 1f        \n"  /* bit==1 → T1H 路径 */
 
-    for (i = 0; i < 6; i++) {
-        n = nibbles[i];
-        out[i * 5 + 0] = s_nibble_lut[n][0];
-        out[i * 5 + 1] = s_nibble_lut[n][1];
-        out[i * 5 + 2] = s_nibble_lut[n][2];
-        out[i * 5 + 3] = s_nibble_lut[n][3];
-        out[i * 5 + 4] = s_nibble_lut[n][4];
-    }
+        /* ---- bit 0: T0H ≈ 250ns (15 nop) ---- */
+        "nop\n"
+        /* PB14 = LOW */
+        "li   a4, 0x400010CC  \n"  /* PB_CLR 寄存器地址 */
+        "sw   a5, 0(a4)       \n"  /* PB14 = LOW */
+        /* T0L ≈ 750ns (47 nop) */
+        "nop\nnop\nnop\n"
+        "j    2f              \n"  /* 跳到结束 */
+
+        /* ---- bit 1: T1H ≈ 750ns (47 nop) ---- */
+        "1:                   \n"
+        "nop\nnop\nnop\n"
+        /* PB14 = LOW */
+        "li   a4, 0x400010CC  \n"  /* PB_CLR 寄存器地址 */
+        "sw   a5, 0(a4)       \n"  /* PB14 = LOW */
+        /* T1L ≈ 250ns (15 nop) */
+        "nop\n"
+
+        "2:                   \n"  /* 结束 */
+        : /* no output */
+        : [b] "r" (bit)
+        : "a4", "a5", "memory"
+    );
 }
 
 /* ==================================================================== */
-/*  Internal: Send buffer via SPI0 FIFO                                 */
-/*  UART0 RX 中断在整个 SPI 传输期间保持启用。                          */
-/*  UART0 ISR 仅读 RBR 写 ring buffer（~0.5µs），远小于 SPI FIFO      */
-/*  8 字节深度（~8.5µs），不会导致 FIFO 欠载。                         */
-/*  这确保 UART 数据在 SPI 传输期间也能被完整接收，                     */
-/*  对 mode 0 自定义帧传输（149 字节/帧）至关重要。                     */
+/*  Send one byte (MSB first)                                           */
 /* ==================================================================== */
-
-static void SPI0_SendBuffer(const uint8_t *buf, uint16_t len)
+static inline void send_byte(uint8_t byte) __attribute__((always_inline));
+static inline void send_byte(uint8_t byte)
 {
-    uint16_t sendlen = len;
+    send_bit((byte >> 7) & 1);
+    send_bit((byte >> 6) & 1);
+    send_bit((byte >> 5) & 1);
+    send_bit((byte >> 4) & 1);
+    send_bit((byte >> 3) & 1);
+    send_bit((byte >> 2) & 1);
+    send_bit((byte >> 1) & 1);
+    send_bit((byte >> 0) & 1);
+}
 
-    /* 不禁用 UART0 RX 中断。
-     * UART0 ISR 极短（~0.5µs），SPI FIFO 8 字节深度可承受 ISR 抢占，
-     * 不会出现 FIFO 欠载导致 WS2812 误判 reset 的情况。
-     * 保持 UART 中断启用确保 mode 0 自定义帧数据不会丢失。 */
+/* ==================================================================== */
+/*  Send one LED: 24-bit GRB                                            */
+/* ==================================================================== */
+static inline void send_led(uint8_t g, uint8_t r, uint8_t b) __attribute__((always_inline));
+static inline void send_led(uint8_t g, uint8_t r, uint8_t b)
+{
+    send_byte(g);
+    send_byte(r);
+    send_byte(b);
+}
 
-    R8_SPI0_CTRL_MOD &= ~RB_SPI_FIFO_DIR;   /* FIFO direction = TX */
-    R16_SPI0_TOTAL_CNT = sendlen;            /* 设置总发送字节数 */
-    R8_SPI0_INT_FLAG = RB_SPI_IF_CNT_END;    /* 清除计数结束标志 */
+/* ==================================================================== */
+/*  Reset signal: LOW > 300µs                                           */
+/* ==================================================================== */
+static void send_reset(void)
+{
+    /* PB14 = LOW via PB_CLR */
+    *(volatile uint32_t *)0x400010CC = 0x4000;
 
-    while (sendlen) {
-        if (R8_SPI0_FIFO_COUNT < SPI_FIFO_SIZE) {
-            R8_SPI0_FIFO = *buf;
-            buf++;
-            sendlen--;
-        }
+    /* ~960µs delay (well above 300µs minimum) */
+    {
+        volatile uint32_t d = 20000;
+        do { __asm__ volatile("nop"); } while (--d);
     }
-
-    /* 等待 FIFO 中所有数据发送完毕 */
-    while (R8_SPI0_FIFO_COUNT != 0)
-        ;
-
-    /* 等待所有字节完全移位发送完毕（含最后一个字节） */
-    while (!(R8_SPI0_INT_FLAG & RB_SPI_IF_CNT_END))
-        ;
 }
 
 /* ==================================================================== */
@@ -130,71 +107,36 @@ static void SPI0_SendBuffer(const uint8_t *buf, uint16_t len)
 
 void WS2812_Init(void)
 {
-    /* 1. 禁用可能与 SPI0 PB12-15 冲突的复用功能 */
-    GPIOPinRemap(DISABLE, RB_PIN_I2C);      /* PB12/PB13 不用于 I2C */
-    GPIOPinRemap(DISABLE, RB_PIN_MODEM);    /* PB14/PB15 不用于 MODEM */
-    GPIOPinRemap(DISABLE, RB_PIN_UART1);    /* PB12/PB13 不用于 UART1 */
-
-    /* 2. 先将 PB14 (MOSI/DIN) 配置为 GPIO 输出低电平，
-     *    确保 WS2812 数据线在 SPI remap 之前就是 LOW。
-     *    WS2812 上电后内部锁存器未定义，如果 MOSI 为高电平，
-     *    WS2812 会误判为数据位，导致显示随机颜色。
-     *    先拉低再 remap，可以避免 SPI 初始化期间 MOSI 输出高电平。 */
-    GPIOB_ResetBits(GPIO_Pin_14);                          /* 确保输出数据寄存器为 0 */
-    GPIOB_ModeCfg(GPIO_Pin_14, GPIO_ModeOut_PP_20mA);     /* PB14 推挽输出 LOW */
-
-    /* 3. PB14 保持 LOW > 50µs，作为 WS2812 的 reset 信号。
-     *    WS2812B 要求 DIN 低电平 > 50µs 才能复位。
-     *    CH582F 主频 60MHz，1µs ≈ 60 个空循环。
-     *    延迟 100µs 留足余量。 */
-    {
-        volatile uint16_t delay;
-        for (delay = 0; delay < 600; delay++)   /* ~100µs @ 60MHz */
-            ;
-    }
-
-    /* 4. Enable SPI0 pin remap: PB12(SCK), PB13(MISO), PB14(MOSI), PB15(NSS) */
-    GPIOPinRemap(ENABLE, RB_PIN_SPI0);
-
-    /* 5. 禁用 USB2 对 PB12/PB13 的占用 */
+    /* 禁用可能与 PB14 冲突的复用功能 */
+    GPIOPinRemap(DISABLE, RB_PIN_MODEM);
+    GPIOPinRemap(DISABLE, RB_PIN_SPI0);
     R16_PIN_CONFIG &= ~RB_PIN_USB2_EN;
 
-    /* 6. Configure GPIO direction (SPI 外设会接管输出) */
-    GPIOB_ModeCfg(GPIO_Pin_12, GPIO_ModeOut_PP_20mA);  /* SCK - SPI 驱动 */
-    GPIOB_ModeCfg(GPIO_Pin_13, GPIO_ModeIN_PU);         /* MISO - 未使用 */
-    GPIOB_ModeCfg(GPIO_Pin_14, GPIO_ModeOut_PP_20mA);  /* MOSI -> WS2812 DIN */
-    GPIOB_ModeCfg(GPIO_Pin_15, GPIO_ModeOut_PP_20mA);  /* NSS */
+    /* PB14 推挽输出，初始 LOW */
+    *(volatile uint32_t *)0x400010CC = 0x4000;  /* PB14 = LOW */
+    GPIOB_ModeCfg(GPIO_Pin_14, GPIO_ModeOut_PP_20mA);
 
-    /* 7. 使能 PB12-15 数字输入（SPI 外设需要读取引脚状态） */
-    R32_PIN_IN_DIS &= ~((uint32_t)(GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15) << 16);
+    /* Reset WS2812 (>300µs LOW) */
+    send_reset();
 
-    /* 8. SPI0 完整初始化（参照 WCH SPI0_MasterDefInit） */
-    R8_SPI0_CLOCK_DIV = 8;                              /* 先设分频: 60MHz/8 = 7.5MHz */
-    R8_SPI0_CTRL_MOD = RB_SPI_ALL_CLEAR;                /* 清除 FIFO 和计数器 */
-    R8_SPI0_CTRL_MOD = RB_SPI_MOSI_OE | RB_SPI_SCK_OE; /* Master: MOSI+SCK 输出使能 */
-    R8_SPI0_CTRL_CFG |= RB_SPI_AUTO_IF;                 /* 写 FIFO 自动清除 BYTE_END 标志 */
-    R8_SPI0_CTRL_CFG &= ~RB_SPI_DMA_ENABLE;             /* 关闭 DMA */
-    R8_SPI0_CTRL_MOD &= ~RB_SPI_FIFO_DIR;               /* FIFO 方向 = TX */
+    /* 发送全 bit-0 数据帧（49×24bit GRB = 0），让 WS2812 锁存全黑 */
+    {
+        uint8_t i;
+        uint32_t irq_state;
+        PFIC_DisableIRQ(UART0_IRQn);
+        irq_state = __risc_v_disable_irq();
 
-    /* 9. Mode 0, MSB first */
-    R8_SPI0_CTRL_MOD &= ~RB_SPI_MST_SCK_MOD;            /* CPOL=0, CPHA=0 */
-    R8_SPI0_CTRL_CFG &= ~RB_SPI_BIT_ORDER;               /* MSB first */
+        for (i = 0; i < WS2812_LED_COUNT; i++) {
+            send_led(0, 0, 0);   /* G=0, R=0, B=0 — 全 bit-0 */
+        }
+        send_reset();
 
-    /* 10. NSS 拉低（我们只用 MOSI，不需要 NSS） */
-    GPIOB_ResetBits(GPIO_Pin_15);
+        __risc_v_enable_irq(irq_state);
+        PFIC_EnableIRQ(UART0_IRQn);
+    }
 
-    /* Clear LED buffer */
+    /* 清 LED 缓冲 */
     memset(s_led_buf, 0, sizeof(s_led_buf));
-
-    /* Clear SPI buffer (reset bytes are all 0) */
-    memset(s_spi_buf, 0, sizeof(s_spi_buf));
-
-    /* 立即发送全零数据到 WS2812，确保上电后 LED 全灭。
-     * WS2812 上电时内部锁存器未定义，可能显示随机颜色（白色等），
-     * 必须主动发送 reset 信号 + 全零帧才能清除。
-     * 前面步骤3已经发送了 GPIO reset，这里再通过 SPI 发送
-     * 全零帧数据 + SPI reset 字节，双重保险。 */
-    WS2812_Refresh();
 }
 
 void WS2812_SetPixel(uint8_t index, uint8_t r, uint8_t g, uint8_t b)
@@ -227,19 +169,22 @@ void WS2812_SetAll(uint8_t r, uint8_t g, uint8_t b)
 void WS2812_Refresh(void)
 {
     uint8_t i;
+    uint32_t irq_state;
 
-    /* Encode all LEDs into SPI buffer */
+    /* WS2812 传输期间禁用中断，保证时序精确 */
+    PFIC_DisableIRQ(UART0_IRQn);
+    irq_state = __risc_v_disable_irq();
+
     for (i = 0; i < WS2812_LED_COUNT; i++) {
-        EncodePixel(s_led_buf[i].g, s_led_buf[i].r, s_led_buf[i].b,
-                    &s_spi_buf[i * WS2812_SPI_BYTES_PER_LED]);
+        send_led(s_led_buf[i].g, s_led_buf[i].r, s_led_buf[i].b);
     }
 
-    /* Reset bytes: all zeros (MOSI stays low > 280us for WS2812B reset) */
-    memset(&s_spi_buf[WS2812_LED_COUNT * WS2812_SPI_BYTES_PER_LED],
-           0, WS2812_RESET_BYTES);
+    /* Reset: LOW > 300µs，也作为帧间间隔的低电平 */
+    send_reset();
 
-    /* Send entire buffer via SPI0 */
-    SPI0_SendBuffer(s_spi_buf, WS2812_SPI_BUF_SIZE);
+    /* 恢复中断 */
+    __risc_v_enable_irq(irq_state);
+    PFIC_EnableIRQ(UART0_IRQn);
 }
 
 void WS2812_Clear(void)
