@@ -228,7 +228,7 @@ void Hardware_Heartbeat(void)
 
     /* 检查是否有 pending 的 RGB 配置需要发送给已在线的 RGB 子模块 */
     /* 仅当 Config_Apply 已执行后才发送，避免 CH378 初始化前发送零值/默认配置 */
-    if (hardware_g.config_applied && hardware_g.rgb_config.pending)
+    if (hardware_g.config_applied)
     {
         for (i = 3; i < HB_MAX_SLOTS; i++)
         {
@@ -236,43 +236,54 @@ void Hardware_Heartbeat(void)
                 hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
             {
                 uint8_t idx = i - 3;
-                Submodels_RGB_SetMode(&submodels_g[idx],
-                                      hardware_g.rgb_config.mode,
-                                      hardware_g.rgb_config.r,
-                                      hardware_g.rgb_config.g,
-                                      hardware_g.rgb_config.b,
-                                      hardware_g.rgb_config.brightness,
-                                      hardware_g.rgb_config.speed);
-                hardware_g.rgb_config.pending = 0;
-                break;
-            }
-        }
-    }
 
-    /* 检查是否有 pending 的 RGB 自定义帧需要传输 */
-    if (hardware_g.config_applied && hardware_g.rgb_frame.pending)
-    {
-        for (i = 3; i < HB_MAX_SLOTS; i++)
-        {
-            if (hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_SUBMODEL_RGB &&
-                hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
-            {
-                uint8_t idx = i - 3;
-                uint8_t f;
-
-                /* 逐帧发送自定义帧数据 */
-                for (f = 0; f < hardware_g.rgb_frame.frame_count; f++)
+                /* 如果有自定义帧待传输，优先发送帧数据。
+                 * 帧数据全部发完后，再发 SetMode(mode=0) + PlayAnimation。
+                 * 这避免了 mode=0 先到达但帧数据未到导致显示黑色的问题。 */
+                if (hardware_g.rgb_frame.pending)
                 {
-                    Submodels_RGB_SendFrame(&submodels_g[idx], f,
-                                             (const uint8_t *)hardware_g.rgb_frame.frame_data[f]);
+                    uint8_t next_frame = hardware_g.rgb_frame.next_frame_idx;
+                    if (next_frame < hardware_g.rgb_frame.frame_count)
+                    {
+                        Submodels_RGB_SendFrame(&submodels_g[idx], next_frame,
+                                                 (const uint8_t *)hardware_g.rgb_frame.frame_data[next_frame]);
+                        hardware_g.rgb_frame.next_frame_idx = next_frame + 1;
+                    }
+                    else
+                    {
+                        /* 所有帧已发送，发送播放命令 */
+                        Submodels_RGB_PlayAnimation(&submodels_g[idx],
+                                                    hardware_g.rgb_frame.frame_count,
+                                                    hardware_g.rgb_frame.frame_interval);
+
+                        /* 发送 SetMode(mode=0) 切换到自定义模式 */
+                        Submodels_RGB_SetMode(&submodels_g[idx],
+                                              hardware_g.rgb_config.mode,
+                                              hardware_g.rgb_config.r,
+                                              hardware_g.rgb_config.g,
+                                              hardware_g.rgb_config.b,
+                                              hardware_g.rgb_config.brightness,
+                                              hardware_g.rgb_config.speed);
+
+                        hardware_g.rgb_frame.pending = 0;
+                        hardware_g.rgb_frame.next_frame_idx = 0;
+                        hardware_g.rgb_config.pending = 0;
+                    }
+                    break;
                 }
 
-                /* 发送播放命令 */
-                Submodels_RGB_PlayAnimation(&submodels_g[idx],
-                                            hardware_g.rgb_frame.frame_count,
-                                            hardware_g.rgb_frame.frame_interval);
-
-                hardware_g.rgb_frame.pending = 0;
+                /* 没有自定义帧待传输，直接发送 SetMode */
+                if (hardware_g.rgb_config.pending)
+                {
+                    Submodels_RGB_SetMode(&submodels_g[idx],
+                                          hardware_g.rgb_config.mode,
+                                          hardware_g.rgb_config.r,
+                                          hardware_g.rgb_config.g,
+                                          hardware_g.rgb_config.b,
+                                          hardware_g.rgb_config.brightness,
+                                          hardware_g.rgb_config.speed);
+                    hardware_g.rgb_config.pending = 0;
+                }
                 break;
             }
         }

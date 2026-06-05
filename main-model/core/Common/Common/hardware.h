@@ -76,6 +76,7 @@ typedef struct {
 typedef struct {
     uint8_t pending;                        /* 1=V5F 有帧数据待传输 */
     uint8_t frame_count;                    /* 总帧数 (1~20) */
+    uint8_t next_frame_idx;                 /* 下一帧待发送索引 (V3F 心跳递增) */
     uint16_t frame_interval;                /* 帧间隔 (ms) */
     uint8_t frame_data[RGB_MAX_CUSTOM_FRAMES][RGB_FRAME_DATA_SIZE]; /* 帧数据 */
 } rgb_frame_transfer_t;

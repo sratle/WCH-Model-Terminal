@@ -284,17 +284,19 @@ void App_Init(void)
 
 void App_ProcessUART(void)
 {
-    /* 从 ring buffer 中取出 ISR 已接收的字节，送入协议解析器 */
+    /* 从 ring buffer 中取出 ISR 已接收的字节，送入协议解析器。
+     * 每次解析出完整帧后立即处理并重置，避免后续帧的字节被
+     * PROTO_STATE_FRAME_READY 状态丢弃。 */
     while (s_uart_rx_tail != s_uart_rx_head) {
         uint8_t b = s_uart_rx_buf[s_uart_rx_tail];
         s_uart_rx_tail = (s_uart_rx_tail + 1) % UART_RX_BUF_SIZE;
         Protocol_ParseByte(&s_proto_rx_ctx, b);
-    }
 
-    /* 完整帧就绪时处理 */
-    if (s_proto_rx_ctx.frame_ready) {
-        ProcessFrame(&s_proto_rx_ctx.frame);
-        Protocol_ResetRxCtx(&s_proto_rx_ctx);
+        /* 完整帧就绪时立即处理并重置，再继续解析后续字节 */
+        if (s_proto_rx_ctx.frame_ready) {
+            ProcessFrame(&s_proto_rx_ctx.frame);
+            Protocol_ResetRxCtx(&s_proto_rx_ctx);
+        }
     }
 }
 

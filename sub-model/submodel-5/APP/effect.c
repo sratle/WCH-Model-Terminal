@@ -191,11 +191,11 @@ static void RenderCustom(void)
         return;
     }
 
-    /* Always show frame 1 (static display, no animation) */
+    /* 显示第一帧 (frame 0) 作为静态画面 */
     for (i = 0; i < WS2812_LED_COUNT; i++) {
-        const rgb888_t *led_color = &s_state.custom_frames[1][i];
+        const rgb888_t *led_color = &s_state.custom_frames[0][i];
         rgb888_t out;
-        Color_ApplyBrightness(led_color, s_state.brightness, &out);
+        Color_ScaleBrightness(led_color, s_state.brightness, &out);
         WS2812_SetPixel(i, out.r, out.g, out.b);
     }
 }

@@ -135,22 +135,40 @@ void WS2812_Init(void)
     GPIOPinRemap(DISABLE, RB_PIN_MODEM);    /* PB14/PB15 不用于 MODEM */
     GPIOPinRemap(DISABLE, RB_PIN_UART1);    /* PB12/PB13 不用于 UART1 */
 
-    /* 2. Enable SPI0 pin remap: PB12(SCK), PB13(MISO), PB14(MOSI), PB15(NSS) */
+    /* 2. 先将 PB14 (MOSI/DIN) 配置为 GPIO 输出低电平，
+     *    确保 WS2812 数据线在 SPI remap 之前就是 LOW。
+     *    WS2812 上电后内部锁存器未定义，如果 MOSI 为高电平，
+     *    WS2812 会误判为数据位，导致显示随机颜色。
+     *    先拉低再 remap，可以避免 SPI 初始化期间 MOSI 输出高电平。 */
+    GPIOB_ResetBits(GPIO_Pin_14);                          /* 确保输出数据寄存器为 0 */
+    GPIOB_ModeCfg(GPIO_Pin_14, GPIO_ModeOut_PP_20mA);     /* PB14 推挽输出 LOW */
+
+    /* 3. PB14 保持 LOW > 50µs，作为 WS2812 的 reset 信号。
+     *    WS2812B 要求 DIN 低电平 > 50µs 才能复位。
+     *    CH582F 主频 60MHz，1µs ≈ 60 个空循环。
+     *    延迟 100µs 留足余量。 */
+    {
+        volatile uint16_t delay;
+        for (delay = 0; delay < 600; delay++)   /* ~100µs @ 60MHz */
+            ;
+    }
+
+    /* 4. Enable SPI0 pin remap: PB12(SCK), PB13(MISO), PB14(MOSI), PB15(NSS) */
     GPIOPinRemap(ENABLE, RB_PIN_SPI0);
 
-    /* 3. 禁用 USB2 对 PB12/PB13 的占用 */
+    /* 5. 禁用 USB2 对 PB12/PB13 的占用 */
     R16_PIN_CONFIG &= ~RB_PIN_USB2_EN;
 
-    /* 4. Configure GPIO direction (SPI 外设会接管输出) */
+    /* 6. Configure GPIO direction (SPI 外设会接管输出) */
     GPIOB_ModeCfg(GPIO_Pin_12, GPIO_ModeOut_PP_20mA);  /* SCK - SPI 驱动 */
     GPIOB_ModeCfg(GPIO_Pin_13, GPIO_ModeIN_PU);         /* MISO - 未使用 */
     GPIOB_ModeCfg(GPIO_Pin_14, GPIO_ModeOut_PP_20mA);  /* MOSI -> WS2812 DIN */
     GPIOB_ModeCfg(GPIO_Pin_15, GPIO_ModeOut_PP_20mA);  /* NSS */
 
-    /* 5. 使能 PB12-15 数字输入（SPI 外设需要读取引脚状态） */
+    /* 7. 使能 PB12-15 数字输入（SPI 外设需要读取引脚状态） */
     R32_PIN_IN_DIS &= ~((uint32_t)(GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15) << 16);
 
-    /* 6. SPI0 完整初始化（参照 WCH SPI0_MasterDefInit） */
+    /* 8. SPI0 完整初始化（参照 WCH SPI0_MasterDefInit） */
     R8_SPI0_CLOCK_DIV = 8;                              /* 先设分频: 60MHz/8 = 7.5MHz */
     R8_SPI0_CTRL_MOD = RB_SPI_ALL_CLEAR;                /* 清除 FIFO 和计数器 */
     R8_SPI0_CTRL_MOD = RB_SPI_MOSI_OE | RB_SPI_SCK_OE; /* Master: MOSI+SCK 输出使能 */
@@ -158,11 +176,11 @@ void WS2812_Init(void)
     R8_SPI0_CTRL_CFG &= ~RB_SPI_DMA_ENABLE;             /* 关闭 DMA */
     R8_SPI0_CTRL_MOD &= ~RB_SPI_FIFO_DIR;               /* FIFO 方向 = TX */
 
-    /* 7. Mode 0, MSB first */
+    /* 9. Mode 0, MSB first */
     R8_SPI0_CTRL_MOD &= ~RB_SPI_MST_SCK_MOD;            /* CPOL=0, CPHA=0 */
     R8_SPI0_CTRL_CFG &= ~RB_SPI_BIT_ORDER;               /* MSB first */
 
-    /* 8. NSS 拉低（我们只用 MOSI，不需要 NSS） */
+    /* 10. NSS 拉低（我们只用 MOSI，不需要 NSS） */
     GPIOB_ResetBits(GPIO_Pin_15);
 
     /* Clear LED buffer */
@@ -170,6 +188,13 @@ void WS2812_Init(void)
 
     /* Clear SPI buffer (reset bytes are all 0) */
     memset(s_spi_buf, 0, sizeof(s_spi_buf));
+
+    /* 立即发送全零数据到 WS2812，确保上电后 LED 全灭。
+     * WS2812 上电时内部锁存器未定义，可能显示随机颜色（白色等），
+     * 必须主动发送 reset 信号 + 全零帧才能清除。
+     * 前面步骤3已经发送了 GPIO reset，这里再通过 SPI 发送
+     * 全零帧数据 + SPI reset 字节，双重保险。 */
+    WS2812_Refresh();
 }
 
 void WS2812_SetPixel(uint8_t index, uint8_t r, uint8_t g, uint8_t b)

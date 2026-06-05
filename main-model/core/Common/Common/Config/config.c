@@ -1233,19 +1233,27 @@ void Config_Apply(void)
     {
         int val;
 
-        Config_GetInt("0505", "rgb_mode", &val);
-        hardware_g.rgb_config.mode = (uint8_t)val;
-        Config_GetInt("0505", "rgb_color_r", &val);
-        hardware_g.rgb_config.r = (uint8_t)val;
-        Config_GetInt("0505", "rgb_color_g", &val);
-        hardware_g.rgb_config.g = (uint8_t)val;
-        Config_GetInt("0505", "rgb_color_b", &val);
-        hardware_g.rgb_config.b = (uint8_t)val;
-        Config_GetInt("0505", "rgb_brightness", &val);
-        hardware_g.rgb_config.brightness = (uint8_t)val;
-        Config_GetInt("0505", "rgb_speed", &val);
-        hardware_g.rgb_config.speed = (uint8_t)val;
+        if (Config_GetInt("0505", "rgb_mode", &val) == 0)
+            hardware_g.rgb_config.mode = (uint8_t)val;
+        if (Config_GetInt("0505", "rgb_color_r", &val) == 0)
+            hardware_g.rgb_config.r = (uint8_t)val;
+        if (Config_GetInt("0505", "rgb_color_g", &val) == 0)
+            hardware_g.rgb_config.g = (uint8_t)val;
+        if (Config_GetInt("0505", "rgb_color_b", &val) == 0)
+            hardware_g.rgb_config.b = (uint8_t)val;
+        if (Config_GetInt("0505", "rgb_brightness", &val) == 0)
+            hardware_g.rgb_config.brightness = (uint8_t)val;
+        if (Config_GetInt("0505", "rgb_speed", &val) == 0)
+            hardware_g.rgb_config.speed = (uint8_t)val;
         hardware_g.rgb_config.pending = 1;
+
+        printf("[Config] RGB: mode=%d R=%d G=%d B=%d bright=%d speed=%d\r\n",
+               hardware_g.rgb_config.mode,
+               hardware_g.rgb_config.r,
+               hardware_g.rgb_config.g,
+               hardware_g.rgb_config.b,
+               hardware_g.rgb_config.brightness,
+               hardware_g.rgb_config.speed);
     }
 
     hardware_g.config_applied = 1;

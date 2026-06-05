@@ -2404,6 +2404,7 @@ static void CLI_Cmd_Rgb(uint8_t argc, char **argv)
         /* Set transfer parameters in shared memory */
         hardware_g.rgb_frame.frame_count = (uint8_t)frame_count;
         hardware_g.rgb_frame.frame_interval = (uint16_t)frame_interval;
+        hardware_g.rgb_frame.next_frame_idx = 0;
         hardware_g.rgb_frame.pending = 1;
 
         /* Also set mode to custom (0), preserving current brightness/speed/color */
