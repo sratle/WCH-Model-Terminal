@@ -30,9 +30,10 @@ int main(void)
     /* Initialize all subsystems (LCD, UI, UART, protocol) */
     App_Init();
 
-    /* Main loop */
+    /* Main loop — 1 ms per iteration for accurate tick counting */
     while (1)
     {
         App_Process();
+        Delay_Ms(1);
     }
 }

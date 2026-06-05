@@ -11,6 +11,7 @@
 #include "Config/config.h"
 #include "CJSON/cJSON.h"
 #include "hardware.h"
+#include "Submodels/submodels.h"
 #include "debug.h"
 
 extern ch378_t ch378_g;
@@ -790,6 +791,209 @@ static void CLI_Cmd_Lsdev(void)
     }
 }
 
+static uint8_t CLI_IsSubDispOnline(void)
+{
+    uint8_t i;
+    for (i = 3; i < HB_MAX_SLOTS; i++)
+    {
+        if (hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY &&
+            hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+            return 1;
+    }
+    return 0;
+}
+
+static void CLI_Cmd_Bmp(uint8_t argc, char **argv)
+{
+    char path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint16_t real_len;
+    uint32_t file_size;
+    uint32_t total_read = 0;
+    uint8_t buf[64];
+    uint8_t send_to_sub = 0;
+
+    if (argc < 3 || strcmp(argv[1], "get") != 0) {
+        printf("Usage: bmp get <filename> [sub]\r\n");
+        return;
+    }
+
+    /* 检查是否有 "sub" 参数 */
+    if (argc >= 4 && strcmp(argv[3], "sub") == 0) {
+        if (CLI_IsSubDispOnline()) {
+            send_to_sub = 1;
+        } else {
+            printf("SubDisplay not online\r\n");
+        }
+    }
+
+    snprintf(path, sizeof(path), "\\BMP\\%s.BMP", argv[2]);
+
+    status = CH378FileOpen((uint8_t *)path);
+    if (status != ERR_SUCCESS) {
+        printf("File not found: %s\r\n", path);
+        return;
+    }
+
+    file_size = CH378GetFileSize();
+    printf("BMP: %s  size=%lu bytes\r\n", argv[2], file_size);
+
+    /* 读取并输出文件内容（十六进制） */
+    while (total_read < file_size) {
+        uint16_t to_read = (file_size - total_read > sizeof(buf)) ? sizeof(buf) : (uint16_t)(file_size - total_read);
+        uint16_t i;
+
+        status = CH378ByteRead(buf, to_read, &real_len);
+        if (status != ERR_SUCCESS || real_len == 0)
+            break;
+
+        for (i = 0; i < real_len; i++)
+            printf("%02X ", buf[i]);
+        total_read += real_len;
+    }
+    printf("\r\n");
+
+    CH378FileClose(0);
+
+    /* 如果指定了 sub，通过共享内存请求 V3F 发送到副屏 */
+    if (send_to_sub) {
+        hardware_g.subdisp_req.cmd = SUBDISP_CMD_SEND_BMP;
+        strncpy((char *)hardware_g.subdisp_req.filename, argv[2], SUBDISP_FILENAME_MAX_LEN - 1);
+        hardware_g.subdisp_req.filename[SUBDISP_FILENAME_MAX_LEN - 1] = '\0';
+        hardware_g.subdisp_req.pending = 1;
+        printf("Send to SubDisplay (pending)\r\n");
+    }
+}
+
+static void CLI_Cmd_Lsstatus(void)
+{
+    audio_state_t audio_st;
+    uint8_t vol;
+    uint32_t play_time;
+    uint8_t i;
+    const char *names[HB_MAX_SLOTS] = {
+        "Display", "Keyboard", "Power", "Submodel1", "Submodel2", "Submodel3"
+    };
+
+    printf("=== System Status ===\r\n");
+
+    /* 音频状态 */
+    audio_st = Audio_GetState();
+    vol = Audio_GetVolume();
+    play_time = Audio_GetPlayTime_ms();
+    {
+        const char *st_str;
+        switch (audio_st) {
+            case AUDIO_STATE_IDLE:    st_str = "IDLE";    break;
+            case AUDIO_STATE_PLAYING: st_str = "PLAYING"; break;
+            case AUDIO_STATE_PAUSED:  st_str = "PAUSED";  break;
+            case AUDIO_STATE_STOPPED: st_str = "STOPPED"; break;
+            default:                  st_str = "UNKNOWN"; break;
+        }
+        printf("Audio:     %s  vol=%d  time=%lus\r\n",
+               st_str, vol, play_time / 1000);
+    }
+
+    /* 电量 */
+    printf("Battery:   N/A\r\n");
+
+    /* 蓝牙 */
+    printf("Bluetooth: N/A\r\n");
+
+    /* 屏幕亮度 */
+    {
+        int brightness = 0xFF;
+        Config_GetInt("0000", "brightness", &brightness);
+        printf("Display:   brightness=%d\r\n", brightness);
+    }
+
+    /* 键盘背光 */
+    {
+        int kbd_backlight = 0;
+        Config_GetInt("0201", "backlight", &kbd_backlight);
+        printf("Keyboard:  backlight=%d\r\n", kbd_backlight);
+    }
+
+    /* CH378 */
+    printf("CH378:     device=%s  enable=%d\r\n",
+           (ch378_g.now_device == CH378_Device_USB) ? "USB" :
+           (ch378_g.now_device == CH378_Device_TF) ? "SD" : "None",
+           ch378_g.enable);
+
+    /* CH9350 */
+    printf("CH9350:    hid_connected=%d\r\n", ch9350_g.dev_connected);
+
+    /* RGB */
+    printf("RGB:       mode=%d  brightness=%d\r\n",
+           hardware_g.rgb_config.mode,
+           hardware_g.rgb_config.brightness);
+
+    /* 配置 */
+    printf("Config:    applied=%d\r\n", Config_IsApplied());
+
+    /* 模块列表 */
+    printf("\r\nModules:\r\n");
+    for (i = 0; i < HB_MAX_SLOTS; i++)
+    {
+        const char *status_str;
+        switch (hardware_g.hb_slots[i].status)
+        {
+            case HB_STATUS_ONLINE:  status_str = "ONLINE";  break;
+            case HB_STATUS_OFFLINE: status_str = "OFFLINE"; break;
+            default:                status_str = "UNKNOWN"; break;
+        }
+        printf("  %-10s  %s  type=0x%02X  subtype=0x%02X  miss=%d\r\n",
+               names[i], status_str,
+               hardware_g.hb_slots[i].type,
+               hardware_g.hb_slots[i].subtype,
+               hardware_g.hb_slots[i].miss_count);
+    }
+}
+
+static void CLI_Cmd_Subdisp(uint8_t argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Usage:\r\n");
+        printf("  subdisp mode <0|1>       Switch display mode (0=status, 1=image)\r\n");
+        printf("  subdisp refresh status   Send current status to SubDisplay\r\n");
+        return;
+    }
+
+    if (!CLI_IsSubDispOnline()) {
+        printf("SubDisplay not online\r\n");
+        return;
+    }
+
+    if (strcmp(argv[1], "mode") == 0) {
+        if (argc < 3) {
+            printf("Usage: subdisp mode <0|1>\r\n");
+            return;
+        }
+        int mode = atoi(argv[2]);
+        if (mode < 0 || mode > 1) {
+            printf("Invalid mode: %d (must be 0 or 1)\r\n", mode);
+            return;
+        }
+        hardware_g.subdisp_req.cmd = SUBDISP_CMD_SET_MODE;
+        hardware_g.subdisp_req.mode = (uint8_t)mode;
+        hardware_g.subdisp_req.pending = 1;
+        printf("SubDisplay mode: %s (pending)\r\n",
+               mode == 0 ? "Status" : "Image");
+    }
+    else if (strcmp(argv[1], "refresh") == 0) {
+        if (argc < 3 || strcmp(argv[2], "status") != 0) {
+            printf("Usage: subdisp refresh status\r\n");
+            return;
+        }
+        hardware_g.subdisp_req.cmd = SUBDISP_CMD_REFRESH_STATUS;
+        hardware_g.subdisp_req.pending = 1;
+        printf("Send status to SubDisplay (pending)\r\n");
+    }
+    else {
+        printf("Unknown subdisp command: %s\r\n", argv[1]);
+    }
+}
+
 static void CLI_Cmd_Light(uint8_t argc, char **argv)
 {
     int val;
@@ -1045,6 +1249,10 @@ static void CLI_Cmd_Help(void)
     printf("  resume          Resume playback\r\n");
     printf("  playst          Show playback status\r\n");
     printf("  lsdev           List module status (online/offline/type)\r\n");
+    printf("  bmp get <file> [sub]  Read BMP file (hex dump, sub=send to SubDisplay)\r\n");
+    printf("  lsstatus        Show system status (audio/battery/ble/modules)\r\n");
+    printf("  subdisp mode <0|1>  Switch SubDisplay mode (0=status, 1=image)\r\n");
+    printf("  subdisp refresh status  Send current status to SubDisplay\r\n");
     printf("  light <0-255>   Set display brightness\r\n");
     printf("  note <text>     Show notice popup on display\r\n");
     printf("  mouse <L/R/none> <dx> <dy>  Send mouse click event\r\n");
@@ -2538,6 +2746,12 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Playst();
     } else if (strcmp(argv[0], "lsdev") == 0) {
         CLI_Cmd_Lsdev();
+    } else if (strcmp(argv[0], "bmp") == 0) {
+        CLI_Cmd_Bmp(argc, argv);
+    } else if (strcmp(argv[0], "lsstatus") == 0) {
+        CLI_Cmd_Lsstatus();
+    } else if (strcmp(argv[0], "subdisp") == 0) {
+        CLI_Cmd_Subdisp(argc, argv);
     } else if (strcmp(argv[0], "light") == 0) {
         CLI_Cmd_Light(argc, argv);
     } else if (strcmp(argv[0], "note") == 0) {

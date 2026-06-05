@@ -21,6 +21,25 @@ extern "C" {
 #define SUBCMD_SET_STATUS       0x01    /* Transfer module status */
 #define SUBCMD_SET_CONTENT      0x02    /* Transfer custom content */
 #define SUBCMD_CLEAR_SCREEN     0x03    /* Clear screen */
+#define SUBCMD_SET_DISPLAY_MODE 0x04    /* Switch display mode (status/image) */
+#define SUBCMD_BMP_TRANS        0x10    /* BMP image transfer (multi-frame) */
+#define SUBCMD_LS_DEV           0x11    /* Device list transfer (multi-frame) */
+
+/* CMD_SUB_GET_STATUS (0x42) sub-commands */
+#define SUBCMD_GET_SYS_STATUS   0x00    /* Request system status */
+#define SUBCMD_GET_LS_DEV       0x01    /* Request device list */
+#define SUBCMD_GET_BMP          0x02    /* Request BMP image */
+
+/* CMD_SUB_DATA_REPORT (0x43) sub-commands */
+#define SUBCMD_SYS_STATUS       0x20    /* System status response */
+
+/* Multi-frame FLAGS */
+#define SUBDISP_FLAG_SOF        0x01
+#define SUBDISP_FLAG_EOF        0x02
+
+/* Display modes (for SUBCMD_SET_DISPLAY_MODE) */
+#define DISPLAY_MODE_STATUS     0x00    /* 状态显示模式（双页轮换） */
+#define DISPLAY_MODE_IMAGE      0x01    /* 图片显示模式 */
 
 /* CMD_SUB_BULK_TRANSFER (0x46) sub-commands */
 #define SUBCMD_BULK_HANDSHAKE   0x01    /* Image transfer handshake (Core→SubDisp) */
@@ -70,6 +89,78 @@ typedef struct {
     uint32_t          total_bytes;     /* Total raw bytes expected */
     volatile uint32_t received;        /* Bytes received so far */
 } bulk_transfer_t;
+
+/*=============================================================================
+ *  System Status Cache (from GET_STATUS response)
+ *=============================================================================*/
+
+#define SYS_STATUS_MAX_MODULES  6
+
+typedef struct {
+    uint8_t  version;              /* Status data format version */
+    uint8_t  audio_state;          /* 0=IDLE, 1=PLAYING, 2=PAUSED, 3=STOPPED */
+    uint8_t  audio_volume;         /* 0~100 */
+    uint32_t audio_play_time_ms;   /* Play time in ms */
+    uint8_t  battery_pct;          /* 0~100, 0xFF=unknown */
+    uint8_t  charging;             /* 0=no, 1=yes */
+    uint8_t  ble_connections;      /* BLE connection count */
+    uint8_t  ble_discoverable;     /* 0=no, 1=yes */
+    uint8_t  display_brightness;   /* 0~100 */
+    uint8_t  keyboard_backlight;   /* 0~100 */
+    uint8_t  ch378_device;         /* 0=USB, 1=TF */
+    uint8_t  ch378_busy;           /* 0=idle, 1=busy */
+    uint8_t  ch9350_hid_count;     /* Connected HID devices */
+    uint8_t  rgb_mode;             /* 0~3 */
+    uint8_t  rgb_brightness;       /* 0~255 */
+    uint8_t  config_loaded;        /* 0=no, 1=yes */
+    uint8_t  module_count;         /* Number of module entries */
+    struct {
+        uint8_t module_id;
+        uint8_t type;
+        uint8_t subtype;
+        uint8_t status;            /* 0=UNKNOWN, 1=ONLINE, 2=OFFLINE */
+        uint8_t miss_count;
+    } modules[SYS_STATUS_MAX_MODULES];
+    uint8_t valid;                 /* 1 = data is valid */
+} sys_status_t;
+
+/*=============================================================================
+ *  Device List Cache (from LS_DEV response)
+ *=============================================================================*/
+
+typedef struct {
+    uint8_t count;
+    struct {
+        uint8_t module_id;
+        uint8_t type;
+        uint8_t subtype;
+        uint8_t status;
+        uint8_t miss_count;
+    } entries[SYS_STATUS_MAX_MODULES];
+    uint8_t valid;
+} dev_list_t;
+
+/*=============================================================================
+ *  Multi-frame Reassembly State
+ *=============================================================================*/
+
+#define MULTIFRAME_BUF_SIZE     512
+
+typedef struct {
+    uint8_t  buf[MULTIFRAME_BUF_SIZE];
+    uint16_t len;
+    uint8_t  subcmd;
+    uint8_t  active;       /* 1 = reassembly in progress */
+} multiframe_rx_t;
+
+/*=============================================================================
+ *  Page Switch & Status Request Constants
+ *=============================================================================*/
+
+#define PAGE_SWITCH_INTERVAL_MS      3000   /* Switch pages every 3 seconds */
+#define STATUS_INIT_DELAY_MS         5000   /* Wait 5s after boot before first status request */
+#define STATUS_REQUEST_INTERVAL_MS   15000  /* Request status every 15 seconds */
+#define PAGE_COUNT                   2      /* Total pages */
 
 extern bulk_transfer_t g_bulk;
 

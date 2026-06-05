@@ -283,6 +283,31 @@
 #define MODULE_SUBTYPE_SUBMODEL_INFRARED    0x06
 #define MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY 0x07
 
+/* ---- SubDisplay (0x07) 子命令 ---- */
+/* CMD_SUB_SET_MODE (0x41) sub-commands */
+#define SUBDISP_SUBCMD_SET_STATUS       0x01
+#define SUBDISP_SUBCMD_SET_CONTENT      0x02
+#define SUBDISP_SUBCMD_CLEAR_SCREEN     0x03
+#define SUBDISP_SUBCMD_SET_DISPLAY_MODE 0x04    /* 切换显示模式（状态/图片） */
+#define SUBDISP_SUBCMD_BMP_TRANS        0x10    /* BMP 图片传输（多帧） */
+#define SUBDISP_SUBCMD_LS_DEV           0x11    /* 设备列表传输（多帧） */
+
+/* CMD_SUB_GET_STATUS (0x42) sub-commands */
+#define SUBDISP_SUBCMD_GET_SYS_STATUS   0x00    /* 请求系统状态 */
+#define SUBDISP_SUBCMD_GET_LS_DEV       0x01    /* 请求设备列表 */
+#define SUBDISP_SUBCMD_GET_BMP          0x02    /* 请求 BMP 图片 */
+
+/* CMD_SUB_DATA_REPORT (0x43) sub-commands */
+#define SUBDISP_SUBCMD_SYS_STATUS       0x20    /* 系统状态响应 */
+
+/* Multi-frame FLAGS (same as CLI_FLAG_SOF/EOF pattern) */
+#define SUBDISP_FLAG_SOF                0x01
+#define SUBDISP_FLAG_EOF                0x02
+
+/* SubDisplay display modes (for SUBDISP_SUBCMD_SET_DISPLAY_MODE) */
+#define SUBDISP_MODE_STATUS             0x00    /* 状态显示模式（双页轮换） */
+#define SUBDISP_MODE_IMAGE              0x01    /* 图片显示模式 */
+
 /* 长度限制 */
 #define PROTO_MAX_DATA_LEN      512
 #define PROTO_MAX_FRAME_LEN     (5 + PROTO_MAX_DATA_LEN + 4)

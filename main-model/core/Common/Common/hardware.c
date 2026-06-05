@@ -287,6 +287,41 @@ void Hardware_Heartbeat(void)
                 break;
             }
         }
+
+        /* 检查是否有 pending 的 SubDisplay 命令需要发送 */
+        if (hardware_g.subdisp_req.pending)
+        {
+            for (i = 3; i < HB_MAX_SLOTS; i++)
+            {
+                if (hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY &&
+                    hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+                {
+                    uint8_t idx = i - 3;
+
+                    switch (hardware_g.subdisp_req.cmd)
+                    {
+                        case SUBDISP_CMD_SET_MODE:
+                            Submodels_SubDisp_SetDisplayMode(&submodels_g[idx],
+                                                              hardware_g.subdisp_req.mode);
+                            break;
+                        case SUBDISP_CMD_REFRESH_STATUS:
+                            Submodels_SubDisp_SendSysStatus(&submodels_g[idx]);
+                            break;
+                        case SUBDISP_CMD_SEND_BMP:
+                            Submodels_SubDisp_SendBMP(&submodels_g[idx],
+                                                       (const char *)hardware_g.subdisp_req.filename);
+                            /* 自动切换到图片模式 */
+                            Submodels_SubDisp_SetDisplayMode(&submodels_g[idx],
+                                                              SUBDISP_MODE_IMAGE);
+                            break;
+                        default:
+                            break;
+                    }
+                    break;  /* 只需发送给第一个在线的 SubDisplay */
+                }
+            }
+            hardware_g.subdisp_req.pending = 0;
+        }
     }
 }
 

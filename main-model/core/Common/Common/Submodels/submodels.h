@@ -136,4 +136,46 @@ uint8_t Submodels_SendCommand(submodels_t *submodel, uint8_t cmd,
  */
 submodels_t *Submodels_FindRgbSlot(void);
 
+/* ============================================================================
+ * SubDisplay (副屏, type=0x07) Control API
+ * Core → SubDisp 命令发送函数
+ * ============================================================================ */
+
+/**
+ * @brief  发送 BMP 图片到副屏（多帧传输）
+ *         从 CH378 的 \BMP 目录读取指定 BMP 文件，解析为 1bit 位图后传输
+ * @param  submodel   目标 submodel 实例指针（需为 SubDisplay 类型）
+ * @param  filename   BMP 文件名（不含路径和后缀，如 "logo"）
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_SubDisp_SendBMP(submodels_t *submodel, const char *filename);
+
+/**
+ * @brief  发送设备列表到副屏（多帧传输）
+ * @param  submodel   目标 submodel 实例指针
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_SubDisp_SendLsDev(submodels_t *submodel);
+
+/**
+ * @brief  发送系统状态到副屏（多帧传输）
+ * @param  submodel   目标 submodel 实例指针
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_SubDisp_SendSysStatus(submodels_t *submodel);
+
+/**
+ * @brief  切换副屏显示模式
+ * @param  submodel   目标 submodel 实例指针
+ * @param  mode       显示模式: 0=状态显示(双页轮换), 1=图片显示
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_SubDisp_SetDisplayMode(submodels_t *submodel, uint8_t mode);
+
+/**
+ * @brief  在 submodels_g[0..2] 中查找 SubDisplay 类型 submodel
+ * @return SubDisplay submodel 指针, 未找到返回 NULL
+ */
+submodels_t *Submodels_FindSubDispSlot(void);
+
 #endif

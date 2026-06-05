@@ -82,6 +82,24 @@ typedef struct {
 } rgb_frame_transfer_t;
 
 /*=============================================================================
+ *  V5F → V3F SubDisplay 命令传递
+ *=============================================================================*/
+
+#define SUBDISP_CMD_NONE           0
+#define SUBDISP_CMD_SET_MODE       1   /* 切换显示模式 */
+#define SUBDISP_CMD_REFRESH_STATUS 2   /* 刷新状态数据 */
+#define SUBDISP_CMD_SEND_BMP       3   /* 发送 BMP 图片 */
+
+#define SUBDISP_FILENAME_MAX_LEN   32
+
+typedef struct {
+    uint8_t  pending;        /* 1=V5F 有新命令待处理 */
+    uint8_t  cmd;            /* 命令类型 (SUBDISP_CMD_xxx) */
+    uint8_t  mode;           /* 显示模式 (SUBDISP_CMD_SET_MODE 时使用) */
+    char     filename[SUBDISP_FILENAME_MAX_LEN]; /* BMP 文件名 (SUBDISP_CMD_SEND_BMP 时使用) */
+} subdisp_request_t;
+
+/*=============================================================================
  *  V3F → V5F Core 按键事件
  *=============================================================================*/
 
@@ -132,6 +150,7 @@ typedef struct
     uint8_t         config_applied; /* V5F Config_Apply 已执行，1=配置已就绪 */
     rgb_config_t    rgb_config; /* V5F→V3F RGB 配置传递 */
     rgb_frame_transfer_t rgb_frame; /* V5F→V3F RGB 自定义帧传输 */
+    subdisp_request_t subdisp_req; /* V5F→V3F SubDisplay 命令传递 */
     core_key_queue_t key_queue;  /* V3F→V5F 核心按键事件队列 */
 } hardware_t;
 
