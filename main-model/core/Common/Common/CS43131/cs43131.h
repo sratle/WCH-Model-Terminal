@@ -128,6 +128,9 @@ uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info);
 void Audio_PlayWAV_Start(wav_info_t *info);
 void Audio_Process(void);
 
+/* 跨核同步：将音频状态写入共享内存供 V3F 读取 */
+void Audio_SyncToSharedMemory(void);
+
 void DMA1_Channel1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 
 #ifdef __cplusplus

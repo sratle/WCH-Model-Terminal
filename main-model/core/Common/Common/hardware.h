@@ -54,6 +54,19 @@ typedef struct {
 } config_request_t;
 
 /*=============================================================================
+ *  V5F → V3F 音频状态共享
+ *=============================================================================*/
+
+#define AUDIO_TRACK_NAME_MAX_LEN  32
+
+typedef struct {
+    uint8_t  audio_state;          /* 0=IDLE, 1=PLAYING, 2=PAUSED, 3=STOPPED */
+    uint8_t  audio_volume;        /* 0~100 */
+    uint32_t audio_play_time_ms;  /* 播放时长 ms */
+    char     audio_track_name[AUDIO_TRACK_NAME_MAX_LEN]; /* 当前曲目名 */
+} audio_status_t;
+
+/*=============================================================================
  *  V5F → V3F RGB 配置传递
  *=============================================================================*/
 
@@ -148,6 +161,7 @@ typedef struct
     uint32_t hb_tick;           /* 心跳计时计数器 (ms) */
     config_request_t config_req; /* V3F→V5F 跨核配置请求 */
     uint8_t         config_applied; /* V5F Config_Apply 已执行，1=配置已就绪 */
+    audio_status_t  audio_status; /* V5F→V3F 音频状态共享 */
     rgb_config_t    rgb_config; /* V5F→V3F RGB 配置传递 */
     rgb_frame_transfer_t rgb_frame; /* V5F→V3F RGB 自定义帧传输 */
     subdisp_request_t subdisp_req; /* V5F→V3F SubDisplay 命令传递 */

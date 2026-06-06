@@ -3,7 +3,6 @@
 #include "../hardware.h"
 #include "../Config/config.h"
 #include "../CH378/CH378.h"
-#include "../CS43131/cs43131.h"
 #include "../CH9350/CH9350.h"
 #include "../CH585F/CH585F.h"
 
@@ -1262,33 +1261,55 @@ uint8_t Submodels_SubDisp_SendLsDev(submodels_t *submodel)
 
 uint8_t Submodels_SubDisp_SendSysStatus(submodels_t *submodel)
 {
-    uint8_t status_buf[20 + HB_MAX_SLOTS * 5];
+    /* 协议 v2 布局:
+     *  [0]     version          = 0x02
+     *  [1]     audio_state
+     *  [2]     audio_volume
+     *  [3..6]  audio_play_time_ms (BE)
+     *  [7]     battery_pct
+     *  [8]     charging
+     *  [9]     ble_connections
+     *  [10]    ble_discoverable
+     *  [11]    display_brightness
+     *  [12]    keyboard_backlight
+     *  [13]    ch378_device
+     *  [14]    ch378_busy
+     *  [15]    ch9350_hid_count
+     *  [16]    rgb_mode
+     *  [17]    rgb_brightness
+     *  [18]    config_loaded
+     *  [19]    module_count
+     *  ---- v2 新增 ----
+     *  [20]    display_type      (0=无, 1=LCD, 2=EInk)
+     *  [21]    keyboard_type     (0=无, 1=Main, 2=Game, 3=Music)
+     *  [22]    ch9350_dev_type   (0=无, 1=键盘, 2=相对鼠标, 3=绝对鼠标, 4=多媒体, 5=扫描枪)
+     *  [23]    audio_track_name_len
+     *  [24..24+N-1] audio_track_name (最多 31 字节)
+     *  [24+N..24+N+3] keyboard_key_count (BE, 总按键次数)
+     *  模块条目 (每条 5 字节: module_id, type, subtype, status, miss_count)
+     */
+    uint8_t status_buf[64 + HB_MAX_SLOTS * 5];
     uint8_t offset = 0;
-    audio_state_t audio_st;
-    uint8_t vol;
-    uint32_t play_time;
     uint8_t i;
 
     if (submodel == NULL)
         return 0;
 
     /* 版本 */
-    status_buf[offset++] = 0x01;
+    status_buf[offset++] = 0x02;
 
-    /* 音频状态 */
-    audio_st = Audio_GetState();
-    status_buf[offset++] = (uint8_t)audio_st;
-
-    /* 音量 */
-    vol = Audio_GetVolume();
-    status_buf[offset++] = vol;
+    /* ---- 音频状态：从共享内存读取（V5F 写入） ---- */
+    status_buf[offset++] = hardware_g.audio_status.audio_state;
+    status_buf[offset++] = hardware_g.audio_status.audio_volume;
 
     /* 播放时长 (uint32 大端) */
-    play_time = Audio_GetPlayTime_ms();
-    status_buf[offset++] = (uint8_t)(play_time >> 24);
-    status_buf[offset++] = (uint8_t)(play_time >> 16);
-    status_buf[offset++] = (uint8_t)(play_time >> 8);
-    status_buf[offset++] = (uint8_t)(play_time & 0xFF);
+    {
+        uint32_t play_time = hardware_g.audio_status.audio_play_time_ms;
+        status_buf[offset++] = (uint8_t)(play_time >> 24);
+        status_buf[offset++] = (uint8_t)(play_time >> 16);
+        status_buf[offset++] = (uint8_t)(play_time >> 8);
+        status_buf[offset++] = (uint8_t)(play_time & 0xFF);
+    }
 
     /* 电量百分比（Power 模块暂无精确接口，默认 0xFF=未知） */
     status_buf[offset++] = 0xFF;
@@ -1302,17 +1323,38 @@ uint8_t Submodels_SubDisp_SendSysStatus(submodels_t *submodel)
     /* 蓝牙可发现 */
     status_buf[offset++] = 0x00;
 
-    /* 屏幕亮度（从 config 读取，key=0101） */
+    /* 屏幕亮度 */
     {
         int brightness = 0;
-        Config_GetInt("0101", "brightness", &brightness);
+        /* 根据实际连接的 display 子类型选择 config key */
+        const char *disp_key = "0101";
+        for (i = 0; i < HB_MAX_SLOTS; i++) {
+            if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY &&
+                hardware_g.hb_slots[i].status == HB_STATUS_ONLINE) {
+                if (hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_DISPLAY_EINK)
+                    disp_key = "0102";
+                break;
+            }
+        }
+        Config_GetInt(disp_key, "brightness", &brightness);
         status_buf[offset++] = (uint8_t)brightness;
     }
 
-    /* 键盘背光（从 config 读取，key=0401） */
+    /* 键盘背光 */
     {
         int kbd_backlight = 0;
-        Config_GetInt("0401", "backlight", &kbd_backlight);
+        const char *kbd_key = "0401";
+        for (i = 0; i < HB_MAX_SLOTS; i++) {
+            if (hardware_g.hb_slots[i].module_id == MODULE_ID_KEYBOARD &&
+                hardware_g.hb_slots[i].status == HB_STATUS_ONLINE) {
+                if (hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_KEYBOARD_GAME)
+                    kbd_key = "0402";
+                else if (hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_KEYBOARD_MUSIC)
+                    kbd_key = "0403";
+                break;
+            }
+        }
+        Config_GetInt(kbd_key, "backlight", &kbd_backlight);
         status_buf[offset++] = (uint8_t)kbd_backlight;
     }
 
@@ -1336,6 +1378,58 @@ uint8_t Submodels_SubDisp_SendSysStatus(submodels_t *submodel)
 
     /* 模块总数 */
     status_buf[offset++] = HB_MAX_SLOTS;
+
+    /* ---- v2 新增字段 ---- */
+
+    /* Display 类型：从心跳槽位中查找 */
+    {
+        uint8_t disp_type = 0;
+        for (i = 0; i < HB_MAX_SLOTS; i++) {
+            if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY &&
+                hardware_g.hb_slots[i].status == HB_STATUS_ONLINE) {
+                disp_type = hardware_g.hb_slots[i].subtype;
+                break;
+            }
+        }
+        status_buf[offset++] = disp_type;
+    }
+
+    /* Keyboard 类型：从心跳槽位中查找 */
+    {
+        uint8_t kbd_type = 0;
+        for (i = 0; i < HB_MAX_SLOTS; i++) {
+            if (hardware_g.hb_slots[i].module_id == MODULE_ID_KEYBOARD &&
+                hardware_g.hb_slots[i].status == HB_STATUS_ONLINE) {
+                kbd_type = hardware_g.hb_slots[i].subtype;
+                break;
+            }
+        }
+        status_buf[offset++] = kbd_type;
+    }
+
+    /* CH9350 连接设备类型 */
+    status_buf[offset++] = ch9350_g.connected_dev_type;
+
+    /* 音频曲目名称 (长度前缀) */
+    {
+        const volatile char *track = hardware_g.audio_status.audio_track_name;
+        uint8_t tlen = 0;
+        while (track[tlen] && tlen < 31) tlen++;
+        status_buf[offset++] = tlen;
+        if (tlen > 0) {
+            memcpy(&status_buf[offset], (const void *)track, tlen);
+            offset += tlen;
+        }
+    }
+
+    /* 键盘按键统计 (uint32 大端) */
+    {
+        uint32_t key_count = keyboard_g.type_id; /* 暂用 type_id 占位，后续扩展 */
+        status_buf[offset++] = (uint8_t)(key_count >> 24);
+        status_buf[offset++] = (uint8_t)(key_count >> 16);
+        status_buf[offset++] = (uint8_t)(key_count >> 8);
+        status_buf[offset++] = (uint8_t)(key_count & 0xFF);
+    }
 
     /* 各模块条目 */
     for (i = 0; i < HB_MAX_SLOTS; i++)

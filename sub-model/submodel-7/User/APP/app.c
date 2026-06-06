@@ -718,51 +718,116 @@ static void App_RenderPage0(void)
 
     y = LAYOUT_STATUS_BAR_H + 4;
 
-    /* ---- Audio ---- */
-    UI_DrawIcon(4, y, icon_audio_12_bitmap,
-                ICON_AUDIO_12_WIDTH, ICON_AUDIO_12_HEIGHT, UI_COLOR_BLACK);
+    /* ---- Audio State + Track Name ---- */
     {
         const uint8_t *play_icon;
-        const char *audio_str;
         switch (g_sys_status.audio_state)
         {
-            case 1: play_icon = icon_play_12_bitmap;   audio_str = "PLAY"; break;
-            case 2: play_icon = icon_pause_12_bitmap;   audio_str = "PAUSE"; break;
-            case 3: play_icon = icon_stop_12_bitmap;    audio_str = "STOP"; break;
-            default: play_icon = icon_mute_12_bitmap;   audio_str = "IDLE"; break;
+            case 1: play_icon = icon_play_12_bitmap;  break;
+            case 2: play_icon = icon_pause_12_bitmap; break;
+            case 3: play_icon = icon_stop_12_bitmap;  break;
+            default: play_icon = icon_mute_12_bitmap; break;
         }
+        UI_DrawIcon(4, y, icon_audio_12_bitmap,
+                    ICON_AUDIO_12_WIDTH, ICON_AUDIO_12_HEIGHT, UI_COLOR_BLACK);
         UI_DrawIcon(18, y, play_icon, 12, 12, UI_COLOR_BLACK);
-        UI_DrawString(33, y + 1, audio_str, UI_COLOR_BLACK, &font_montserrat_12);
+
+        /* Track name (truncated to fit) */
+        if (g_sys_status.audio_track_name[0])
+        {
+            char tn_buf[20];
+            const char *tn = g_sys_status.audio_track_name;
+            int16_t max_w = UI_SCREEN_WIDTH - 38;
+            /* Copy and truncate to fit */
+            uint8_t ti = 0;
+            while (tn[ti] && ti < sizeof(tn_buf) - 3)
+            {
+                tn_buf[ti] = tn[ti];
+                tn_buf[ti + 1] = '\0';
+                if (UI_GetStringWidth(tn_buf, &font_montserrat_12) > max_w)
+                {
+                    tn_buf[ti] = '\0';
+                    break;
+                }
+                ti++;
+            }
+            if (tn[ti] && ti > 0)
+            {
+                /* Append ".." if truncated */
+                tn_buf[ti] = '.'; tn_buf[ti+1] = '.'; tn_buf[ti+2] = '\0';
+            }
+            UI_DrawString(34, y + 1, tn_buf, UI_COLOR_BLACK, &font_montserrat_12);
+        }
+        else
+        {
+            const char *state_str;
+            switch (g_sys_status.audio_state)
+            {
+                case 1: state_str = "Playing"; break;
+                case 2: state_str = "Paused"; break;
+                case 3: state_str = "Stopped"; break;
+                default: state_str = "No Music"; break;
+            }
+            UI_DrawString(34, y + 1, state_str, UI_COLOR_BLACK, &font_montserrat_12);
+        }
     }
 
-    /* Volume icon + text on the right */
+    y += 16;
+
+    /* ---- Volume bar (full width) ---- */
     {
         uint8_t vol = g_sys_status.audio_volume;
         if (vol > 100) vol = 100;
         const uint8_t *vol_icon = (vol == 0) ? icon_mute_12_bitmap :
                                    (vol < 50) ? icon_volume_mid_12_bitmap :
                                                  icon_volume_max_12_bitmap;
+        UI_DrawIcon(4, y, vol_icon, 12, 12, UI_COLOR_BLACK);
+        /* Volume bar */
+        {
+            int16_t bar_x = 20;
+            int16_t bar_w = UI_SCREEN_WIDTH - 44;
+            UI_DrawRect(bar_x, y + 2, bar_w, 8, UI_COLOR_BLACK);
+            if (vol > 0)
+                UI_FillRect(bar_x + 1, y + 3, (uint16_t)vol * (bar_w - 2) / 100, 6, UI_COLOR_BLACK);
+        }
+        /* Volume text */
         buf[0] = '0' + (char)(vol / 100); vol %= 100;
         buf[1] = '0' + (char)(vol / 10); vol %= 10;
         buf[2] = '0' + (char)vol;
         buf[3] = '%';
         buf[4] = '\0';
         x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(buf, &font_montserrat_12);
-        UI_DrawIcon(x - 16, y, vol_icon, 12, 12, UI_COLOR_BLACK);
         UI_DrawString(x, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
     }
 
     y += 16;
-    /* Volume bar full width */
+
+    /* ---- Play Time ---- */
     {
-        uint8_t vol = g_sys_status.audio_volume;
-        if (vol > 100) vol = 100;
-        UI_DrawRect(4, y, UI_SCREEN_WIDTH - 8, 8, UI_COLOR_BLACK);
-        if (vol > 0)
-            UI_FillRect(5, y + 1, (uint16_t)vol * (UI_SCREEN_WIDTH - 10) / 100, 6, UI_COLOR_BLACK);
+        uint32_t ms = g_sys_status.audio_play_time_ms;
+        uint16_t sec = (uint16_t)(ms / 1000);
+        uint16_t min = sec / 60;
+        sec %= 60;
+        uint16_t hr = min / 60;
+        min %= 60;
+        if (hr > 0)
+        {
+            buf[0] = '0' + (char)(hr / 10); buf[1] = '0' + (char)(hr % 10);
+            buf[2] = ':'; buf[3] = '0' + (char)(min / 10); buf[4] = '0' + (char)(min % 10);
+            buf[5] = ':'; buf[6] = '0' + (char)(sec / 10); buf[7] = '0' + (char)(sec % 10);
+            buf[8] = '\0';
+        }
+        else
+        {
+            buf[0] = '0' + (char)(min / 10); buf[1] = '0' + (char)(min % 10);
+            buf[2] = ':'; buf[3] = '0' + (char)(sec / 10); buf[4] = '0' + (char)(sec % 10);
+            buf[5] = '\0';
+        }
+        UI_DrawIcon(4, y, icon_bars_12_bitmap, ICON_BARS_12_WIDTH, ICON_BARS_12_HEIGHT, UI_COLOR_BLACK);
+        UI_DrawString(18, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
     }
 
-    y += 14;
+    y += 16;
     UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
     y += 5;
 
@@ -834,41 +899,17 @@ static void App_RenderPage1(void)
 
     y = LAYOUT_STATUS_BAR_H + 4;
 
-    /* ---- Storage ---- */
-    {
-        if (g_sys_status.ch378_device == 1)
-        {
-            UI_DrawIcon(4, y, icon_sd_card_12_bitmap, ICON_SD_CARD_12_WIDTH, ICON_SD_CARD_12_HEIGHT, UI_COLOR_BLACK);
-        }
-        else
-        {
-            UI_DrawIcon(4, y, icon_usb_12_bitmap, ICON_USB_12_WIDTH, ICON_USB_12_HEIGHT, UI_COLOR_BLACK);
-        }
-    }
-    UI_DrawString(18, y + 1,
-                  g_sys_status.ch378_device == 1 ? "SD" : "USB",
-                  UI_COLOR_BLACK, &font_montserrat_12);
-    {
-        const char *busy_str = g_sys_status.ch378_busy ? "BUSY" : "RDY";
-        x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(busy_str, &font_montserrat_12);
-        UI_DrawString(x, y + 1, busy_str, UI_COLOR_BLACK, &font_montserrat_12);
-    }
-
-    y += 16;
-    UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
-    y += 5;
-
-    /* ---- Display Brightness ---- */
+    /* ---- Display Type + Brightness ---- */
     UI_DrawIcon(4, y, icon_image_12_bitmap, ICON_IMAGE_12_WIDTH, ICON_IMAGE_12_HEIGHT, UI_COLOR_BLACK);
     {
-        uint8_t br = g_sys_status.display_brightness;
-        if (br > 100) br = 100;
-        buf[0] = '0' + (char)(br / 100); br %= 100;
-        buf[1] = '0' + (char)(br / 10); br %= 10;
-        buf[2] = '0' + (char)br;
-        buf[3] = '%';
-        buf[4] = '\0';
-        UI_DrawString(18, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
+        const char *disp_name;
+        switch (g_sys_status.display_type)
+        {
+            case 1: disp_name = "LCD"; break;
+            case 2: disp_name = "EINK"; break;
+            default: disp_name = "---"; break;
+        }
+        UI_DrawString(18, y + 1, disp_name, UI_COLOR_BLACK, &font_montserrat_12);
     }
     /* Brightness bar */
     {
@@ -885,17 +926,18 @@ static void App_RenderPage1(void)
     UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
     y += 5;
 
-    /* ---- Keyboard Backlight ---- */
+    /* ---- Keyboard Type + Backlight ---- */
     UI_DrawIcon(4, y, icon_keyboard_12_bitmap, ICON_KEYBOARD_12_WIDTH, ICON_KEYBOARD_12_HEIGHT, UI_COLOR_BLACK);
     {
-        uint8_t kb = g_sys_status.keyboard_backlight;
-        if (kb > 100) kb = 100;
-        buf[0] = '0' + (char)(kb / 100); kb %= 100;
-        buf[1] = '0' + (char)(kb / 10); kb %= 10;
-        buf[2] = '0' + (char)kb;
-        buf[3] = '%';
-        buf[4] = '\0';
-        UI_DrawString(18, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
+        const char *kbd_name;
+        switch (g_sys_status.keyboard_type)
+        {
+            case 1: kbd_name = "Main"; break;
+            case 2: kbd_name = "Game"; break;
+            case 3: kbd_name = "Music"; break;
+            default: kbd_name = "---"; break;
+        }
+        UI_DrawString(18, y + 1, kbd_name, UI_COLOR_BLACK, &font_montserrat_12);
     }
     /* Backlight bar */
     {
@@ -906,6 +948,50 @@ static void App_RenderPage1(void)
         UI_DrawRect(bar_x, y + 2, bar_w, 8, UI_COLOR_BLACK);
         if (kb > 0)
             UI_FillRect(bar_x + 1, y + 3, (uint16_t)kb * (bar_w - 2) / 100, 6, UI_COLOR_BLACK);
+    }
+
+    y += 16;
+    UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
+    y += 5;
+
+    /* ---- CH9350 HID Device ---- */
+    UI_DrawIcon(4, y, icon_usb_12_bitmap, ICON_USB_12_WIDTH, ICON_USB_12_HEIGHT, UI_COLOR_BLACK);
+    {
+        const char *hid_name;
+        switch (g_sys_status.ch9350_dev_type)
+        {
+            case 1: hid_name = "Keyboard"; break;
+            case 2: hid_name = "Mouse(R)"; break;
+            case 3: hid_name = "Mouse(A)"; break;
+            case 4: hid_name = "Media"; break;
+            case 5: hid_name = "Scanner"; break;
+            default: hid_name = "No HID"; break;
+        }
+        UI_DrawString(18, y + 1, hid_name, UI_COLOR_BLACK, &font_montserrat_12);
+    }
+
+    y += 16;
+    UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
+    y += 5;
+
+    /* ---- Storage ---- */
+    {
+        if (g_sys_status.ch378_device == 1)
+        {
+            UI_DrawIcon(4, y, icon_sd_card_12_bitmap, ICON_SD_CARD_12_WIDTH, ICON_SD_CARD_12_HEIGHT, UI_COLOR_BLACK);
+        }
+        else
+        {
+            UI_DrawIcon(4, y, icon_drive_12_bitmap, ICON_DRIVE_12_WIDTH, ICON_DRIVE_12_HEIGHT, UI_COLOR_BLACK);
+        }
+    }
+    UI_DrawString(18, y + 1,
+                  g_sys_status.ch378_device == 1 ? "SD" : "USB",
+                  UI_COLOR_BLACK, &font_montserrat_12);
+    {
+        const char *busy_str = g_sys_status.ch378_busy ? "BUSY" : "RDY";
+        x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(busy_str, &font_montserrat_12);
+        UI_DrawString(x, y + 1, busy_str, UI_COLOR_BLACK, &font_montserrat_12);
     }
 
     y += 16;
@@ -952,6 +1038,7 @@ static void App_RenderPage1(void)
 
 static void App_RenderPage2(void)
 {
+    char buf[20];
     int16_t y;
 
     UI_Clear(UI_COLOR_WHITE);
@@ -998,12 +1085,44 @@ static void App_RenderPage2(void)
             }
 
             y += 14;
-            if (y > UI_SCREEN_HEIGHT - 16) break;
+            if (y > UI_SCREEN_HEIGHT - 30) break;
         }
     }
     else
     {
         UI_DrawString(18, y, "Waiting...", UI_COLOR_BLACK, &font_montserrat_12);
+    }
+
+    /* Keyboard key count at bottom */
+    if (g_sys_status.keyboard_key_count > 0)
+    {
+        y = UI_SCREEN_HEIGHT - 28;
+        UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
+        y += 4;
+        UI_DrawIcon(4, y, icon_keyboard_12_bitmap, ICON_KEYBOARD_12_WIDTH, ICON_KEYBOARD_12_HEIGHT, UI_COLOR_BLACK);
+        {
+            uint32_t kc = g_sys_status.keyboard_key_count;
+            /* Format key count */
+            if (kc < 1000)
+            {
+                buf[0] = '0' + (char)(kc / 100); kc %= 100;
+                buf[1] = '0' + (char)(kc / 10); kc %= 10;
+                buf[2] = '0' + (char)kc;
+                buf[3] = '\0';
+            }
+            else
+            {
+                buf[0] = '0' + (char)(kc / 10000); kc %= 10000;
+                buf[1] = '0' + (char)(kc / 1000); kc %= 1000;
+                buf[2] = '0' + (char)(kc / 100); kc %= 100;
+                buf[3] = '0' + (char)(kc / 10); kc %= 10;
+                buf[4] = '0' + (char)kc;
+                buf[5] = '\0';
+            }
+            UI_DrawString(20, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+            UI_DrawString(20 + UI_GetStringWidth(buf, &font_montserrat_12), y,
+                          " keys", UI_COLOR_BLACK, &font_montserrat_12);
+        }
     }
 
     /* Page indicator */
@@ -1376,6 +1495,54 @@ static void App_MultiframeProcess(uint8_t subcmd, uint8_t flags,
                 g_sys_status.rgb_brightness    = d[off++];
                 g_sys_status.config_loaded     = d[off++];
                 g_sys_status.module_count      = d[off++];
+
+                /* v2 新增字段 */
+                if (g_sys_status.version >= 2 && off + 4 <= dlen)
+                {
+                    g_sys_status.display_type   = d[off++];
+                    g_sys_status.keyboard_type   = d[off++];
+                    g_sys_status.ch9350_dev_type  = d[off++];
+
+                    /* 音频曲目名称 (长度前缀) */
+                    {
+                        uint8_t tlen = d[off++];
+                        if (tlen > SYS_STATUS_TRACK_NAME_MAX - 1)
+                            tlen = SYS_STATUS_TRACK_NAME_MAX - 1;
+                        if (off + tlen <= dlen)
+                        {
+                            memcpy(g_sys_status.audio_track_name, &d[off], tlen);
+                            g_sys_status.audio_track_name[tlen] = '\0';
+                            off += tlen;
+                        }
+                        else
+                        {
+                            g_sys_status.audio_track_name[0] = '\0';
+                        }
+                    }
+
+                    /* 键盘按键统计 (uint32 大端) */
+                    if (off + 4 <= dlen)
+                    {
+                        g_sys_status.keyboard_key_count = ((uint32_t)d[off] << 24)
+                                                         | ((uint32_t)d[off+1] << 16)
+                                                         | ((uint32_t)d[off+2] << 8)
+                                                         | (uint32_t)d[off+3];
+                        off += 4;
+                    }
+                    else
+                    {
+                        g_sys_status.keyboard_key_count = 0;
+                    }
+                }
+                else
+                {
+                    /* v1 兼容：默认值 */
+                    g_sys_status.display_type   = 0;
+                    g_sys_status.keyboard_type   = 0;
+                    g_sys_status.ch9350_dev_type  = 0;
+                    g_sys_status.audio_track_name[0] = '\0';
+                    g_sys_status.keyboard_key_count = 0;
+                }
 
                 /* Parse module entries */
                 if (g_sys_status.module_count > SYS_STATUS_MAX_MODULES)

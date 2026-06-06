@@ -95,6 +95,7 @@ typedef struct {
  *=============================================================================*/
 
 #define SYS_STATUS_MAX_MODULES  6
+#define SYS_STATUS_TRACK_NAME_MAX 32
 
 typedef struct {
     uint8_t  version;              /* Status data format version */
@@ -114,6 +115,12 @@ typedef struct {
     uint8_t  rgb_brightness;       /* 0~255 */
     uint8_t  config_loaded;        /* 0=no, 1=yes */
     uint8_t  module_count;         /* Number of module entries */
+    /* v2 新增字段 */
+    uint8_t  display_type;         /* 0=无, 1=LCD, 2=EInk */
+    uint8_t  keyboard_type;        /* 0=无, 1=Main, 2=Game, 3=Music */
+    uint8_t  ch9350_dev_type;       /* 0=无, 1=键盘, 2=相对鼠标, 3=绝对鼠标, 4=多媒体, 5=扫描枪 */
+    char     audio_track_name[SYS_STATUS_TRACK_NAME_MAX]; /* 当前曲目名 */
+    uint32_t keyboard_key_count;   /* 键盘按键统计 */
     struct {
         uint8_t module_id;
         uint8_t type;

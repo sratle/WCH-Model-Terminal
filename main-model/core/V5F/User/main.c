@@ -11,6 +11,7 @@
 #include "shared.h"
 #include "CH378/CH378.h"
 #include "CH585F/ch585f_bt.h"
+#include "CS43131/cs43131.h"
 #include "Config/config.h"
 #include "Test/test.h"
 #include "Key/key.h"
@@ -50,6 +51,7 @@ int main(void)
     {
         Display_Process(&display_g);
         Audio_Process();
+        Audio_SyncToSharedMemory();
         Debug_CLI_Process();
         CH585F_BT_Poll();
         Key_ProcessEvents();

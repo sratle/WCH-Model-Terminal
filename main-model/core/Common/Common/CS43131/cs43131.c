@@ -918,3 +918,27 @@ void DMA1_Channel1_IRQHandler(void)
         update_playback_progress();
     }
 }
+
+/*********************************************************************
+ * @fn      Audio_SyncToSharedMemory
+ *
+ * @brief   Sync audio status to shared memory for V3F to read.
+ *          Called from V5F main loop.
+ *
+ * @return  none
+ *********************************************************************/
+void Audio_SyncToSharedMemory(void)
+{
+    extern volatile hardware_t hardware_g;
+    hardware_g.audio_status.audio_state = (uint8_t)audio_state;
+    hardware_g.audio_status.audio_volume = CS43131_g.volume;
+    hardware_g.audio_status.audio_play_time_ms = Audio_GetPlayTime_ms();
+    {
+        volatile char *dst = hardware_g.audio_status.audio_track_name;
+        const char *src = CS43131_g.track_name;
+        uint8_t i;
+        for (i = 0; i < AUDIO_TRACK_NAME_MAX_LEN - 1 && src[i]; i++)
+            dst[i] = src[i];
+        dst[i] = '\0';
+    }
+}
