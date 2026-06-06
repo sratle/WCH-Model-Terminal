@@ -322,7 +322,7 @@ void Hardware_Heartbeat(void)
             }
             hardware_g.subdisp_req.pending = 0;
         }
-    }
+    }   /* end if (hardware_g.config_applied) */
 }
 
 /*********************************************************************
@@ -367,6 +367,15 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
                 subtype == MODULE_SUBTYPE_SUBMODEL_RGB)
             {
                 hardware_g.rgb_config.pending = 1;
+            }
+
+            /* SubDisplay 子模块上线时，主动发送一次当前状态，
+             * 让 SubDisplay 立即有数据显示，之后由 SubDisp 自己定时请求 */
+            if (type == MODULE_TYPE_SUBMODEL &&
+                subtype == MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY)
+            {
+                hardware_g.subdisp_req.pending = 1;
+                hardware_g.subdisp_req.cmd = SUBDISP_CMD_REFRESH_STATUS;
             }
             return;
         }

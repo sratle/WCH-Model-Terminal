@@ -157,10 +157,12 @@ typedef struct {
  *  Page Switch & Status Request Constants
  *=============================================================================*/
 
-#define PAGE_SWITCH_INTERVAL_MS      3000   /* Switch pages every 3 seconds */
-#define STATUS_INIT_DELAY_MS         5000   /* Wait 5s after boot before first status request */
-#define STATUS_REQUEST_INTERVAL_MS   15000  /* Request status every 15 seconds */
-#define PAGE_COUNT                   2      /* Total pages */
+/* Heartbeat from Core arrives every ~500ms (HB_INTERVAL_MS).
+ * Use heartbeat count as timer base instead of tick counter. */
+#define HB_PAGE_SWITCH_COUNT        6       /* Switch pages every 6 heartbeats (~3s) */
+#define HB_STATUS_INIT_COUNT        10      /* First status request after 10 heartbeats (~5s) */
+#define HB_STATUS_REQUEST_COUNT     30      /* Request status every 30 heartbeats (~15s) */
+#define PAGE_COUNT                  3       /* Total pages in status mode */
 
 extern bulk_transfer_t g_bulk;
 

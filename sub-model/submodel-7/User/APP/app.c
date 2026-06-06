@@ -46,10 +46,12 @@ static dev_list_t g_dev_list;
 /* Multi-frame reassembly state */
 static multiframe_rx_t g_mf_rx;
 
-/* Page switching state */
-static uint8_t g_current_page = 0;        /* 0=Status, 1=Image */
-static uint32_t g_page_tick = 0;          /* Page switch counter (1 tick = 1 ms) */
-static uint32_t g_status_tick = 0;        /* Status request counter (1 tick = 1 ms) */
+/* Page switching state (heartbeat-based) */
+static uint8_t g_current_page = 0;        /* Current page index in status mode (0..2) */
+static uint8_t g_display_mode = 0;        /* 0=status rotation, 1=image */
+static uint8_t g_hb_count = 0;           /* Heartbeat counter since last page switch */
+static uint8_t g_hb_status_count = 0;    /* Heartbeat counter since last status request */
+static uint8_t g_status_requested = 0;   /* 1=initial status request not yet sent */
 
 /* BMP image cache (from BMP_TRANS multi-frame) */
 static uint8_t g_bmp_buf[BULK_IMG_MAX_BYTES];
@@ -71,8 +73,10 @@ static void App_RenderStatus(void);
 static void App_RenderContent(const uint8_t *data, uint8_t len);
 static void App_ProcessBulkComplete(void);
 static void App_DrawStatusBar(void);
-static void App_RenderPageA(void);
-static void App_RenderPageB(void);
+static void App_RenderPage0(void);
+static void App_RenderPage1(void);
+static void App_RenderPage2(void);
+static void App_RenderPageImage(void);
 static void App_RequestSysStatus(void);
 static void App_RequestLsDev(void);
 static void App_MultiframeReset(void);
@@ -105,12 +109,13 @@ void App_Init(void)
     g_refresh_pending = 0;
     g_bulk_ready = 0;
     g_current_page = 0;
-    g_page_tick = 0;
-    g_status_tick = STATUS_REQUEST_INTERVAL_MS - STATUS_INIT_DELAY_MS;  /* First request after 5s */
+    g_hb_count = 0;
+    g_hb_status_count = 0;
+    g_status_requested = 0;
     g_bmp_valid = 0;
 
-    /* Draw initial page A (status) */
-    App_RenderPageA();
+    /* Draw initial page 0 (status) */
+    App_RenderPage0();
     UI_Refresh();
 }
 
@@ -143,35 +148,6 @@ void App_Process(void)
     {
         App_ProcessBulkComplete();
         g_bulk_ready = 0;
-    }
-
-    /* Page switching timer (1 tick = 1 ms via Delay_Ms(1) in main loop) */
-    g_page_tick++;
-    if (g_page_tick >= PAGE_SWITCH_INTERVAL_MS)
-    {
-        g_page_tick = 0;
-
-        /* 仅在状态模式(模式0)下自动翻页；图片模式(模式1)不翻页 */
-        if (g_current_page != 1 || !g_bmp_valid)
-        {
-            g_current_page = (g_current_page + 1) % PAGE_COUNT;
-
-            /* Render the new page */
-            UI_Clear(UI_COLOR_WHITE);
-            if (g_current_page == 0)
-                App_RenderPageA();
-            else
-                App_RenderPageB();
-            g_refresh_pending = 1;
-        }
-    }
-
-    /* Status request timer: wait 5s after boot, then request every 15s */
-    g_status_tick++;
-    if (g_status_tick >= STATUS_REQUEST_INTERVAL_MS)
-    {
-        g_status_tick = 0;
-        App_RequestSysStatus();
     }
 
     /* Coalesced refresh: if content updated, refresh screen */
@@ -244,6 +220,43 @@ static void App_HandleGetType(void)
     rsp[4] = FW_MINOR_VERSION;
 
     UartCore_PackAndSend(MODULE_ID_CORE, CMD_ACK, rsp, 5);
+
+    /* Heartbeat-based timing */
+    g_hb_count++;
+    g_hb_status_count++;
+
+    /* Page switching: every HB_PAGE_SWITCH_COUNT heartbeats */
+    if (g_hb_count >= HB_PAGE_SWITCH_COUNT)
+    {
+        g_hb_count = 0;
+
+        /* 仅在状态模式(mode 0)下自动翻页；图片模式(mode 1)不翻页 */
+        if (g_display_mode == 0)
+        {
+            g_current_page = (g_current_page + 1) % PAGE_COUNT;
+            App_RenderStatus();
+            g_refresh_pending = 1;
+        }
+    }
+
+    /* Status request: first after HB_STATUS_INIT_COUNT, then every HB_STATUS_REQUEST_COUNT */
+    if (!g_status_requested)
+    {
+        if (g_hb_status_count >= HB_STATUS_INIT_COUNT)
+        {
+            g_status_requested = 1;
+            g_hb_status_count = 0;
+            App_RequestSysStatus();
+        }
+    }
+    else
+    {
+        if (g_hb_status_count >= HB_STATUS_REQUEST_COUNT)
+        {
+            g_hb_status_count = 0;
+            App_RequestSysStatus();
+        }
+    }
 }
 
 /*=============================================================================
@@ -356,27 +369,26 @@ static void App_HandleSetMode(void)
 
         case SUBCMD_SET_DISPLAY_MODE:
         {
-            /* data[0]=mode: 0=status, 1=image */
+            /* data[0]=mode: 0=status rotation, 1=image */
             if (data_len < 1)
                 break;
 
             uint8_t mode = data[0];
             if (mode == DISPLAY_MODE_IMAGE)
             {
-                /* 切换到图片模式：停止自动翻页，显示图片页 */
-                g_current_page = 1;
-                g_page_tick = 0;
-                UI_Clear(UI_COLOR_WHITE);
-                App_RenderPageB();
+                /* 切换到图片模式：停止自动翻页，显示图片 */
+                g_display_mode = 1;
+                g_hb_count = 0;
+                App_RenderPageImage();
                 g_refresh_pending = 1;
             }
             else
             {
-                /* 切换到状态模式：恢复双页轮换 */
+                /* 切换到状态模式：恢复三页轮换 */
+                g_display_mode = 0;
                 g_current_page = 0;
-                g_page_tick = 0;
-                UI_Clear(UI_COLOR_WHITE);
-                App_RenderPageA();
+                g_hb_count = 0;
+                App_RenderPage0();
                 g_refresh_pending = 1;
             }
             break;
@@ -587,22 +599,43 @@ static void App_DrawStatusBar(void)
 }
 
 /*=============================================================================
- *  Page A: System Status Page
+ *  Page 0: Audio / Battery / BLE
  *=============================================================================*/
 
-static void App_RenderPageA(void)
+static void App_DrawPageIndicator(uint8_t page_num, uint8_t total, const char *label)
+{
+    char buf[16];
+    int16_t text_w;
+    /* "1/3 Label" */
+    buf[0] = '0' + page_num;
+    buf[1] = '/';
+    buf[2] = '0' + total;
+    buf[3] = ' ';
+    /* Append label */
+    {
+        uint8_t i;
+        for (i = 0; label[i] && i + 4 < sizeof(buf) - 1; i++)
+            buf[4 + i] = label[i];
+        buf[4 + i] = '\0';
+    }
+    text_w = UI_GetStringWidth(buf, &font_montserrat_12);
+    if (text_w > UI_SCREEN_WIDTH - 4) text_w = UI_SCREEN_WIDTH - 4;
+    UI_FillRect(0, UI_SCREEN_HEIGHT - 14, UI_SCREEN_WIDTH, 14, UI_COLOR_BLACK);
+    UI_DrawString((UI_SCREEN_WIDTH - text_w) / 2, UI_SCREEN_HEIGHT - 13,
+                  buf, UI_COLOR_WHITE, &font_montserrat_12);
+}
+
+static void App_RenderPage0(void)
 {
     char buf[20];
-    int16_t y;
+    int16_t x, y;
 
     UI_Clear(UI_COLOR_WHITE);
-
-    /* Status bar */
     App_DrawStatusBar();
 
-    y = LAYOUT_STATUS_BAR_H + 2;
+    y = LAYOUT_STATUS_BAR_H + 4;
 
-    /* ---- Audio section ---- */
+    /* ---- Audio ---- */
     UI_DrawIcon(4, y, icon_audio_12_bitmap,
                 ICON_AUDIO_12_WIDTH, ICON_AUDIO_12_HEIGHT, UI_COLOR_BLACK);
     {
@@ -616,7 +649,8 @@ static void App_RenderPageA(void)
         }
         UI_DrawString(18, y + 1, audio_str, UI_COLOR_BLACK, &font_montserrat_12);
     }
-    /* Volume on right side */
+
+    /* Volume on the right side */
     {
         uint8_t vol = g_sys_status.audio_volume;
         if (vol > 100) vol = 100;
@@ -626,54 +660,144 @@ static void App_RenderPageA(void)
         buf[3] = '0' + (char)(vol / 10); vol %= 10;
         buf[4] = '0' + (char)vol;
         buf[5] = '\0';
-        UI_DrawString(70, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
+        /* Right-align volume text */
+        x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(buf, &font_montserrat_12);
+        UI_DrawString(x, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
     }
-    /* Volume bar visual */
+
+    y += 16;
+    /* Volume bar full width */
     {
         uint8_t vol = g_sys_status.audio_volume;
         if (vol > 100) vol = 100;
-        UI_DrawRect(100, y + 2, 18, 8, UI_COLOR_BLACK);
+        UI_DrawRect(4, y, UI_SCREEN_WIDTH - 8, 8, UI_COLOR_BLACK);
         if (vol > 0)
-            UI_FillRect(101, y + 3, (uint16_t)vol * 16 / 100, 6, UI_COLOR_BLACK);
+            UI_FillRect(5, y + 1, (uint16_t)vol * (UI_SCREEN_WIDTH - 10) / 100, 6, UI_COLOR_BLACK);
+    }
+
+    y += 14;
+    UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
+    y += 5;
+
+    /* ---- Battery ---- */
+    {
+        uint8_t bat = g_sys_status.battery_pct;
+        if (bat == 0xFF)
+            UI_DrawString(4, y, "BAT: ---", UI_COLOR_BLACK, &font_montserrat_12);
+        else
+        {
+            buf[0] = 'B'; buf[1] = 'A'; buf[2] = 'T'; buf[3] = ':';
+            buf[4] = ' ';
+            if (bat >= 100) { buf[5] = '1'; bat -= 100; }
+            else { buf[5] = ' '; }
+            buf[6] = '0' + (char)(bat / 10); bat %= 10;
+            buf[7] = '0' + (char)bat;
+            buf[8] = '%';
+            buf[9] = '\0';
+            UI_DrawString(4, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+        }
+        /* Charging indicator */
+        if (g_sys_status.charging)
+            UI_DrawString(UI_SCREEN_WIDTH - 4 - UI_GetStringWidth("CHG", &font_montserrat_12),
+                          y, "CHG", UI_COLOR_BLACK, &font_montserrat_12);
     }
 
     y += 16;
     UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
-    y += 3;
+    y += 5;
 
-    /* ---- Storage / Display row ---- */
+    /* ---- BLE ---- */
+    {
+        buf[0] = 'B'; buf[1] = 'L'; buf[2] = 'E'; buf[3] = ':';
+        buf[4] = '0' + (g_sys_status.ble_connections & 0x0F);
+        buf[5] = '\0';
+        UI_DrawString(4, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+    }
+    {
+        const char *disc = g_sys_status.ble_discoverable ? "SCAN" : "OFF";
+        x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(disc, &font_montserrat_12);
+        UI_DrawString(x, y, disc, UI_COLOR_BLACK, &font_montserrat_12);
+    }
+
+    /* Page indicator */
+    App_DrawPageIndicator(1, PAGE_COUNT, "Audio");
+}
+
+/*=============================================================================
+ *  Page 1: Storage / Display / RGB / Config
+ *=============================================================================*/
+
+static void App_RenderPage1(void)
+{
+    char buf[20];
+    int16_t x, y;
+
+    UI_Clear(UI_COLOR_WHITE);
+    App_DrawStatusBar();
+
+    y = LAYOUT_STATUS_BAR_H + 4;
+
+    /* ---- Storage ---- */
     UI_DrawIcon(4, y, icon_usb_12_bitmap,
                 ICON_USB_12_WIDTH, ICON_USB_12_HEIGHT, UI_COLOR_BLACK);
     UI_DrawString(18, y + 1,
                   g_sys_status.ch378_device == 1 ? "SD" : "USB",
                   UI_COLOR_BLACK, &font_montserrat_12);
-    UI_DrawString(38, y + 1,
-                  g_sys_status.ch378_busy ? "BUSY" : "RDY",
-                  UI_COLOR_BLACK, &font_montserrat_12);
-    /* Brightness on right */
     {
-        uint8_t br = g_sys_status.display_brightness;
-        if (br > 100) br = 100;
-        buf[0] = 'B'; buf[1] = ':';
-        if (br >= 100) { buf[2] = '1'; br -= 100; }
-        else { buf[2] = ' '; }
-        buf[3] = '0' + (char)(br / 10); br %= 10;
-        buf[4] = '0' + (char)br;
-        buf[5] = '\0';
-        UI_DrawString(80, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
+        const char *busy_str = g_sys_status.ch378_busy ? "BUSY" : "RDY";
+        x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(busy_str, &font_montserrat_12);
+        UI_DrawString(x, y + 1, busy_str, UI_COLOR_BLACK, &font_montserrat_12);
     }
 
     y += 16;
     UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
-    y += 3;
+    y += 5;
 
-    /* ---- RGB / Config row ---- */
+    /* ---- Display Brightness ---- */
+    {
+        uint8_t br = g_sys_status.display_brightness;
+        if (br > 100) br = 100;
+        buf[0] = 'D'; buf[1] = 'I'; buf[2] = 'S'; buf[3] = 'P'; buf[4] = ':';
+        if (br >= 100) { buf[5] = '1'; br -= 100; }
+        else { buf[5] = ' '; }
+        buf[6] = '0' + (char)(br / 10); br %= 10;
+        buf[7] = '0' + (char)br;
+        buf[8] = '%';
+        buf[9] = '\0';
+        UI_DrawString(4, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+    }
+
+    y += 16;
+    UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
+    y += 5;
+
+    /* ---- Keyboard Backlight ---- */
+    {
+        uint8_t kb = g_sys_status.keyboard_backlight;
+        if (kb > 100) kb = 100;
+        buf[0] = 'K'; buf[1] = 'B'; buf[2] = 'D'; buf[3] = ':';
+        if (kb >= 100) { buf[4] = '1'; kb -= 100; }
+        else { buf[4] = ' '; }
+        buf[5] = '0' + (char)(kb / 10); kb %= 10;
+        buf[6] = '0' + (char)kb;
+        buf[7] = '%';
+        buf[8] = '\0';
+        UI_DrawString(4, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+    }
+
+    y += 16;
+    UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
+    y += 5;
+
+    /* ---- RGB ---- */
     {
         const char *rgb_modes[] = {"FIX", "ON", "BRH", "RUN"};
         const char *mode_str = (g_sys_status.rgb_mode < 4)
                                ? rgb_modes[g_sys_status.rgb_mode] : "???";
-        UI_DrawString(4, y + 1, "RGB:", UI_COLOR_BLACK, &font_montserrat_12);
-        UI_DrawString(28, y + 1, (char *)mode_str, UI_COLOR_BLACK, &font_montserrat_12);
+        buf[0] = 'R'; buf[1] = 'G'; buf[2] = 'B'; buf[3] = ':';
+        buf[4] = mode_str[0]; buf[5] = mode_str[1]; buf[6] = mode_str[2];
+        buf[7] = '\0';
+        UI_DrawString(4, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
     }
     {
         uint8_t rb = g_sys_status.rgb_brightness;
@@ -682,19 +806,40 @@ static void App_RenderPageA(void)
         buf[3] = '0' + (char)(rb / 10); rb %= 10;
         buf[4] = '0' + (char)rb;
         buf[5] = '\0';
-        UI_DrawString(56, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
+        x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(buf, &font_montserrat_12);
+        UI_DrawString(x, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
     }
-    UI_DrawString(88, y + 1,
-                  g_sys_status.config_loaded ? "CFG+" : "CFG-",
-                  UI_COLOR_BLACK, &font_montserrat_12);
 
     y += 16;
     UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
-    y += 3;
+    y += 5;
 
-    /* ---- Module status list ---- */
+    /* ---- Config ---- */
+    UI_DrawString(4, y,
+                  g_sys_status.config_loaded ? "CFG: Loaded" : "CFG: None",
+                  UI_COLOR_BLACK, &font_montserrat_12);
+
+    /* Page indicator */
+    App_DrawPageIndicator(2, PAGE_COUNT, "System");
+}
+
+/*=============================================================================
+ *  Page 2: Module Status List
+ *=============================================================================*/
+
+static void App_RenderPage2(void)
+{
+    int16_t y;
+
+    UI_Clear(UI_COLOR_WHITE);
+    App_DrawStatusBar();
+
+    y = LAYOUT_STATUS_BAR_H + 2;
+
     UI_DrawString(4, y + 1, "Modules", UI_COLOR_BLACK, &font_montserrat_12);
     y += 15;
+    UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
+    y += 3;
 
     if (g_dev_list.valid)
     {
@@ -711,8 +856,6 @@ static void App_RenderPageA(void)
             /* Status dot */
             if (st == 1)
                 UI_FillCircle(8, y + 5, 3, UI_COLOR_BLACK);
-            else if (st == 2)
-                UI_DrawCircle(8, y + 5, 3, UI_COLOR_BLACK);
             else
                 UI_DrawCircle(8, y + 5, 3, UI_COLOR_BLACK);
 
@@ -720,18 +863,10 @@ static void App_RenderPageA(void)
             UI_DrawString(16, y, (char *)name, UI_COLOR_BLACK, &font_montserrat_12);
 
             /* Status text */
-            UI_DrawString(44, y,
-                          st == 1 ? "ON" : (st == 2 ? "--" : "??"),
-                          UI_COLOR_BLACK, &font_montserrat_12);
-
-            /* Type.subtype on right */
             {
-                uint8_t t = g_dev_list.entries[i].type;
-                uint8_t s = g_dev_list.entries[i].subtype;
-                buf[0] = '0' + (t >> 4); buf[1] = '0' + (t & 0x0F);
-                buf[2] = '.'; buf[3] = '0' + (s >> 4); buf[4] = '0' + (s & 0x0F);
-                buf[5] = '\0';
-                UI_DrawString(72, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+                const char *st_str = st == 1 ? "ON" : (st == 2 ? "OFF" : "???");
+                int16_t st_x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(st_str, &font_montserrat_12);
+                UI_DrawString(st_x, y, st_str, UI_COLOR_BLACK, &font_montserrat_12);
             }
 
             y += 14;
@@ -743,32 +878,26 @@ static void App_RenderPageA(void)
         UI_DrawString(16, y, "Waiting...", UI_COLOR_BLACK, &font_montserrat_12);
     }
 
-    /* Page indicator at bottom */
-    UI_FillRect(0, UI_SCREEN_HEIGHT - 14, UI_SCREEN_WIDTH, 14, UI_COLOR_BLACK);
-    UI_DrawString(UI_SCREEN_WIDTH / 2 - 24, UI_SCREEN_HEIGHT - 13,
-                  "1/2 Status", UI_COLOR_WHITE, &font_montserrat_12);
+    /* Page indicator */
+    App_DrawPageIndicator(3, PAGE_COUNT, "Modules");
 }
 
 /*=============================================================================
- *  Page B: Image / Device List Page
+ *  Image Page (shown when mode=IMAGE and bmp is valid)
  *=============================================================================*/
 
-static void App_RenderPageB(void)
+static void App_RenderPageImage(void)
 {
     UI_Clear(UI_COLOR_WHITE);
-
-    /* Status bar */
     App_DrawStatusBar();
 
     if (g_bmp_valid)
     {
-        /* Render BMP image below status bar */
         int16_t img_y = LAYOUT_STATUS_BAR_H;
-        int16_t avail_h = UI_SCREEN_HEIGHT - 14 - img_y;  /* minus page indicator */
+        int16_t avail_h = UI_SCREEN_HEIGHT - img_y;
         uint16_t bytes_per_row = (g_bmp_width + 7) / 8;
         uint16_t row, col;
 
-        /* Center image horizontally if narrower than screen */
         int16_t x_off = 0;
         if (g_bmp_width < UI_SCREEN_WIDTH)
             x_off = (UI_SCREEN_WIDTH - g_bmp_width) / 2;
@@ -789,71 +918,22 @@ static void App_RenderPageB(void)
     }
     else
     {
-        /* No image: show device list */
-        int16_t y = LAYOUT_STATUS_BAR_H + 2;
-        char buf[16];
-
-        UI_DrawString(4, y + 1, "Devices", UI_COLOR_BLACK, &font_montserrat_12);
-        y += 15;
-        UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
-        y += 3;
-
-        if (g_dev_list.valid)
-        {
-            uint8_t i;
-            static const char *mod_names[] = {
-                "DSP", "KBD", "PWR", "S1", "S2", "S3"
-            };
-
-            for (i = 0; i < g_dev_list.count && i < SYS_STATUS_MAX_MODULES; i++)
-            {
-                const char *name = (i < 6) ? mod_names[i] : "???";
-                uint8_t st = g_dev_list.entries[i].status;
-
-                /* Status dot */
-                if (st == 1)
-                    UI_FillCircle(8, y + 5, 3, UI_COLOR_BLACK);
-                else
-                    UI_DrawCircle(8, y + 5, 3, UI_COLOR_BLACK);
-
-                /* Name */
-                UI_DrawString(16, y, (char *)name, UI_COLOR_BLACK, &font_montserrat_12);
-
-                /* Status text (short) */
-                UI_DrawString(44, y,
-                              st == 1 ? "ON" : (st == 2 ? "OFF" : "???"),
-                              UI_COLOR_BLACK, &font_montserrat_12);
-
-                /* Type.subtype */
-                {
-                    uint8_t t = g_dev_list.entries[i].type;
-                    uint8_t s = g_dev_list.entries[i].subtype;
-                    buf[0] = '0' + (t >> 4); buf[1] = '0' + (t & 0x0F);
-                    buf[2] = '.'; buf[3] = '0' + (s >> 4); buf[4] = '0' + (s & 0x0F);
-                    buf[5] = '\0';
-                    UI_DrawString(72, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
-                }
-
-                y += 14;
-                if (y > UI_SCREEN_HEIGHT - 16) break;
-            }
-        }
-        else
-        {
-            UI_DrawString(16, y, "Waiting...", UI_COLOR_BLACK, &font_montserrat_12);
-        }
+        /* No image available */
+        int16_t y = LAYOUT_STATUS_BAR_H + 4;
+        UI_DrawString(4, y, "No Image", UI_COLOR_BLACK, &font_montserrat_12);
     }
-
-    /* Page indicator at bottom */
-    UI_FillRect(0, UI_SCREEN_HEIGHT - 14, UI_SCREEN_WIDTH, 14, UI_COLOR_BLACK);
-    UI_DrawString(UI_SCREEN_WIDTH / 2 - 22, UI_SCREEN_HEIGHT - 13,
-                  "2/2 Image", UI_COLOR_WHITE, &font_montserrat_12);
 }
 
 static void App_RenderStatus(void)
 {
-    /* Legacy status renderer - now just renders page A */
-    App_RenderPageA();
+    /* Render current status page */
+    switch (g_current_page)
+    {
+        case 0: App_RenderPage0(); break;
+        case 1: App_RenderPage1(); break;
+        case 2: App_RenderPage2(); break;
+        default: App_RenderPage0(); break;
+    }
 }
 
 /*=============================================================================
@@ -1007,14 +1087,24 @@ static void App_HandleGetStatus(void)
 static void App_HandleDataReport(void)
 {
     protocol_frame_t *f = &uart_core_rx_ctx.frame;
-    uint8_t subcmd = (f->len >= 2) ? f->data[0] : 0;
-    uint8_t flags = (f->len >= 3) ? f->data[1] : 0;
-    const uint8_t *payload = (f->len >= 3) ? &f->data[2] : NULL;
-    uint8_t payload_len = (f->len >= 3) ? f->len - 3 : 0;
+    uint8_t subcmd = (f->len >= 1) ? f->data[0] : 0;
+    uint8_t flags = (f->len >= 2) ? f->data[1] : 0;
+    const uint8_t *payload = (f->len >= 2) ? &f->data[2] : NULL;
+    uint8_t payload_len = (f->len >= 2) ? f->len - 2 : 0;
 
-    if (subcmd == SUBCMD_SYS_STATUS)
+    switch (subcmd)
     {
-        App_MultiframeProcess(SUBCMD_SYS_STATUS, flags, payload, payload_len);
+        case SUBCMD_SYS_STATUS:
+            App_MultiframeProcess(SUBCMD_SYS_STATUS, flags, payload, payload_len);
+            break;
+        case SUBCMD_LS_DEV:
+            App_MultiframeProcess(SUBCMD_LS_DEV, flags, payload, payload_len);
+            break;
+        case SUBCMD_BMP_TRANS:
+            App_MultiframeProcess(SUBCMD_BMP_TRANS, flags, payload, payload_len);
+            break;
+        default:
+            break;
     }
 }
 
@@ -1089,11 +1179,10 @@ static void App_MultiframeProcess(uint8_t subcmd, uint8_t flags,
                 }
                 g_bmp_valid = 1;
 
-                /* Switch to image page */
-                g_current_page = 1;
-                g_page_tick = 0;
-                UI_Clear(UI_COLOR_WHITE);
-                App_RenderPageB();
+                /* Switch to image mode */
+                g_display_mode = 1;
+                g_hb_count = 0;
+                App_RenderPageImage();
                 g_refresh_pending = 1;
                 break;
             }
@@ -1192,11 +1281,10 @@ static void App_MultiframeProcess(uint8_t subcmd, uint8_t flags,
                 }
                 g_dev_list.valid = 1;
 
-                /* Refresh current page if on page A */
-                if (g_current_page == 0)
+                /* Refresh current page if in status mode */
+                if (g_display_mode == 0)
                 {
-                    UI_Clear(UI_COLOR_WHITE);
-                    App_RenderPageA();
+                    App_RenderStatus();
                     g_refresh_pending = 1;
                 }
                 break;
