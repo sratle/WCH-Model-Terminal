@@ -177,14 +177,9 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
 
         case PROTO_STATE_FRAME_READY:
         {
-            if (byte == PROTO_FRAME_HEAD)
-            {
-                ctx->frame_ready = 0;
-                ctx->data_idx = 0;
-                memset(&ctx->frame, 0, sizeof(protocol_frame_t));
-                ctx->frame.head = byte;
-                ctx->state = PROTO_STATE_WAIT_SRC;
-            }
+            /* 帧已完整接收，等待主循环处理。
+             * 丢弃所有新字节，防止覆盖已接收的帧数据。
+             * 主循环调用 Protocol_ResetRxCtx 后才能接收新帧。 */
             break;
         }
 
