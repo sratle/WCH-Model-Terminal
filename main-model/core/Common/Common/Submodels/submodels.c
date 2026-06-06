@@ -864,8 +864,10 @@ static uint8_t subdisp_send_multiframe(submodels_t *submodel, uint8_t subcmd,
     uint8_t first_frame = 1;
     uint8_t flags;
 
-    printf("[SubDisp] MF: subcmd=0x%02X data=%lu hdr=%u\r\n",
-           subcmd, (unsigned long)data_len, header_len);
+    if (subcmd == SUBDISP_SUBCMD_BMP_TRANS){
+        printf("[SubDisp] MF: subcmd=0x%02X data=%lu hdr=%u\r\n",
+               subcmd, (unsigned long)data_len, header_len);
+    }
 
     while (offset < data_len || first_frame)
     {

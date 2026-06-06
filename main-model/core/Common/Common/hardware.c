@@ -212,9 +212,6 @@ void Hardware_Heartbeat(void)
                     uint8_t idx = i - 3;
                     found_slot = 1;
 
-                    printf("[HB] SubDisp cmd=%u idx=%u\r\n",
-                           hardware_g.subdisp_req.cmd, idx);
-
                     switch (hardware_g.subdisp_req.cmd)
                     {
                         case SUBDISP_CMD_SET_MODE:
