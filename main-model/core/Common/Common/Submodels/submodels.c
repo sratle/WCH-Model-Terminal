@@ -363,15 +363,17 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
 
     switch (cmd)
     {
-        /* 请求类：Core → Fingerprint */
+        /* 请求类：Core → Fingerprint (Core 发出, Fingerprint 响应) */
         case CMD_SUB_SET_MODE:
             switch (subcmd)
             {
-                case 0x01: /* 开始注册新指纹 */
-                    /* TODO: 进入指纹注册模式，返回 ACK */
+                case FP_SUB_ENROLL_START:
                     return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-                case 0x02: /* 取消注册 */
-                    /* TODO: 退出注册模式 */
+                case FP_SUB_ENROLL_CANCEL:
+                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
+                case FP_SUB_SET_LED:
+                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
+                case FP_SUB_SET_SECURITY:
                     return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
             }
             break;
@@ -379,11 +381,11 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
         case CMD_SUB_SET_CONFIG:
             switch (subcmd)
             {
-                case 0x01: /* 删除指纹 */
-                    /* TODO: req->data[1] = 指纹ID */
+                case FP_SUB_DELETE:
                     return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-                case 0x02: /* 清空所有指纹 */
-                    /* TODO */
+                case FP_SUB_DELETE_ALL:
+                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
+                case FP_SUB_SLEEP:
                     return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
             }
             break;
@@ -391,22 +393,49 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
         case CMD_SUB_GET_STATUS:
             switch (subcmd)
             {
-                case 0x00: /* 查询指纹列表 */
-                    /* TODO: resp_buf = [数量:1][[ID:1][名字:16字节]...] */
-                    *resp_len = 0;
-                    return 0;
+                case FP_SUB_QUERY_LIST:
+                {
+                    /* 响应: [count:1][[ID:1][name:16]...] */
+                    uint16_t dlen = (req->len > 0) ? (uint16_t)(req->len - 1) : 0;
+                    if (dlen > 0)
+                    {
+                        uint8_t count = req->data[1];
+                        printf("[FP] Fingerprint list: count=%d\r\n", count);
+                        for (uint8_t i = 0; i < count && (2 + i * 17 + 17) <= req->len; i++)
+                        {
+                            uint8_t id = req->data[2 + i * 17];
+                            char name[17] = {0};
+                            memcpy(name, &req->data[2 + i * 17 + 1], 16);
+                            printf("  ID=%d  name=%.16s\r\n", id, name);
+                        }
+                    }
+                    return 1;
+                }
+                case FP_SUB_QUERY_COUNT:
+                {
+                    /* 响应: [count:1] */
+                    if (req->len >= 2)
+                    {
+                        printf("[FP] Fingerprint count: %d\r\n", req->data[1]);
+                    }
+                    return 1;
+                }
             }
             break;
 
-        /* 事件类：Fingerprint → Core */
+        /* 事件类：Fingerprint → Core (Submodel 主动上报) */
         case CMD_SUB_EVT_NOTIFY:
             switch (subcmd)
             {
-                case 0x01: /* 识别成功 */
-                    /* TODO: req->data[1]=指纹ID, data[2..17]=名字(16字节) */
+                case FP_SUB_IDENTIFY_OK:
+                {
+                    /* data[1]=指纹ID, data[2..17]=名字(16字节) */
+                    uint8_t fp_id = (req->len >= 2) ? req->data[1] : 0;
+                    printf("[FP] Identify OK: ID=%d\r\n", fp_id);
                     return 1;
-                case 0x02: /* 识别失败 */
-                    /* TODO: req->data[1]=错误码 */
+                }
+                case FP_SUB_IDENTIFY_FAIL:
+                    printf("[FP] Identify FAIL\r\n");
                     return 1;
             }
             break;
@@ -414,12 +443,19 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
         case CMD_SUB_ACTION_RESULT:
             switch (subcmd)
             {
-                case 0x01: /* 注册成功 */
-                    /* TODO: req->data[1]=指纹ID, data[2..17]=名字 */
+                case FP_SUB_ENROLL_OK:
+                {
+                    /* data[1]=指纹ID, data[2..17]=名字 */
+                    uint8_t fp_id = (req->len >= 2) ? req->data[1] : 0;
+                    printf("[FP] Enroll OK: ID=%d\r\n", fp_id);
                     return 1;
-                case 0x02: /* 注册失败 */
-                    /* TODO: req->data[1]=错误码 */
+                }
+                case FP_SUB_ENROLL_FAIL:
+                {
+                    uint8_t err = (req->len >= 2) ? req->data[1] : 0;
+                    printf("[FP] Enroll FAIL: err=%d\r\n", err);
                     return 1;
+                }
             }
             break;
 
@@ -1204,6 +1240,78 @@ submodels_t *Submodels_FindSubDispSlot(void)
             return &submodels_g[i];
     }
     return NULL;
+}
+
+/* ============================================================================
+ * Fingerprint (指纹识别, type=0x01) Control API Implementation
+ * ============================================================================ */
+
+submodels_t *Submodels_FindFpSlot(void)
+{
+    extern submodels_t submodels_g[3];
+    uint8_t i;
+
+    for (i = 0; i < 3; i++)
+    {
+        if (submodels_g[i].type_id == MODULE_SUBTYPE_SUBMODEL_FINGERPRINT)
+            return &submodels_g[i];
+    }
+    return NULL;
+}
+
+uint8_t Submodels_FP_EnrollStart(submodels_t *submodel)
+{
+    uint8_t data[1] = { FP_SUB_ENROLL_START };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 1);
+}
+
+uint8_t Submodels_FP_EnrollCancel(submodels_t *submodel)
+{
+    uint8_t data[1] = { FP_SUB_ENROLL_CANCEL };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 1);
+}
+
+uint8_t Submodels_FP_Delete(submodels_t *submodel, uint8_t fp_id)
+{
+    uint8_t data[2] = { FP_SUB_DELETE, fp_id };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_CONFIG, data, 2);
+}
+
+uint8_t Submodels_FP_DeleteAll(submodels_t *submodel)
+{
+    uint8_t data[1] = { FP_SUB_DELETE_ALL };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_CONFIG, data, 1);
+}
+
+uint8_t Submodels_FP_QueryCount(submodels_t *submodel)
+{
+    uint8_t data[1] = { FP_SUB_QUERY_COUNT };
+    return Submodels_SendCommand(submodel, CMD_SUB_GET_STATUS, data, 1);
+}
+
+uint8_t Submodels_FP_QueryList(submodels_t *submodel)
+{
+    uint8_t data[1] = { FP_SUB_QUERY_LIST };
+    return Submodels_SendCommand(submodel, CMD_SUB_GET_STATUS, data, 1);
+}
+
+uint8_t Submodels_FP_SetLED(submodels_t *submodel, uint8_t func,
+                             uint8_t color, uint8_t speed)
+{
+    uint8_t data[4] = { FP_SUB_SET_LED, func, color, speed };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 4);
+}
+
+uint8_t Submodels_FP_SetSecurity(submodels_t *submodel, uint8_t level)
+{
+    uint8_t data[2] = { FP_SUB_SET_SECURITY, level };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 2);
+}
+
+uint8_t Submodels_FP_Sleep(submodels_t *submodel)
+{
+    uint8_t data[1] = { FP_SUB_SLEEP };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_CONFIG, data, 1);
 }
 
 uint8_t Submodels_SubDisp_SendBMP(submodels_t *submodel, const char *filename)

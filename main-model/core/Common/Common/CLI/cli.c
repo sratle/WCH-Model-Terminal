@@ -1218,62 +1218,93 @@ static void CLI_Cmd_Keyboard(uint8_t argc, char **argv)
     printf("Key: 0x%02X (%s)\r\n", hid_code, argv[1]);
 }
 
-static void CLI_Cmd_Help(void)
+static void CLI_Cmd_Help(uint8_t argc, char **argv)
 {
-    printf("Available commands:\r\n");
-    printf("  ls              List directory contents (with LFN)\r\n");
-    printf("  cd <dir>        Change directory\r\n");
-    printf("  pwd             Print working directory\r\n");
-    printf("  mkdir <dir>     Create directory (supports LFN)\r\n");
-    printf("  touch <file>    Create empty file (supports LFN)\r\n");
-    printf("  cat <file>      Display file contents (supports LFN)\r\n");
-    printf("  echo [text]     Print text or write to file (use > or >>)\r\n");
-    printf("  write \"path\" <data>  Write data to file (supports multi-frame)\r\n");
-    printf("  rm <file>       Remove file (supports LFN)\r\n");
-    printf("  rm -rf <dir>    Clear directory recursively\r\n");
-    printf("  cp <src> <dst>  Copy file (supports LFN)\r\n");
-    printf("  mv <old> <new>  Rename file (short names only)\r\n");
-    printf("  hexdump <file>  Display file in hex format (supports LFN)\r\n");
-    printf("  head <file> [n] Show first n bytes of file (supports LFN)\r\n");
-    printf("  tail <file> [n] Show last n bytes of file (supports LFN)\r\n");
-    printf("  tree [dir]      List directory tree\r\n");
-    printf("  du <dir>        Show directory total size\r\n");
-    printf("  find <pattern>  Find files matching pattern\r\n");
-    printf("  df              Show disk capacity\r\n");
-    printf("  free            Show disk free space\r\n");
-    printf("  device [usb|sd] Show or switch device mode\r\n");
-    printf("  stat <file>     Show file status (supports LFN)\r\n");
-    printf("  chmod <file> <attr>  Change file attributes (supports LFN)\r\n");
-    printf("  ver             Show CH378 firmware version\r\n");
-    printf("  play <file>     Play a WAV audio file\r\n");
-    printf("  vol <0-100>     Set playback volume\r\n");
-    printf("  pause           Pause playback\r\n");
-    printf("  resume          Resume playback\r\n");
-    printf("  playst          Show playback status\r\n");
-    printf("  lsdev           List module status (online/offline/type)\r\n");
-    printf("  bmp get <file> [sub]  Read BMP file (hex dump, sub=send to SubDisplay)\r\n");
-    printf("  lsstatus        Show system status (audio/battery/ble/modules)\r\n");
-    printf("  subdisp mode <0|1>  Switch SubDisplay mode (0=status, 1=image)\r\n");
-    printf("  subdisp refresh status  Send current status to SubDisplay\r\n");
-    printf("  light <0-255>   Set display brightness\r\n");
-    printf("  note <text>     Show notice popup on display\r\n");
-    printf("  mouse <L/R/none> <dx> <dy>  Send mouse click event\r\n");
-    printf("  roll <delta>    Send mouse scroll event\r\n");
-    printf("  keyboard <key>  Send keyboard event (a-z 0-9 SPACE ENTER UP DOWN LEFT RIGHT)\r\n");
-    printf("  config get [module|file.json [key]]  Get config value\r\n");
-    printf("  config getkey [module|file.json]  List all key names\r\n");
-    printf("  config set <key|module key|file.json key> <value>  Set config value\r\n");
-    printf("  config addkey <module|file.json> <key> <value>  Add new config key\r\n");
-    printf("  config newfile <file.json>  Create data file\r\n");
-    printf("  config save     Save config to file\r\n");
-    printf("  config backup   Backup config\r\n");
-    printf("  config rollback Rollback config from backup\r\n");
-    printf("  config reset    Reset to defaults\r\n");
-    printf("  config ls       List CONFIG directory\r\n");
-    printf("  config rm <file.json>  Remove data file\r\n");
-    printf("  speaker <on|off> [left|right]  Control speaker output\r\n");
-    printf("  clear           Clear screen\r\n");
-    printf("  help            Show this help message\r\n");
+    if (argc >= 2 && strcmp(argv[1], "d") == 0) {
+        /* Detailed help */
+        printf("Available commands (detailed):\r\n\r\n");
+        printf("  ls              List directory contents (with LFN)\r\n");
+        printf("  cd <dir>        Change directory\r\n");
+        printf("  pwd             Print working directory\r\n");
+        printf("  mkdir <dir>     Create directory (supports LFN)\r\n");
+        printf("  touch <file>    Create empty file (supports LFN)\r\n");
+        printf("  cat <file>      Display file contents (supports LFN)\r\n");
+        printf("  echo [text]     Print text or write to file (use > or >>)\r\n");
+        printf("  write \"path\" <data>  Write data to file (supports multi-frame)\r\n");
+        printf("  rm <file>       Remove file (supports LFN)\r\n");
+        printf("  rm -rf <dir>    Clear directory recursively\r\n");
+        printf("  cp <src> <dst>  Copy file (supports LFN)\r\n");
+        printf("  mv <old> <new>  Rename file (short names only)\r\n");
+        printf("  hexdump <file>  Display file in hex format (supports LFN)\r\n");
+        printf("  head <file> [n] Show first n bytes of file (supports LFN)\r\n");
+        printf("  tail <file> [n] Show last n bytes of file (supports LFN)\r\n");
+        printf("  tree [dir]      List directory tree\r\n");
+        printf("  du <dir>        Show directory total size\r\n");
+        printf("  find <pattern>  Find files matching pattern\r\n");
+        printf("  df              Show disk capacity\r\n");
+        printf("  free            Show disk free space\r\n");
+        printf("  device [usb|sd] Show or switch device mode\r\n");
+        printf("  stat <file>     Show file status (supports LFN)\r\n");
+        printf("  chmod <file> <attr>  Change file attributes (supports LFN)\r\n");
+        printf("  ver             Show CH378 firmware version\r\n");
+        printf("  play <file>     Play a WAV audio file\r\n");
+        printf("  vol <0-100>     Set playback volume\r\n");
+        printf("  pause           Pause playback\r\n");
+        printf("  resume          Resume playback\r\n");
+        printf("  playst          Show playback status\r\n");
+        printf("  lsdev           List module status (online/offline/type)\r\n");
+        printf("  bmp get <file> [sub]  Read BMP file (hex dump, sub=send to SubDisplay)\r\n");
+        printf("  lsstatus        Show system status (audio/battery/ble/modules)\r\n");
+        printf("  subdisp mode <0|1>  Switch SubDisplay mode (0=status, 1=image)\r\n");
+        printf("  subdisp refresh status  Send current status to SubDisplay\r\n");
+        printf("  light <0-255>   Set display brightness\r\n");
+        printf("  note <text>     Show notice popup on display\r\n");
+        printf("  mouse <L/R/none> <dx> <dy>  Send mouse click event\r\n");
+        printf("  roll <delta>    Send mouse scroll event\r\n");
+        printf("  keyboard <key>  Send keyboard event (a-z 0-9 SPACE ENTER UP DOWN LEFT RIGHT)\r\n");
+        printf("  config get [module|file.json [key]]  Get config value\r\n");
+        printf("  config getkey [module|file.json]  List all key names\r\n");
+        printf("  config set <key|module key|file.json key> <value>  Set config value\r\n");
+        printf("  config addkey <module|file.json> <key> <value>  Add new config key\r\n");
+        printf("  config newfile <file.json>  Create data file\r\n");
+        printf("  config save     Save config to file\r\n");
+        printf("  config backup   Backup config\r\n");
+        printf("  config rollback Rollback config from backup\r\n");
+        printf("  config reset    Reset to defaults\r\n");
+        printf("  config ls       List CONFIG directory\r\n");
+        printf("  config rm <file.json>  Remove data file\r\n");
+        printf("  speaker <on|off> [left|right]  Control speaker output\r\n");
+        printf("  rgb mode <mode> <r> <g> <b> <brightness> <speed>  Set RGB mode\r\n");
+        printf("  rgb refresh json  Load rgb.json and queue custom frames\r\n");
+        printf("  rgb status      Show RGB status\r\n");
+        printf("  fp register     Start fingerprint enrollment\r\n");
+        printf("  fp del <ID>     Delete fingerprint by ID\r\n");
+        printf("  fp ls           List fingerprints and count\r\n");
+        printf("  fp config led <func> <color> [speed]  Set LED effect\r\n");
+        printf("  fp config sec <level:1-3>  Set security level\r\n");
+        printf("  clear           Clear screen\r\n");
+        printf("  help            Show command list\r\n");
+        printf("  help d          Show detailed help\r\n");
+    } else {
+        /* Brief command list */
+        printf("Commands:\r\n");
+        printf("  ls, cd <dir>, pwd, mkdir <dir>, touch <file>, cat <file>\r\n");
+        printf("  echo [text], write \"path\" <data>, rm <file>, rm -rf <dir>\r\n");
+        printf("  cp <src> <dst>, mv <old> <new>, hexdump <file>\r\n");
+        printf("  head <file> [n], tail <file> [n], tree [dir], du <dir>\r\n");
+        printf("  find <pattern>, df, free, device [usb|sd]\r\n");
+        printf("  stat <file>, chmod <file> <attr>, ver\r\n");
+        printf("  play <file>, vol <0-100>, pause, resume, playst\r\n");
+        printf("  lsdev, bmp get <file> [sub], lsstatus\r\n");
+        printf("  subdisp mode <0|1>, subdisp refresh status\r\n");
+        printf("  light <0-255>, note <text>\r\n");
+        printf("  mouse <L/R/none> <dx> <dy>, roll <delta>, keyboard <key>\r\n");
+        printf("  config get|set|addkey|newfile|save|backup|rollback|reset|ls|rm\r\n");
+        printf("  speaker <on|off> [left|right]\r\n");
+        printf("  rgb mode|refresh|status\r\n");
+        printf("  fp register|del <ID>|ls|config [led|sec]\r\n");
+        printf("  clear, help [d]\r\n");
+    }
 }
 
 static void CLI_Cmd_Clear(void)
@@ -2492,6 +2523,89 @@ static void CLI_Cmd_Speaker(uint8_t argc, char **argv)
 /*  Commands write to shared memory (hardware_g) and V3F picks them up.    */
 /* ------------------------------------------------------------------------ */
 
+static void CLI_Cmd_Fp(uint8_t argc, char **argv)
+{
+    submodels_t *fp = Submodels_FindFpSlot();
+
+    if (fp == NULL) {
+        printf("fp: fingerprint module not found\r\n");
+        return;
+    }
+
+    if (argc < 2) {
+        printf("Usage: fp <register|del|ls|config> [args]\r\n");
+        return;
+    }
+
+    if (strcmp(argv[1], "register") == 0) {
+        if (Submodels_FP_EnrollStart(fp))
+            printf("fp: enrollment started, place finger on sensor\r\n");
+        else
+            printf("fp: failed to start enrollment\r\n");
+    }
+    else if (strcmp(argv[1], "del") == 0) {
+        if (argc < 3) {
+            printf("Usage: fp del <ID>\r\n");
+            return;
+        }
+        uint8_t id = (uint8_t)atoi(argv[2]);
+        if (Submodels_FP_Delete(fp, id))
+            printf("fp: delete request sent (ID=%d)\r\n", id);
+        else
+            printf("fp: failed to send delete request\r\n");
+    }
+    else if (strcmp(argv[1], "ls") == 0) {
+        if (Submodels_FP_QueryList(fp))
+            printf("fp: query list sent\r\n");
+        else
+            printf("fp: failed to query\r\n");
+    }
+    else if (strcmp(argv[1], "config") == 0) {
+        if (argc < 3) {
+            printf("Usage: fp config led <func> <color> [speed]\r\n");
+            printf("       fp config sec <level:1-3>\r\n");
+            printf("LED func: 1=breath 2=flicker 3=on 4=off 5=gradual_on 6=gradual_off 7=horse\r\n");
+            printf("LED color: 0=off 1=blue 2=green 3=cyan 4=red 5=magenta 6=yellow 7=white\r\n");
+            return;
+        }
+
+        if (strcmp(argv[2], "led") == 0) {
+            if (argc < 5) {
+                printf("Usage: fp config led <func> <color> [speed]\r\n");
+                return;
+            }
+            uint8_t func  = (uint8_t)atoi(argv[3]);
+            uint8_t color = (uint8_t)atoi(argv[4]);
+            uint8_t speed = (argc >= 6) ? (uint8_t)atoi(argv[5]) : 0;
+            if (Submodels_FP_SetLED(fp, func, color, speed))
+                printf("fp: LED config sent (func=%d color=%d speed=%d)\r\n", func, color, speed);
+            else
+                printf("fp: failed to set LED\r\n");
+        }
+        else if (strcmp(argv[2], "sec") == 0) {
+            if (argc < 4) {
+                printf("Usage: fp config sec <level:1-3>\r\n");
+                return;
+            }
+            uint8_t level = (uint8_t)atoi(argv[3]);
+            if (level < 1 || level > 3) {
+                printf("fp: invalid security level %d (1-3)\r\n", level);
+                return;
+            }
+            if (Submodels_FP_SetSecurity(fp, level))
+                printf("fp: security level set to %d\r\n", level);
+            else
+                printf("fp: failed to set security level\r\n");
+        }
+        else {
+            printf("fp: unknown config option '%s' (led/sec)\r\n", argv[2]);
+        }
+    }
+    else {
+        printf("fp: unknown subcommand '%s'\r\n", argv[1]);
+    }
+}
+
 static void CLI_Cmd_Rgb(uint8_t argc, char **argv)
 {
     if (argc < 2) {
@@ -2703,7 +2817,7 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
     } else if (strcmp(argv[0], "rm") == 0) {
         CLI_Cmd_Rm(argc, argv);
     } else if (strcmp(argv[0], "help") == 0) {
-        CLI_Cmd_Help();
+        CLI_Cmd_Help(argc, argv);
     } else if (strcmp(argv[0], "clear") == 0) {
         CLI_Cmd_Clear();
     } else if (strcmp(argv[0], "ver") == 0) {
@@ -2770,6 +2884,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Speaker(argc, argv);
     } else if (strcmp(argv[0], "rgb") == 0) {
         CLI_Cmd_Rgb(argc, argv);
+    } else if (strcmp(argv[0], "fp") == 0) {
+        CLI_Cmd_Fp(argc, argv);
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }

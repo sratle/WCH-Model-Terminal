@@ -186,4 +186,84 @@ uint8_t Submodels_SubDisp_SetDisplayMode(submodels_t *submodel, uint8_t mode);
  */
 submodels_t *Submodels_FindSubDispSlot(void);
 
+/* ============================================================================
+ * Fingerprint (指纹识别, type=0x01) Control API
+ * Core → Fingerprint 命令发送函数
+ * ============================================================================ */
+
+/**
+ * @brief  在 submodels_g[0..2] 中查找 Fingerprint 类型 submodel
+ * @return Fingerprint submodel 指针, 未找到返回 NULL
+ */
+submodels_t *Submodels_FindFpSlot(void);
+
+/**
+ * @brief  开始注册新指纹
+ * @param  submodel   目标 submodel 实例指针（需为 Fingerprint 类型）
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_FP_EnrollStart(submodels_t *submodel);
+
+/**
+ * @brief  取消注册
+ * @param  submodel   目标 submodel 实例指针
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_FP_EnrollCancel(submodels_t *submodel);
+
+/**
+ * @brief  删除指定指纹
+ * @param  submodel   目标 submodel 实例指针
+ * @param  fp_id      指纹 ID (0~255)
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_FP_Delete(submodels_t *submodel, uint8_t fp_id);
+
+/**
+ * @brief  清空所有指纹
+ * @param  submodel   目标 submodel 实例指针
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_FP_DeleteAll(submodels_t *submodel);
+
+/**
+ * @brief  查询指纹数量（异步，响应由 Submodels_Process 处理）
+ * @param  submodel   目标 submodel 实例指针
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_FP_QueryCount(submodels_t *submodel);
+
+/**
+ * @brief  查询指纹列表（异步，响应由 Submodels_Process 处理）
+ * @param  submodel   目标 submodel 实例指针
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_FP_QueryList(submodels_t *submodel);
+
+/**
+ * @brief  设置 LED 灯效
+ * @param  submodel   目标 submodel 实例指针
+ * @param  func       功能码 (FP_LED_BREATH, FP_LED_ON, etc.)
+ * @param  color      颜色 (FP_COLOR_BLUE, etc.)
+ * @param  speed      速度 0~255
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_FP_SetLED(submodels_t *submodel, uint8_t func,
+                             uint8_t color, uint8_t speed);
+
+/**
+ * @brief  设置安全等级
+ * @param  submodel   目标 submodel 实例指针
+ * @param  level      安全等级 (FP_SECURITY_LOW/MEDIUM/HIGH)
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_FP_SetSecurity(submodels_t *submodel, uint8_t level);
+
+/**
+ * @brief  传感器休眠
+ * @param  submodel   目标 submodel 实例指针
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_FP_Sleep(submodels_t *submodel);
+
 #endif

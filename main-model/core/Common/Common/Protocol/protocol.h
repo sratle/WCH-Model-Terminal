@@ -283,6 +283,54 @@
 #define MODULE_SUBTYPE_SUBMODEL_INFRARED    0x06
 #define MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY 0x07
 
+/* ---- Fingerprint (0x01) 子命令 ---- */
+/* CMD_SUB_SET_MODE (0x41) sub-commands */
+#define FP_SUB_ENROLL_START     0x01
+#define FP_SUB_ENROLL_CANCEL    0x02
+#define FP_SUB_SET_LED          0x03
+#define FP_SUB_SET_SECURITY     0x04
+
+/* CMD_SUB_SET_CONFIG (0x44) sub-commands */
+#define FP_SUB_DELETE           0x01
+#define FP_SUB_DELETE_ALL       0x02
+#define FP_SUB_SLEEP            0x03
+
+/* CMD_SUB_GET_STATUS (0x42) sub-commands */
+#define FP_SUB_QUERY_LIST       0x00
+#define FP_SUB_QUERY_COUNT      0x01
+
+/* CMD_SUB_EVT_NOTIFY (0x40) sub-commands */
+#define FP_SUB_IDENTIFY_OK      0x01
+#define FP_SUB_IDENTIFY_FAIL    0x02
+
+/* CMD_SUB_ACTION_RESULT (0x45) sub-commands */
+#define FP_SUB_ENROLL_OK        0x01
+#define FP_SUB_ENROLL_FAIL      0x02
+
+/* LED effect codes */
+#define FP_LED_BREATH           0x01
+#define FP_LED_FLICKER          0x02
+#define FP_LED_ON               0x03
+#define FP_LED_OFF              0x04
+#define FP_LED_GRADUAL_ON       0x05
+#define FP_LED_GRADUAL_OFF      0x06
+#define FP_LED_HORSE            0x07
+
+/* LED colors */
+#define FP_COLOR_OFF            0x00
+#define FP_COLOR_BLUE           0x01
+#define FP_COLOR_GREEN          0x02
+#define FP_COLOR_CYAN           0x03
+#define FP_COLOR_RED            0x04
+#define FP_COLOR_MAGENTA        0x05
+#define FP_COLOR_YELLOW         0x06
+#define FP_COLOR_WHITE          0x07
+
+/* Security levels */
+#define FP_SECURITY_LOW         0x01
+#define FP_SECURITY_MEDIUM      0x02
+#define FP_SECURITY_HIGH        0x03
+
 /* ---- SubDisplay (0x07) 子命令 ---- */
 /* CMD_SUB_SET_MODE (0x41) sub-commands */
 #define SUBDISP_SUBCMD_SET_STATUS       0x01
