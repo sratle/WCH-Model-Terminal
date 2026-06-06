@@ -151,6 +151,14 @@ submodels_t *Submodels_FindRgbSlot(void);
 uint8_t Submodels_SubDisp_SendBMP(submodels_t *submodel, const char *filename);
 
 /**
+ * @brief  发送 BMP 文件名到副屏（在图片传输前调用）
+ * @param  submodel   目标 submodel 实例指针
+ * @param  filename   BMP 文件名（不含路径和后缀）
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_SubDisp_SendBmpName(submodels_t *submodel, const char *filename);
+
+/**
  * @brief  发送设备列表到副屏（多帧传输）
  * @param  submodel   目标 submodel 实例指针
  * @return 1=发送成功, 0=失败

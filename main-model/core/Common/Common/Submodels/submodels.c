@@ -669,8 +669,8 @@ static uint8_t submodel_module_id(const submodels_t *submodel);
 /* BMP 文件最大尺寸（1bit 位图 122×250 ≈ 3813 字节，留余量） */
 #define BMP_MAX_RAW_SIZE  8192
 
-/* 多帧 payload 最大值：DATA 域 255 - 子命令(1) - FLAGS(1) = 253 */
-#define SUBDISP_FRAME_PAYLOAD  253
+/* 多帧 payload 最大值：PackFrame data_len 最大 254 - subcmd(1) - flags(1) = 252 */
+#define SUBDISP_FRAME_PAYLOAD  252  /* PackFrame data_len 最大 254，扣除 subcmd(1)+flags(1)=2 */
 /* 首帧额外头(8字节)：宽(2)+高(2)+总大小(4) */
 #define SUBDISP_FIRST_PAYLOAD (SUBDISP_FRAME_PAYLOAD - 8)
 
@@ -863,6 +863,10 @@ static uint8_t subdisp_send_multiframe(submodels_t *submodel, uint8_t subcmd,
     uint32_t offset = 0;
     uint8_t first_frame = 1;
     uint8_t flags;
+    uint16_t frame_idx = 0;
+
+    printf("[SubDisp] MF start: subcmd=0x%02X data_len=%lu hdr=%u\r\n",
+           subcmd, (unsigned long)data_len, header_len);
 
     while (offset < data_len || first_frame)
     {
@@ -909,15 +913,24 @@ static uint8_t subdisp_send_multiframe(submodels_t *submodel, uint8_t subcmd,
                                        cmd, frame_data, frame_data_len,
                                        buf, sizeof(buf));
         if (frame_len == 0)
+        {
+            printf("[SubDisp] MF frame #%u PackFrame FAIL\r\n", frame_idx);
             return 0;
+        }
 
         Submodels_Send_Data(submodel, buf, frame_len);
+        printf("[SubDisp] MF frame #%u flags=0x%02X payload=%u wire=%u off=%lu/%lu\r\n",
+               frame_idx, flags, frame_data_len, frame_len,
+               (unsigned long)(offset + chunk_len), (unsigned long)data_len);
+
         offset += chunk_len;
+        frame_idx++;
 
         if (flags & SUBDISP_FLAG_EOF)
             break;
     }
 
+    printf("[SubDisp] MF done: %u frames sent\r\n", frame_idx);
     return 1;
 }
 
@@ -1204,13 +1217,23 @@ uint8_t Submodels_SubDisp_SendBMP(submodels_t *submodel, const char *filename)
     if (submodel == NULL || filename == NULL)
         return 0;
 
+    printf("[SubDisp] SendBMP: file='%s'\r\n", filename);
     total = BMP_ReadAndParse(filename, bmp_buf, sizeof(bmp_buf), &width, &height);
     if (total == 0)
     {
-        /* 发送失败帧：FLAGS=SOF|EOF, 宽度=0 */
-        uint8_t fail_data[3] = { SUBDISP_SUBCMD_BMP_TRANS, SUBDISP_FLAG_SOF | SUBDISP_FLAG_EOF, 0x00 };
-        return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, fail_data, 3);
+        printf("[SubDisp] SendBMP: BMP_ReadAndParse FAIL, sending fail frame\r\n");
+        /* 发送失败帧：FLAGS=SOF|EOF, 宽度=0(2字节) */
+        uint8_t fail_data[4] = { SUBDISP_SUBCMD_BMP_TRANS,
+                                  SUBDISP_FLAG_SOF | SUBDISP_FLAG_EOF,
+                                  0x00, 0x00 };
+        return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, fail_data, 4);
     }
+
+    printf("[SubDisp] SendBMP: parsed w=%u h=%u total=%lu\r\n",
+           width, height, (unsigned long)total);
+
+    /* 先发送文件名，再发送图片数据 */
+    Submodels_SubDisp_SendBmpName(submodel, filename);
 
     /* 构建首帧头：宽(2) + 高(2) + 总大小(4) */
     header[0] = (uint8_t)(width >> 8);
@@ -1226,9 +1249,25 @@ uint8_t Submodels_SubDisp_SendBMP(submodels_t *submodel, const char *filename)
                                    header, 8,
                                    bmp_buf, total,
                                    CMD_SUB_SET_MODE);
+}
 
-    /* Note: caller should call Submodels_SubDisp_SetDisplayMode(submodel, SUBDISP_MODE_IMAGE)
-     * after this to switch the display to image mode */
+uint8_t Submodels_SubDisp_SendBmpName(submodels_t *submodel, const char *filename)
+{
+    uint8_t data[2 + 20]; /* subcmd(1) + filename(max 20) + null */
+    uint8_t len = 0;
+    uint8_t i;
+
+    if (submodel == NULL || filename == NULL)
+        return 0;
+
+    data[0] = SUBDISP_SUBCMD_SET_BMP_NAME;
+    for (i = 0; filename[i] && i < 19; i++)
+        data[1 + i] = (uint8_t)filename[i];
+    data[1 + i] = '\0';
+    len = 2 + i;
+
+    printf("[SubDisp] SendBmpName: '%s' len=%u\r\n", filename, len);
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, len);
 }
 
 uint8_t Submodels_SubDisp_SendLsDev(submodels_t *submodel)
@@ -1453,5 +1492,6 @@ uint8_t Submodels_SubDisp_SetDisplayMode(submodels_t *submodel, uint8_t mode)
 {
     /* DATA: [SUB=0x04][mode:1] */
     uint8_t data[2] = { SUBDISP_SUBCMD_SET_DISPLAY_MODE, mode };
+    printf("[SubDisp] SetDisplayMode: mode=%u\r\n", mode);
     return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 2);
 }

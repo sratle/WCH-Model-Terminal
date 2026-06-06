@@ -111,9 +111,11 @@ typedef struct {
 
 typedef struct {
     protocol_state_t state;
-    protocol_frame_t frame;
+    protocol_frame_t frame;      /* ISR 写入缓冲区 */
+    protocol_frame_t read_frame; /* 主循环读取缓冲区（双缓冲） */
     uint16_t data_idx;
     uint8_t  frame_ready;
+    uint8_t  frame_consumed;     /* 主循环已处理完当前帧，ISR 可覆盖 read_frame */
 } protocol_rx_ctx_t;
 
 /*=============================================================================

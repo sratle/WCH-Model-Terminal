@@ -203,12 +203,17 @@ void Hardware_Heartbeat(void)
         /* 检查是否有 pending 的 SubDisplay 命令需要发送 */
         if (hardware_g.subdisp_req.pending)
         {
+            uint8_t found = 0;
             for (i = 3; i < HB_MAX_SLOTS; i++)
             {
                 if (hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY &&
                     hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
                 {
                     uint8_t idx = i - 3;
+                    found = 1;
+
+                    printf("[HB] SubDisp pending cmd=%u slot=%u idx=%u\r\n",
+                           hardware_g.subdisp_req.cmd, i, idx);
 
                     switch (hardware_g.subdisp_req.cmd)
                     {
@@ -232,6 +237,9 @@ void Hardware_Heartbeat(void)
                     break;  /* 只需发送给第一个在线的 SubDisplay */
                 }
             }
+            if (!found)
+                printf("[HB] SubDisp pending cmd=%u but no online slot!\r\n",
+                       hardware_g.subdisp_req.cmd);
             hardware_g.subdisp_req.pending = 0;
         }
     }   /* end if (hardware_g.config_applied) */
@@ -266,6 +274,14 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
                 hardware_g.hb_slots[i].status = HB_STATUS_ONLINE;
                 printf("[HB] %s ONLINE type=0x%02X subtype=0x%02X\r\n",
                        hb_slot_names[i], type, subtype);
+
+                /* SubDisplay 首次上线时，主动发送一次当前状态 */
+                if (type == MODULE_TYPE_SUBMODEL &&
+                    subtype == MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY)
+                {
+                    hardware_g.subdisp_req.pending = 1;
+                    hardware_g.subdisp_req.cmd = SUBDISP_CMD_REFRESH_STATUS;
+                }
             }
 
             /* RGB 子模块上线时，设置 pending 让心跳统一发送 */
@@ -275,13 +291,6 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
                 hardware_g.rgb_config.pending = 1;
             }
 
-            /* SubDisplay 子模块上线时，主动发送一次当前状态 */
-            if (type == MODULE_TYPE_SUBMODEL &&
-                subtype == MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY)
-            {
-                hardware_g.subdisp_req.pending = 1;
-                hardware_g.subdisp_req.cmd = SUBDISP_CMD_REFRESH_STATUS;
-            }
             return;
         }
     }

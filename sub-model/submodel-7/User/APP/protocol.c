@@ -11,6 +11,7 @@ void Protocol_InitRxCtx(protocol_rx_ctx_t *ctx)
 
     memset(ctx, 0, sizeof(protocol_rx_ctx_t));
     ctx->state = PROTO_STATE_WAIT_HEAD;
+    ctx->frame_consumed = 1;  /* 初始状态：允许接收第一帧 */
 }
 
 void Protocol_ResetRxCtx(protocol_rx_ctx_t *ctx)
@@ -18,10 +19,9 @@ void Protocol_ResetRxCtx(protocol_rx_ctx_t *ctx)
     if (ctx == NULL)
         return;
 
-    ctx->state = PROTO_STATE_WAIT_HEAD;
-    ctx->data_idx = 0;
+    /* 标记主循环已消费，ISR 可覆盖 read_frame */
     ctx->frame_ready = 0;
-    memset(&ctx->frame, 0, sizeof(protocol_frame_t));
+    ctx->frame_consumed = 1;
 }
 
 uint16_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
@@ -164,7 +164,14 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
         {
             if (byte == PROTO_FRAME_TAIL3)
             {
-                ctx->frame_ready = 1;
+                /* 帧完整：仅当主循环已消费上一帧时才复制到 read_frame */
+                if (ctx->frame_consumed)
+                {
+                    memcpy(&ctx->read_frame, &ctx->frame, sizeof(protocol_frame_t));
+                    ctx->frame_ready = 1;
+                    ctx->frame_consumed = 0;
+                }
+                /* 未消费时丢弃该帧，避免覆盖主循环正在读的数据 */
                 ctx->state = PROTO_STATE_FRAME_READY;
                 return 1;
             }
@@ -177,9 +184,14 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
 
         case PROTO_STATE_FRAME_READY:
         {
-            /* 帧已完整接收，等待主循环处理。
-             * 丢弃所有新字节，防止覆盖已接收的帧数据。
-             * 主循环调用 Protocol_ResetRxCtx 后才能接收新帧。 */
+            /* 双缓冲：收到新帧 HEAD 时自动重置，不丢字节 */
+            if (byte == PROTO_FRAME_HEAD)
+            {
+                ctx->frame.head = byte;
+                ctx->data_idx = 0;
+                ctx->state = PROTO_STATE_WAIT_SRC;
+            }
+            /* 非 HEAD 字节丢弃 */
             break;
         }
 

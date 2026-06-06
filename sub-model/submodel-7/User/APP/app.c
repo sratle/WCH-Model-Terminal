@@ -58,6 +58,7 @@ static uint8_t g_bmp_buf[BULK_IMG_MAX_BYTES];
 static uint16_t g_bmp_width = 0;
 static uint16_t g_bmp_height = 0;
 static uint8_t g_bmp_valid = 0;
+char g_bmp_name[BMP_NAME_MAX_LEN];
 
 /*=============================================================================
  *  Forward declarations
@@ -113,6 +114,7 @@ void App_Init(void)
     g_hb_status_count = 0;
     g_status_requested = 0;
     g_bmp_valid = 0;
+    g_bmp_name[0] = '\0';
 
     /* Draw initial page 0 (status) */
     App_RenderPage0();
@@ -167,7 +169,8 @@ void App_Process(void)
 
 static void App_HandleFrame(void)
 {
-    protocol_frame_t *f = &uart_core_rx_ctx.frame;
+    /* 从双缓冲的 read_frame 读取（ISR 写入 frame，完成后拷贝到 read_frame） */
+    protocol_frame_t *f = &uart_core_rx_ctx.read_frame;
 
     switch (f->cmd)
     {
@@ -273,7 +276,7 @@ static void App_HandleGetType(void)
 
 static void App_HandleSetMode(void)
 {
-    protocol_frame_t *f = &uart_core_rx_ctx.frame;
+    protocol_frame_t *f = &uart_core_rx_ctx.read_frame;
     uint8_t sub_cmd;
     uint8_t *data;
     uint8_t data_len;
@@ -345,7 +348,9 @@ static void App_HandleSetMode(void)
 
         case SUBCMD_BMP_TRANS:
         {
-            /* Multi-frame BMP transfer: data[0]=FLAGS, data[1..N]=payload */
+            /* Multi-frame BMP transfer: data[0]=FLAGS, data[1..N]=payload
+             * Direct accumulation into g_bmp_buf to avoid 512-byte
+             * multiframe buffer overflow (BMP data can be ~4000 bytes). */
             if (data_len < 1)
                 break;
 
@@ -354,7 +359,62 @@ static void App_HandleSetMode(void)
                 const uint8_t *payload = &data[1];
                 uint8_t payload_len = data_len - 1;
 
-                App_MultiframeProcess(SUBCMD_BMP_TRANS, flags, payload, payload_len);
+                if (flags & SUBDISP_FLAG_SOF)
+                {
+                    /* First frame: header(8) + image_data */
+                    g_bmp_width = 0;
+                    g_bmp_height = 0;
+                    g_bmp_valid = 0;
+                    g_bulk.received = 0;
+
+                    if (payload_len >= 8)
+                    {
+                        g_bmp_width  = ((uint16_t)payload[0] << 8) | payload[1];
+                        g_bmp_height = ((uint16_t)payload[2] << 8) | payload[3];
+                        /* total_bytes at payload[4..7], not needed for direct accumulation */
+
+                        if (g_bmp_width == 0)
+                        {
+                            /* Failed transfer from Core */
+                            g_bmp_valid = 0;
+                            break;
+                        }
+
+                        {
+                            uint8_t img_chunk = payload_len - 8;
+                            if (img_chunk > BULK_IMG_MAX_BYTES)
+                                img_chunk = (uint8_t)BULK_IMG_MAX_BYTES;
+                            memcpy(g_bmp_buf, payload + 8, img_chunk);
+                            g_bulk.received = img_chunk;
+                        }
+                    }
+                }
+                else if (g_bmp_width > 0)
+                {
+                    /* Subsequent frame: raw image data */
+                    uint32_t space = BULK_IMG_MAX_BYTES - g_bulk.received;
+                    uint8_t copy_len = (payload_len > space) ? (uint8_t)space : payload_len;
+                    if (copy_len > 0)
+                    {
+                        memcpy(g_bmp_buf + g_bulk.received, payload, copy_len);
+                        g_bulk.received += copy_len;
+                    }
+                }
+
+                if (flags & SUBDISP_FLAG_EOF)
+                {
+                    /* BMP receive complete */
+                    if (g_bmp_width > 0 && g_bulk.received > 0)
+                        g_bmp_valid = 1;
+                    else
+                        g_bmp_valid = 0;
+
+                    /* Auto-switch to image mode */
+                    g_display_mode = 1;
+                    g_hb_count = 0;
+                    App_RenderPageImage();
+                    g_refresh_pending = 1;
+                }
             }
             break;
         }
@@ -402,6 +462,19 @@ static void App_HandleSetMode(void)
             break;
         }
 
+        case SUBCMD_SET_BMP_NAME:
+        {
+            /* data[0..N]=filename (null-terminated string) */
+            if (data_len > 0)
+            {
+                uint8_t copy_len = (data_len < BMP_NAME_MAX_LEN - 1)
+                                   ? data_len : (BMP_NAME_MAX_LEN - 1);
+                memcpy(g_bmp_name, data, copy_len);
+                g_bmp_name[copy_len] = '\0';
+            }
+            break;
+        }
+
         default:
             break;
     }
@@ -413,7 +486,7 @@ static void App_HandleSetMode(void)
 
 static void App_HandleBulkTransfer(void)
 {
-    protocol_frame_t *f = &uart_core_rx_ctx.frame;
+    protocol_frame_t *f = &uart_core_rx_ctx.read_frame;
     uint8_t sub_cmd;
 
     if (f->len < 2)
@@ -1136,12 +1209,68 @@ static void App_RenderPage2(void)
 static void App_RenderPageImage(void)
 {
     UI_Clear(UI_COLOR_WHITE);
-    App_DrawStatusBar();
+
+    /* ---- 顶栏：图片名 + 尺寸 ---- */
+    {
+        char info[40];
+        int16_t tw;
+
+        /* 构建信息字符串："NAME WxH" */
+        if (g_bmp_valid && g_bmp_name[0])
+        {
+            /* 拼接文件名 */
+            uint8_t ni = 0;
+            while (g_bmp_name[ni] && ni < 12)
+            {
+                info[ni] = g_bmp_name[ni];
+                ni++;
+            }
+            info[ni++] = ' ';
+            /* 拼接宽度 */
+            if (g_bmp_width >= 100) info[ni++] = '0' + (char)(g_bmp_width / 100);
+            if (g_bmp_width >= 10)  info[ni++] = '0' + (char)((g_bmp_width / 10) % 10);
+            info[ni++] = '0' + (char)(g_bmp_width % 10);
+            info[ni++] = 'x';
+            /* 拼接高度 */
+            if (g_bmp_height >= 100) info[ni++] = '0' + (char)(g_bmp_height / 100);
+            if (g_bmp_height >= 10)  info[ni++] = '0' + (char)((g_bmp_height / 10) % 10);
+            info[ni++] = '0' + (char)(g_bmp_height % 10);
+            info[ni] = '\0';
+        }
+        else if (g_bmp_valid)
+        {
+            /* 有图片但无名 */
+            uint8_t ni = 0;
+            if (g_bmp_width >= 100) info[ni++] = '0' + (char)(g_bmp_width / 100);
+            if (g_bmp_width >= 10)  info[ni++] = '0' + (char)((g_bmp_width / 10) % 10);
+            info[ni++] = '0' + (char)(g_bmp_width % 10);
+            info[ni++] = 'x';
+            if (g_bmp_height >= 100) info[ni++] = '0' + (char)(g_bmp_height / 100);
+            if (g_bmp_height >= 10)  info[ni++] = '0' + (char)((g_bmp_height / 10) % 10);
+            info[ni++] = '0' + (char)(g_bmp_height % 10);
+            info[ni] = '\0';
+        }
+        else
+        {
+            info[0] = '\0';
+        }
+
+        /* 绘制顶栏 */
+        UI_FillRect(0, 0, UI_SCREEN_WIDTH, LAYOUT_STATUS_BAR_H, UI_COLOR_BLACK);
+        if (info[0])
+        {
+            tw = UI_GetStringWidth(info, &font_montserrat_12);
+            if (tw > UI_SCREEN_WIDTH - 4) tw = UI_SCREEN_WIDTH - 4;
+            UI_DrawString((UI_SCREEN_WIDTH - tw) / 2, 5,
+                          info, UI_COLOR_WHITE, &font_montserrat_12);
+        }
+        UI_DrawHLine(0, LAYOUT_STATUS_BAR_H - 1, UI_SCREEN_WIDTH, UI_COLOR_BLACK);
+    }
 
     if (g_bmp_valid)
     {
-        int16_t img_y = LAYOUT_STATUS_BAR_H;
-        int16_t avail_h = UI_SCREEN_HEIGHT - img_y;
+        /* 居中显示图片 */
+        int16_t avail_h = UI_SCREEN_HEIGHT - LAYOUT_STATUS_BAR_H;
         uint16_t bytes_per_row = (g_bmp_width + 7) / 8;
         uint16_t row, col;
 
@@ -1149,16 +1278,20 @@ static void App_RenderPageImage(void)
         if (g_bmp_width < UI_SCREEN_WIDTH)
             x_off = (UI_SCREEN_WIDTH - g_bmp_width) / 2;
 
-        for (row = 0; row < g_bmp_height && row < avail_h; row++)
+        int16_t y_off = LAYOUT_STATUS_BAR_H;
+        if (g_bmp_height < avail_h)
+            y_off += (avail_h - g_bmp_height) / 2;
+
+        for (row = 0; row < g_bmp_height && (y_off + row) < UI_SCREEN_HEIGHT; row++)
         {
-            for (col = 0; col < g_bmp_width && col < UI_SCREEN_WIDTH; col++)
+            for (col = 0; col < g_bmp_width && (x_off + col) < UI_SCREEN_WIDTH; col++)
             {
-                uint16_t byte_idx = row * bytes_per_row + (col / 8);
+                uint32_t byte_idx = (uint32_t)row * bytes_per_row + (col / 8);
                 uint8_t  bit = 0x80 >> (col % 8);
 
-                if (byte_idx < BULK_IMG_MAX_BYTES && (g_bmp_buf[byte_idx] & bit))
+                if (byte_idx < BULK_IMG_MAX_BYTES && !(g_bmp_buf[byte_idx] & bit))
                 {
-                    UI_DrawPixel(x_off + col, img_y + row, UI_COLOR_BLACK);
+                    UI_DrawPixel(x_off + col, y_off + row, UI_COLOR_BLACK);
                 }
             }
         }
@@ -1166,8 +1299,10 @@ static void App_RenderPageImage(void)
     else
     {
         /* No image available */
-        int16_t y = LAYOUT_STATUS_BAR_H + 4;
-        UI_DrawString(4, y, "No Image", UI_COLOR_BLACK, &font_montserrat_12);
+        int16_t y = LAYOUT_STATUS_BAR_H + 20;
+        int16_t tw = UI_GetStringWidth("No Image", &font_montserrat_12);
+        UI_DrawString((UI_SCREEN_WIDTH - tw) / 2, y,
+                      "No Image", UI_COLOR_BLACK, &font_montserrat_12);
     }
 }
 
@@ -1317,7 +1452,7 @@ static void App_RenderContent(const uint8_t *data, uint8_t len)
 
 static void App_HandleGetStatus(void)
 {
-    protocol_frame_t *f = &uart_core_rx_ctx.frame;
+    protocol_frame_t *f = &uart_core_rx_ctx.read_frame;
     uint8_t subcmd = (f->len >= 2) ? f->data[0] : 0;
 
     /* ACK the request */
@@ -1333,7 +1468,7 @@ static void App_HandleGetStatus(void)
 
 static void App_HandleDataReport(void)
 {
-    protocol_frame_t *f = &uart_core_rx_ctx.frame;
+    protocol_frame_t *f = &uart_core_rx_ctx.read_frame;
     /* f->len = 1(cmd) + data_bytes, so data count = f->len - 1 */
     uint8_t data_len = (f->len >= 1) ? f->len - 1 : 0;
     uint8_t subcmd = (data_len >= 1) ? f->data[0] : 0;
@@ -1348,9 +1483,6 @@ static void App_HandleDataReport(void)
             break;
         case SUBCMD_LS_DEV:
             App_MultiframeProcess(SUBCMD_LS_DEV, flags, payload, payload_len);
-            break;
-        case SUBCMD_BMP_TRANS:
-            App_MultiframeProcess(SUBCMD_BMP_TRANS, flags, payload, payload_len);
             break;
         default:
             break;
@@ -1401,41 +1533,6 @@ static void App_MultiframeProcess(uint8_t subcmd, uint8_t flags,
         /* Process complete data based on subcmd */
         switch (g_mf_rx.subcmd)
         {
-            case SUBCMD_BMP_TRANS:
-            {
-                /* First 8 bytes: width(2) + height(2) + total_size(4) */
-                if (g_mf_rx.len < 8)
-                    break;
-
-                g_bmp_width  = ((uint16_t)g_mf_rx.buf[0] << 8) | g_mf_rx.buf[1];
-                g_bmp_height = ((uint16_t)g_mf_rx.buf[2] << 8) | g_mf_rx.buf[3];
-
-                if (g_bmp_width == 0)
-                {
-                    /* Failed transfer */
-                    g_bmp_valid = 0;
-                    break;
-                }
-
-                /* Copy image data (after 8-byte header) */
-                {
-                    uint16_t img_data_len = g_mf_rx.len - 8;
-                    if (img_data_len > BULK_IMG_MAX_BYTES)
-                        img_data_len = BULK_IMG_MAX_BYTES;
-                    uint16_t i;
-                    for (i = 0; i < img_data_len; i++)
-                        g_bmp_buf[i] = g_mf_rx.buf[8 + i];
-                }
-                g_bmp_valid = 1;
-
-                /* Switch to image mode */
-                g_display_mode = 1;
-                g_hb_count = 0;
-                App_RenderPageImage();
-                g_refresh_pending = 1;
-                break;
-            }
-
             case SUBCMD_LS_DEV:
             {
                 /* First byte: module count, then 5-byte entries */

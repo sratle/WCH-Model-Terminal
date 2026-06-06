@@ -22,6 +22,7 @@ extern "C" {
 #define SUBCMD_SET_CONTENT      0x02    /* Transfer custom content */
 #define SUBCMD_CLEAR_SCREEN     0x03    /* Clear screen */
 #define SUBCMD_SET_DISPLAY_MODE 0x04    /* Switch display mode (status/image) */
+#define SUBCMD_SET_BMP_NAME     0x05    /* Set BMP filename (Core→SubDisp) */
 #define SUBCMD_BMP_TRANS        0x10    /* BMP image transfer (multi-frame) */
 #define SUBCMD_LS_DEV           0x11    /* Device list transfer (multi-frame) */
 
@@ -172,6 +173,9 @@ typedef struct {
 #define PAGE_COUNT                  3       /* Total pages in status mode */
 
 extern bulk_transfer_t g_bulk;
+
+#define BMP_NAME_MAX_LEN    20
+extern char g_bmp_name[BMP_NAME_MAX_LEN];
 
 /*=============================================================================
  *  API

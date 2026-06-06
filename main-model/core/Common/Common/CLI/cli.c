@@ -838,7 +838,18 @@ static void CLI_Cmd_Bmp(uint8_t argc, char **argv)
     file_size = CH378GetFileSize();
     printf("BMP: %s  size=%lu bytes\r\n", argv[2], file_size);
 
-    /* 读取并输出文件内容（十六进制） */
+    if (send_to_sub) {
+        /* 发送到 SubDisplay：只验证文件可读，不输出 hex dump */
+        CH378FileClose(0);
+        hardware_g.subdisp_req.cmd = SUBDISP_CMD_SEND_BMP;
+        strncpy((char *)hardware_g.subdisp_req.filename, argv[2], SUBDISP_FILENAME_MAX_LEN - 1);
+        hardware_g.subdisp_req.filename[SUBDISP_FILENAME_MAX_LEN - 1] = '\0';
+        hardware_g.subdisp_req.pending = 1;
+        printf("Send to SubDisplay (pending)\r\n");
+        return;
+    }
+
+    /* 仅查看模式：读取并输出文件内容（十六进制） */
     while (total_read < file_size) {
         uint16_t to_read = (file_size - total_read > sizeof(buf)) ? sizeof(buf) : (uint16_t)(file_size - total_read);
         uint16_t i;
@@ -854,15 +865,6 @@ static void CLI_Cmd_Bmp(uint8_t argc, char **argv)
     printf("\r\n");
 
     CH378FileClose(0);
-
-    /* 如果指定了 sub，通过共享内存请求 V3F 发送到副屏 */
-    if (send_to_sub) {
-        hardware_g.subdisp_req.cmd = SUBDISP_CMD_SEND_BMP;
-        strncpy((char *)hardware_g.subdisp_req.filename, argv[2], SUBDISP_FILENAME_MAX_LEN - 1);
-        hardware_g.subdisp_req.filename[SUBDISP_FILENAME_MAX_LEN - 1] = '\0';
-        hardware_g.subdisp_req.pending = 1;
-        printf("Send to SubDisplay (pending)\r\n");
-    }
 }
 
 static void CLI_Cmd_Lsstatus(void)

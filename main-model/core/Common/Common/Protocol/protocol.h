@@ -289,6 +289,7 @@
 #define SUBDISP_SUBCMD_SET_CONTENT      0x02
 #define SUBDISP_SUBCMD_CLEAR_SCREEN     0x03
 #define SUBDISP_SUBCMD_SET_DISPLAY_MODE 0x04    /* 切换显示模式（状态/图片） */
+#define SUBDISP_SUBCMD_SET_BMP_NAME     0x05    /* 设置 BMP 文件名 */
 #define SUBDISP_SUBCMD_BMP_TRANS        0x10    /* BMP 图片传输（多帧） */
 #define SUBDISP_SUBCMD_LS_DEV           0x11    /* 设备列表传输（多帧） */
 
