@@ -602,6 +602,81 @@ static void App_DrawStatusBar(void)
  *  Page 0: Audio / Battery / BLE
  *=============================================================================*/
 
+static const char *App_GetModuleName(uint8_t type, uint8_t subtype)
+{
+    switch (type)
+    {
+        case 0x01: /* Display */
+            switch (subtype) {
+                case 0x01: return "LCD";
+                case 0x02: return "EINK";
+                default:   return "DSP";
+            }
+        case 0x02: /* Wireless */
+            switch (subtype) {
+                case 0x01: return "BT";
+                default:   return "WLS";
+            }
+        case 0x03: /* Power */
+            switch (subtype) {
+                case 0x01: return "PWR";
+                default:   return "PWR";
+            }
+        case 0x04: /* Keyboard */
+            switch (subtype) {
+                case 0x01: return "KBD";
+                case 0x02: return "GAME";
+                case 0x03: return "MUSC";
+                default:   return "KBD";
+            }
+        case 0x05: /* Submodel */
+            switch (subtype) {
+                case 0x01: return "FP";
+                case 0x02: return "HLTH";
+                case 0x03: return "NFC";
+                case 0x04: return "RING";
+                case 0x05: return "RGB";
+                case 0x06: return "IR";
+                case 0x07: return "SDSP";
+                default:   return "SUB";
+            }
+        default:
+            return "???";
+    }
+}
+
+static const uint8_t *App_GetModuleIcon(uint8_t type, uint8_t subtype)
+{
+    switch (type)
+    {
+        case 0x01: return icon_image_12_bitmap;       /* Display */
+        case 0x02: return icon_bluetooth_12_bitmap;    /* Wireless */
+        case 0x03: return icon_power_12_bitmap;        /* Power */
+        case 0x04: return icon_keyboard_12_bitmap;    /* Keyboard */
+        case 0x05:
+            switch (subtype) {
+                case 0x05: return icon_tint_12_bitmap;     /* RGB */
+                case 0x07: return icon_image_12_bitmap;    /* SubDisplay */
+                default:   return icon_settings_12_bitmap;
+            }
+        default:
+            return icon_close_12_bitmap;
+    }
+}
+
+static void App_GetModuleIconSize(const uint8_t *icon, int16_t *w, int16_t *h)
+{
+    /* 根据图标指针确定尺寸 - 所有图标最大 12x13 */
+    *w = 12; *h = 12;
+    if (icon == icon_image_12_bitmap)       { *w = ICON_IMAGE_12_WIDTH; *h = ICON_IMAGE_12_HEIGHT; }
+    else if (icon == icon_bluetooth_12_bitmap) { *w = ICON_BLUETOOTH_12_WIDTH; *h = ICON_BLUETOOTH_12_HEIGHT; }
+    else if (icon == icon_power_12_bitmap)  { *w = ICON_POWER_12_WIDTH; *h = ICON_POWER_12_HEIGHT; }
+    else if (icon == icon_keyboard_12_bitmap) { *w = ICON_KEYBOARD_12_WIDTH; *h = ICON_KEYBOARD_12_HEIGHT; }
+    else if (icon == icon_tint_12_bitmap)   { *w = ICON_TINT_12_WIDTH; *h = ICON_TINT_12_HEIGHT; }
+    else if (icon == icon_settings_12_bitmap) { *w = ICON_SETTINGS_12_WIDTH; *h = ICON_SETTINGS_12_HEIGHT; }
+    else if (icon == icon_close_12_bitmap)  { *w = ICON_CLOSE_12_WIDTH; *h = ICON_CLOSE_12_HEIGHT; }
+}
+
 static void App_DrawPageIndicator(uint8_t page_num, uint8_t total, const char *label)
 {
     char buf[16];
@@ -639,29 +714,33 @@ static void App_RenderPage0(void)
     UI_DrawIcon(4, y, icon_audio_12_bitmap,
                 ICON_AUDIO_12_WIDTH, ICON_AUDIO_12_HEIGHT, UI_COLOR_BLACK);
     {
+        const uint8_t *play_icon;
         const char *audio_str;
         switch (g_sys_status.audio_state)
         {
-            case 1: audio_str = "PLAY"; break;
-            case 2: audio_str = "PAUSE"; break;
-            case 3: audio_str = "STOP"; break;
-            default: audio_str = "IDLE"; break;
+            case 1: play_icon = icon_play_12_bitmap;   audio_str = "PLAY"; break;
+            case 2: play_icon = icon_pause_12_bitmap;   audio_str = "PAUSE"; break;
+            case 3: play_icon = icon_stop_12_bitmap;    audio_str = "STOP"; break;
+            default: play_icon = icon_mute_12_bitmap;   audio_str = "IDLE"; break;
         }
-        UI_DrawString(18, y + 1, audio_str, UI_COLOR_BLACK, &font_montserrat_12);
+        UI_DrawIcon(18, y, play_icon, 12, 12, UI_COLOR_BLACK);
+        UI_DrawString(33, y + 1, audio_str, UI_COLOR_BLACK, &font_montserrat_12);
     }
 
-    /* Volume on the right side */
+    /* Volume icon + text on the right */
     {
         uint8_t vol = g_sys_status.audio_volume;
         if (vol > 100) vol = 100;
-        buf[0] = 'V'; buf[1] = ':';
-        if (vol >= 100) { buf[2] = '1'; vol -= 100; }
-        else { buf[2] = ' '; }
-        buf[3] = '0' + (char)(vol / 10); vol %= 10;
-        buf[4] = '0' + (char)vol;
-        buf[5] = '\0';
-        /* Right-align volume text */
+        const uint8_t *vol_icon = (vol == 0) ? icon_mute_12_bitmap :
+                                   (vol < 50) ? icon_volume_mid_12_bitmap :
+                                                 icon_volume_max_12_bitmap;
+        buf[0] = '0' + (char)(vol / 100); vol %= 100;
+        buf[1] = '0' + (char)(vol / 10); vol %= 10;
+        buf[2] = '0' + (char)vol;
+        buf[3] = '%';
+        buf[4] = '\0';
         x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(buf, &font_montserrat_12);
+        UI_DrawIcon(x - 16, y, vol_icon, 12, 12, UI_COLOR_BLACK);
         UI_DrawString(x, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
     }
 
@@ -682,24 +761,33 @@ static void App_RenderPage0(void)
     /* ---- Battery ---- */
     {
         uint8_t bat = g_sys_status.battery_pct;
+        const uint8_t *bat_icon;
         if (bat == 0xFF)
-            UI_DrawString(4, y, "BAT: ---", UI_COLOR_BLACK, &font_montserrat_12);
+        {
+            bat_icon = icon_battery_empty_12_bitmap;
+            UI_DrawIcon(4, y, bat_icon, ICON_BATTERY_EMPTY_12_WIDTH, ICON_BATTERY_EMPTY_12_HEIGHT, UI_COLOR_BLACK);
+            UI_DrawString(22, y + 1, "---", UI_COLOR_BLACK, &font_montserrat_12);
+        }
         else
         {
-            buf[0] = 'B'; buf[1] = 'A'; buf[2] = 'T'; buf[3] = ':';
-            buf[4] = ' ';
-            if (bat >= 100) { buf[5] = '1'; bat -= 100; }
-            else { buf[5] = ' '; }
-            buf[6] = '0' + (char)(bat / 10); bat %= 10;
-            buf[7] = '0' + (char)bat;
-            buf[8] = '%';
-            buf[9] = '\0';
-            UI_DrawString(4, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+            if (bat > 75) bat_icon = icon_battery_full_12_bitmap;
+            else if (bat > 50) bat_icon = icon_battery_3_12_bitmap;
+            else if (bat > 25) bat_icon = icon_battery_2_12_bitmap;
+            else if (bat > 5) bat_icon = icon_battery_1_12_bitmap;
+            else bat_icon = icon_battery_empty_12_bitmap;
+
+            UI_DrawIcon(4, y, bat_icon, ICON_BATTERY_FULL_12_WIDTH, ICON_BATTERY_FULL_12_HEIGHT, UI_COLOR_BLACK);
+            buf[0] = '0' + (char)(bat / 100); bat %= 100;
+            buf[1] = '0' + (char)(bat / 10); bat %= 10;
+            buf[2] = '0' + (char)bat;
+            buf[3] = '%';
+            buf[4] = '\0';
+            UI_DrawString(22, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
         }
-        /* Charging indicator */
+        /* Charging icon */
         if (g_sys_status.charging)
-            UI_DrawString(UI_SCREEN_WIDTH - 4 - UI_GetStringWidth("CHG", &font_montserrat_12),
-                          y, "CHG", UI_COLOR_BLACK, &font_montserrat_12);
+            UI_DrawIcon(UI_SCREEN_WIDTH - 16, y,
+                        icon_charge_12_bitmap, ICON_CHARGE_12_WIDTH, ICON_CHARGE_12_HEIGHT, UI_COLOR_BLACK);
     }
 
     y += 16;
@@ -707,16 +795,17 @@ static void App_RenderPage0(void)
     y += 5;
 
     /* ---- BLE ---- */
+    UI_DrawIcon(4, y, icon_bluetooth_12_bitmap,
+                ICON_BLUETOOTH_12_WIDTH, ICON_BLUETOOTH_12_HEIGHT, UI_COLOR_BLACK);
     {
-        buf[0] = 'B'; buf[1] = 'L'; buf[2] = 'E'; buf[3] = ':';
-        buf[4] = '0' + (g_sys_status.ble_connections & 0x0F);
-        buf[5] = '\0';
-        UI_DrawString(4, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+        buf[0] = '0' + (g_sys_status.ble_connections & 0x0F);
+        buf[1] = '\0';
+        UI_DrawString(18, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
     }
     {
         const char *disc = g_sys_status.ble_discoverable ? "SCAN" : "OFF";
         x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(disc, &font_montserrat_12);
-        UI_DrawString(x, y, disc, UI_COLOR_BLACK, &font_montserrat_12);
+        UI_DrawString(x, y + 1, disc, UI_COLOR_BLACK, &font_montserrat_12);
     }
 
     /* Page indicator */
@@ -738,8 +827,16 @@ static void App_RenderPage1(void)
     y = LAYOUT_STATUS_BAR_H + 4;
 
     /* ---- Storage ---- */
-    UI_DrawIcon(4, y, icon_usb_12_bitmap,
-                ICON_USB_12_WIDTH, ICON_USB_12_HEIGHT, UI_COLOR_BLACK);
+    {
+        if (g_sys_status.ch378_device == 1)
+        {
+            UI_DrawIcon(4, y, icon_sd_card_12_bitmap, ICON_SD_CARD_12_WIDTH, ICON_SD_CARD_12_HEIGHT, UI_COLOR_BLACK);
+        }
+        else
+        {
+            UI_DrawIcon(4, y, icon_usb_12_bitmap, ICON_USB_12_WIDTH, ICON_USB_12_HEIGHT, UI_COLOR_BLACK);
+        }
+    }
     UI_DrawString(18, y + 1,
                   g_sys_status.ch378_device == 1 ? "SD" : "USB",
                   UI_COLOR_BLACK, &font_montserrat_12);
@@ -754,17 +851,26 @@ static void App_RenderPage1(void)
     y += 5;
 
     /* ---- Display Brightness ---- */
+    UI_DrawIcon(4, y, icon_image_12_bitmap, ICON_IMAGE_12_WIDTH, ICON_IMAGE_12_HEIGHT, UI_COLOR_BLACK);
     {
         uint8_t br = g_sys_status.display_brightness;
         if (br > 100) br = 100;
-        buf[0] = 'D'; buf[1] = 'I'; buf[2] = 'S'; buf[3] = 'P'; buf[4] = ':';
-        if (br >= 100) { buf[5] = '1'; br -= 100; }
-        else { buf[5] = ' '; }
-        buf[6] = '0' + (char)(br / 10); br %= 10;
-        buf[7] = '0' + (char)br;
-        buf[8] = '%';
-        buf[9] = '\0';
-        UI_DrawString(4, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+        buf[0] = '0' + (char)(br / 100); br %= 100;
+        buf[1] = '0' + (char)(br / 10); br %= 10;
+        buf[2] = '0' + (char)br;
+        buf[3] = '%';
+        buf[4] = '\0';
+        UI_DrawString(18, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
+    }
+    /* Brightness bar */
+    {
+        uint8_t br = g_sys_status.display_brightness;
+        if (br > 100) br = 100;
+        int16_t bar_x = 52;
+        int16_t bar_w = UI_SCREEN_WIDTH - bar_x - 4;
+        UI_DrawRect(bar_x, y + 2, bar_w, 8, UI_COLOR_BLACK);
+        if (br > 0)
+            UI_FillRect(bar_x + 1, y + 3, (uint16_t)br * (bar_w - 2) / 100, 6, UI_COLOR_BLACK);
     }
 
     y += 16;
@@ -772,17 +878,26 @@ static void App_RenderPage1(void)
     y += 5;
 
     /* ---- Keyboard Backlight ---- */
+    UI_DrawIcon(4, y, icon_keyboard_12_bitmap, ICON_KEYBOARD_12_WIDTH, ICON_KEYBOARD_12_HEIGHT, UI_COLOR_BLACK);
     {
         uint8_t kb = g_sys_status.keyboard_backlight;
         if (kb > 100) kb = 100;
-        buf[0] = 'K'; buf[1] = 'B'; buf[2] = 'D'; buf[3] = ':';
-        if (kb >= 100) { buf[4] = '1'; kb -= 100; }
-        else { buf[4] = ' '; }
-        buf[5] = '0' + (char)(kb / 10); kb %= 10;
-        buf[6] = '0' + (char)kb;
-        buf[7] = '%';
-        buf[8] = '\0';
-        UI_DrawString(4, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+        buf[0] = '0' + (char)(kb / 100); kb %= 100;
+        buf[1] = '0' + (char)(kb / 10); kb %= 10;
+        buf[2] = '0' + (char)kb;
+        buf[3] = '%';
+        buf[4] = '\0';
+        UI_DrawString(18, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
+    }
+    /* Backlight bar */
+    {
+        uint8_t kb = g_sys_status.keyboard_backlight;
+        if (kb > 100) kb = 100;
+        int16_t bar_x = 52;
+        int16_t bar_w = UI_SCREEN_WIDTH - bar_x - 4;
+        UI_DrawRect(bar_x, y + 2, bar_w, 8, UI_COLOR_BLACK);
+        if (kb > 0)
+            UI_FillRect(bar_x + 1, y + 3, (uint16_t)kb * (bar_w - 2) / 100, 6, UI_COLOR_BLACK);
     }
 
     y += 16;
@@ -790,24 +905,23 @@ static void App_RenderPage1(void)
     y += 5;
 
     /* ---- RGB ---- */
+    UI_DrawIcon(4, y, icon_tint_12_bitmap, ICON_TINT_12_WIDTH, ICON_TINT_12_HEIGHT, UI_COLOR_BLACK);
     {
         const char *rgb_modes[] = {"FIX", "ON", "BRH", "RUN"};
         const char *mode_str = (g_sys_status.rgb_mode < 4)
                                ? rgb_modes[g_sys_status.rgb_mode] : "???";
-        buf[0] = 'R'; buf[1] = 'G'; buf[2] = 'B'; buf[3] = ':';
-        buf[4] = mode_str[0]; buf[5] = mode_str[1]; buf[6] = mode_str[2];
-        buf[7] = '\0';
-        UI_DrawString(4, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+        UI_DrawString(18, y + 1, mode_str, UI_COLOR_BLACK, &font_montserrat_12);
     }
     {
         uint8_t rb = g_sys_status.rgb_brightness;
-        buf[0] = 'B'; buf[1] = ':';
-        buf[2] = '0' + (char)(rb / 100); rb %= 100;
-        buf[3] = '0' + (char)(rb / 10); rb %= 10;
-        buf[4] = '0' + (char)rb;
-        buf[5] = '\0';
+        if (rb > 100) rb = 100;
+        buf[0] = '0' + (char)(rb / 100); rb %= 100;
+        buf[1] = '0' + (char)(rb / 10); rb %= 10;
+        buf[2] = '0' + (char)rb;
+        buf[3] = '%';
+        buf[4] = '\0';
         x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(buf, &font_montserrat_12);
-        UI_DrawString(x, y, buf, UI_COLOR_BLACK, &font_montserrat_12);
+        UI_DrawString(x, y + 1, buf, UI_COLOR_BLACK, &font_montserrat_12);
     }
 
     y += 16;
@@ -815,8 +929,9 @@ static void App_RenderPage1(void)
     y += 5;
 
     /* ---- Config ---- */
-    UI_DrawString(4, y,
-                  g_sys_status.config_loaded ? "CFG: Loaded" : "CFG: None",
+    UI_DrawIcon(4, y, icon_settings_12_bitmap, ICON_SETTINGS_12_WIDTH, ICON_SETTINGS_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawString(18, y + 1,
+                  g_sys_status.config_loaded ? "Loaded" : "None",
                   UI_COLOR_BLACK, &font_montserrat_12);
 
     /* Page indicator */
@@ -836,7 +951,8 @@ static void App_RenderPage2(void)
 
     y = LAYOUT_STATUS_BAR_H + 2;
 
-    UI_DrawString(4, y + 1, "Modules", UI_COLOR_BLACK, &font_montserrat_12);
+    UI_DrawIcon(4, y + 1, icon_list_12_bitmap, ICON_LIST_12_WIDTH, ICON_LIST_12_HEIGHT, UI_COLOR_BLACK);
+    UI_DrawString(18, y + 1, "Modules", UI_COLOR_BLACK, &font_montserrat_12);
     y += 15;
     UI_DrawHLine(4, y, UI_SCREEN_WIDTH - 8, UI_COLOR_BLACK);
     y += 3;
@@ -844,29 +960,33 @@ static void App_RenderPage2(void)
     if (g_dev_list.valid)
     {
         uint8_t i;
-        static const char *mod_names[] = {
-            "DSP", "KBD", "PWR", "S1", "S2", "S3"
-        };
 
         for (i = 0; i < g_dev_list.count && i < SYS_STATUS_MAX_MODULES; i++)
         {
-            const char *name = (i < 6) ? mod_names[i] : "???";
+            uint8_t type = g_dev_list.entries[i].type;
+            uint8_t subtype = g_dev_list.entries[i].subtype;
             uint8_t st = g_dev_list.entries[i].status;
+            const char *name = App_GetModuleName(type, subtype);
+            const uint8_t *mod_icon = App_GetModuleIcon(type, subtype);
+            int16_t icon_w, icon_h;
+            App_GetModuleIconSize(mod_icon, &icon_w, &icon_h);
 
-            /* Status dot */
-            if (st == 1)
-                UI_FillCircle(8, y + 5, 3, UI_COLOR_BLACK);
-            else
-                UI_DrawCircle(8, y + 5, 3, UI_COLOR_BLACK);
+            /* Module icon */
+            UI_DrawIcon(4, y, mod_icon, icon_w, icon_h, UI_COLOR_BLACK);
 
-            /* Name */
-            UI_DrawString(16, y, (char *)name, UI_COLOR_BLACK, &font_montserrat_12);
+            /* Module name */
+            UI_DrawString(18, y, (char *)name, UI_COLOR_BLACK, &font_montserrat_12);
 
-            /* Status text */
+            /* Status indicator on the right */
             {
-                const char *st_str = st == 1 ? "ON" : (st == 2 ? "OFF" : "???");
+                const char *st_str = st == 1 ? "ON" : (st == 2 ? "OFF" : "---");
                 int16_t st_x = UI_SCREEN_WIDTH - 4 - UI_GetStringWidth(st_str, &font_montserrat_12);
-                UI_DrawString(st_x, y, st_str, UI_COLOR_BLACK, &font_montserrat_12);
+                if (st == 1)
+                    UI_FillRect(st_x - 2, y + 1, UI_GetStringWidth(st_str, &font_montserrat_12) + 4, 11, UI_COLOR_BLACK);
+                UI_DrawString(st_x, y,
+                              st_str,
+                              st == 1 ? UI_COLOR_WHITE : UI_COLOR_BLACK,
+                              &font_montserrat_12);
             }
 
             y += 14;
@@ -875,7 +995,7 @@ static void App_RenderPage2(void)
     }
     else
     {
-        UI_DrawString(16, y, "Waiting...", UI_COLOR_BLACK, &font_montserrat_12);
+        UI_DrawString(18, y, "Waiting...", UI_COLOR_BLACK, &font_montserrat_12);
     }
 
     /* Page indicator */

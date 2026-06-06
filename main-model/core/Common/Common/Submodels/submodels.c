@@ -1302,17 +1302,17 @@ uint8_t Submodels_SubDisp_SendSysStatus(submodels_t *submodel)
     /* 蓝牙可发现 */
     status_buf[offset++] = 0x00;
 
-    /* 屏幕亮度（从 config 读取，默认 0xFF=未知） */
+    /* 屏幕亮度（从 config 读取，key=0101） */
     {
-        int brightness = 0xFF;
-        Config_GetInt("0000", "brightness", &brightness);
+        int brightness = 0;
+        Config_GetInt("0101", "brightness", &brightness);
         status_buf[offset++] = (uint8_t)brightness;
     }
 
-    /* 键盘背光 */
+    /* 键盘背光（从 config 读取，key=0401） */
     {
         int kbd_backlight = 0;
-        Config_GetInt("0201", "backlight", &kbd_backlight);
+        Config_GetInt("0401", "backlight", &kbd_backlight);
         status_buf[offset++] = (uint8_t)kbd_backlight;
     }
 

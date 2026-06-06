@@ -902,15 +902,15 @@ static void CLI_Cmd_Lsstatus(void)
 
     /* 屏幕亮度 */
     {
-        int brightness = 0xFF;
-        Config_GetInt("0000", "brightness", &brightness);
+        int brightness = 0;
+        Config_GetInt("0101", "brightness", &brightness);
         printf("Display:   brightness=%d\r\n", brightness);
     }
 
     /* 键盘背光 */
     {
         int kbd_backlight = 0;
-        Config_GetInt("0201", "backlight", &kbd_backlight);
+        Config_GetInt("0401", "backlight", &kbd_backlight);
         printf("Keyboard:  backlight=%d\r\n", kbd_backlight);
     }
 
