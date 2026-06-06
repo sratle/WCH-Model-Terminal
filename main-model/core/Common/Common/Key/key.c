@@ -99,18 +99,6 @@ key_event_t Key_Scan(uint8_t *key_id)
     return KEY_EVT_NONE;
 }
 
-void Key_PollAndPush(void)
-{
-    key_event_t evt;
-    uint8_t key_id = 0;
-
-    evt = Key_Scan(&key_id);
-    if (evt != KEY_EVT_NONE)
-    {
-        Hardware_KeyQueue_Push(key_id, (uint8_t)evt);
-    }
-}
-
 static uint8_t key_id_to_proto(uint8_t key_id)
 {
     switch (key_id)
@@ -133,43 +121,48 @@ static uint8_t key_evt_to_proto(uint8_t evt)
     }
 }
 
-void Key_ProcessEvents(void)
+void Key_PollAndProcess(void)
 {
-    core_key_event_t kevt;
-    uint8_t report[2];
+    key_event_t evt;
+    uint8_t key_id = 0;
 
-    while (Hardware_KeyQueue_Pop(&kevt))
+    evt = Key_Scan(&key_id);
+    if (evt == KEY_EVT_NONE)
+        return;
+
+    /* 转发按键事件到 Display */
     {
-        report[0] = key_evt_to_proto(kevt.event);
-        report[1] = key_id_to_proto(kevt.key_id);
-
+        uint8_t report[2];
+        report[0] = key_evt_to_proto((uint8_t)evt);
+        report[1] = key_id_to_proto(key_id);
         Display_SendInputEvent(&display_g, INPUT_DEV_CORE_KEY,
                                report, 2);
+    }
 
-        if (kevt.event == KEY_EVT_PRESS || kevt.event == KEY_EVT_LONG_PRESS)
+    /* 处理音量调节 */
+    if (evt == KEY_EVT_PRESS || evt == KEY_EVT_LONG_PRESS)
+    {
+        if (key_id == KEY_SUB)
         {
-            if (kevt.key_id == KEY_SUB)
-            {
-                printf("[KEY] SUB pressed\r\n");
-                int step = 5;
-                Config_GetInt("0000", "volume_step", &step);
-                uint8_t vol = Audio_GetVolume();
-                if (vol >= step)
-                    Audio_SetVolume(vol - step);
-                else
-                    Audio_SetVolume(0);
-            }
-            else if (kevt.key_id == KEY_PLUS)
-            {
-                printf("[KEY] PLUS pressed\r\n");
-                int step = 5;
-                Config_GetInt("0000", "volume_step", &step);
-                uint8_t vol = Audio_GetVolume();
-                if (vol <= 100 - step)
-                    Audio_SetVolume(vol + step);
-                else
-                    Audio_SetVolume(100);
-            }
+            printf("[KEY] SUB pressed\r\n");
+            int step = 5;
+            Config_GetInt("0000", "volume_step", &step);
+            uint8_t vol = Audio_GetVolume();
+            if (vol >= step)
+                Audio_SetVolume(vol - step);
+            else
+                Audio_SetVolume(0);
+        }
+        else if (key_id == KEY_PLUS)
+        {
+            printf("[KEY] PLUS pressed\r\n");
+            int step = 5;
+            Config_GetInt("0000", "volume_step", &step);
+            uint8_t vol = Audio_GetVolume();
+            if (vol <= 100 - step)
+                Audio_SetVolume(vol + step);
+            else
+                Audio_SetVolume(100);
         }
     }
 }

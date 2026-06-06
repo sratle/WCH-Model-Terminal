@@ -35,7 +35,7 @@ typedef struct {
 void Key_Init(void);
 key_event_t Key_Scan(uint8_t *key_id);
 
-void Key_PollAndPush(void);
-void Key_ProcessEvents(void);
+/* 扫描按键并直接处理事件（音量调节、转发到Display等） */
+void Key_PollAndProcess(void);
 
 #endif

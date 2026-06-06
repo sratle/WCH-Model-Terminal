@@ -11,9 +11,8 @@ MEMORY
 	requirements;Please refer to the datasheet manual for specific allocation*/
 	FLASH (rx) : ORIGIN = 0x00010000, LENGTH = 128K                    /* zero_wait flah ,and loaded into RAM_CODE for running */
 	RAM_CODE (xrw) : ORIGIN = 0x200A0000, LENGTH = 128K                /*ITCM RAM for running code*/
-	RAM (xrw) : ORIGIN = (0x200C0000+512+256), LENGTH = (256K-512-256) /*DTCM RAM for .data .bss section and other*/ 
+	RAM (xrw) : ORIGIN = (0x200C0000+512+256), LENGTH = (256K-512-256+32K) /*DTCM RAM for .data .bss section and other, 增加原 RAM_SHARED 的 32K*/
 	RAM_LOAD (xrw) : ORIGIN = (0x200C0000+512), LENGTH = 256           /* RAM for .load section*/
-	RAM_SHARED (xrw) : ORIGIN = 0x20178000, LENGTH = 32K             /* RAM for .shared_data section (shared with V3F)*/
 }
 
 SECTIONS
@@ -71,14 +70,7 @@ SECTIONS
 		. = ALIGN(4);
 		KEEP(*(SORT_NONE(.handle_reset)))
 		. = ALIGN(4);
-	} >FLASH AT>FLASH 
-
-	.shared (NOLOAD) :
-	{
-		. = ALIGN(4);
-		KEEP(*(SORT_NONE(.shared_data)))
-		. = ALIGN(4);
-	} >RAM_SHARED
+	} >FLASH AT>FLASH
 
     .highcodelalign1 : 
     {       

@@ -13,7 +13,6 @@
 #include "debug.h"
 
 #include "CH378/CH378.h"
-#include "hardware.h"
 #include <string.h>
 
 extern cs43131_t CS43131_g;
@@ -24,10 +23,6 @@ static uint16_t audio_buffer_A[AUDIO_BUFFER_SIZE];
 static const uint16_t *song_data = NULL;
 static volatile uint32_t song_data_length = 0;
 static volatile uint32_t audio_data_offset = 0;
-
-/* 播放模式与状态 */
-static audio_mode_t audio_mode = AUDIO_MODE_NONE;
-static audio_state_t audio_state = AUDIO_STATE_IDLE;
 
 /* 音乐状态脏标记：状态/音量/曲目变化时置位 */
 static volatile uint8_t music_status_dirty = 0;
@@ -45,11 +40,6 @@ static const int16_t sine_quarter[65] = {
 
 static uint32_t sine_phase = 0;       /* 8-bit 相位累加器 0~255 */
 static const uint32_t sine_inc = 6;   /* 相位增量，约 1033 Hz @ 44.1kHz */
-
-/* WAV 播放上下文 */
-static wav_info_t wav_info;
-static uint8_t wav_file_opened = 0;
-static uint8_t wav_eof = 0;
 
 /* Ring Buffer (32KB) */
 #define AUDIO_RB_SIZE  (32 * 1024)
@@ -459,7 +449,7 @@ void Audio_FillBuffer(uint16_t *buffer, uint32_t length)
     uint32_t remaining;
     uint32_t copy_count;
 
-    if (audio_state != AUDIO_STATE_PLAYING || song_data == NULL) {
+    if (CS43131_g.audio_state != AUDIO_STATE_PLAYING || song_data == NULL) {
         memset(buffer, 0, length * sizeof(uint16_t));
         return;
     }
@@ -476,8 +466,8 @@ void Audio_FillBuffer(uint16_t *buffer, uint32_t length)
 
     audio_data_offset += copy_count;
     if (audio_data_offset >= song_data_length) {
-        audio_state = AUDIO_STATE_IDLE;
-        audio_mode = AUDIO_MODE_NONE;
+        CS43131_g.audio_state = AUDIO_STATE_IDLE;
+        CS43131_g.audio_mode = AUDIO_MODE_NONE;
         song_data = NULL;
         music_status_dirty = 1;
     }
@@ -498,8 +488,8 @@ void Audio_PlayStart(const uint16_t *data, uint32_t length)
     song_data = data;
     song_data_length = length;
     audio_data_offset = 0;
-    audio_mode = AUDIO_MODE_MEMORY;
-    audio_state = AUDIO_STATE_PLAYING;
+    CS43131_g.audio_mode = AUDIO_MODE_MEMORY;
+    CS43131_g.audio_state = AUDIO_STATE_PLAYING;
     music_status_dirty = 1;
 
     /* 预填充两个 buffer，避免启动噪声 */
@@ -515,15 +505,15 @@ void Audio_PlayStart(const uint16_t *data, uint32_t length)
  *********************************************************************/
 void Audio_PlayStop(void)
 {
-    audio_mode = AUDIO_MODE_NONE;
-    audio_state = AUDIO_STATE_STOPPED;
+    CS43131_g.audio_mode = AUDIO_MODE_NONE;
+    CS43131_g.audio_state = AUDIO_STATE_STOPPED;
     song_data = NULL;
-    wav_eof = 0;
+    CS43131_g.wav_eof = 0;
     CS43131_g.samples_played = 0;
     CS43131_g.track_name[0] = '\0';
-    if (wav_file_opened) {
+    if (CS43131_g.wav_file_opened) {
         CH378FileClose(0);
-        wav_file_opened = 0;
+        CS43131_g.wav_file_opened = 0;
     }
     music_status_dirty = 1;
 }
@@ -538,8 +528,8 @@ void Audio_PlayStop(void)
 void Audio_PlaySineStart(void)
 {
     sine_phase = 0;
-    audio_mode = AUDIO_MODE_SINE;
-    audio_state = AUDIO_STATE_PLAYING;
+    CS43131_g.audio_mode = AUDIO_MODE_SINE;
+    CS43131_g.audio_state = AUDIO_STATE_PLAYING;
     music_status_dirty = 1;
 
     Audio_GenerateSineWave(audio_buffer_A, AUDIO_BUFFER_SIZE);
@@ -594,8 +584,8 @@ uint8_t Audio_GetVolume(void)
  *********************************************************************/
 void Audio_Pause(void)
 {
-    if (audio_state == AUDIO_STATE_PLAYING) {
-        audio_state = AUDIO_STATE_PAUSED;
+    if (CS43131_g.audio_state == AUDIO_STATE_PLAYING) {
+        CS43131_g.audio_state = AUDIO_STATE_PAUSED;
         music_status_dirty = 1;
     }
 }
@@ -609,8 +599,8 @@ void Audio_Pause(void)
  *********************************************************************/
 void Audio_Resume(void)
 {
-    if (audio_state == AUDIO_STATE_PAUSED) {
-        audio_state = AUDIO_STATE_PLAYING;
+    if (CS43131_g.audio_state == AUDIO_STATE_PAUSED) {
+        CS43131_g.audio_state = AUDIO_STATE_PLAYING;
         music_status_dirty = 1;
     }
 }
@@ -632,14 +622,14 @@ uint32_t Audio_GetPlayTime_ms(void)
 
 uint32_t Audio_GetDuration_ms(void)
 {
-    if (audio_mode != AUDIO_MODE_WAV || wav_info.data_size == 0)
+    if (CS43131_g.audio_mode != AUDIO_MODE_WAV || CS43131_g.wav_info.data_size == 0)
         return 0;
     /* duration_ms = data_size * 1000 / byte_rate
      * byte_rate = sample_rate * num_channels * bits_per_sample / 8 */
-    uint32_t byte_rate = wav_info.sample_rate * wav_info.num_channels *
-                          wav_info.bits_per_sample / 8;
+    uint32_t byte_rate = CS43131_g.wav_info.sample_rate * CS43131_g.wav_info.num_channels *
+                          CS43131_g.wav_info.bits_per_sample / 8;
     if (byte_rate == 0) return 0;
-    return (wav_info.data_size * 1000ULL) / byte_rate;
+    return (CS43131_g.wav_info.data_size * 1000ULL) / byte_rate;
 }
 
 /*********************************************************************
@@ -676,17 +666,17 @@ void Audio_SetCurrentTrack(const char *name)
 
 audio_state_t Audio_GetState(void)
 {
-    return audio_state;
+    return CS43131_g.audio_state;
 }
 
 uint8_t Audio_IsPlaying(void)
 {
-    return (audio_state == AUDIO_STATE_PLAYING);
+    return (CS43131_g.audio_state == AUDIO_STATE_PLAYING);
 }
 
 uint8_t Audio_IsStreaming(void)
 {
-    return (audio_mode == AUDIO_MODE_WAV && wav_file_opened);
+    return (CS43131_g.audio_mode == AUDIO_MODE_WAV && CS43131_g.wav_file_opened);
 }
 
 uint8_t Audio_IsStatusDirty(void)
@@ -782,31 +772,31 @@ void Audio_PlayWAV_Start(wav_info_t *info)
     Audio_PlayStop();
     rb_write_pos = 0;
     rb_read_pos = 0;
-    wav_eof = 0;
-    memcpy(&wav_info, info, sizeof(wav_info_t));
-    wav_file_opened = 1; /* 文件已由 CLI 打开并定位到 data_offset */
+    CS43131_g.wav_eof = 0;
+    memcpy(&CS43131_g.wav_info, info, sizeof(wav_info_t));
+    CS43131_g.wav_file_opened = 1; /* 文件已由 CLI 打开并定位到 data_offset */
 
     /* 预填充 ring buffer 到约 16KB */
     while (rb_used() < 16384) {
         status = CH378ByteRead(temp_buf, sizeof(temp_buf), &real_len);
         if (status != ERR_SUCCESS || real_len == 0) {
-            wav_eof = 1;
+            CS43131_g.wav_eof = 1;
             break;
         }
         rb_write_data(temp_buf, real_len);
         if (real_len < sizeof(temp_buf)) {
-            wav_eof = 1;
+            CS43131_g.wav_eof = 1;
             break;
         }
     }
 
-    if (wav_eof) {
+    if (CS43131_g.wav_eof) {
         CH378FileClose(0);
-        wav_file_opened = 0;
+        CS43131_g.wav_file_opened = 0;
     }
 
-    audio_mode = AUDIO_MODE_WAV;
-    audio_state = AUDIO_STATE_PLAYING;
+    CS43131_g.audio_mode = AUDIO_MODE_WAV;
+    CS43131_g.audio_state = AUDIO_STATE_PLAYING;
     music_status_dirty = 1;
     printf("Audio_PlayWAV_Start: streaming started, rb_used=%lu\r\n", rb_used());
 }
@@ -825,24 +815,24 @@ void Audio_Process(void)
     uint16_t real_len;
     uint8_t temp_buf[4096];
 
-    if (audio_mode != AUDIO_MODE_WAV) return;
-    if (!wav_file_opened) return;
-    if (wav_eof) return;
+    if (CS43131_g.audio_mode != AUDIO_MODE_WAV) return;
+    if (!CS43131_g.wav_file_opened) return;
+    if (CS43131_g.wav_eof) return;
 
     /* 每次尽可能多地读取，直到 ring buffer 空闲不足或文件结束 */
     while (rb_free() >= sizeof(temp_buf)) {
         status = CH378ByteRead(temp_buf, sizeof(temp_buf), &real_len);
         if (status != ERR_SUCCESS || real_len == 0) {
-            wav_eof = 1;
+            CS43131_g.wav_eof = 1;
             CH378FileClose(0);
-            wav_file_opened = 0;
+            CS43131_g.wav_file_opened = 0;
             break;
         }
         rb_write_data(temp_buf, real_len);
         if (real_len < sizeof(temp_buf)) {
-            wav_eof = 1;
+            CS43131_g.wav_eof = 1;
             CH378FileClose(0);
-            wav_file_opened = 0;
+            CS43131_g.wav_file_opened = 0;
             break;
         }
     }
@@ -860,23 +850,23 @@ void Audio_Process(void)
 static void fill_audio_half(uint16_t *buf)
 {
     /* 暂停状态：填静音，保持进度不增加 */
-    if (audio_state == AUDIO_STATE_PAUSED) {
+    if (CS43131_g.audio_state == AUDIO_STATE_PAUSED) {
         memset(buf, 0, AUDIO_HALF_SIZE * sizeof(uint16_t));
         return;
     }
 
-    if (audio_mode == AUDIO_MODE_MEMORY) {
+    if (CS43131_g.audio_mode == AUDIO_MODE_MEMORY) {
         Audio_FillBuffer(buf, AUDIO_HALF_SIZE);
-    } else if (audio_mode == AUDIO_MODE_SINE) {
+    } else if (CS43131_g.audio_mode == AUDIO_MODE_SINE) {
         Audio_GenerateSineWave(buf, AUDIO_HALF_SIZE);
-    } else if (audio_mode == AUDIO_MODE_WAV) {
+    } else if (CS43131_g.audio_mode == AUDIO_MODE_WAV) {
         if (rb_used() >= AUDIO_HALF_SIZE * sizeof(uint16_t)) {
             rb_read_to_buffer(buf, AUDIO_HALF_SIZE);
         } else {
             memset(buf, 0, AUDIO_HALF_SIZE * sizeof(uint16_t));
-            if (wav_eof && rb_used() == 0) {
-                audio_state = AUDIO_STATE_IDLE;
-                audio_mode = AUDIO_MODE_NONE;
+            if (CS43131_g.wav_eof && rb_used() == 0) {
+                CS43131_g.audio_state = AUDIO_STATE_IDLE;
+                        CS43131_g.audio_mode = AUDIO_MODE_NONE;
                 music_status_dirty = 1;
                 printf("Audio: playback finished\r\n");
             }
@@ -888,14 +878,14 @@ static void fill_audio_half(uint16_t *buf)
 
 static void update_playback_progress(void)
 {
-    if (audio_state != AUDIO_STATE_PLAYING) return;
+    if (CS43131_g.audio_state != AUDIO_STATE_PLAYING) return;
 
-    if (audio_mode == AUDIO_MODE_WAV) {
+    if (CS43131_g.audio_mode == AUDIO_MODE_WAV) {
         /* 只有实际从 ring buffer 读出数据时才计进度 */
         if (rb_used() >= AUDIO_HALF_SIZE * sizeof(uint16_t)) {
             CS43131_g.samples_played += AUDIO_HALF_SIZE;
         }
-    } else if (audio_mode != AUDIO_MODE_NONE) {
+    } else if (CS43131_g.audio_mode != AUDIO_MODE_NONE) {
         CS43131_g.samples_played += AUDIO_HALF_SIZE;
     }
 }
@@ -916,29 +906,5 @@ void DMA1_Channel1_IRQHandler(void)
         /* DMA 刚回到开头，安全地填后半部分 */
         fill_audio_half(audio_buffer_A + AUDIO_HALF_SIZE);
         update_playback_progress();
-    }
-}
-
-/*********************************************************************
- * @fn      Audio_SyncToSharedMemory
- *
- * @brief   Sync audio status to shared memory for V3F to read.
- *          Called from V5F main loop.
- *
- * @return  none
- *********************************************************************/
-void Audio_SyncToSharedMemory(void)
-{
-    extern volatile hardware_t hardware_g;
-    hardware_g.audio_status.audio_state = (uint8_t)audio_state;
-    hardware_g.audio_status.audio_volume = CS43131_g.volume;
-    hardware_g.audio_status.audio_play_time_ms = Audio_GetPlayTime_ms();
-    {
-        volatile char *dst = hardware_g.audio_status.audio_track_name;
-        const char *src = CS43131_g.track_name;
-        uint8_t i;
-        for (i = 0; i < AUDIO_TRACK_NAME_MAX_LEN - 1 && src[i]; i++)
-            dst[i] = src[i];
-        dst[i] = '\0';
     }
 }

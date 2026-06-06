@@ -42,13 +42,6 @@
 #define SPEAKER_LEFT_SHUTDOWN_GPIO_PORT    GPIOD
 #define SPEAKER_LEFT_SHUTDOWN_PIN          GPIO_Pin_11
 
-typedef struct {
-    uint8_t enable;               /* cs43131 enable */
-    uint8_t volume;               /* 音量 0~100 */
-    volatile uint32_t samples_played; /* 播放进度计数 (声道样本数) */
-    char track_name[64];          /* 当前曲目名称 */
-}cs43131_t;
-
 /* 播放模式 */
 typedef enum {
     AUDIO_MODE_NONE = 0,
@@ -73,6 +66,18 @@ typedef struct {
     uint32_t data_offset;
     uint32_t data_size;
 } wav_info_t;
+
+typedef struct {
+    uint8_t enable;               /* cs43131 enable */
+    uint8_t volume;               /* 音量 0~100 */
+    audio_state_t audio_state;    /* 播放状态 */
+    audio_mode_t audio_mode;      /* 播放模式 */
+    volatile uint32_t samples_played; /* 播放进度计数 (声道样本数) */
+    char track_name[64];          /* 当前曲目名称 */
+    wav_info_t wav_info;          /* WAV 文件信息 */
+    uint8_t wav_file_opened;      /* WAV 文件是否已打开 */
+    uint8_t wav_eof;              /* WAV 流是否已到文件末尾 */
+}cs43131_t;
 
 /* Speaker 通道选择 */
 typedef enum {
@@ -127,9 +132,6 @@ void Audio_SetCurrentTrack(const char *name);
 uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info);
 void Audio_PlayWAV_Start(wav_info_t *info);
 void Audio_Process(void);
-
-/* 跨核同步：将音频状态写入共享内存供 V3F 读取 */
-void Audio_SyncToSharedMemory(void);
 
 void DMA1_Channel1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 

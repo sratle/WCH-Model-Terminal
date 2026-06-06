@@ -1,6 +1,7 @@
 #include "submodels.h"
 #include "../Protocol/protocol_common.h"
 #include "../hardware.h"
+#include "../CS43131/cs43131.h"
 #include "../Config/config.h"
 #include "../CH378/CH378.h"
 #include "../CH9350/CH9350.h"
@@ -1245,7 +1246,7 @@ uint8_t Submodels_SubDisp_SendLsDev(submodels_t *submodel)
     /* 各模块条目：[模块ID:1][类型:1][子类型:1][在线状态:1][miss_count:1] */
     for (i = 0; i < HB_MAX_SLOTS; i++)
     {
-        const volatile hb_slot_t *slot = &hardware_g.hb_slots[i];
+        const hb_slot_t *slot = &hardware_g.hb_slots[i];
         data[offset++] = slot->module_id;
         data[offset++] = slot->type;
         data[offset++] = slot->subtype;
@@ -1298,13 +1299,13 @@ uint8_t Submodels_SubDisp_SendSysStatus(submodels_t *submodel)
     /* 版本 */
     status_buf[offset++] = 0x02;
 
-    /* ---- 音频状态：从共享内存读取（V5F 写入） ---- */
-    status_buf[offset++] = hardware_g.audio_status.audio_state;
-    status_buf[offset++] = hardware_g.audio_status.audio_volume;
+    /* ---- 音频状态：从 CS43131_g 直接读取 ---- */
+    status_buf[offset++] = (uint8_t)CS43131_g.audio_state;
+    status_buf[offset++] = CS43131_g.volume;
 
     /* 播放时长 (uint32 大端) */
     {
-        uint32_t play_time = hardware_g.audio_status.audio_play_time_ms;
+        uint32_t play_time = Audio_GetPlayTime_ms();
         status_buf[offset++] = (uint8_t)(play_time >> 24);
         status_buf[offset++] = (uint8_t)(play_time >> 16);
         status_buf[offset++] = (uint8_t)(play_time >> 8);
@@ -1412,12 +1413,12 @@ uint8_t Submodels_SubDisp_SendSysStatus(submodels_t *submodel)
 
     /* 音频曲目名称 (长度前缀) */
     {
-        const volatile char *track = hardware_g.audio_status.audio_track_name;
+        const char *track = CS43131_g.track_name;
         uint8_t tlen = 0;
         while (track[tlen] && tlen < 31) tlen++;
         status_buf[offset++] = tlen;
         if (tlen > 0) {
-            memcpy(&status_buf[offset], (const void *)track, tlen);
+            memcpy(&status_buf[offset], track, tlen);
             offset += tlen;
         }
     }
@@ -1434,7 +1435,7 @@ uint8_t Submodels_SubDisp_SendSysStatus(submodels_t *submodel)
     /* 各模块条目 */
     for (i = 0; i < HB_MAX_SLOTS; i++)
     {
-        const volatile hb_slot_t *slot = &hardware_g.hb_slots[i];
+        const hb_slot_t *slot = &hardware_g.hb_slots[i];
         status_buf[offset++] = slot->module_id;
         status_buf[offset++] = slot->type;
         status_buf[offset++] = slot->subtype;

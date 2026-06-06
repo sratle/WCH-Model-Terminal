@@ -1,13 +1,11 @@
 /********************************** (C) COPYRIGHT  *******************************
  * File Name          : hardware.c
- * Author             : 
+ * Author             :
  * Version            : V1.0.0
  * Date               : 2025/03/01
  * Description        : This file provides all the hardware firmware functions.
  *******************************************************************************/
 #include "hardware.h"
-#include "shared.h"
-#include "ch32h417_hsem.h"
 
 #include "CS43131/cs43131.h"
 #include "Submodels/submodels.h"
@@ -25,73 +23,17 @@
 /**
  * Global variables
  */
-// V5F hardware
 cs43131_t CS43131_g;
 ch378_t ch378_g;
 ch585f_t ch585f_g;
 display_t display_g;
 
-// V3F hardware
 power_t power_g;
 keyboard_t keyboard_g;
 ch9350_t ch9350_g;
 submodels_t submodels_g[3];
 
-__attribute__((section(".shared_data")))
-volatile hardware_t hardware_g;
-
-void Shared_Init(void)
-{
-    volatile hardware_t *p = &hardware_g;
-    uint8_t *dst = (uint8_t *)p;
-    uint32_t len = sizeof(hardware_t);
-    while (len--)
-        *dst++ = 0;
-}
-
-/*=============================================================================
- *  V3F → V5F Core 按键事件队列
- *=============================================================================*/
-
-void Hardware_KeyQueue_Push(uint8_t key_id, uint8_t event)
-{
-    uint8_t next;
-
-    if (HSEM_FastTake(HSEM_ID1) != READY)
-        return;
-
-    next = (hardware_g.key_queue.head + 1) % CORE_KEY_QUEUE_SIZE;
-    if (next == hardware_g.key_queue.tail)
-    {
-        HSEM_ReleaseOneSem(HSEM_ID1, 0);
-        return;
-    }
-
-    hardware_g.key_queue.queue[hardware_g.key_queue.head].key_id = key_id;
-    hardware_g.key_queue.queue[hardware_g.key_queue.head].event = event;
-    hardware_g.key_queue.head = next;
-
-    HSEM_ReleaseOneSem(HSEM_ID1, 0);
-}
-
-uint8_t Hardware_KeyQueue_Pop(core_key_event_t *evt)
-{
-    if (HSEM_FastTake(HSEM_ID1) != READY)
-        return 0;
-
-    if (hardware_g.key_queue.tail == hardware_g.key_queue.head)
-    {
-        HSEM_ReleaseOneSem(HSEM_ID1, 0);
-        return 0;
-    }
-
-    evt->key_id = hardware_g.key_queue.queue[hardware_g.key_queue.tail].key_id;
-    evt->event  = hardware_g.key_queue.queue[hardware_g.key_queue.tail].event;
-    hardware_g.key_queue.tail = (hardware_g.key_queue.tail + 1) % CORE_KEY_QUEUE_SIZE;
-
-    HSEM_ReleaseOneSem(HSEM_ID1, 0);
-    return 1;
-}
+hardware_t hardware_g;
 
 /*=============================================================================
  *  心跳 / 模块在线检测
@@ -117,25 +59,9 @@ static const char *hb_slot_names[HB_MAX_SLOTS] = {
     "Submodel3",
 };
 
-/* 心跳槽位对应的初始化标志位 */
-static const uint8_t hb_init_flags[HB_MAX_SLOTS] = {
-    0x08,   /* Display  -> V5F bit3 */
-    0x20,   /* Keyboard -> V3F bit5 */
-    0x10,   /* Power    -> V3F bit4 */
-    0x80,   /* Submodel1 -> V3F bit7 */
-    0x80,   /* Submodel2 -> V3F bit7 */
-    0x80,   /* Submodel3 -> V3F bit7 */
-};
-
-#define HB_INIT_MAGIC  0xDEADDEADu
-
 static void hb_init_slots(void)
 {
     uint8_t i;
-
-    /* 防止双核重复初始化：V3F 先调用写入 magic，V5F 检测并跳过 */
-    if (hardware_g.hb_tick == HB_INIT_MAGIC)
-        return;
 
     for (i = 0; i < HB_MAX_SLOTS; i++)
     {
@@ -145,19 +71,15 @@ static void hb_init_slots(void)
         hardware_g.hb_slots[i].type       = MODULE_TYPE_RESERVED;
         hardware_g.hb_slots[i].subtype    = 0;
     }
-    hardware_g.hb_tick = HB_INIT_MAGIC;
+    hardware_g.hb_tick = 0;
 }
 
-/* 向指定槽位发送 CMD_GET_TYPE（仅当模块已初始化时） */
+/* 向指定槽位发送 CMD_GET_TYPE */
 static void hb_send_get_type(uint8_t slot_idx)
 {
     uint8_t buf[PROTO_MAX_FRAME_LEN];
     uint16_t len;
     uint8_t dst = hardware_g.hb_slots[slot_idx].module_id;
-
-    /* 模块未初始化则跳过 */
-    if (!(hardware_g.hardware_init_flag & hb_init_flags[slot_idx]))
-        return;
 
     len = Protocol_PackFrame(MODULE_ID_CORE, dst, CMD_GET_TYPE, NULL, 0,
                              buf, sizeof(buf));
@@ -197,13 +119,7 @@ void Hardware_Heartbeat(void)
 
     for (i = 0; i < HB_MAX_SLOTS; i++)
     {
-        /* 模块未初始化则跳过 */
-        if (!(hardware_g.hardware_init_flag & hb_init_flags[i]))
-            continue;
-
-        /* 检查上轮是否收到回应：
-         * MarkOnline 会将 miss_count 清零，
-         * 如果 miss_count > 0 说明上轮无回应 */
+        /* 检查上轮是否收到回应 */
         if (hardware_g.hb_slots[i].miss_count > 0)
         {
             hardware_g.hb_slots[i].miss_count++;
@@ -220,14 +136,12 @@ void Hardware_Heartbeat(void)
         /* 发送新一轮 GET_TYPE */
         hb_send_get_type(i);
 
-        /* 设置待确认标记：miss_count==0 表示上轮收到了回应，
-         * 设为 1 表示"等待本轮回应"，MarkOnline 会清零 */
+        /* 设置待确认标记 */
         if (hardware_g.hb_slots[i].miss_count == 0)
             hardware_g.hb_slots[i].miss_count = 1;
     }
 
     /* 检查是否有 pending 的 RGB 配置需要发送给已在线的 RGB 子模块 */
-    /* 仅当 Config_Apply 已执行后才发送，避免 CH378 初始化前发送零值/默认配置 */
     if (hardware_g.config_applied)
     {
         for (i = 3; i < HB_MAX_SLOTS; i++)
@@ -237,16 +151,14 @@ void Hardware_Heartbeat(void)
             {
                 uint8_t idx = i - 3;
 
-                /* 如果有自定义帧待传输，优先发送帧数据。
-                 * 帧数据全部发完后，再发 SetMode(mode=0) + PlayAnimation。
-                 * 这避免了 mode=0 先到达但帧数据未到导致显示黑色的问题。 */
+                /* 如果有自定义帧待传输，优先发送帧数据 */
                 if (hardware_g.rgb_frame.pending)
                 {
                     uint8_t next_frame = hardware_g.rgb_frame.next_frame_idx;
                     if (next_frame < hardware_g.rgb_frame.frame_count)
                     {
                         Submodels_RGB_SendFrame(&submodels_g[idx], next_frame,
-                                                 (const uint8_t *)hardware_g.rgb_frame.frame_data[next_frame]);
+                                                 hardware_g.rgb_frame.frame_data[next_frame]);
                         hardware_g.rgb_frame.next_frame_idx = next_frame + 1;
                     }
                     else
@@ -256,7 +168,7 @@ void Hardware_Heartbeat(void)
                                                     hardware_g.rgb_frame.frame_count,
                                                     hardware_g.rgb_frame.frame_interval);
 
-                        /* 发送 SetMode(mode=0) 切换到自定义模式 */
+                        /* 发送 SetMode 切换到自定义模式 */
                         Submodels_RGB_SetMode(&submodels_g[idx],
                                               hardware_g.rgb_config.mode,
                                               hardware_g.rgb_config.r,
@@ -309,7 +221,7 @@ void Hardware_Heartbeat(void)
                             break;
                         case SUBDISP_CMD_SEND_BMP:
                             Submodels_SubDisp_SendBMP(&submodels_g[idx],
-                                                       (const char *)hardware_g.subdisp_req.filename);
+                                                       hardware_g.subdisp_req.filename);
                             /* 自动切换到图片模式 */
                             Submodels_SubDisp_SetDisplayMode(&submodels_g[idx],
                                                               SUBDISP_MODE_IMAGE);
@@ -356,21 +268,14 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
                        hb_slot_names[i], type, subtype);
             }
 
-            /* RGB 子模块上线时，不直接发送 SetMode。
-             * 设置 pending=1 让心跳统一发送，这样可以确保：
-             * 1) 首次上线（Config 未加载）：心跳检查 config_applied=0，
-             *    不会发送零值配置，submodel-5 保持黑色
-             * 2) Config_Apply 后：心跳发现 config_applied=1 且 pending=1，
-             *    发送正确的配置
-             * 3) 拔插重连：pending 重新置 1，心跳重发当前配置 */
+            /* RGB 子模块上线时，设置 pending 让心跳统一发送 */
             if (type == MODULE_TYPE_SUBMODEL &&
                 subtype == MODULE_SUBTYPE_SUBMODEL_RGB)
             {
                 hardware_g.rgb_config.pending = 1;
             }
 
-            /* SubDisplay 子模块上线时，主动发送一次当前状态，
-             * 让 SubDisplay 立即有数据显示，之后由 SubDisp 自己定时请求 */
+            /* SubDisplay 子模块上线时，主动发送一次当前状态 */
             if (type == MODULE_TYPE_SUBMODEL &&
                 subtype == MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY)
             {
@@ -383,53 +288,59 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
 }
 
 /*********************************************************************
- * @fn      Hardware_init
+ * @fn      Hardware_Init
  *
- * @brief   Hardware entry.
+ * @brief   Hardware entry - V5F 统一初始化所有模块.
  *
  * @return  none
  *********************************************************************/
-void Hardware_V3F_Init(void)
+void Hardware_Init(void)
 {
-    Key_Init();
-    Power_Init(&power_g);
-    hardware_g.hardware_init_flag |= 0x10;
+    memset(&hardware_g, 0, sizeof(hardware_t));
 
-    Keyboard_Init(&keyboard_g);
-    hardware_g.hardware_init_flag |= 0x20;
-
-    CH9350_Init(&ch9350_g);
-    hardware_g.hardware_init_flag |= 0x40;
-
-    Submodels_Init(submodels_g);
-    hardware_g.hardware_init_flag |= 0x80;
-
-    hb_init_slots();
-
-    // while (hardware_g.hardware_init_flag != 0xFF);
-}
-
-void Hardware_V5F_Init(void)
-{
+    /* 音频 DAC */
     CS43131_init(&CS43131_g);
     hardware_g.hardware_init_flag |= 0x01;
 
+    /* 文件管理芯片 */
     CH378_Init(&ch378_g);
     hardware_g.hardware_init_flag |= 0x02;
 
     CH378_Device_Select(&ch378_g, CH378_Device_USB);
 
+    /* 配置系统 */
     Config_Init();
 
+    /* 命令行接口 */
     CLI_Init();
 
+    /* 蓝牙无线芯片 */
     CH585F_Init(&ch585f_g);
     hardware_g.hardware_init_flag |= 0x04;
 
+    /* 屏幕模块 */
     Display_Init(&display_g);
     hardware_g.hardware_init_flag |= 0x08;
 
-    hb_init_slots();
+    /* 核心按键 */
+    Key_Init();
+    hardware_g.hardware_init_flag |= 0x10;
 
-    // while (hardware_g.hardware_init_flag != 0xFF);
+    /* 供电模块 */
+    Power_Init(&power_g);
+    hardware_g.hardware_init_flag |= 0x20;
+
+    /* HID 转串口 */
+    CH9350_Init(&ch9350_g);
+    hardware_g.hardware_init_flag |= 0x40;
+
+    /* 键盘模块 */
+    Keyboard_Init(&keyboard_g);
+    hardware_g.hardware_init_flag |= 0x80;
+
+    /* 子模块 */
+    Submodels_Init(submodels_g);
+
+    /* 心跳槽位初始化 */
+    hb_init_slots();
 }

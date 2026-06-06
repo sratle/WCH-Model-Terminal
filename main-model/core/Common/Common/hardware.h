@@ -1,9 +1,9 @@
 /********************************** (C) COPYRIGHT  *******************************
 * File Name          : hardware.h
-* Author             : 
+* Author             :
 * Version            : V1.0.0
 * Date               : 2025/03/01
-* Description        : This file contains all the functions prototypes for the 
+* Description        : This file contains all the functions prototypes for the
 *                      hardware.
 *******************************************************************************/
 #ifndef __HARDWARE_H
@@ -30,48 +30,11 @@ extern ch585f_t ch585f_g;
 extern display_t display_g;
 
 /*=============================================================================
- *  V3F → V5F 跨核配置请求
- *=============================================================================*/
-
-/* 配置请求类型 */
-typedef enum {
-    CONFIG_REQ_NONE = 0,        /* 无请求 */
-    CONFIG_REQ_SET_INT,         /* 设置整型配置 */
-    CONFIG_REQ_SET_STRING,      /* 设置字符串配置 */
-    CONFIG_REQ_SAVE,            /* 请求保存到文件 */
-    CONFIG_REQ_RESET,           /* 请求恢复默认值 */
-    CONFIG_REQ_APPLY            /* 请求重新应用配置到硬件 */
-} config_req_type_t;
-
-/* 配置请求结构体（V3F 写入，V5F 读取并处理） */
-typedef struct {
-    config_req_type_t type;     /* 请求类型 */
-    uint8_t  pending;           /* 1=有新请求待处理 */
-    char     module_key[5];     /* 模块键 "TTSS" */
-    char     key[16];           /* 配置键名 */
-    int      int_val;           /* 整型值（SET_INT 时使用） */
-    char     str_val[32];       /* 字符串值（SET_STRING 时使用） */
-} config_request_t;
-
-/*=============================================================================
- *  V5F → V3F 音频状态共享
- *=============================================================================*/
-
-#define AUDIO_TRACK_NAME_MAX_LEN  32
-
-typedef struct {
-    uint8_t  audio_state;          /* 0=IDLE, 1=PLAYING, 2=PAUSED, 3=STOPPED */
-    uint8_t  audio_volume;        /* 0~100 */
-    uint32_t audio_play_time_ms;  /* 播放时长 ms */
-    char     audio_track_name[AUDIO_TRACK_NAME_MAX_LEN]; /* 当前曲目名 */
-} audio_status_t;
-
-/*=============================================================================
- *  V5F → V3F RGB 配置传递
+ *  RGB 配置
  *=============================================================================*/
 
 typedef struct {
-    uint8_t pending;        /* 1=V5F 有新的 RGB 配置待发送 */
+    uint8_t pending;        /* 1=有新的 RGB 配置待发送 */
     uint8_t mode;           /* RGB 模式: 0=自定义, 1=常亮, 2=呼吸, 3=跑马灯 */
     uint8_t r, g, b;       /* 基础颜色 RGB888 */
     uint8_t brightness;    /* 亮度 0-255 */
@@ -79,7 +42,7 @@ typedef struct {
 } rgb_config_t;
 
 /*=============================================================================
- *  V5F → V3F RGB 自定义帧传输
+ *  RGB 自定义帧传输
  *=============================================================================*/
 
 #define RGB_LED_COUNT           49
@@ -87,15 +50,15 @@ typedef struct {
 #define RGB_MAX_CUSTOM_FRAMES   20
 
 typedef struct {
-    uint8_t pending;                        /* 1=V5F 有帧数据待传输 */
+    uint8_t pending;                        /* 1=有帧数据待传输 */
     uint8_t frame_count;                    /* 总帧数 (1~20) */
-    uint8_t next_frame_idx;                 /* 下一帧待发送索引 (V3F 心跳递增) */
+    uint8_t next_frame_idx;                 /* 下一帧待发送索引 */
     uint16_t frame_interval;                /* 帧间隔 (ms) */
     uint8_t frame_data[RGB_MAX_CUSTOM_FRAMES][RGB_FRAME_DATA_SIZE]; /* 帧数据 */
 } rgb_frame_transfer_t;
 
 /*=============================================================================
- *  V5F → V3F SubDisplay 命令传递
+ *  SubDisplay 命令
  *=============================================================================*/
 
 #define SUBDISP_CMD_NONE           0
@@ -106,28 +69,11 @@ typedef struct {
 #define SUBDISP_FILENAME_MAX_LEN   32
 
 typedef struct {
-    uint8_t  pending;        /* 1=V5F 有新命令待处理 */
+    uint8_t  pending;        /* 1=有新命令待处理 */
     uint8_t  cmd;            /* 命令类型 (SUBDISP_CMD_xxx) */
     uint8_t  mode;           /* 显示模式 (SUBDISP_CMD_SET_MODE 时使用) */
-    char     filename[SUBDISP_FILENAME_MAX_LEN]; /* BMP 文件名 (SUBDISP_CMD_SEND_BMP 时使用) */
+    char     filename[SUBDISP_FILENAME_MAX_LEN]; /* BMP 文件名 */
 } subdisp_request_t;
-
-/*=============================================================================
- *  V3F → V5F Core 按键事件
- *=============================================================================*/
-
-#define CORE_KEY_QUEUE_SIZE  8
-
-typedef struct {
-    uint8_t key_id;
-    uint8_t event;
-} core_key_event_t;
-
-typedef struct {
-    core_key_event_t queue[CORE_KEY_QUEUE_SIZE];
-    volatile uint8_t head;
-    volatile uint8_t tail;
-} core_key_queue_t;
 
 /*=============================================================================
  *  心跳 / 模块在线检测
@@ -153,25 +99,25 @@ typedef struct {
     uint8_t     subtype;        /* 模块子类型 */
 } hb_slot_t;
 
+/*=============================================================================
+ *  系统全局状态（原跨核共享，现由 V5F 独占管理）
+ *=============================================================================*/
+
 typedef struct
 {
     uint8_t hardware_state;     /* Hardware state */
     uint8_t hardware_init_flag; /* Hardware init flag */
     hb_slot_t hb_slots[HB_MAX_SLOTS]; /* 心跳槽位 */
     uint32_t hb_tick;           /* 心跳计时计数器 (ms) */
-    config_request_t config_req; /* V3F→V5F 跨核配置请求 */
-    uint8_t         config_applied; /* V5F Config_Apply 已执行，1=配置已就绪 */
-    audio_status_t  audio_status; /* V5F→V3F 音频状态共享 */
-    rgb_config_t    rgb_config; /* V5F→V3F RGB 配置传递 */
-    rgb_frame_transfer_t rgb_frame; /* V5F→V3F RGB 自定义帧传输 */
-    subdisp_request_t subdisp_req; /* V5F→V3F SubDisplay 命令传递 */
-    core_key_queue_t key_queue;  /* V3F→V5F 核心按键事件队列 */
+    uint8_t  config_applied;    /* Config_Apply 已执行，1=配置已就绪 */
+    rgb_config_t    rgb_config; /* RGB 配置 */
+    rgb_frame_transfer_t rgb_frame; /* RGB 自定义帧传输 */
+    subdisp_request_t subdisp_req; /* SubDisplay 命令 */
 } hardware_t;
 
-extern volatile hardware_t hardware_g;
+extern hardware_t hardware_g;
 
-void Hardware_V5F_Init(void);
-void Hardware_V3F_Init(void);
+void Hardware_Init(void);
 
 /* 心跳函数，需在主循环中以 1ms 间隔调用 */
 void Hardware_Heartbeat(void);
@@ -179,16 +125,8 @@ void Hardware_Heartbeat(void);
 /* 由各模块 Process 在收到 GET_TYPE ACK 时调用，标记槽位在线 */
 void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype);
 
-void Hardware_KeyQueue_Push(uint8_t key_id, uint8_t event);
-uint8_t Hardware_KeyQueue_Pop(core_key_event_t *evt);
-
 #ifdef __cplusplus
 }
 #endif
 
-#endif 
-
-
-
-
-
+#endif

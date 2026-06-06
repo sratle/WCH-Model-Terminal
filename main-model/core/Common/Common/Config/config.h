@@ -261,12 +261,6 @@ uint8_t Config_IsDeviceMatch(void);
 const char* Config_GetTargetDeviceName(void);
 
 /**
- * @brief  配置主循环处理（在 V5F 主循环中调用）
- *         处理 V3F→V5F 跨核配置请求
- */
-void Config_Process(void);
-
-/**
  * @brief  构建 CONFIG 目录下文件的完整 SFN 路径
  * @param  filename  文件名
  * @param  out       输出缓冲区
