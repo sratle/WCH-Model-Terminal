@@ -175,6 +175,14 @@ static void App_HandleFrame(void)
             /* Heartbeat, no action */
             break;
 
+        case CMD_ACK:
+            /* ACK response, no action needed */
+            break;
+
+        case CMD_NACK:
+            /* NACK response, no action needed */
+            break;
+
         case CMD_GET_TYPE:
             App_HandleGetType();
             break;
@@ -1207,10 +1215,12 @@ static void App_HandleGetStatus(void)
 static void App_HandleDataReport(void)
 {
     protocol_frame_t *f = &uart_core_rx_ctx.frame;
-    uint8_t subcmd = (f->len >= 1) ? f->data[0] : 0;
-    uint8_t flags = (f->len >= 2) ? f->data[1] : 0;
-    const uint8_t *payload = (f->len >= 2) ? &f->data[2] : NULL;
-    uint8_t payload_len = (f->len >= 2) ? f->len - 2 : 0;
+    /* f->len = 1(cmd) + data_bytes, so data count = f->len - 1 */
+    uint8_t data_len = (f->len >= 1) ? f->len - 1 : 0;
+    uint8_t subcmd = (data_len >= 1) ? f->data[0] : 0;
+    uint8_t flags = (data_len >= 2) ? f->data[1] : 0;
+    const uint8_t *payload = (data_len >= 2) ? &f->data[2] : NULL;
+    uint8_t payload_len = (data_len >= 2) ? data_len - 2 : 0;
 
     switch (subcmd)
     {
