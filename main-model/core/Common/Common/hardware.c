@@ -203,17 +203,17 @@ void Hardware_Heartbeat(void)
         /* 检查是否有 pending 的 SubDisplay 命令需要发送 */
         if (hardware_g.subdisp_req.pending)
         {
-            uint8_t found = 0;
+            uint8_t found_slot = 0;
             for (i = 3; i < HB_MAX_SLOTS; i++)
             {
                 if (hardware_g.hb_slots[i].subtype == MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY &&
                     hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
                 {
                     uint8_t idx = i - 3;
-                    found = 1;
+                    found_slot = 1;
 
-                    printf("[HB] SubDisp pending cmd=%u slot=%u idx=%u\r\n",
-                           hardware_g.subdisp_req.cmd, i, idx);
+                    printf("[HB] SubDisp cmd=%u idx=%u\r\n",
+                           hardware_g.subdisp_req.cmd, idx);
 
                     switch (hardware_g.subdisp_req.cmd)
                     {
@@ -237,9 +237,8 @@ void Hardware_Heartbeat(void)
                     break;  /* 只需发送给第一个在线的 SubDisplay */
                 }
             }
-            if (!found)
-                printf("[HB] SubDisp pending cmd=%u but no online slot!\r\n",
-                       hardware_g.subdisp_req.cmd);
+            if (!found_slot)
+                printf("[HB] SubDisp cmd=%u no slot\r\n", hardware_g.subdisp_req.cmd);
             hardware_g.subdisp_req.pending = 0;
         }
     }   /* end if (hardware_g.config_applied) */
