@@ -366,13 +366,22 @@ void Hardware_ProcessFpResponse(void)
 
         case SYNO_CMD_AUTO_ENROLL:
         {
-            if (fp_ctx.last_ack == SYNO_ACK_OK)
+            /* 每个应答都发送进度事件给 Core */
+            if (fp_ctx.enroll_progress_ready)
             {
-                Hardware_SendEnrollResult(1, fp_ctx.enroll_id);
+                uint8_t data[4];
+                data[0] = FP_SUB_ENROLL_PROGRESS;
+                data[1] = fp_ctx.enroll_step;      /* 步骤类型 (param1) */
+                data[2] = fp_ctx.enroll_sub_step;   /* 子步骤 (param2) */
+                data[3] = fp_ctx.last_ack;          /* 确认码 */
+                UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_EVT_NOTIFY, data, 4);
+                fp_ctx.enroll_progress_ready = 0;
             }
-            else
+
+            /* 终止性错误：立即发送失败结果 */
+            if (fp_ctx.state == FP_STATE_IDLE && fp_ctx.last_ack != SYNO_ACK_OK)
             {
-                Hardware_SendEnrollResult(0, 0);
+                Hardware_SendEnrollResult(0, fp_ctx.last_ack);
             }
             break;
         }
@@ -410,16 +419,5 @@ void Hardware_ProcessFpResponse(void)
 
         default:
             break;
-    }
-
-    /* 注册进度反馈: DATA 包处理后 enroll_progress_ready 被设置 */
-    if (fp_ctx.enroll_progress_ready)
-    {
-        uint8_t data[3];
-        data[0] = FP_SUB_ENROLL_PROGRESS;
-        data[1] = fp_ctx.enroll_progress;
-        data[2] = fp_ctx.enroll_total;
-        UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_EVT_NOTIFY, data, 3);
-        fp_ctx.enroll_progress_ready = 0;
     }
 }

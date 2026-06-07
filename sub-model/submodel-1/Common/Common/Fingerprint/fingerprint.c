@@ -206,20 +206,41 @@ void Fp_HandleResponse(void)
 
         case SYNO_CMD_AUTO_ENROLL:
         {
-            if (ack_code == SYNO_ACK_OK)
+            /* PS_AutoEnroll 应答格式:
+             *   确认码(ack_code) + 参数1(step) + 参数2(sub_step)
+             *
+             * ack_code=0x00 时的步骤 (param1):
+             *   0x00=合法性检测(命令接受) 0x01=获取图像 0x02=生成特征
+             *   0x03=手指离开 0x04=合并模板 0x05=注册检验 0x06=存储模板
+             *
+             * ack_code!=0x00 时为错误码 (部分为中间步骤、部分为终止错误) */
             {
-                uint16_t page_id = ((uint16_t)rx->buf[10] << 8) + rx->buf[11];
-                fp_ctx.enroll_id = (uint8_t)page_id;
+                uint8_t step = rx->buf[10];     /* param1: 步骤类型 */
+                uint8_t sub_step = rx->buf[11]; /* param2: 子步骤 */
+
+                fp_ctx.enroll_step = step;
+                fp_ctx.enroll_sub_step = sub_step;
+                fp_ctx.enroll_resp_count++;
+                fp_ctx.enroll_idle_counter = 0;  /* 重置超时计数 */
+                fp_ctx.enroll_progress_ready = 1;
+            }
+
+            /* 终止性错误码：注册流程结束
+             * 中间错误码 (不结束): 0x02=无手指, 0x03=采图失败,
+             * 0x04=太干, 0x05=太湿, 0x06=太乱, 0x07=特征点少, 0x17=残留指纹
+             * 取消: 0x2C */
+            if (ack_code == SYNO_ACK_ENROLL_CANCEL)
+            {
                 fp_ctx.state = FP_STATE_IDLE;
             }
-            else if (ack_code == SYNO_ACK_ENROLL_CANCEL)
+            else if (ack_code != SYNO_ACK_OK &&
+                     ack_code != 0x02 && ack_code != 0x03 && ack_code != 0x04 &&
+                     ack_code != 0x05 && ack_code != 0x06 && ack_code != 0x07 &&
+                     ack_code != 0x17)
             {
                 fp_ctx.state = FP_STATE_IDLE;
             }
-            else
-            {
-                fp_ctx.state = FP_STATE_IDLE;
-            }
+            /* 其他情况保持 ENROLLING，等待更多应答或超时 */
             break;
         }
 
@@ -321,6 +342,10 @@ uint8_t Fp_AutoEnroll(uint16_t page_id, uint8_t count)
     len = Fp_BuildCmdPacket(buf, SYNO_CMD_AUTO_ENROLL, params, 6);
     fp_ctx.last_cmd = SYNO_CMD_AUTO_ENROLL;
     fp_ctx.state = FP_STATE_ENROLLING;
+    fp_ctx.enroll_step = 0;
+    fp_ctx.enroll_sub_step = 0;
+    fp_ctx.enroll_resp_count = 0;
+    fp_ctx.enroll_idle_counter = 0;
     Fp_SendPacket(buf, len);
     return 0;
 }

@@ -442,9 +442,28 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
                     return 1;
                 case FP_SUB_ENROLL_PROGRESS:
                 {
+                    /* 新格式: [subcmd:1][step:1][sub_step:1][ack:1] */
                     uint8_t step = (req->len >= 2) ? req->data[1] : 0;
-                    uint8_t total = (req->len >= 3) ? req->data[2] : 0;
-                    printf("[FP] Enroll progress: step %d/%d\r\n", step, total);
+                    uint8_t sub_step = (req->len >= 3) ? req->data[2] : 0;
+                    uint8_t ack = (req->len >= 4) ? req->data[3] : 0;
+                    const char *step_name;
+
+                    switch (step)
+                    {
+                        case 0x00: step_name = "started"; break;
+                        case 0x01: step_name = "capture"; break;
+                        case 0x02: step_name = "extract"; break;
+                        case 0x03: step_name = "lift_finger"; break;
+                        case 0x04: step_name = "merge"; break;
+                        case 0x05: step_name = "verify"; break;
+                        case 0x06: step_name = "store"; break;
+                        default:   step_name = "unknown"; break;
+                    }
+
+                    if (ack == 0x00)
+                        printf("[FP] Enroll: %s (#%d)\r\n", step_name, sub_step);
+                    else
+                        printf("[FP] Enroll: %s err=0x%02X\r\n", step_name, ack);
                     return 1;
                 }
             }

@@ -106,6 +106,10 @@ typedef struct {
     uint8_t        enroll_progress;  /* 当前注册步骤 (1~count) */
     uint8_t        enroll_total;    /* 注册总步骤 */
     uint8_t        enroll_progress_ready; /* 1=有进度需要上报 */
+    uint8_t        enroll_step;           /* 当前步骤 (param1: 0x00~0x06) */
+    uint8_t        enroll_sub_step;       /* 子步骤 (param2) */
+    uint8_t        enroll_resp_count;     /* 已收到的应答总数 */
+    uint32_t       enroll_idle_counter;   /* 无新应答计数器，用于超时检测完成 */
     uint8_t        index_table[32]; /* 索引表位图 (256 bits = 32 bytes) */
     uint8_t        index_ready;     /* 索引表已接收 */
     uint8_t        led_cmd_cached;
