@@ -813,8 +813,55 @@ static void CLI_Cmd_Bmp(uint8_t argc, char **argv)
     uint8_t buf[64];
     uint8_t send_to_sub = 0;
 
-    if (argc < 3 || strcmp(argv[1], "get") != 0) {
+    if (argc < 2) {
         printf("Usage: bmp get <filename> [sub]\r\n");
+        printf("       bmp ls\r\n");
+        return;
+    }
+
+    /* bmp ls: 列出 BMP 文件夹中的文件 */
+    if (strcmp(argv[1], "ls") == 0) {
+        char saved_path[CH378_MAX_PATH_LEN];
+        char saved_sfn[CH378_MAX_PATH_LEN];
+        uint8_t i;
+
+        /* 保存当前工作目录 */
+        strncpy(saved_path, ch378_current_path, CH378_MAX_PATH_LEN);
+        saved_path[CH378_MAX_PATH_LEN - 1] = '\0';
+        strncpy(saved_sfn, ch378_current_path_sfn, CH378_MAX_PATH_LEN);
+        saved_sfn[CH378_MAX_PATH_LEN - 1] = '\0';
+
+        /* 进入 BMP 目录 */
+        status = CH378_Dir_Enter(&ch378_g, "BMP");
+        if (status != ERR_SUCCESS) {
+            printf("BMP directory not found\r\n");
+            return;
+        }
+
+        /* 收集目录条目 */
+        g_cli_entries.count = 0;
+        CH378_Dir_List(&ch378_g, CLI_RmCollectCallback);
+
+        printf("--- \\BMP ---\r\n");
+        for (i = 0; i < g_cli_entries.count; i++) {
+            if (g_cli_entries.is_dir[i])
+                printf("  [DIR]  %s\r\n", g_cli_entries.names[i]);
+            else
+                printf("  [FILE] %s  (%lu bytes)\r\n", g_cli_entries.names[i], g_cli_entries.size[i]);
+        }
+        if (g_cli_entries.count == 0)
+            printf("  (empty)\r\n");
+
+        /* 恢复原工作目录 */
+        strncpy(ch378_current_path, saved_path, CH378_MAX_PATH_LEN);
+        strncpy(ch378_current_path_sfn, saved_sfn, CH378_MAX_PATH_LEN);
+        return;
+    }
+
+    /* bmp get <filename> [sub] */
+    if (strcmp(argv[1], "get") != 0 || argc < 3) {
+        printf("Usage: bmp get <filename> [sub]\r\n");
+        printf("       bmp ls\r\n");
         return;
     }
 

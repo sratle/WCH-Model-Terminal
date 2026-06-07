@@ -1,17 +1,17 @@
 /********************************** (C) COPYRIGHT *******************************
-* File Name          : app_images.h
+* File Name          : app_rgb.h
 * Author             : LCD Model Team
 * Version            : V2.0.0
 * Date               : 2026/06/07
-* Description        : Image browser app — BMP file list via "bmp ls",
-*                      image fetch via "bmp get", BMP decode and render.
+* Description        : RGB lighting control app — mode/color/brightness/speed
+*                      via CLI passthrough. Color preview, custom animation load.
 ********************************************************************************/
-#ifndef __APP_IMAGES_H
-#define __APP_IMAGES_H
+#ifndef __APP_RGB_H
+#define __APP_RGB_H
 
 #include "../MiniUI/miniui.h"
 
-void app_images_init(void);
-ui_page_t *app_images_get_page(void);
+void app_rgb_init(void);
+ui_page_t *app_rgb_get_page(void);
 
 #endif
