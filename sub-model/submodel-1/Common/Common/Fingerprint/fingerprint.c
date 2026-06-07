@@ -330,16 +330,17 @@ uint8_t Fp_AutoEnroll(uint16_t page_id, uint8_t count)
 {
     uint8_t buf[32];
     uint16_t len;
-    uint8_t params[6];
+    uint8_t params[5];
 
-    params[0] = (page_id >> 8) & 0xFF;
-    params[1] = page_id & 0xFF;
-    params[2] = count;
-    params[3] = 0x00;
-    params[4] = 0x00;
-    params[5] = 0x00;
+    /* PS_AutoEnroll 参数 (共 5 字节):
+     *   ID号(2B) + 录入次数(1B) + 参数(2B) */
+    params[0] = (page_id >> 8) & 0xFF;  /* ID号高字节 */
+    params[1] = page_id & 0xFF;         /* ID号低字节 */
+    params[2] = count;                  /* 录入次数 */
+    params[3] = 0x00;  /* 参数低字节: bit2=0(返回关键步骤) */
+    params[4] = 0x00;  /* 参数高字节: bit8~15=预留 */
 
-    len = Fp_BuildCmdPacket(buf, SYNO_CMD_AUTO_ENROLL, params, 6);
+    len = Fp_BuildCmdPacket(buf, SYNO_CMD_AUTO_ENROLL, params, 5);
     fp_ctx.last_cmd = SYNO_CMD_AUTO_ENROLL;
     fp_ctx.state = FP_STATE_ENROLLING;
     fp_ctx.enroll_step = 0;
@@ -354,18 +355,20 @@ uint8_t Fp_AutoIdentify(uint8_t security_level)
 {
     uint8_t buf[32];
     uint16_t len;
-    uint8_t params[6];
+    uint8_t params[5];
 
+    /* PS_AutoIdentify 参数 (共 5 字节):
+     *   分数等级(1B) + ID号(2B, 0xFFFF=1:N搜索) + 参数(2B) */
     params[0] = security_level;
-    params[1] = 0x00;
-    params[2] = 0x00;
-    params[3] = 0x00;
-    params[4] = 0xFF;
-    params[5] = 0xFF;
+    params[1] = 0xFF;   /* ID号高字节 */
+    params[2] = 0xFF;   /* ID号低字节 (0xFFFF = 1:N 全库搜索) */
+    params[3] = 0x00;   /* 参数高字节 */
+    params[4] = 0x00;   /* 参数低字节 (bit2=0: 返回关键步骤) */
 
-    len = Fp_BuildCmdPacket(buf, SYNO_CMD_AUTO_MATCH, params, 6);
+    len = Fp_BuildCmdPacket(buf, SYNO_CMD_AUTO_MATCH, params, 5);
     fp_ctx.last_cmd = SYNO_CMD_AUTO_MATCH;
     fp_ctx.state = FP_STATE_IDENTIFYING;
+    fp_ctx.enroll_idle_counter = 0;
     Fp_SendPacket(buf, len);
     return 0;
 }
@@ -473,18 +476,18 @@ uint8_t Fp_ControlLED(uint8_t func, uint8_t color, uint8_t speed)
     return 0;
 }
 
-uint8_t Fp_WriteReg(uint8_t reg_num, uint16_t value)
+uint8_t Fp_WriteReg(uint8_t reg_num, uint8_t value)
 {
-    uint8_t buf[32];
+    uint8_t buf[16];
     uint16_t len;
-    uint8_t params[4];
+    uint8_t params[2];
 
+    /* PS_WriteReg 参数 (共 2 字节):
+     *   寄存器序号(1B) + 内容(1B) */
     params[0] = reg_num;
-    params[1] = 0x00;
-    params[2] = (value >> 8) & 0xFF;
-    params[3] = value & 0xFF;
+    params[1] = value;
 
-    len = Fp_BuildCmdPacket(buf, SYNO_CMD_WRITE_REG, params, 4);
+    len = Fp_BuildCmdPacket(buf, SYNO_CMD_WRITE_REG, params, 2);
     fp_ctx.last_cmd = SYNO_CMD_WRITE_REG;
     Fp_SendPacket(buf, len);
     return 0;

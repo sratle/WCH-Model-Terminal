@@ -202,7 +202,7 @@ static void HandleSubSetMode(const protocol_frame_t *frame)
             if (frame->len >= 3)
             {
                 uint8_t level = frame->data[1];
-                Fp_WriteReg(0x05, (uint16_t)level);
+                Fp_WriteReg(0x05, level);
             }
             break;
         }

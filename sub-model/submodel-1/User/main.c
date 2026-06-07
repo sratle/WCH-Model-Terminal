@@ -41,6 +41,12 @@ int main(void)
         {
             g_touchout_flag = 0;
 
+            /* 如果状态卡在 ENROLLING 且从未收到应答，视为传感器未响应，强制恢复 */
+            if (fp_ctx.state == FP_STATE_ENROLLING && fp_ctx.enroll_resp_count == 0)
+            {
+                fp_ctx.state = FP_STATE_IDLE;
+            }
+
             if (fp_ctx.state == FP_STATE_IDLE || fp_ctx.state == FP_STATE_SLEEPING)
             {
                 fp_ctx.state = FP_STATE_IDLE;

@@ -131,7 +131,7 @@ uint8_t Fp_ReadValidTemplateNum(void);
 uint8_t Fp_ReadIndexTable(uint8_t index);
 uint8_t Fp_Sleep(void);
 uint8_t Fp_ControlLED(uint8_t func, uint8_t color, uint8_t speed);
-uint8_t Fp_WriteReg(uint8_t reg_num, uint16_t value);
+uint8_t Fp_WriteReg(uint8_t reg_num, uint8_t value);
 
 uint8_t Fp_IsFrameReady(void);
 void Fp_ResetRx(void);
