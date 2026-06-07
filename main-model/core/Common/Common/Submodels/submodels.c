@@ -393,24 +393,6 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
         case CMD_SUB_GET_STATUS:
             switch (subcmd)
             {
-                case FP_SUB_QUERY_LIST:
-                {
-                    /* 响应: [count:1][[ID:1][name:16]...] */
-                    uint16_t dlen = (req->len > 0) ? (uint16_t)(req->len - 1) : 0;
-                    if (dlen > 0)
-                    {
-                        uint8_t count = req->data[1];
-                        printf("[FP] Fingerprint list: count=%d\r\n", count);
-                        for (uint8_t i = 0; i < count && (2 + i * 17 + 17) <= req->len; i++)
-                        {
-                            uint8_t id = req->data[2 + i * 17];
-                            char name[17] = {0};
-                            memcpy(name, &req->data[2 + i * 17 + 1], 16);
-                            printf("  ID=%d  name=%.16s\r\n", id, name);
-                        }
-                    }
-                    return 1;
-                }
                 case FP_SUB_QUERY_COUNT:
                 {
                     /* 响应: [count:1] */
@@ -437,6 +419,13 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
                 case FP_SUB_IDENTIFY_FAIL:
                     printf("[FP] Identify FAIL\r\n");
                     return 1;
+                case FP_SUB_ENROLL_PROGRESS:
+                {
+                    uint8_t step = (req->len >= 2) ? req->data[1] : 0;
+                    uint8_t total = (req->len >= 3) ? req->data[2] : 0;
+                    printf("[FP] Enroll progress: step %d/%d\r\n", step, total);
+                    return 1;
+                }
             }
             break;
 
@@ -454,6 +443,58 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
                 {
                     uint8_t err = (req->len >= 2) ? req->data[1] : 0;
                     printf("[FP] Enroll FAIL: err=%d\r\n", err);
+                    return 1;
+                }
+                case FP_SUB_ENROLL_PROGRESS:
+                {
+                    uint8_t step = (req->len >= 2) ? req->data[1] : 0;
+                    uint8_t total = (req->len >= 3) ? req->data[2] : 0;
+                    printf("[FP] Enroll progress: step %d/%d\r\n", step, total);
+                    return 1;
+                }
+            }
+            break;
+
+        case CMD_SUB_BULK_TRANSFER:
+            switch (subcmd)
+            {
+                case FP_BULK_SUB_HANDSHAKE:
+                {
+                    /* [HANDSHAKE][total_count] */
+                    uint8_t total = (req->len >= 2) ? req->data[1] : 0;
+                    submodel->fp_list_count = total;
+                    submodel->fp_list_received = 0;
+                    submodel->fp_list_active = 1;
+                    return 1;
+                }
+                case FP_BULK_SUB_DATA:
+                {
+                    /* [DATA][id0, id1, ...] */
+                    if (!submodel->fp_list_active)
+                        return 1;
+                    {
+                        uint16_t chunk = (req->len >= 2) ? (req->len - 1) : 0;
+                        uint16_t j;
+                        for (j = 0; j < chunk && submodel->fp_list_received < 256; j++)
+                        {
+                            submodel->fp_list[submodel->fp_list_received++] = req->data[1 + j];
+                        }
+                    }
+                    return 1;
+                }
+                case FP_BULK_SUB_COMPLETE:
+                {
+                    /* [COMPLETE][0x00] */
+                    if (submodel->fp_list_active)
+                    {
+                        uint8_t i;
+                        printf("[FP] Fingerprint list: count=%d\r\n", submodel->fp_list_received);
+                        for (i = 0; i < submodel->fp_list_received; i++)
+                        {
+                            printf("  ID=%d\r\n", submodel->fp_list[i]);
+                        }
+                        submodel->fp_list_active = 0;
+                    }
                     return 1;
                 }
             }

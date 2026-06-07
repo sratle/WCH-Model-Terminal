@@ -90,6 +90,7 @@ typedef struct {
     uint16_t buf_idx;
     uint16_t pkg_dlen;
     uint8_t  frame_ready;
+    uint8_t  pkg_type;       /* SYNO_PKG_CMD or SYNO_PKG_DATA */
 } syno_rx_ctx_t;
 
 /* Fingerprint module context */
@@ -102,6 +103,11 @@ typedef struct {
     uint16_t       last_match_score;
     uint16_t       template_count;
     uint8_t        enroll_id;
+    uint8_t        enroll_progress;  /* 当前注册步骤 (1~count) */
+    uint8_t        enroll_total;    /* 注册总步骤 */
+    uint8_t        enroll_progress_ready; /* 1=有进度需要上报 */
+    uint8_t        index_table[32]; /* 索引表位图 (256 bits = 32 bytes) */
+    uint8_t        index_ready;     /* 索引表已接收 */
     uint8_t        led_cmd_cached;
     uint8_t        led_cached_func;
     uint8_t        led_cached_color;

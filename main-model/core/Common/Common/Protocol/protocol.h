@@ -306,6 +306,12 @@
 /* CMD_SUB_ACTION_RESULT (0x45) sub-commands */
 #define FP_SUB_ENROLL_OK        0x01
 #define FP_SUB_ENROLL_FAIL      0x02
+#define FP_SUB_ENROLL_PROGRESS  0x03
+
+/* CMD_SUB_BULK_TRANSFER (0x46) sub-commands (Fingerprint) */
+#define FP_BULK_SUB_HANDSHAKE   0x01
+#define FP_BULK_SUB_DATA        0x02
+#define FP_BULK_SUB_COMPLETE    0x03
 
 /* LED effect codes */
 #define FP_LED_BREATH           0x01

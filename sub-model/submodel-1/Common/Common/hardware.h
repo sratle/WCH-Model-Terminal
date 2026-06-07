@@ -18,6 +18,7 @@ void Hardware_ProcessFpResponse(void);
 void Hardware_SendIdentifyResult(uint8_t success, uint16_t page_id);
 void Hardware_SendEnrollResult(uint8_t success, uint16_t page_id);
 void Hardware_SendTemplateCount(uint16_t count);
+void Hardware_SendIndexList(void);
 
 extern volatile uint8_t g_touchout_flag;
 

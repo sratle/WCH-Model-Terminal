@@ -114,6 +114,68 @@ void Hardware_SendTemplateCount(uint16_t count)
     UartCore_PackAndSend(MODULE_ID_CORE, CMD_ACK, data, 2);
 }
 
+void Hardware_SendIndexList(void)
+{
+    /* 先收集所有已注册的 page ID */
+    uint8_t ids[256];
+    uint8_t count = 0;
+    uint16_t i;
+
+    for (i = 0; i < 256; i++)
+    {
+        uint8_t byte_idx = i / 8;
+        uint8_t bit_idx = i % 8;
+
+        if (byte_idx < 32 && (fp_ctx.index_table[byte_idx] & (1 << bit_idx)))
+        {
+            ids[count++] = (uint8_t)i;
+        }
+    }
+
+    /* 使用 CMD_SUB_BULK_TRANSFER 多帧传输:
+     * 第 1 帧: BULK_SUB_HANDSHAKE [total_count:1]
+     * 中间帧:  BULK_SUB_DATA [id0, id1, ...] (每帧最多 251 个 ID)
+     * 最后帧:  BULK_SUB_COMPLETE [0x00] */
+
+    /* 1. 握手帧: [BULK_SUB_HANDSHAKE][total_count] */
+    {
+        uint8_t data[2];
+        data[0] = BULK_SUB_HANDSHAKE;
+        data[1] = count;
+        UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_BULK_TRANSFER, data, 2);
+    }
+
+    /* 2. 数据帧: 每帧 [BULK_SUB_DATA][id0, id1, ...] */
+    {
+        uint8_t offset = 0;
+        while (offset < count)
+        {
+            uint8_t data[252];
+            uint16_t chunk;
+            uint16_t j;
+
+            data[0] = BULK_SUB_DATA;
+            chunk = count - offset;
+            if (chunk > 251)
+                chunk = 251;
+
+            for (j = 0; j < chunk; j++)
+                data[1 + j] = ids[offset + j];
+
+            UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_BULK_TRANSFER, data, 1 + chunk);
+            offset += chunk;
+        }
+    }
+
+    /* 3. 完成帧: [BULK_SUB_COMPLETE][0x00] */
+    {
+        uint8_t data[2];
+        data[0] = BULK_SUB_COMPLETE;
+        data[1] = 0x00;
+        UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_BULK_TRANSFER, data, 2);
+    }
+}
+
 static void HandleSubSetMode(const protocol_frame_t *frame)
 {
     if (frame->len < 2)
@@ -126,11 +188,17 @@ static void HandleSubSetMode(const protocol_frame_t *frame)
     {
         case FP_SUB_ENROLL_START:
         {
-            uint16_t page_id = 0xFFFF;
+            uint16_t page_id;
 
             if (frame->len >= 3)
             {
                 page_id = frame->data[1];
+            }
+            else
+            {
+                /* Syno 协议不支持自动分配 page_id，
+                 * 用当前模板数量作为下一个空闲位置 */
+                page_id = fp_ctx.template_count;
             }
 
             Fp_AutoEnroll(page_id, 5);
@@ -344,6 +412,16 @@ void Hardware_ProcessFpResponse(void)
             break;
         }
 
+        case SYNO_CMD_READ_INDEX_TABLE:
+        {
+            if (fp_ctx.index_ready)
+            {
+                Hardware_SendIndexList();
+                fp_ctx.index_ready = 0;
+            }
+            break;
+        }
+
         case SYNO_CMD_INTO_SLEEP:
         {
             if (fp_ctx.led_cmd_cached)
@@ -358,5 +436,16 @@ void Hardware_ProcessFpResponse(void)
 
         default:
             break;
+    }
+
+    /* 注册进度反馈: DATA 包处理后 enroll_progress_ready 被设置 */
+    if (fp_ctx.enroll_progress_ready)
+    {
+        uint8_t data[3];
+        data[0] = FP_SUB_ENROLL_PROGRESS;
+        data[1] = fp_ctx.enroll_progress;
+        data[2] = fp_ctx.enroll_total;
+        UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_EVT_NOTIFY, data, 3);
+        fp_ctx.enroll_progress_ready = 0;
     }
 }

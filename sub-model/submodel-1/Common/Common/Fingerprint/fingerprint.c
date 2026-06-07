@@ -114,6 +114,7 @@ void Fp_ProcessRxData(const uint8_t *data, uint16_t len)
                 if (rx->buf_idx >= 9)
                 {
                     rx->pkg_dlen = ((uint16_t)rx->buf[7] << 8) + rx->buf[8];
+                    rx->pkg_type = rx->buf[6];  /* 记录包类型: CMD(0x01) 或 DATA(0x02) */
                     rx->state = SYNO_RCV_DATAS;
                 }
                 break;
@@ -173,6 +174,26 @@ void Fp_HandleResponse(void)
     if (!rx->frame_ready)
         return;
 
+    /* DATA 包 (0x02): 注册进度等中间数据 */
+    if (rx->pkg_type == SYNO_PKG_DATA)
+    {
+        if (fp_ctx.last_cmd == SYNO_CMD_AUTO_ENROLL && fp_ctx.state == FP_STATE_ENROLLING)
+        {
+            /* Syno AutoEnroll DATA 包格式:
+             * buf[9]  = 当前步骤 (已成功采集次数)
+             * buf[10] = 总步骤 (需要采集次数) */
+            if (rx->pkg_dlen >= 3)
+            {
+                fp_ctx.enroll_progress = rx->buf[9];
+                fp_ctx.enroll_total = rx->buf[10];
+                fp_ctx.enroll_progress_ready = 1;
+            }
+        }
+        Fp_ResetRx();
+        return;
+    }
+
+    /* CMD 包 (0x01): 命令响应 */
     cmd_code = fp_ctx.last_cmd;
     ack_code = rx->buf[9];
 
@@ -226,6 +247,20 @@ void Fp_HandleResponse(void)
             if (ack_code == SYNO_ACK_OK)
             {
                 fp_ctx.template_count = ((uint16_t)rx->buf[10] << 8) + rx->buf[11];
+            }
+            break;
+        }
+
+        case SYNO_CMD_READ_INDEX_TABLE:
+        {
+            if (ack_code == SYNO_ACK_OK)
+            {
+                /* 索引表数据从 buf[10] 开始，最多 32 字节 (256 bits) */
+                uint16_t data_len = rx->pkg_dlen - 1;  /* 减去 ack_code */
+                if (data_len > 32)
+                    data_len = 32;
+                memcpy(fp_ctx.index_table, &rx->buf[10], data_len);
+                fp_ctx.index_ready = 1;
             }
             break;
         }

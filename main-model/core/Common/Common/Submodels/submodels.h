@@ -59,6 +59,11 @@ typedef struct {
     uint8_t submodels_id; // Submodels id
     uint8_t type_id; // Submodels type id
     protocol_rx_ctx_t rx_ctx; // 协议接收状态机上下文
+    /* Fingerprint bulk list receive state */
+    uint8_t fp_list[256];   /* 已注册的 page ID 列表 */
+    uint8_t fp_list_count;  /* 总数量 (来自 HANDSHAKE) */
+    uint8_t fp_list_received; /* 已接收数量 */
+    uint8_t fp_list_active;   /* 1=正在接收列表 */
 } submodels_t;
 
 // 初始化Submodels结构体，初始化串口，入口参数是Submodels结构体数组，长度为3

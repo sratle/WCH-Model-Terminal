@@ -52,8 +52,8 @@
 #define PROTO_ERR_BUSY              0x04
 #define PROTO_ERR_HW_FAULT          0x05
 
-/* Protocol limits */
-#define PROTO_MAX_DATA_LEN      64
+/* Protocol limits — len 字段 8bit, max=255, 减去 CMD 1 字节 = 254, 留余量用 252 */
+#define PROTO_MAX_DATA_LEN      252
 #define PROTO_MAX_FRAME_LEN     (5 + PROTO_MAX_DATA_LEN + 4)
 
 /* Fingerprint subcommand IDs (DATA[0] in submodel frames) */
@@ -70,6 +70,12 @@
 #define FP_SUB_IDENTIFY_FAIL    0x02
 #define FP_SUB_ENROLL_OK        0x01
 #define FP_SUB_ENROLL_FAIL      0x02
+#define FP_SUB_ENROLL_PROGRESS  0x03
+
+/* CMD_SUB_BULK_TRANSFER sub-commands */
+#define BULK_SUB_HANDSHAKE      0x01
+#define BULK_SUB_DATA           0x02
+#define BULK_SUB_COMPLETE       0x03
 
 /* LED effect codes */
 #define FP_LED_BREATH           0x01
