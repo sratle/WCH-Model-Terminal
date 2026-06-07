@@ -1280,6 +1280,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  fp register     Start fingerprint enrollment\r\n");
         printf("  fp del <ID>     Delete fingerprint by ID\r\n");
         printf("  fp ls           List fingerprints and count\r\n");
+        printf("  fp count        Query fingerprint count\r\n");
         printf("  fp config led <func> <color> [speed]  Set LED effect\r\n");
         printf("  fp config sec <level:1-3>  Set security level\r\n");
         printf("  clear           Clear screen\r\n");
@@ -1302,7 +1303,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  config get|set|addkey|newfile|save|backup|rollback|reset|ls|rm\r\n");
         printf("  speaker <on|off> [left|right]\r\n");
         printf("  rgb mode|refresh|status\r\n");
-        printf("  fp register|del <ID>|ls|config [led|sec]\r\n");
+        printf("  fp register|del <ID>|ls|count|config [led|sec]\r\n");
         printf("  clear, help [d]\r\n");
     }
 }
@@ -2533,7 +2534,7 @@ static void CLI_Cmd_Fp(uint8_t argc, char **argv)
     }
 
     if (argc < 2) {
-        printf("Usage: fp <register|del|ls|config> [args]\r\n");
+        printf("Usage: fp <register|del|ls|count|config> [args]\r\n");
         return;
     }
 
@@ -2559,6 +2560,12 @@ static void CLI_Cmd_Fp(uint8_t argc, char **argv)
             printf("fp: query list sent\r\n");
         else
             printf("fp: failed to query\r\n");
+    }
+    else if (strcmp(argv[1], "count") == 0) {
+        if (Submodels_FP_QueryCount(fp))
+            printf("fp: query count sent\r\n");
+        else
+            printf("fp: failed to query count\r\n");
     }
     else if (strcmp(argv[1], "config") == 0) {
         if (argc < 3) {

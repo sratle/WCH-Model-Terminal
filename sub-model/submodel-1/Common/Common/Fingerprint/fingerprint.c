@@ -255,8 +255,10 @@ void Fp_HandleResponse(void)
         {
             if (ack_code == SYNO_ACK_OK)
             {
-                /* 索引表数据从 buf[10] 开始，最多 32 字节 (256 bits) */
-                uint16_t data_len = rx->pkg_dlen - 1;  /* 减去 ack_code */
+                /* 索引表数据从 buf[10] 开始，最多 32 字节 (256 bits)
+                 * pkg_dlen 包含 ack_code(1) + index_data(32) + checksum(2) = 35
+                 * 因此 index_data 长度 = pkg_dlen - 3 */
+                uint16_t data_len = (rx->pkg_dlen > 3) ? (rx->pkg_dlen - 3) : 0;
                 if (data_len > 32)
                     data_len = 32;
                 memcpy(fp_ctx.index_table, &rx->buf[10], data_len);

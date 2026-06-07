@@ -278,15 +278,20 @@ void Submodels_Process(submodels_t *submodel)
 
     req = &submodel->rx_ctx.frame;
 
-    /* 0. 处理 ACK 响应（心跳 GET_TYPE 的回复） */
-    if (req->cmd == CMD_ACK && req->len >= 2 &&
+    /* 0. 处理 GET_TYPE ACK 响应
+     * GET_TYPE ACK 格式: [type:1][subtype:1][hw_ver:1][fw_major:1][fw_minor:1]
+     * type == MODULE_TYPE_SUBMODEL(0x05) 且 len == 6 (CMD+5数据字节) */
+    if (req->cmd == CMD_ACK && req->len == 6 &&
         req->data[0] == MODULE_TYPE_SUBMODEL)
     {
         uint8_t module_id = MODULE_ID_SUBMODEL_1 + (submodel->submodels_id - 1);
-        submodel->type_id = req->data[1];
+
+        /* type_id 未确定时，记录类型 */
+        if (submodel->type_id == MODULE_SUBTYPE_SUBMODEL_RESERVED)
+            submodel->type_id = req->data[1];
+
         Hardware_Hb_MarkOnline(module_id, req->data[0], req->data[1]);
 
-        /* type_id 尚未确定时，静默返回 */
         Protocol_ResetRxCtx(&submodel->rx_ctx);
         return;
     }
@@ -337,6 +342,12 @@ void Submodels_Process(submodels_t *submodel)
                 break;
         }
     }
+    /* 3. 指纹模块的 ACK / ACTION_RESULT 响应 */
+    else if (submodel->type_id == MODULE_SUBTYPE_SUBMODEL_FINGERPRINT &&
+             (req->cmd == CMD_ACK || req->cmd == CMD_SUB_ACTION_RESULT))
+    {
+        handled = submodels_fp_dispatch(submodel, req, resp, sizeof(resp), &resp_len);
+    }
 
     /* 发送响应（如果有） */
     if (handled && resp_len > 0)
@@ -363,55 +374,65 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
 
     switch (cmd)
     {
-        /* 请求类：Core → Fingerprint (Core 发出, Fingerprint 响应) */
-        case CMD_SUB_SET_MODE:
-            switch (subcmd)
+        /* ---- ACK 响应：Submodel → Core（查询结果） ---- */
+        case CMD_ACK:
+        {
+            /* 区分查询类型：
+             * QUERY_LIST ACK: [count:1][id0:1][id1:1]...] (len-1 字节数据)
+             * QUERY_COUNT ACK: [count:1] (仅 1 字节) */
+            if (req->len == 2)
             {
-                case FP_SUB_ENROLL_START:
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-                case FP_SUB_ENROLL_CANCEL:
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-                case FP_SUB_SET_LED:
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-                case FP_SUB_SET_SECURITY:
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
+                /* QUERY_COUNT 响应: data[0] = count */
+                printf("[FP] Fingerprint count: %d\r\n", req->data[0]);
             }
-            break;
-
-        case CMD_SUB_SET_CONFIG:
-            switch (subcmd)
+            else
             {
-                case FP_SUB_DELETE:
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-                case FP_SUB_DELETE_ALL:
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-                case FP_SUB_SLEEP:
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-            }
-            break;
-
-        case CMD_SUB_GET_STATUS:
-            switch (subcmd)
-            {
-                case FP_SUB_QUERY_COUNT:
+                /* QUERY_LIST 响应: data[0] = count, data[1..N] = IDs */
+                uint8_t count = req->data[0];
+                uint8_t i;
+                printf("[FP] Fingerprint list: count=%d\r\n", count);
+                for (i = 0; i < count && (1 + i) < (req->len - 1); i++)
                 {
-                    /* 响应: [count:1] */
-                    if (req->len >= 2)
-                    {
-                        printf("[FP] Fingerprint count: %d\r\n", req->data[1]);
-                    }
+                    printf("  ID=%d\r\n", req->data[1 + i]);
+                }
+            }
+            return 1;
+        }
+
+        /* ---- 注册结果：Submodel → Core ---- */
+        case CMD_SUB_ACTION_RESULT:
+        {
+            switch (subcmd)
+            {
+                case FP_SUB_ENROLL_OK:
+                {
+                    uint8_t fp_id = (req->len >= 2) ? req->data[1] : 0;
+                    printf("[FP] Enroll OK: ID=%d\r\n", fp_id);
+                    return 1;
+                }
+                case FP_SUB_ENROLL_FAIL:
+                {
+                    uint8_t err = (req->len >= 2) ? req->data[1] : 0;
+                    printf("[FP] Enroll FAIL: err=%d\r\n", err);
                     return 1;
                 }
             }
             break;
+        }
 
-        /* 事件类：Fingerprint → Core (Submodel 主动上报) */
+        /* ---- 请求类：Core → Fingerprint (发送即忘，不响应) ---- */
+        case CMD_SUB_SET_MODE:
+        case CMD_SUB_SET_CONFIG:
+            /* 协议规定 SET_MODE / SET_CONFIG 为发送即忘，不生成响应 */
+            *resp_len = 0;
+            return 1;
+
+        /* ---- 事件类：Fingerprint → Core (Submodel 主动上报) ---- */
         case CMD_SUB_EVT_NOTIFY:
             switch (subcmd)
             {
                 case FP_SUB_IDENTIFY_OK:
                 {
-                    /* data[1]=指纹ID, data[2..17]=名字(16字节) */
                     uint8_t fp_id = (req->len >= 2) ? req->data[1] : 0;
                     printf("[FP] Identify OK: ID=%d\r\n", fp_id);
                     return 1;
@@ -424,77 +445,6 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
                     uint8_t step = (req->len >= 2) ? req->data[1] : 0;
                     uint8_t total = (req->len >= 3) ? req->data[2] : 0;
                     printf("[FP] Enroll progress: step %d/%d\r\n", step, total);
-                    return 1;
-                }
-            }
-            break;
-
-        case CMD_SUB_ACTION_RESULT:
-            switch (subcmd)
-            {
-                case FP_SUB_ENROLL_OK:
-                {
-                    /* data[1]=指纹ID, data[2..17]=名字 */
-                    uint8_t fp_id = (req->len >= 2) ? req->data[1] : 0;
-                    printf("[FP] Enroll OK: ID=%d\r\n", fp_id);
-                    return 1;
-                }
-                case FP_SUB_ENROLL_FAIL:
-                {
-                    uint8_t err = (req->len >= 2) ? req->data[1] : 0;
-                    printf("[FP] Enroll FAIL: err=%d\r\n", err);
-                    return 1;
-                }
-                case FP_SUB_ENROLL_PROGRESS:
-                {
-                    uint8_t step = (req->len >= 2) ? req->data[1] : 0;
-                    uint8_t total = (req->len >= 3) ? req->data[2] : 0;
-                    printf("[FP] Enroll progress: step %d/%d\r\n", step, total);
-                    return 1;
-                }
-            }
-            break;
-
-        case CMD_SUB_BULK_TRANSFER:
-            switch (subcmd)
-            {
-                case FP_BULK_SUB_HANDSHAKE:
-                {
-                    /* [HANDSHAKE][total_count] */
-                    uint8_t total = (req->len >= 2) ? req->data[1] : 0;
-                    submodel->fp_list_count = total;
-                    submodel->fp_list_received = 0;
-                    submodel->fp_list_active = 1;
-                    return 1;
-                }
-                case FP_BULK_SUB_DATA:
-                {
-                    /* [DATA][id0, id1, ...] */
-                    if (!submodel->fp_list_active)
-                        return 1;
-                    {
-                        uint16_t chunk = (req->len >= 2) ? (req->len - 1) : 0;
-                        uint16_t j;
-                        for (j = 0; j < chunk && submodel->fp_list_received < 256; j++)
-                        {
-                            submodel->fp_list[submodel->fp_list_received++] = req->data[1 + j];
-                        }
-                    }
-                    return 1;
-                }
-                case FP_BULK_SUB_COMPLETE:
-                {
-                    /* [COMPLETE][0x00] */
-                    if (submodel->fp_list_active)
-                    {
-                        uint8_t i;
-                        printf("[FP] Fingerprint list: count=%d\r\n", submodel->fp_list_received);
-                        for (i = 0; i < submodel->fp_list_received; i++)
-                        {
-                            printf("  ID=%d\r\n", submodel->fp_list[i]);
-                        }
-                        submodel->fp_list_active = 0;
-                    }
                     return 1;
                 }
             }

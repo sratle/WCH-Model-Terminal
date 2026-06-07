@@ -107,11 +107,10 @@ void Hardware_SendEnrollResult(uint8_t success, uint16_t page_id)
 
 void Hardware_SendTemplateCount(uint16_t count)
 {
-    uint8_t data[2];
+    uint8_t data[1];
 
-    data[0] = FP_SUB_QUERY_COUNT;
-    data[1] = (uint8_t)(count & 0xFF);
-    UartCore_PackAndSend(MODULE_ID_CORE, CMD_ACK, data, 2);
+    data[0] = (uint8_t)(count & 0xFF);
+    UartCore_PackAndSend(MODULE_ID_CORE, CMD_ACK, data, 1);
 }
 
 void Hardware_SendIndexList(void)
@@ -132,47 +131,22 @@ void Hardware_SendIndexList(void)
         }
     }
 
-    /* 使用 CMD_SUB_BULK_TRANSFER 多帧传输:
-     * 第 1 帧: BULK_SUB_HANDSHAKE [total_count:1]
-     * 中间帧:  BULK_SUB_DATA [id0, id1, ...] (每帧最多 251 个 ID)
-     * 最后帧:  BULK_SUB_COMPLETE [0x00] */
-
-    /* 1. 握手帧: [BULK_SUB_HANDSHAKE][total_count] */
+    /* 发送 ACK 响应: [数量:1][ID0:1][ID1:1]...]
+     * 符合 Protocol_Submodels.md 中 QUERY_LIST 的 ACK 格式 */
     {
-        uint8_t data[2];
-        data[0] = BULK_SUB_HANDSHAKE;
-        data[1] = count;
-        UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_BULK_TRANSFER, data, 2);
-    }
+        uint8_t data[252];
+        uint8_t send_count;
+        uint8_t j;
 
-    /* 2. 数据帧: 每帧 [BULK_SUB_DATA][id0, id1, ...] */
-    {
-        uint8_t offset = 0;
-        while (offset < count)
-        {
-            uint8_t data[252];
-            uint16_t chunk;
-            uint16_t j;
+        send_count = count;
+        if (send_count > 251)
+            send_count = 251;
 
-            data[0] = BULK_SUB_DATA;
-            chunk = count - offset;
-            if (chunk > 251)
-                chunk = 251;
+        data[0] = send_count;
+        for (j = 0; j < send_count; j++)
+            data[1 + j] = ids[j];
 
-            for (j = 0; j < chunk; j++)
-                data[1 + j] = ids[offset + j];
-
-            UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_BULK_TRANSFER, data, 1 + chunk);
-            offset += chunk;
-        }
-    }
-
-    /* 3. 完成帧: [BULK_SUB_COMPLETE][0x00] */
-    {
-        uint8_t data[2];
-        data[0] = BULK_SUB_COMPLETE;
-        data[1] = 0x00;
-        UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_BULK_TRANSFER, data, 2);
+        UartCore_PackAndSend(MODULE_ID_CORE, CMD_ACK, data, 1 + send_count);
     }
 }
 
