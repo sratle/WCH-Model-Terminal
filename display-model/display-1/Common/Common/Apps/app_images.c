@@ -112,7 +112,7 @@ static char s_bar_msg[80];
 
 /* Widgets */
 static ui_widget_t s_list_touch;
-static ui_widget_t *s_img_widgets[2];  /* list_touch + back_btn handled by app_page */
+static ui_widget_t *s_img_widgets[2 + 2];  /* back_btn + title + list_touch + ... */
 
 /*=============================================================================
  *  Forward Declarations
@@ -741,6 +741,10 @@ void app_images_init(void)
     strcpy(s_bar_msg, "Ready");
 
     int widx = 0;
+
+    /* Back button and title (from ui_app_page_t) */
+    s_img_widgets[widx++] = (ui_widget_t *)&s_app_img.btn_back;
+    s_img_widgets[widx++] = (ui_widget_t *)&s_app_img.lbl_title;
 
     /* List touch area */
     {

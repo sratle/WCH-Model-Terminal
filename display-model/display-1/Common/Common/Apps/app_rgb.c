@@ -132,8 +132,8 @@ static ui_slider_t  s_slider_r, s_slider_g, s_slider_b;
 static ui_slider_t  s_slider_bright, s_slider_speed;
 static ui_button_t  btn_apply, btn_custom, btn_status;
 static ui_widget_t  s_preset_btns[8];
-static ui_widget_t *s_rgb_widgets[RGB_NUM_MODES + 5 + 3 + 8];
-/* = 4 + 5 + 3 + 8 = 20 */
+static ui_widget_t *s_rgb_widgets[2 + RGB_NUM_MODES + 5 + 3 + 8];
+/* = 2 + 4 + 5 + 3 + 8 = 22 (back_btn + title + app widgets) */
 
 /*=============================================================================
  *  Forward Declarations
@@ -565,6 +565,10 @@ void app_rgb_init(void)
     strcpy(s_status, "Ready");
 
     int widx = 0;
+
+    /* Back button and title (from ui_app_page_t) */
+    s_rgb_widgets[widx++] = (ui_widget_t *)&s_app_rgb.btn_back;
+    s_rgb_widgets[widx++] = (ui_widget_t *)&s_app_rgb.lbl_title;
 
     /* Mode buttons (2x2 grid) */
     {

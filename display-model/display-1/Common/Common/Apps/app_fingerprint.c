@@ -136,8 +136,8 @@ static ui_button_t  btn_func[FP_NUM_FUNCS];
 static ui_widget_t  s_color_btns[FP_NUM_COLORS];
 static ui_slider_t  s_speed_slider;
 static ui_button_t  btn_sec[3];
-static ui_widget_t *s_fp_widgets[3 + FP_NUM_FUNCS + FP_NUM_COLORS + 1 + 3];
-/* = 3 + 7 + 8 + 1 + 3 = 22 */
+static ui_widget_t *s_fp_widgets[2 + 3 + FP_NUM_FUNCS + FP_NUM_COLORS + 1 + 3];
+/* = 2 + 3 + 7 + 8 + 1 + 3 = 24 (back_btn + title + app widgets) */
 
 /*=============================================================================
  *  Forward Declarations
@@ -715,6 +715,10 @@ void app_fingerprint_init(void)
 
     /* --- Widgets --- */
     int widx = 0;
+
+    /* Back button and title (from ui_app_page_t) */
+    s_fp_widgets[widx++] = (ui_widget_t *)&s_app_fp.btn_back;
+    s_fp_widgets[widx++] = (ui_widget_t *)&s_app_fp.lbl_title;
 
     /* List touch area */
     {

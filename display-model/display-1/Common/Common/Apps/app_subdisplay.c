@@ -118,7 +118,7 @@ static ui_button_t  btn_refresh;
 static ui_widget_t  s_list_touch;
 static ui_button_t  btn_send;
 static ui_widget_t  s_status_touch;
-static ui_widget_t *s_sd_widgets[7];
+static ui_widget_t *s_sd_widgets[2 + 7];  /* back_btn + title + 6 app widgets */
 
 /*=============================================================================
  *  Forward Declarations
@@ -638,6 +638,10 @@ void app_subdisplay_init(void)
     strcpy(s_bar_msg, "Ready");
 
     int widx = 0;
+
+    /* Back button and title (from ui_app_page_t) */
+    s_sd_widgets[widx++] = (ui_widget_t *)&s_app_sd.btn_back;
+    s_sd_widgets[widx++] = (ui_widget_t *)&s_app_sd.lbl_title;
 
     /* Mode buttons */
     {
