@@ -246,16 +246,28 @@ void Fp_HandleResponse(void)
 
         case SYNO_CMD_AUTO_MATCH:
         {
+            /* PS_AutoIdentify 应答格式 (所有应答均为 pkg_dlen=8):
+             *   buf[9]  = 确认码
+             *   buf[10] = 参数 (0x00=合法性检测, 0x01=获取图像, 0x05=指纹比对)
+             *   buf[11..12] = ID号 (大端)
+             *   buf[13..14] = 得分 (大端)
+             *   buf[15..16] = 校验和
+             *
+             * 中间步骤和最终结果的确认码都是 0x00，且 pkg_dlen 都是 8，
+             * 无法从单个应答区分。中间步骤的 ID号/得分为占位值 (通常为 0)。
+             * 策略: 每次应答都存储数据，由主循环超时机制判定最终结果。 */
             if (ack_code == SYNO_ACK_OK)
             {
-                uint16_t page_id = ((uint16_t)rx->buf[10] << 8) + rx->buf[11];
-                uint16_t score = ((uint16_t)rx->buf[12] << 8) + rx->buf[13];
-                fp_ctx.last_page_id = page_id;
-                fp_ctx.last_match_score = score;
-                fp_ctx.state = FP_STATE_IDLE;
+                fp_ctx.enroll_step = rx->buf[10];
+                fp_ctx.last_page_id = ((uint16_t)rx->buf[11] << 8) + rx->buf[12];
+                fp_ctx.last_match_score = ((uint16_t)rx->buf[13] << 8) + rx->buf[14];
+                fp_ctx.enroll_idle_counter = 0;  /* 重置超时 */
+                fp_ctx.enroll_progress_ready = 1;
+                /* 保持 IDENTIFYING，不发送结果 */
             }
             else
             {
+                /* 非 0x00 确认码: 立即失败 */
                 fp_ctx.last_page_id = 0xFFFF;
                 fp_ctx.last_match_score = 0;
                 fp_ctx.state = FP_STATE_IDLE;

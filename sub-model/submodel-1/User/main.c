@@ -93,8 +93,10 @@ int main(void)
             }
         }
 
-        /* 验证超时保护：AutoIdentify 长时间无应答时恢复 IDLE，
-         * 防止状态卡死导致后续触摸失效 */
+        /* 验证超时保护：所有应答均为 pkg_dlen=8 且 ack=0x00，
+         * 无法从单个应答区分中间步骤和最终结果。
+         * 当传感器停止发送应答后，超时触发，
+         * 使用最后存储的 ID 作为最终识别结果。 */
         if (fp_ctx.state == FP_STATE_IDENTIFYING)
         {
             fp_ctx.enroll_idle_counter++;
@@ -102,6 +104,18 @@ int main(void)
             {
                 fp_ctx.state = FP_STATE_IDLE;
                 fp_ctx.enroll_idle_counter = 0;
+
+                /* 最后存储的 ID 为最终结果:
+                 * 0xFFFF = 无任何应答(传感器未响应), 发送失败
+                 * 其他值 = 传感器返回的 ID, 发送成功 */
+                if (fp_ctx.last_page_id != 0xFFFF)
+                {
+                    Hardware_SendIdentifyResult(1, fp_ctx.last_page_id);
+                }
+                else
+                {
+                    Hardware_SendIdentifyResult(0, 0);
+                }
             }
         }
     }

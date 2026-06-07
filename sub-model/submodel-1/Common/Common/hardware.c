@@ -353,11 +353,21 @@ void Hardware_ProcessFpResponse(void)
     {
         case SYNO_CMD_AUTO_MATCH:
         {
-            if (fp_ctx.last_ack == SYNO_ACK_OK)
+            /* 发送进度事件给 Core (步骤 + 当前 ID) */
+            if (fp_ctx.enroll_progress_ready)
             {
-                Hardware_SendIdentifyResult(1, fp_ctx.last_page_id);
+                uint8_t data[4];
+                data[0] = FP_SUB_ENROLL_PROGRESS;
+                data[1] = fp_ctx.enroll_step;             /* 参数: 步骤类型 */
+                data[2] = (uint8_t)(fp_ctx.last_page_id & 0xFF); /* ID 低字节 */
+                data[3] = fp_ctx.last_ack;                /* 确认码 */
+                UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_EVT_NOTIFY, data, 4);
+                fp_ctx.enroll_progress_ready = 0;
             }
-            else
+
+            /* 仅在非 0x00 确认码导致 state=IDLE 时发送失败结果
+             * 成功结果由 main.c 超时机制发送 */
+            if (fp_ctx.state == FP_STATE_IDLE && fp_ctx.last_ack != SYNO_ACK_OK)
             {
                 Hardware_SendIdentifyResult(0, 0);
             }
