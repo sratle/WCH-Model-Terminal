@@ -365,11 +365,20 @@ void Hardware_ProcessFpResponse(void)
                 fp_ctx.enroll_progress_ready = 0;
             }
 
-            /* 仅在非 0x00 确认码导致 state=IDLE 时发送失败结果
-             * 成功结果由 main.c 超时机制发送 */
-            if (fp_ctx.state == FP_STATE_IDLE && fp_ctx.last_ack != SYNO_ACK_OK)
+            /* 当 state 转为 IDLE 时发送最终结果:
+             * - param=0x05 (指纹比对) → state=IDLE + ack=0x00 → 发送成功
+             * - ack!=0x00 → state=IDLE → 发送失败
+             * - 超时 → 由 main.c 发送 */
+            if (fp_ctx.state == FP_STATE_IDLE)
             {
-                Hardware_SendIdentifyResult(0, 0);
+                if (fp_ctx.last_ack == SYNO_ACK_OK)
+                {
+                    Hardware_SendIdentifyResult(1, fp_ctx.last_page_id);
+                }
+                else
+                {
+                    Hardware_SendIdentifyResult(0, 0);
+                }
             }
             break;
         }

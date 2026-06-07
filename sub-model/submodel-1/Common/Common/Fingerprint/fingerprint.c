@@ -251,19 +251,21 @@ void Fp_HandleResponse(void)
              *   buf[10] = 参数 (0x00=合法性检测, 0x01=获取图像, 0x05=指纹比对)
              *   buf[11..12] = ID号 (大端)
              *   buf[13..14] = 得分 (大端)
-             *   buf[15..16] = 校验和
              *
-             * 中间步骤和最终结果的确认码都是 0x00，且 pkg_dlen 都是 8，
-             * 无法从单个应答区分。中间步骤的 ID号/得分为占位值 (通常为 0)。
-             * 策略: 每次应答都存储数据，由主循环超时机制判定最终结果。 */
+             * 参数=0x05 (指纹比对) 为最终步骤，此时 ID号和得分有效。 */
             if (ack_code == SYNO_ACK_OK)
             {
                 fp_ctx.enroll_step = rx->buf[10];
                 fp_ctx.last_page_id = ((uint16_t)rx->buf[11] << 8) + rx->buf[12];
                 fp_ctx.last_match_score = ((uint16_t)rx->buf[13] << 8) + rx->buf[14];
-                fp_ctx.enroll_idle_counter = 0;  /* 重置超时 */
+                fp_ctx.enroll_idle_counter = 0;
                 fp_ctx.enroll_progress_ready = 1;
-                /* 保持 IDENTIFYING，不发送结果 */
+
+                /* 参数=0x05 表示指纹比对完成，即最终结果 */
+                if (fp_ctx.enroll_step == 0x05)
+                {
+                    fp_ctx.state = FP_STATE_IDLE;
+                }
             }
             else
             {
