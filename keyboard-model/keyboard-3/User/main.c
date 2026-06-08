@@ -92,7 +92,6 @@ static void ProcessCoreFrame(const protocol_frame_t *frame)
         case CMD_GET_TYPE:
         {
             SendGetTypeResponse(frame);
-            printf("[PROTO] CMD_GET_TYPE -> ACK\r\n");
             break;
         }
 
@@ -115,7 +114,6 @@ static void ProcessCoreFrame(const protocol_frame_t *frame)
                     case 0x05: SendEventCtrlStatus(frame); break;
                     default:   SendNACK(frame, PROTO_ERR_INVALID_PARAM); break;
                 }
-                printf("[PROTO] GET_STATUS type=%d\r\n", status_type);
             }
             else
             {
@@ -139,8 +137,6 @@ static void ProcessCoreFrame(const protocol_frame_t *frame)
                         memset(prev_btn_bitmap, 0xFF, sizeof(prev_btn_bitmap));
                         memset(prev_fader_values, 0xFF, sizeof(prev_fader_values));
                     }
-                    printf("[PROTO] EVENT_CTRL -> %s\r\n",
-                           state ? "START" : "STOP");
                 }
             }
             /* Fire-and-forget: no ACK/NACK */
@@ -152,14 +148,12 @@ static void ProcessCoreFrame(const protocol_frame_t *frame)
         case CMD_KBD_SET_CONFIG:
         {
             /* These commands are for Keyboard-1/2, silently ignore on Music Keyboard */
-            printf("[PROTO] CMD 0x%02X ignored (not applicable)\r\n", frame->cmd);
             break;
         }
 
         default:
         {
             SendNACK(frame, PROTO_ERR_UNSUPPORTED_CMD);
-            printf("[PROTO] Unknown CMD: 0x%02X\r\n", frame->cmd);
             break;
         }
     }
@@ -258,7 +252,7 @@ static void Timer2_Init(void)
 
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
 
-    /* 72MHz / 72 = 1MHz, period = 10000 → 10ms interval */
+    /* 72MHz / 72 = 1MHz, period = 10000 -> 10ms interval */
     TIM_TimeBaseStructure.TIM_Period            = 10000 - 1;
     TIM_TimeBaseStructure.TIM_Prescaler         = 72 - 1;
     TIM_TimeBaseStructure.TIM_ClockDivision     = TIM_CKD_DIV1;
@@ -281,11 +275,6 @@ int main(void)
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_1);
     SystemCoreClockUpdate();
     Delay_Init();
-    USART_Printf_Init(115200);
-
-    printf("\r\n===== Keyboard-3 (Music) Starting =====\r\n");
-    printf("SystemClk: %d\r\n", SystemCoreClock);
-    printf("ChipID: %08x\r\n", DBGMCU_GetCHIPID());
 
     /* Initialize all peripherals */
     TTP229_Init();
@@ -295,15 +284,11 @@ int main(void)
     Timer2_Init();
 
     /* Wait for TTP229 power-on stabilization (~500ms) */
-    printf("Waiting TTP229 stabilization (500ms)...\r\n");
     Delay_Ms(500);
-
-    printf("Init complete. Core UART1 @ 230400\r\n");
-    printf("Mode: STANDBY (waiting for EVENT_CTRL start)\r\n");
 
     while (1)
     {
-        /* ALWAYS check protocol — never blocked by scanning */
+        /* ALWAYS check protocol - never blocked by scanning */
         CheckProtocolRx();
 
         if (g_scan_flag)
@@ -314,6 +299,12 @@ int main(void)
             TTP229_Read(key_bitmap);
             Button_Scan();
             Fader_Scan();
+
+            /* Copy fader output values */
+            Fader_GetValues(fader_values);
+
+            /* Copy button bitmap */
+            Button_GetBitmap(btn_bitmap);
 
             /* Event-driven reporting: only send when state changes */
             if (event_reporting && HasStateChanged())

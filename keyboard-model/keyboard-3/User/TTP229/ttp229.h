@@ -37,6 +37,7 @@
 
 void    TTP229_Init(void);
 void    TTP229_Read(uint8_t key_bitmap[TTP_BITS_BYTES]);
+void    TTP229_GetRaw(uint16_t *raw1, uint16_t *raw2);
 
 #ifdef __cplusplus
 }
