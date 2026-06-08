@@ -9,7 +9,7 @@
 
 #define BUTTON_COUNT         12
 #define BUTTON_BITS_BYTES    2    /* 12 bits = 2 bytes bitmap */
-#define BUTTON_DEBOUNCE_CNT  3    /* consecutive same reads to confirm */
+#define BUTTON_DEBOUNCE_CNT  1    /* consecutive same reads to confirm (10ms @ 10ms scan) */
 
 /*
  * Button bitmap layout (1-based button IDs, bit = button_id - 1):
