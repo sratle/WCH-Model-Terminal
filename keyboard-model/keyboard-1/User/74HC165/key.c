@@ -16,7 +16,7 @@ const char *key_names[KEY_COUNT] = {
     /* Row 3: 20-29 */
     "Shift", "Z", "X", "C", "V", "B", "N", "M", "K", "L",
     /* Row 4: 30-38 */
-    "Ctrl", "Fn", "Super", "Space", ",", ".", ";", "'", "/"
+    "Ctrl", "Fn", "Tab", "Space", ",", ".", ";", "'", "/"
 };
 
 /* ====================================================================
@@ -32,8 +32,8 @@ const uint8_t key_hid_codes[KEY_COUNT] = {
     0x39, 0x04, 0x16, 0x07, 0x09, 0x0A, 0x0B, 0x0D, 0x13, 0x28,
     /* Row 3: Shift(L) Z X C V B N M K L */
     0xE1, 0x1D, 0x1B, 0x06, 0x19, 0x05, 0x11, 0x10, 0x0E, 0x0F,
-    /* Row 4: Ctrl(L) Fn(none) Super(L_GUI) Space , . ; ' / */
-    0xE0, 0x00, 0xE3, 0x2C, 0x36, 0x37, 0x33, 0x34, 0x38
+    /* Row 4: Ctrl(L) Fn(none) Tab Space , . ; ' / */
+    0xE0, 0x00, 0x2B, 0x2C, 0x36, 0x37, 0x33, 0x34, 0x38
 };
 
 /* ====================================================================
@@ -47,8 +47,8 @@ const uint8_t key_mod_bits[KEY_COUNT] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     /* Row 3: Shift(L) Z X C V B N M K L */
     HID_MOD_L_SHIFT, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    /* Row 4: Ctrl(L) Fn Super(L_GUI) Space , . ; ' / */
-    HID_MOD_L_CTRL, 0x00, HID_MOD_L_GUI, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    /* Row 4: Ctrl(L) Fn Tab Space , . ; ' / */
+    HID_MOD_L_CTRL, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 /* ====================================================================

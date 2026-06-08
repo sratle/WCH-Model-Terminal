@@ -72,7 +72,7 @@
 /* Row 4 */
 #define KEY_CTRL    30
 #define KEY_FN      31
-#define KEY_SUPER   32
+#define KEY_TAB     32
 #define KEY_SPACE   33
 #define KEY_COMMA   34
 #define KEY_DOT     35
