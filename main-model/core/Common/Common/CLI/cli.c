@@ -2836,6 +2836,9 @@ void CLI_Init(void)
     /* CLI 无需特殊初始化，USART2 RX 中断在 Debug_EnableRxIRQ 中启用 */
 }
 
+/* NOTE: CH378 同一时刻只能打开一个文件，WAV 流式播放期间执行文件操作命令
+ * (ls/cd/cat/rm/mkdir/touch/write/hexdump/stat/cp/mv/tree/du/find 等) 会抢占
+ * 文件句柄，导致播放中断。文件访问优先级更高，不做限制。 */
 void CLI_Process(uint8_t *cmd, uint8_t len)
 {
     char buf[CLI_BUF_SIZE];

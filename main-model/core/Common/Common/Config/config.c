@@ -502,8 +502,8 @@ uint8_t Config_Save(void)
         return 0xFE;  /* CONFIG_ERR_DEVICE_MISMATCH */
     }
 
-    /* WAV 流式播放期间 CH378 被占用，延迟保存 */
-    if (Audio_IsStreaming()) return 0x04; /* PROTO_ERR_BUSY */
+    /* NOTE: WAV 流式播放期间 CH378 文件句柄与播放互斥，
+     * 文件访问优先级更高，会打断播放，此处不再限制 */
 
     if (!config_root) return ERR_SUCCESS;
 
