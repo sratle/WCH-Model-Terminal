@@ -27,7 +27,7 @@ static uint8_t  fader_changed;
 static uint16_t Fader_ReadAdc(uint8_t channel)
 {
     /* Configure regular channel: rank 1, sample time 239.5 cycles */
-    ADC_RegularChannelConfig(ADC1, channel, ADC_SampleTime_239Cycles5);
+    ADC_RegularChannelConfig(ADC1, channel, 1, ADC_SampleTime_239Cycles5);
 
     /* Start software conversion */
     ADC_SoftwareStartConvCmd(ADC1, ENABLE);
@@ -62,7 +62,7 @@ void Fader_Init(void)
     /* ADC1 configuration */
     ADC_DeInit(ADC1);
     adc.ADC_Mode               = ADC_Mode_Independent;
-    adc.ADC_ScanMode           = DISABLE;
+    adc.ADC_ScanConvMode       = DISABLE;
     adc.ADC_ContinuousConvMode = DISABLE;
     adc.ADC_ExternalTrigConv   = ADC_ExternalTrigConv_None;
     adc.ADC_DataAlign          = ADC_DataAlign_Right;
