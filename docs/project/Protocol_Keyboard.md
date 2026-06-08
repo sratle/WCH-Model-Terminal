@@ -69,7 +69,7 @@ Keyboard 模块专用操作码范围为 `0x21 ~ 0x2F`，按模块 ID 高 4 位 `
 | `0x22` | `CMD_KBD_GET_BACKLIGHT` | Core -> Keyboard | 获取背光状态 | 无，Keyboard 回复 ACK + `[模式:1][亮度:1]` |
 | `0x23` | `CMD_KBD_SET_CONFIG` | Core -> Keyboard | 设置配置参数（键映射等） | `[配置项:1][配置值:变长]` |
 | `0x24` | `CMD_KBD_GET_STATUS` | Core -> Keyboard | 获取键盘状态 | `[状态类型:1]`，Keyboard 回复 ACK + 状态数据 |
-| `0x25` | `CMD_KBD_HID_REPORT` | Keyboard -> Core | HID 输入报告（Keyboard-1/2） | `[报告类型:1][HID报告数据:变长]` |
+| `0x25` | `CMD_KBD_HID_REPORT` | Keyboard -> Core | HID 输入报告（Keyboard-1/3） | `[报告类型:1][HID报告数据:变长]` |
 | `0x26` | `CMD_KBD_MUSIC_KEYS` | Keyboard -> Core | 音乐键盘琴键状态 | `[[键ID:1][力度:1]...]` |
 | `0x27` | `CMD_KBD_MUSIC_KNOBS` | Keyboard -> Core | 音乐键盘旋钮状态 | `[旋钮1值:2][旋钮2值:2]` |
 | `0x28` | `CMD_KBD_MUSIC_SLIDER` | Keyboard -> Core | 音乐键盘推杆状态 | `[推杆值:2]` |
