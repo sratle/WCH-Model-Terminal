@@ -357,7 +357,7 @@ static void Keyboard_HandleHidReport(const protocol_frame_t *req)
 
 /*
  * 播放指定琴键对应的钢琴音色 WAV 文件
- * key_id: 1~24 → \SOUND\PIANO1.WAV ~ PIANO24.WAV
+ * key_id: 1~24 → \SOUND\PIANO-01.WAV ~ PIANO-24.WAV
  */
 static void Music_PlayPianoKey(uint8_t key_id)
 {
@@ -373,11 +373,8 @@ static void Music_PlayPianoKey(uint8_t key_id)
     /* 停止当前播放 */
     Audio_PlayStop();
 
-    /* 构建路径: \SOUND\PIANOxx.WAV (8.3 短文件名) */
-    if (key_id < 10)
-        snprintf(path, sizeof(path), "\\SOUND\\PIANO%1d.WAV", key_id);
-    else
-        snprintf(path, sizeof(path), "\\SOUND\\PIANO%02d.WAV", key_id);
+    /* 构建路径: \SOUND\PIANO-xx.WAV (8.3 短文件名) */
+    snprintf(path, sizeof(path), "\\SOUND\\PIANO-%02d.WAV", key_id);
 
     /* 打开文件 */
     status = CH378FileOpen((uint8_t*)path);

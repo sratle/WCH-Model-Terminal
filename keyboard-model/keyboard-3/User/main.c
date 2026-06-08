@@ -19,16 +19,18 @@
 
 volatile uint8_t g_scan_flag = 0;
 
-static uint8_t  event_reporting = 0;    /* 0 = standby, 1 = periodic reporting */
-static uint8_t  report_tick_cnt = 0;    /* counter for report interval */
-
-#define REPORT_INTERVAL_TICKS  10       /* report every N scan ticks (~100ms at 10ms scan) */
+static uint8_t  event_reporting = 0;    /* 0 = standby, 1 = event-driven reporting */
 
 /* ======================== Cached Input State ======================== */
 
 static uint8_t  key_bitmap[TTP_BITS_BYTES];
 static uint8_t  btn_bitmap[BUTTON_BITS_BYTES];
 static uint16_t fader_values[FADER_COUNT];
+
+/* Previous state for change detection */
+static uint8_t  prev_key_bitmap[TTP_BITS_BYTES];
+static uint8_t  prev_btn_bitmap[BUTTON_BITS_BYTES];
+static uint16_t prev_fader_values[FADER_COUNT];
 
 /* ======================== Protocol Handlers ======================== */
 
@@ -130,7 +132,13 @@ static void ProcessCoreFrame(const protocol_frame_t *frame)
                 if (state == 0x00 || state == 0x01)
                 {
                     event_reporting = state;
-                    report_tick_cnt = 0;
+                    if (state == 0x01)
+                    {
+                        /* Reset previous state so first scan triggers a report */
+                        memset(prev_key_bitmap, 0xFF, sizeof(prev_key_bitmap));
+                        memset(prev_btn_bitmap, 0xFF, sizeof(prev_btn_bitmap));
+                        memset(prev_fader_values, 0xFF, sizeof(prev_fader_values));
+                    }
                     printf("[PROTO] EVENT_CTRL -> %s\r\n",
                            state ? "START" : "STOP");
                 }
@@ -166,28 +174,80 @@ static void CheckProtocolRx(void)
     }
 }
 
-/* ======================== Event Reporting ======================== */
+/* ======================== Event-Driven Reporting ======================== */
 
-static void ReportEvents(void)
+static uint8_t HasStateChanged(void)
+{
+    uint8_t i;
+
+    /* Check keys */
+    if (memcmp(key_bitmap, prev_key_bitmap, TTP_BITS_BYTES) != 0)
+        return 1;
+
+    /* Check buttons */
+    if (memcmp(btn_bitmap, prev_btn_bitmap, BUTTON_BITS_BYTES) != 0)
+        return 1;
+
+    /* Check faders (with threshold to ignore noise) */
+    for (i = 0; i < FADER_COUNT; i++)
+    {
+        int32_t diff = (int32_t)fader_values[i] - (int32_t)prev_fader_values[i];
+        if (diff > 512 || diff < -512)  /* ~0.8% threshold on 16-bit range */
+            return 1;
+    }
+
+    return 0;
+}
+
+static void SavePrevState(void)
+{
+    memcpy(prev_key_bitmap, key_bitmap, TTP_BITS_BYTES);
+    memcpy(prev_btn_bitmap, btn_bitmap, BUTTON_BITS_BYTES);
+    memcpy(prev_fader_values, fader_values, sizeof(fader_values));
+}
+
+static void ReportChangedEvents(void)
 {
     uint8_t data[6];
 
-    /* Report key bitmap (CMD 0x26) */
-    UartCore_PackAndSend(MODULE_ID_CORE, CMD_KBD_MUSIC_KEYS,
-                         key_bitmap, TTP_BITS_BYTES);
+    /* Report key bitmap if changed */
+    if (memcmp(key_bitmap, prev_key_bitmap, TTP_BITS_BYTES) != 0)
+    {
+        UartCore_PackAndSend(MODULE_ID_CORE, CMD_KBD_MUSIC_KEYS,
+                             key_bitmap, TTP_BITS_BYTES);
+    }
 
-    /* Report button bitmap (CMD 0x27) */
-    UartCore_PackAndSend(MODULE_ID_CORE, CMD_KBD_MUSIC_BUTTONS,
-                         btn_bitmap, BUTTON_BITS_BYTES);
+    /* Report button bitmap if changed */
+    if (memcmp(btn_bitmap, prev_btn_bitmap, BUTTON_BITS_BYTES) != 0)
+    {
+        UartCore_PackAndSend(MODULE_ID_CORE, CMD_KBD_MUSIC_BUTTONS,
+                             btn_bitmap, BUTTON_BITS_BYTES);
+    }
 
-    /* Report fader values big-endian (CMD 0x28) */
-    data[0] = (uint8_t)(fader_values[0] >> 8);
-    data[1] = (uint8_t)(fader_values[0] & 0xFF);
-    data[2] = (uint8_t)(fader_values[1] >> 8);
-    data[3] = (uint8_t)(fader_values[1] & 0xFF);
-    data[4] = (uint8_t)(fader_values[2] >> 8);
-    data[5] = (uint8_t)(fader_values[2] & 0xFF);
-    UartCore_PackAndSend(MODULE_ID_CORE, CMD_KBD_MUSIC_FADERS, data, 6);
+    /* Report fader values if changed (with threshold) */
+    {
+        uint8_t i;
+        uint8_t fader_changed = 0;
+        for (i = 0; i < FADER_COUNT; i++)
+        {
+            int32_t diff = (int32_t)fader_values[i] - (int32_t)prev_fader_values[i];
+            if (diff > 512 || diff < -512)
+            {
+                fader_changed = 1;
+                break;
+            }
+        }
+        if (fader_changed)
+        {
+            data[0] = (uint8_t)(fader_values[0] >> 8);
+            data[1] = (uint8_t)(fader_values[0] & 0xFF);
+            data[2] = (uint8_t)(fader_values[1] >> 8);
+            data[3] = (uint8_t)(fader_values[1] & 0xFF);
+            data[4] = (uint8_t)(fader_values[2] >> 8);
+            data[5] = (uint8_t)(fader_values[2] & 0xFF);
+            UartCore_PackAndSend(MODULE_ID_CORE, CMD_KBD_MUSIC_FADERS, data, 6);
+        }
+    }
 }
 
 /* ======================== Timer ======================== */
@@ -243,6 +303,9 @@ int main(void)
 
     while (1)
     {
+        /* ALWAYS check protocol — never blocked by scanning */
+        CheckProtocolRx();
+
         if (g_scan_flag)
         {
             g_scan_flag = 0;
@@ -252,21 +315,12 @@ int main(void)
             Button_Scan();
             Fader_Scan();
 
-            /* Periodic event reporting if active */
-            if (event_reporting)
+            /* Event-driven reporting: only send when state changes */
+            if (event_reporting && HasStateChanged())
             {
-                report_tick_cnt++;
-                if (report_tick_cnt >= REPORT_INTERVAL_TICKS)
-                {
-                    report_tick_cnt = 0;
-                    ReportEvents();
-                }
+                ReportChangedEvents();
+                SavePrevState();
             }
-        }
-        else
-        {
-            /* Process incoming protocol commands */
-            CheckProtocolRx();
         }
     }
 }

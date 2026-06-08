@@ -1,12 +1,18 @@
 #include "ttp229.h"
+#include "debug.h"
 
 /*
  * TTP229 serial interface timing:
  *   DV (data valid) typical: 93 us
- *   SCL max frequency: 512 KHz
+ *   SCL min pulse width (Tw): 10 us
  *   SCL timeout: 2 ms
  *   Response time (16-key mode): ~32 ms
  */
+
+#define TTP229_SCL_DELAY_US  10  /* SCL pulse half-period (Tw >= 10us) */
+#define TTP229_DV_TIMEOUT    200 /* Short DV timeout (~200us at 72MHz)
+                                  * TTP229 DV typical: 93us, response: ~32ms.
+                                  * If DV not ready, use cached data. */
 
 /* ======================== GPIO Helpers ======================== */
 
@@ -25,35 +31,42 @@ static uint8_t SDO_Read(GPIO_TypeDef *port, uint16_t pin)
     return (port->INDR & pin) ? 1 : 0;
 }
 
+/* Cached raw data (returned when DV timeout) */
+static uint16_t cached_raw1 = 0xFFFF;  /* all keys untouched (active-low) */
+static uint16_t cached_raw2 = 0xFFFF;
+
 /* ======================== Raw 16-bit Read ======================== */
 
 /*
  * Read 16-bit raw data from one TTP229 chip.
- * Waits for SDO (DV) to go high, then clocks 16 bits via SCL.
- * Returns 0 if DV timeout (chip not ready).
+ * Waits for SDO (DV) with a SHORT timeout.
+ * If DV not ready, returns cached value (non-blocking).
  */
 static uint16_t TTP229_ReadRaw(GPIO_TypeDef *sdo_port, uint16_t sdo_pin,
-                                GPIO_TypeDef *scl_port, uint16_t scl_pin)
+                                GPIO_TypeDef *scl_port, uint16_t scl_pin,
+                                uint16_t cached)
 {
     uint16_t raw = 0;
     uint32_t timeout;
     uint8_t i;
 
-    /* Wait for DV (SDO goes high) */
-    timeout = 100000;
+    /* Wait for DV with short timeout (~200us) */
+    timeout = TTP229_DV_TIMEOUT;
     while (!(sdo_port->INDR & sdo_pin))
     {
         if (--timeout == 0)
-            return 0;
+            return cached;  /* DV not ready, use cached data */
     }
 
-    /* Clock 16 bits */
+    /* Clock 16 bits (Tw >= 10us per half-period) */
     for (i = 0; i < 16; i++)
     {
         SCL_High(scl_port, scl_pin);
+        Delay_Us(TTP229_SCL_DELAY_US);
         raw <<= 1;
         raw |= SDO_Read(sdo_port, sdo_pin);
         SCL_Low(scl_port, scl_pin);
+        Delay_Us(TTP229_SCL_DELAY_US);
     }
 
     return raw;
@@ -155,16 +168,20 @@ void TTP229_Read(uint8_t key_bitmap[TTP_BITS_BYTES])
     key_bitmap[1] = 0;
     key_bitmap[2] = 0;
 
-    /* Read raw 16-bit data from both chips */
+    /* Read raw 16-bit data from both chips (non-blocking with cache) */
     raw1 = TTP229_ReadRaw(TTP1_SDO_PORT, TTP1_SDO_PIN,
-                           TTP1_SCL_PORT, TTP1_SCL_PIN);
-    raw2 = TTP229_ReadRaw(TTP2_SDO_PORT, TTP2_SDO_PIN,
-                           TTP2_SCL_PORT, TTP2_SCL_PIN);
+                           TTP1_SCL_PORT, TTP1_SCL_PIN, cached_raw1);
+    cached_raw1 = raw1;  /* Update cache */
 
-    /* Map chip #1 bits to key bitmap */
+    raw2 = TTP229_ReadRaw(TTP2_SDO_PORT, TTP2_SDO_PIN,
+                           TTP2_SCL_PORT, TTP2_SCL_PIN, cached_raw2);
+    cached_raw2 = raw2;  /* Update cache */
+
+    /* Map chip #1 bits to key bitmap
+     * TTP229-BSF default: active LOW (bit=0 means touched) */
     for (i = 0; i < 16; i++)
     {
-        if (raw1 & (1u << (15 - i)))
+        if (!(raw1 & (1u << (15 - i))))
         {
             bmp_bit = chip1_map[i];
             if (bmp_bit != 0xFF)
@@ -177,7 +194,7 @@ void TTP229_Read(uint8_t key_bitmap[TTP_BITS_BYTES])
     /* Map chip #2 bits to key bitmap */
     for (i = 0; i < 16; i++)
     {
-        if (raw2 & (1u << (15 - i)))
+        if (!(raw2 & (1u << (15 - i))))
         {
             bmp_bit = chip2_map[i];
             key_bitmap[bmp_bit >> 3] |= (1u << (bmp_bit & 7));

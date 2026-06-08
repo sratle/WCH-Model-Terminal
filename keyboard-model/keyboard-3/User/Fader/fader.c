@@ -43,20 +43,19 @@ static uint16_t Fader_ReadAdc(uint8_t channel)
 
 void Fader_Init(void)
 {
-    GPIO_InitTypeDef  gpio;
-    ADC_InitTypeDef   adc;
+    GPIO_InitTypeDef  gpio = {0};
+    ADC_InitTypeDef   adc = {0};
     uint8_t i, j;
 
     /* Enable clocks */
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_ADC1, ENABLE);
 
-    /* Set ADC clock divider to 6 (72MHz / 6 = 12MHz, max 14MHz) */
-    RCC_ADCCLKConfig(RCC_PCLK2_Div6);
+    /* Set ADC clock divider: 72MHz / 8 = 9MHz (max 14MHz, Div8 is safer) */
+    RCC_ADCCLKConfig(RCC_PCLK2_Div8);
 
     /* Configure PA1, PA2, PA3 as analog input */
     gpio.GPIO_Pin   = GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_3;
     gpio.GPIO_Mode  = GPIO_Mode_AIN;
-    gpio.GPIO_Speed = GPIO_Speed_2MHz;
     GPIO_Init(GPIOA, &gpio);
 
     /* ADC1 configuration */
@@ -78,6 +77,9 @@ void Fader_Init(void)
     ADC_StartCalibration(ADC1);
     while (ADC_GetCalibrationStatus(ADC1))
         ;
+
+    /* Get calibration value for CH32V103 accuracy */
+    Get_CalibrationValue(ADC1);
 
     /* Clear filter state */
     filter_idx = 0;
