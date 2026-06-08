@@ -2,8 +2,17 @@
 #include "../Protocol/protocol_common.h"
 #include "../Display/display.h"
 #include "../hardware.h"
+#include "../CH378/CH378.h"
+#include "../CS43131/cs43131.h"
 
 keyboard_t *keyboard_ptr = NULL;
+
+/* ============================================================================
+ * Music Keyboard 状态
+ * ============================================================================ */
+static uint8_t music_active = 0;           /* 1=音乐键盘已启动事件上报 */
+static uint8_t prev_key_bitmap[3] = {0};   /* 上一帧琴键位图 */
+static uint8_t current_playing_key = 0;    /* 当前正在播放的琴键 ID (1~24, 0=无) */
 
 /* ============================================================================
  * 前向声明：Keyboard 专用命令 handler
@@ -26,8 +35,8 @@ static uint8_t Keyboard_HandleGetStatus(const protocol_frame_t *req,
 /* 事件类 handler：无返回值 */
 static void Keyboard_HandleHidReport(const protocol_frame_t *req);
 static void Keyboard_HandleMusicKeys(const protocol_frame_t *req);
-static void Keyboard_HandleMusicKnobs(const protocol_frame_t *req);
-static void Keyboard_HandleMusicSlider(const protocol_frame_t *req);
+static void Keyboard_HandleMusicButtons(const protocol_frame_t *req);
+static void Keyboard_HandleMusicFaders(const protocol_frame_t *req);
 static void Keyboard_HandleGameInput(const protocol_frame_t *req);
 
 /* ============================================================================
@@ -77,13 +86,6 @@ void Keyboard_Init(keyboard_t *keyboard)
     keyboard_ptr = keyboard;
 }
 
-/*********************************************************************
- * @fn      Keyboard_UART_IRQ_Handler
- *
- * @brief   Keyboard UART interrupt handler.
- *
- * @return  none
- *********************************************************************/
 void Keyboard_UART_IRQ_Handler(keyboard_t *keyboard)
 {
     if (keyboard == NULL)
@@ -96,13 +98,11 @@ void Keyboard_UART_IRQ_Handler(keyboard_t *keyboard)
     }
 }
 
-// 获取Keyboard类型，入口参数是Keyboard结构体指针
 void Keyboard_Get_Type(keyboard_t *keyboard)
 {
     (void)keyboard;
 }
 
-// 发送数据，入口参数是Keyboard结构体指针，发送数据，发送数据长度
 void Keyboard_Send_Data(keyboard_t *keyboard, uint8_t *data, uint16_t length)
 {
     int i = 0;
@@ -144,14 +144,6 @@ static const protocol_common_cb_t keyboard_common_cb = {
  * 专用命令分发辅助函数
  * ============================================================================ */
 
-/**
- * @brief  请求类 handler 的统一分发与 ACK/NACK 打包
- * @param  req       请求帧
- * @param  handler   handler 函数指针（NULL 则直接 NACK）
- * @param  resp_buf  响应缓冲区
- * @param  resp_size 缓冲区大小
- * @return 实际写入 resp_buf 的字节数（完整响应帧）
- */
 static uint8_t keyboard_dispatch_req(const protocol_frame_t *req,
                                      uint8_t (*handler)(const protocol_frame_t *,
                                                         uint8_t *, uint16_t, uint8_t *),
@@ -207,8 +199,8 @@ void Keyboard_Process(keyboard_t *keyboard)
     {
         handled = 1;
     }
-    /* 2. Keyboard 专用基础操作码：0x21 ~ 0x29 */
-    else if (req->cmd >= CMD_KBD_SET_BACKLIGHT && req->cmd <= CMD_KBD_GAME_INPUT)
+    /* 2. Keyboard 专用操作码：0x21 ~ 0x2A */
+    else if (req->cmd >= CMD_KBD_SET_BACKLIGHT && req->cmd <= CMD_KBD_MUSIC_EVENT_CTRL)
     {
         switch (req->cmd)
         {
@@ -243,12 +235,12 @@ void Keyboard_Process(keyboard_t *keyboard)
                 Keyboard_HandleMusicKeys(req);
                 handled = 1;
                 break;
-            case CMD_KBD_MUSIC_KNOBS:
-                Keyboard_HandleMusicKnobs(req);
+            case CMD_KBD_MUSIC_BUTTONS:
+                Keyboard_HandleMusicButtons(req);
                 handled = 1;
                 break;
-            case CMD_KBD_MUSIC_SLIDER:
-                Keyboard_HandleMusicSlider(req);
+            case CMD_KBD_MUSIC_FADERS:
+                Keyboard_HandleMusicFaders(req);
                 handled = 1;
                 break;
             case CMD_KBD_GAME_INPUT:
@@ -273,7 +265,7 @@ void Keyboard_Process(keyboard_t *keyboard)
 }
 
 /* ============================================================================
- * Keyboard 专用命令 handler 实现（框架，待填充业务逻辑）
+ * Keyboard 专用命令 handler 实现
  * ============================================================================ */
 
 /* ---- 请求类 handler ---- */
@@ -283,7 +275,6 @@ static uint8_t Keyboard_HandleSetBacklight(const protocol_frame_t *req,
 {
     (void)req; (void)resp_buf; (void)resp_size;
     *resp_len = 0;
-    /* TODO: 解析 DATA[0]=模式, DATA[1]=亮度，设置键盘背光 */
     return 0; /* 暂不支持 */
 }
 
@@ -293,7 +284,6 @@ static uint8_t Keyboard_HandleGetBacklight(const protocol_frame_t *req,
 {
     (void)req; (void)resp_buf; (void)resp_size;
     *resp_len = 0;
-    /* TODO: 返回当前背光模式和亮度 */
     return 0;
 }
 
@@ -303,7 +293,6 @@ static uint8_t Keyboard_HandleSetConfig(const protocol_frame_t *req,
 {
     (void)req; (void)resp_buf; (void)resp_size;
     *resp_len = 0;
-    /* TODO: 解析配置项和值，保存到键盘 */
     return 0;
 }
 
@@ -313,7 +302,6 @@ static uint8_t Keyboard_HandleGetStatus(const protocol_frame_t *req,
 {
     (void)req; (void)resp_buf; (void)resp_size;
     *resp_len = 0;
-    /* TODO: 根据 req->data[0] 状态类型返回对应状态 */
     return 0;
 }
 
@@ -363,26 +351,230 @@ static void Keyboard_HandleHidReport(const protocol_frame_t *req)
     }
 }
 
+/* ============================================================================
+ * Music Keyboard (Keyboard-3) 事件处理
+ * ============================================================================ */
+
+/*
+ * 播放指定琴键对应的钢琴音色 WAV 文件
+ * key_id: 1~24 → \SOUND\PIANO1.WAV ~ PIANO24.WAV
+ */
+static void Music_PlayPianoKey(uint8_t key_id)
+{
+    char path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint8_t header[512];
+    uint16_t real_len;
+    wav_info_t info;
+
+    if (key_id < 1 || key_id > 24)
+        return;
+
+    /* 停止当前播放 */
+    Audio_PlayStop();
+
+    /* 构建路径: \SOUND\PIANOxx.WAV (8.3 短文件名) */
+    if (key_id < 10)
+        snprintf(path, sizeof(path), "\\SOUND\\PIANO%1d.WAV", key_id);
+    else
+        snprintf(path, sizeof(path), "\\SOUND\\PIANO%02d.WAV", key_id);
+
+    /* 打开文件 */
+    status = CH378FileOpen((uint8_t*)path);
+    if (status != ERR_SUCCESS) {
+        printf("[PIANO] Cannot open %s (0x%02X)\r\n", path, status);
+        return;
+    }
+
+    /* 读取 WAV 头 */
+    status = CH378ByteRead(header, 512, &real_len);
+    if (status != ERR_SUCCESS || real_len < 44) {
+        printf("[PIANO] Failed to read header\r\n");
+        CH378FileClose(0);
+        return;
+    }
+
+    /* 解析头 */
+    if (Audio_ParseWAVHeader(header, &info) != 0) {
+        CH378FileClose(0);
+        return;
+    }
+
+    /* 定位到 data chunk */
+    status = CH378ByteLocate(info.data_offset);
+    if (status != ERR_SUCCESS) {
+        printf("[PIANO] Seek failed (0x%02X)\r\n", status);
+        CH378FileClose(0);
+        return;
+    }
+
+    /* 启动流式播放 */
+    Audio_PlayWAV_Start(&info);
+    Audio_SetCurrentTrack(path);
+
+    printf("[PIANO] Key %d → %s (%luHz %dbit %dch)\r\n",
+           key_id, path,
+           (unsigned long)info.sample_rate,
+           info.bits_per_sample, info.num_channels);
+}
+
 static void Keyboard_HandleMusicKeys(const protocol_frame_t *req)
 {
-    (void)req;
-    /* TODO: 解析琴键列表 [[键ID][力度]...]，转发到音频合成器或 Core */
+    const uint8_t *bitmap;
+    uint8_t i, bit_idx;
+    uint8_t pressed_count = 0;
+    uint8_t last_pressed_key = 0;
+    uint8_t new_key_pressed = 0;
+
+    if (req->len < 4)  /* CMD + 3 bytes bitmap */
+        return;
+
+    bitmap = &req->data[0];
+
+    /* 打印当前琴键位图 */
+    printf("[MUSIC] Keys: %02X %02X %02X\r\n", bitmap[0], bitmap[1], bitmap[2]);
+
+    /* 检测新按下的键（从 bitmap 中查找） */
+    for (i = 0; i < 24; i++) {
+        uint8_t byte_idx = i >> 3;
+        uint8_t bit_mask = 1u << (i & 7);
+        uint8_t is_pressed = (bitmap[byte_idx] & bit_mask) ? 1 : 0;
+        uint8_t was_pressed = (prev_key_bitmap[byte_idx] & bit_mask) ? 1 : 0;
+
+        if (is_pressed) {
+            pressed_count++;
+            last_pressed_key = i + 1;  /* 1-based key ID */
+            if (!was_pressed) {
+                new_key_pressed = 1;
+            }
+        }
+    }
+
+    /* 处理琴键事件 */
+    if (new_key_pressed) {
+        /* 有新键按下 → 播放最后按下的键（最高优先级） */
+        current_playing_key = last_pressed_key;
+        Music_PlayPianoKey(current_playing_key);
+    }
+    else if (pressed_count == 0 && current_playing_key != 0) {
+        /* 所有键释放 → 停止播放 */
+        Audio_PlayStop();
+        current_playing_key = 0;
+    }
+    else if (pressed_count > 0 && current_playing_key != 0) {
+        /* 检查当前播放的键是否还在按下列表中 */
+        uint8_t byte_idx = (current_playing_key - 1) >> 3;
+        uint8_t bit_mask = 1u << ((current_playing_key - 1) & 7);
+        if (!(bitmap[byte_idx] & bit_mask)) {
+            /* 当前播放的键已释放，切换到最后一个仍按下的键 */
+            current_playing_key = last_pressed_key;
+            Music_PlayPianoKey(current_playing_key);
+        }
+    }
+
+    /* 保存当前位图 */
+    prev_key_bitmap[0] = bitmap[0];
+    prev_key_bitmap[1] = bitmap[1];
+    prev_key_bitmap[2] = bitmap[2];
 }
 
-static void Keyboard_HandleMusicKnobs(const protocol_frame_t *req)
+static void Keyboard_HandleMusicButtons(const protocol_frame_t *req)
 {
-    (void)req;
-    /* TODO: 解析两个旋钮值（uint16 大端），转发到音频合成器或 Core */
+    const uint8_t *bitmap;
+
+    if (req->len < 3)  /* CMD + 2 bytes bitmap */
+        return;
+
+    bitmap = &req->data[0];
+    printf("[MUSIC] Buttons: %02X %02X\r\n", bitmap[0], bitmap[1]);
 }
 
-static void Keyboard_HandleMusicSlider(const protocol_frame_t *req)
+static void Keyboard_HandleMusicFaders(const protocol_frame_t *req)
 {
-    (void)req;
-    /* TODO: 解析推杆值（uint16 大端），转发到音频合成器或 Core */
+    uint16_t fader_l, fader_m, fader_r;
+
+    if (req->len < 7)  /* CMD + 6 bytes (3 x uint16 big-endian) */
+        return;
+
+    fader_l = ((uint16_t)req->data[0] << 8) | req->data[1];
+    fader_m = ((uint16_t)req->data[2] << 8) | req->data[3];
+    fader_r = ((uint16_t)req->data[4] << 8) | req->data[5];
+
+    printf("[MUSIC] Faders: L=%5u M=%5u R=%5u\r\n", fader_l, fader_m, fader_r);
 }
 
 static void Keyboard_HandleGameInput(const protocol_frame_t *req)
 {
     (void)req;
     /* TODO: 解析摇杆 X/Y（int8）和按键状态 bitmask */
+}
+
+/* ============================================================================
+ * Music Keyboard 控制 API
+ * ============================================================================ */
+
+uint8_t Keyboard_Music_Start(void)
+{
+    uint8_t data[1];
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint16_t len;
+
+    if (keyboard_ptr == NULL)
+        return 0;
+
+    if (keyboard_ptr->type_id != MODULE_SUBTYPE_KEYBOARD_MUSIC)
+        return 0;
+
+    data[0] = 0x01;  /* start */
+    len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_KEYBOARD,
+                             CMD_KBD_MUSIC_EVENT_CTRL,
+                             data, 1, buf, sizeof(buf));
+    if (len == 0)
+        return 0;
+
+    Keyboard_Send_Data(keyboard_ptr, buf, len);
+    music_active = 1;
+
+    /* 清空状态 */
+    prev_key_bitmap[0] = prev_key_bitmap[1] = prev_key_bitmap[2] = 0;
+    current_playing_key = 0;
+
+    printf("[MUSIC] Keyboard-3 event reporting STARTED\r\n");
+    return 1;
+}
+
+uint8_t Keyboard_Music_Stop(void)
+{
+    uint8_t data[1];
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint16_t len;
+
+    if (keyboard_ptr == NULL)
+        return 0;
+
+    if (keyboard_ptr->type_id != MODULE_SUBTYPE_KEYBOARD_MUSIC)
+        return 0;
+
+    data[0] = 0x00;  /* stop */
+    len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_KEYBOARD,
+                             CMD_KBD_MUSIC_EVENT_CTRL,
+                             data, 1, buf, sizeof(buf));
+    if (len == 0)
+        return 0;
+
+    Keyboard_Send_Data(keyboard_ptr, buf, len);
+    music_active = 0;
+
+    /* 停止播放 */
+    Audio_PlayStop();
+    current_playing_key = 0;
+    prev_key_bitmap[0] = prev_key_bitmap[1] = prev_key_bitmap[2] = 0;
+
+    printf("[MUSIC] Keyboard-3 event reporting STOPPED\r\n");
+    return 1;
+}
+
+uint8_t Keyboard_Music_IsActive(void)
+{
+    return music_active;
 }

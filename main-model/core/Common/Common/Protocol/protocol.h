@@ -167,9 +167,10 @@
 #define CMD_KBD_GET_STATUS              0x24
 #define CMD_KBD_HID_REPORT              0x25
 #define CMD_KBD_MUSIC_KEYS              0x26
-#define CMD_KBD_MUSIC_KNOBS             0x27
-#define CMD_KBD_MUSIC_SLIDER            0x28
+#define CMD_KBD_MUSIC_BUTTONS           0x27
+#define CMD_KBD_MUSIC_FADERS            0x28
 #define CMD_KBD_GAME_INPUT              0x29
+#define CMD_KBD_MUSIC_EVENT_CTRL        0x2A
 
 /* ============================================================================
  * Power 基础操作码 (CMD = 0x31 ~ 0x3F)

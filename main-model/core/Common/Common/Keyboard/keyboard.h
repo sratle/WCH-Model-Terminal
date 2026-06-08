@@ -34,4 +34,28 @@ void Keyboard_Process(keyboard_t *keyboard);
 // UART 中断处理函数（在中断服务函数中调用）
 void Keyboard_UART_IRQ_Handler(keyboard_t *keyboard);
 
+/* ============================================================================
+ * Music Keyboard (Keyboard-3) Control API
+ * ============================================================================ */
+
+/**
+ * @brief  启动音乐键盘事件上报
+ *         向 Keyboard-3 发送 CMD_KBD_MUSIC_EVENT_CTRL(state=0x01)
+ * @return 1=发送成功, 0=键盘未连接或非音乐键盘
+ */
+uint8_t Keyboard_Music_Start(void);
+
+/**
+ * @brief  停止音乐键盘事件上报
+ *         向 Keyboard-3 发送 CMD_KBD_MUSIC_EVENT_CTRL(state=0x00)
+ * @return 1=发送成功, 0=键盘未连接或非音乐键盘
+ */
+uint8_t Keyboard_Music_Stop(void);
+
+/**
+ * @brief  查询音乐键盘是否处于活动状态（已连接且已启动上报）
+ * @return 1=活动, 0=未活动
+ */
+uint8_t Keyboard_Music_IsActive(void);
+
 #endif

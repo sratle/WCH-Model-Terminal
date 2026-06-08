@@ -905,11 +905,39 @@ void CH378_Edit_File(ch378_t *ch378, uint8_t *file_name, uint8_t *wbuf, uint32_t
 char ch378_current_path[CH378_MAX_PATH_LEN] = "\\";
 char ch378_current_path_sfn[CH378_MAX_PATH_LEN] = "\\";
 
-/* 辅助：拼接基础路径和名称，生成绝对路径 */
+/* 辅助：将路径中的 '/' 全部替换为 '\'
+ * CH378 文件系统要求使用 '\' 作为路径分隔符。 */
+static void path_normalize_slashes(char *path)
+{
+    while (*path) {
+        if (*path == '/')
+            *path = '\\';
+        path++;
+    }
+}
+
+/* 辅助：拼接基础路径和名称，生成绝对路径
+ * - 若 name 以 '\' 或 '/' 开头，视为绝对路径，直接复制不拼接 base。
+ * - 路径中的 '/' 自动转换为 '\'（CH378 要求 '\'）。 */
 void CH378_Path_Join(const char *base, const char *name, char *out, uint16_t out_len)
 {
     uint16_t base_len = strlen(base);
     uint16_t name_len = strlen(name);
+
+    if (out_len == 0) {
+        return;
+    }
+
+    /* 绝对路径（\ 或 / 开头）：直接复制 name */
+    if (name_len > 0 && (name[0] == '\\' || name[0] == '/')) {
+        if (name_len < out_len) {
+            strcpy(out, name);
+            path_normalize_slashes(out);
+        } else {
+            out[0] = '\0';
+        }
+        return;
+    }
 
     if (base_len >= out_len) {
         out[0] = '\0';
@@ -928,6 +956,7 @@ void CH378_Path_Join(const char *base, const char *name, char *out, uint16_t out
 
     if (base_len + name_len < out_len) {
         strcat(out, name);
+        path_normalize_slashes(out);
     }
 }
 

@@ -12,6 +12,7 @@
 #include "CJSON/cJSON.h"
 #include "hardware.h"
 #include "Submodels/submodels.h"
+#include "Keyboard/keyboard.h"
 #include "debug.h"
 
 extern ch378_t ch378_g;
@@ -86,6 +87,19 @@ static uint16_t CLI_AsciiToUnicode(const char *ascii, uint8_t *unicode, uint16_t
     unicode[i++] = 0;
     unicode[i++] = 0;
     return i;
+}
+
+/* 从路径中提取文件名部分（最后一个 \ 或 / 之后的内容）
+ * 支持绝对路径和相对路径，两种分隔符均可。 */
+static const char *CLI_ExtractFilename(const char *path)
+{
+    const char *sep_bs = strrchr(path, '\\');
+    const char *sep_fs = strrchr(path, '/');
+    if (sep_bs && sep_fs)
+        return (sep_bs > sep_fs) ? sep_bs + 1 : sep_fs + 1;
+    if (sep_bs) return sep_bs + 1;
+    if (sep_fs) return sep_fs + 1;
+    return path;
 }
 
 /* 判断文件名是否为有效的 FAT 短文件名 */
@@ -270,7 +284,7 @@ static void CLI_Cmd_Mkdir(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
-    if (CLI_IsShortName(argv[1])) {
+    if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
         status = CH378DirCreate((uint8_t*)full_path);
     } else {
         status = CLI_LFN_Operation(full_path, 2);
@@ -295,7 +309,7 @@ static void CLI_Cmd_Touch(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
-    if (CLI_IsShortName(argv[1])) {
+    if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
         status = CH378FileCreate((uint8_t*)full_path);
         if (status == ERR_SUCCESS) {
             CH378FileClose(1);
@@ -329,7 +343,7 @@ static void CLI_Cmd_Cat(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
-    if (CLI_IsShortName(argv[1])) {
+    if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
         status = CH378FileOpen((uint8_t*)full_path);
     } else {
         status = CLI_LFN_Operation(full_path, 0);
@@ -739,7 +753,7 @@ static void CLI_Cmd_Rm(uint8_t argc, char **argv)
         char full_path[CH378_MAX_PATH_LEN];
         CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
-        if (CLI_IsShortName(argv[1])) {
+        if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
             status = CH378FileErase((uint8_t*)full_path);
         } else {
             status = CLI_LFN_Operation(full_path, 3);
@@ -1227,6 +1241,37 @@ static uint8_t CLI_KeyNameToHID(const char *name)
     return 0x00;
 }
 
+/* ---- music 命令：控制音乐键盘 (Keyboard-3) ---- */
+static void CLI_Cmd_Music(uint8_t argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Usage: music <start|stop|status>\r\n");
+        printf("  start  - 启动 Keyboard-3 事件定时上报\r\n");
+        printf("  stop   - 停止 Keyboard-3 事件定时上报\r\n");
+        printf("  status - 查询音乐键盘状态\r\n");
+        return;
+    }
+
+    if (strcmp(argv[1], "start") == 0) {
+        if (Keyboard_Music_Start()) {
+            printf("Music keyboard started\r\n");
+        } else {
+            printf("Error: music keyboard not available (Keyboard-3 not connected?)\r\n");
+        }
+    } else if (strcmp(argv[1], "stop") == 0) {
+        if (Keyboard_Music_Stop()) {
+            printf("Music keyboard stopped\r\n");
+        } else {
+            printf("Error: music keyboard not available\r\n");
+        }
+    } else if (strcmp(argv[1], "status") == 0) {
+        printf("Music keyboard: %s\r\n",
+               Keyboard_Music_IsActive() ? "ACTIVE" : "INACTIVE");
+    } else {
+        printf("music: unknown subcommand '%s' (use start/stop/status)\r\n", argv[1]);
+    }
+}
+
 static void CLI_Cmd_Keyboard(uint8_t argc, char **argv)
 {
     uint8_t data[9];
@@ -1295,7 +1340,6 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  stat <file>     Show file status (supports LFN)\r\n");
         printf("  chmod <file> <attr>  Change file attributes (supports LFN)\r\n");
         printf("  ver             Show CH378 firmware version\r\n");
-        printf("  play <file>     Play a WAV audio file\r\n");
         printf("  vol <0-100>     Set playback volume\r\n");
         printf("  pause           Pause playback\r\n");
         printf("  resume          Resume playback\r\n");
@@ -1310,6 +1354,8 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  mouse <L/R/none> <dx> <dy>  Send mouse click event\r\n");
         printf("  roll <delta>    Send mouse scroll event\r\n");
         printf("  keyboard <key>  Send keyboard event (a-z 0-9 SPACE ENTER UP DOWN LEFT RIGHT)\r\n");
+        printf("  music <start|stop|status>  Control music keyboard (Keyboard-3)\r\n");
+        printf("  play <file|path>  Play a WAV audio file (supports absolute path)\r\n");
         printf("  config get [module|file.json [key]]  Get config value\r\n");
         printf("  config getkey [module|file.json]  List all key names\r\n");
         printf("  config set <key|module key|file.json key> <value>  Set config value\r\n");
@@ -1343,7 +1389,8 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  head <file> [n], tail <file> [n], tree [dir], du <dir>\r\n");
         printf("  find <pattern>, df, free, device [usb|sd]\r\n");
         printf("  stat <file>, chmod <file> <attr>, ver\r\n");
-        printf("  play <file>, vol <0-100>, pause, resume, playst\r\n");
+        printf("  play <file|path>, vol <0-100>, pause, resume, playst\r\n");
+        printf("  music <start|stop|status>\r\n");
         printf("  lsdev, bmp get <file> [sub], lsstatus\r\n");
         printf("  subdisp mode <0|1>, subdisp refresh status\r\n");
         printf("  light <0-255>, note <text>\r\n");
@@ -1470,7 +1517,7 @@ static void CLI_Cmd_Hexdump(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
-    if (CLI_IsShortName(argv[1])) {
+    if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
         status = CH378FileOpen((uint8_t*)full_path);
     } else {
         status = CLI_LFN_Operation(full_path, 0);
@@ -1523,7 +1570,7 @@ static void CLI_Cmd_Head(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
-    if (CLI_IsShortName(argv[1])) {
+    if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
         status = CH378FileOpen((uint8_t*)full_path);
     } else {
         status = CLI_LFN_Operation(full_path, 0);
@@ -1570,7 +1617,7 @@ static void CLI_Cmd_Tail(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
-    if (CLI_IsShortName(argv[1])) {
+    if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
         status = CH378FileOpen((uint8_t*)full_path);
     } else {
         status = CLI_LFN_Operation(full_path, 0);
@@ -1623,8 +1670,8 @@ static void CLI_Cmd_Cp(uint8_t argc, char **argv)
     CH378_Path_Join(ch378_current_path_sfn, argv[1], src_path, sizeof(src_path));
     CH378_Path_Join(ch378_current_path_sfn, argv[2], dst_path, sizeof(dst_path));
 
-    src_lfn = !CLI_IsShortName(argv[1]);
-    dst_lfn = !CLI_IsShortName(argv[2]);
+    src_lfn = !CLI_IsShortName(CLI_ExtractFilename(argv[1]));
+    dst_lfn = !CLI_IsShortName(CLI_ExtractFilename(argv[2]));
 
     /* Open source */
     if (src_lfn) {
@@ -1951,7 +1998,7 @@ static void CLI_Cmd_Stat(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
-    if (CLI_IsShortName(argv[1])) {
+    if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
         status = CH378FileOpen((uint8_t*)full_path);
     } else {
         status = CLI_LFN_Operation(full_path, 0);
@@ -2010,7 +2057,7 @@ static void CLI_Cmd_Mv(uint8_t argc, char **argv)
     }
 
     /* mv 目前只支持短文件名重命名 */
-    if (!CLI_IsShortName(argv[1]) || !CLI_IsShortName(argv[2])) {
+    if (!CLI_IsShortName(CLI_ExtractFilename(argv[1])) || !CLI_IsShortName(CLI_ExtractFilename(argv[2]))) {
         printf("mv: long filename rename not supported, use cp + rm instead\r\n");
         return;
     }
@@ -2092,7 +2139,7 @@ static void CLI_Cmd_Chmod(uint8_t argc, char **argv)
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
-    if (CLI_IsShortName(argv[1])) {
+    if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
         status = CH378FileOpen((uint8_t*)full_path);
     } else {
         status = CLI_LFN_Operation(full_path, 0);
@@ -2470,16 +2517,18 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
 
     if (argc < 2) {
         printf("Usage: play <wav_file>\r\n");
+        printf("       play \\SOUND\\PIANO1.WAV  (absolute path)\r\n");
         return;
     }
 
     /* 停止当前播放 */
     Audio_PlayStop();
 
+    /* 支持绝对路径（以 \ 或 / 开头）和相对路径 */
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
-    /* 打开文件（支持长文件名，逻辑同 cat） */
-    if (CLI_IsShortName(argv[1])) {
+    /* 打开文件（支持长文件名） */
+    if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
         status = CH378FileOpen((uint8_t*)full_path);
     } else {
         status = CLI_LFN_Operation(full_path, 0); /* 0 = open */
@@ -2937,6 +2986,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Roll(argc, argv);
     } else if (strcmp(argv[0], "keyboard") == 0) {
         CLI_Cmd_Keyboard(argc, argv);
+    } else if (strcmp(argv[0], "music") == 0) {
+        CLI_Cmd_Music(argc, argv);
     } else if (strcmp(argv[0], "config") == 0) {
         CLI_Cmd_Config(argc, argv);
     } else if (strcmp(argv[0], "speaker") == 0) {
