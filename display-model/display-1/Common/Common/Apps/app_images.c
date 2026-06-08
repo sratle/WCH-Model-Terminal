@@ -72,8 +72,8 @@
  *=============================================================================*/
 
 #define IMG_MAX_FILES       32
-#define IMG_CLI_BUF_SIZE    8192
-#define IMG_BMP_BUF_SIZE    6144    /* Binary BMP data buffer */
+#define IMG_CLI_BUF_SIZE    32768
+#define IMG_BMP_BUF_SIZE    10240   /* Binary BMP data buffer (supports up to 10KB BMP) */
 
 typedef struct {
     char     name[24];
@@ -290,8 +290,15 @@ static void img_on_cli_response(const char *output, uint16_t len, bool truncated
         img_parse_bmp_ls(s_cli_buf, s_cli_len);
         s_cli_expect_ls = false;
     } else if (s_cli_expect_get) {
-        /* Parse hex dump to binary BMP data */
-        s_bmp_data_len = hex_to_binary(s_cli_buf, s_cli_len,
+        /* Skip status line ("BMP: xxx size=xxx bytes\r\n"), parse hex dump only */
+        const char *hex_start = s_cli_buf;
+        const char *buf_end = s_cli_buf + s_cli_len;
+        /* Find first newline — hex data starts after it */
+        while (hex_start < buf_end && *hex_start != '\n') hex_start++;
+        if (hex_start < buf_end) hex_start++;  /* skip the \n */
+
+        uint16_t hex_len = (uint16_t)(buf_end - hex_start);
+        s_bmp_data_len = hex_to_binary(hex_start, hex_len,
                                         s_bmp_data, IMG_BMP_BUF_SIZE);
         if (s_bmp_data_len >= BMP_FILE_HEADER_TOTAL) {
             img_decode_bmp();
@@ -563,8 +570,8 @@ static void img_render_preview(ui_rect_t *dirty)
 static void list_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     if (e->type == UI_EVENT_CLICK || e->type == UI_EVENT_DOWN) {
-        int16_t rel_y = e->pos.y - IMG_LIST_Y + s_file_scroll * IMG_ITEM_H;
-        int16_t idx = rel_y / IMG_ITEM_H;
+        int16_t rel_y = e->pos.y - IMG_LIST_Y;
+        int16_t idx = rel_y / IMG_ITEM_H - 1 + s_file_scroll;  /* -1 for header row */
         if (idx >= 0 && idx < s_file_count) {
             int16_t old = s_file_selected;
             s_file_selected = idx;
@@ -572,7 +579,13 @@ static void list_touch_event(ui_widget_t *w, ui_event_t *e)
 
             /* On CLICK (not just DOWN), load the image */
             if (e->type == UI_EVENT_CLICK) {
-                img_request_get(s_files[idx].name);
+                /* Strip .BMP extension since CLI "bmp get" adds it automatically */
+                char name_no_ext[24];
+                strncpy(name_no_ext, s_files[idx].name, sizeof(name_no_ext) - 1);
+                name_no_ext[sizeof(name_no_ext) - 1] = '\0';
+                char *dot = strrchr(name_no_ext, '.');
+                if (dot) *dot = '\0';
+                img_request_get(name_no_ext);
             }
         }
     }
@@ -748,7 +761,7 @@ void app_images_init(void)
 
     /* List touch area */
     {
-        ui_rect_t r = {IMG_LIST_X, IMG_LIST_Y + IMG_ITEM_H, IMG_LIST_W, IMG_LIST_H - IMG_ITEM_H};
+        ui_rect_t r = {IMG_LIST_X, IMG_LIST_Y, IMG_LIST_W, IMG_LIST_H};
         ui_widget_init(&s_list_touch, &r);
         s_list_touch.bg_color = UI_COLOR_TRANSPARENT;
         s_list_touch.event_cb = list_touch_event;

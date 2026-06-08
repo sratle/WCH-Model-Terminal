@@ -9,7 +9,7 @@
 #include "Protocol/protocol.h"
 
 #define CH585F_BT_POLL_SIZE         128
-#define CH585F_BT_CLI_CAPTURE_SIZE  2048
+#define CH585F_BT_CLI_CAPTURE_SIZE  32768
 #define CH585F_BT_CLI_ASSEMBLE_SIZE 512
 
 /* 标准帧单帧最大 payload

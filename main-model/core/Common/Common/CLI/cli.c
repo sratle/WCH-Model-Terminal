@@ -831,7 +831,8 @@ static void CLI_Cmd_Bmp(uint8_t argc, char **argv)
         strncpy(saved_sfn, ch378_current_path_sfn, CH378_MAX_PATH_LEN);
         saved_sfn[CH378_MAX_PATH_LEN - 1] = '\0';
 
-        /* 进入 BMP 目录 */
+        /* 进入根目录下的 BMP 目录（确保从根目录查找） */
+        CH378_Dir_Go_Root(&ch378_g);
         status = CH378_Dir_Enter(&ch378_g, "BMP");
         if (status != ERR_SUCCESS) {
             printf("BMP directory not found\r\n");
@@ -2419,8 +2420,9 @@ static void CLI_Cmd_Config(uint8_t argc, char **argv)
         strncpy(saved_path, ch378_current_path_sfn, sizeof(saved_path) - 1);
         saved_path[sizeof(saved_path) - 1] = '\0';
 
-        /* 进入 CONFIG 目录 */
-        status = CH378_Dir_Enter(&ch378_g, CONFIG_ROOT_DIR);
+        /* 从根目录进入 CONFIG 目录（确保从根目录查找） */
+        CH378_Dir_Go_Root(&ch378_g);
+        status = CH378_Dir_Enter(&ch378_g, "CONFIG");
         if (status != ERR_SUCCESS) {
             printf("Error: cannot enter CONFIG dir\r\n");
             return;

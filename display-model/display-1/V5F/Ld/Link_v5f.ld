@@ -11,7 +11,7 @@ MEMORY
 	requirements;Please refer to the datasheet manual for specific allocation*/
 	FLASH (rx) : ORIGIN = 0x00010000, LENGTH = 512K                    /* zero_wait flah ,and loaded into RAM_CODE for running */
 	RAM_CODE (xrw) : ORIGIN = 0x200A0000, LENGTH = 128K                /*ITCM RAM for running code*/
-	RAM (xrw) : ORIGIN = (0x200C0000+512+256), LENGTH = (256K-512-256) /*DTCM RAM for .data .bss section and other*/ 
+	RAM (xrw) : ORIGIN = (0x200C0000+512+256), LENGTH = (512K-512-256) /*DTCM(256K)+SRAM(256K) for .data .bss section and other*/ 
 	RAM_LOAD (xrw) : ORIGIN = (0x200C0000+512), LENGTH = 256           /* RAM for .load section*/
 }
 
