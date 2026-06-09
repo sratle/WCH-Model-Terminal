@@ -358,7 +358,10 @@ static void Keyboard_HandleHidReport(const protocol_frame_t *req)
 /*
  * 播放指定琴键对应的钢琴音色 WAV 文件
  * key_id: 1~24 → \SOUND\PIANO-01.WAV ~ PIANO-24.WAV
+ * 双通道轮转分配：优先使用空闲通道，两路均忙时替换较早的通道
  */
+static uint8_t piano_next_ch = 0; /* 轮转索引 */
+
 static void Music_PlayPianoKey(uint8_t key_id)
 {
     char path[CH378_MAX_PATH_LEN];
@@ -366,12 +369,26 @@ static void Music_PlayPianoKey(uint8_t key_id)
     uint8_t header[512];
     uint16_t real_len;
     wav_info_t info;
+    uint8_t ch;
 
     if (key_id < 1 || key_id > 24)
         return;
 
-    /* 停止当前播放 */
-    Audio_PlayStop();
+    /* 通道分配：优先选空闲通道，否则轮转替换 */
+    if (Audio_ChannelGetState(0) == AUDIO_STATE_IDLE ||
+        Audio_ChannelGetState(0) == AUDIO_STATE_STOPPED) {
+        ch = 0;
+    } else if (Audio_ChannelGetState(1) == AUDIO_STATE_IDLE ||
+               Audio_ChannelGetState(1) == AUDIO_STATE_STOPPED) {
+        ch = 1;
+    } else {
+        /* 两路都在播放，替换轮转指向的通道 */
+        ch = piano_next_ch;
+        piano_next_ch = (piano_next_ch + 1) % AUDIO_MAX_CHANNELS;
+    }
+
+    /* 仅停止选中的通道 */
+    Audio_ChannelStop(ch);
 
     /* 构建路径: \SOUND\PIANO-xx.WAV (8.3 短文件名) */
     snprintf(path, sizeof(path), "\\SOUND\\PIANO-%02d.WAV", key_id);
@@ -401,16 +418,12 @@ static void Music_PlayPianoKey(uint8_t key_id)
     CH378FileClose(0);
 
     /* 启动流式播放 */
-    if (Audio_ChannelStart(0, path, &info) != 0) {
-        printf("[PIANO] Failed to start channel\r\n");
+    if (Audio_ChannelStart(ch, path, &info) != 0) {
+        printf("[PIANO] Failed to start channel %d\r\n", ch);
         return;
     }
-    Audio_SetCurrentTrack(path);
 
-    printf("[PIANO] Key %d → %s (%luHz %dbit %dch)\r\n",
-           key_id, path,
-           (unsigned long)info.sample_rate,
-           info.bits_per_sample, info.num_channels);
+    printf("[PIANO] Key %d → ch%d %s\r\n", key_id, ch, path);
 }
 
 static void Keyboard_HandleMusicKeys(const protocol_frame_t *req)
