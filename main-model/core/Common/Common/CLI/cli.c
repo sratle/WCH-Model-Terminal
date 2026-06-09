@@ -2552,16 +2552,14 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
         return;
     }
 
-    /* 定位到 data chunk */
-    status = CH378ByteLocate(info.data_offset);
-    if (status != ERR_SUCCESS) {
-        printf("play: seek failed (status=%02X)\r\n", status);
-        CH378FileClose(0);
+    /* 关闭文件：新引擎自行管理 CH378 读取 */
+    CH378FileClose(0);
+
+    /* 启动流式播放 */
+    if (Audio_ChannelStart(0, full_path, &info) != 0) {
+        printf("play: failed to start channel\r\n");
         return;
     }
-
-    /* 启动流式播放，再保存曲目名（Audio_PlayWAV_Start 内部会调 Audio_PlayStop 清空名字） */
-    Audio_PlayWAV_Start(&info);
     Audio_SetCurrentTrack(argv[1]);
     {
         uint32_t byte_rate = info.sample_rate * info.num_channels * (info.bits_per_sample / 8);

@@ -397,16 +397,14 @@ static void Music_PlayPianoKey(uint8_t key_id)
         return;
     }
 
-    /* 定位到 data chunk */
-    status = CH378ByteLocate(info.data_offset);
-    if (status != ERR_SUCCESS) {
-        printf("[PIANO] Seek failed (0x%02X)\r\n", status);
-        CH378FileClose(0);
-        return;
-    }
+    /* 关闭文件：新引擎自行管理 CH378 读取 */
+    CH378FileClose(0);
 
     /* 启动流式播放 */
-    Audio_PlayWAV_Start(&info);
+    if (Audio_ChannelStart(0, path, &info) != 0) {
+        printf("[PIANO] Failed to start channel\r\n");
+        return;
+    }
     Audio_SetCurrentTrack(path);
 
     printf("[PIANO] Key %d → %s (%luHz %dbit %dch)\r\n",

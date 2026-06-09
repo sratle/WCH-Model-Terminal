@@ -9,9 +9,9 @@ MEMORY
 {
 	/*FLASH, RAM, and RAM-CODE can be freely configured according to project 
 	requirements;Please refer to the datasheet manual for specific allocation*/
-	FLASH (rx) : ORIGIN = 0x00010000, LENGTH = 128K                    /* zero_wait flah ,and loaded into RAM_CODE for running */
+	FLASH (rx) : ORIGIN = 0x00010000, LENGTH = 512K                    /* zero_wait flah ,and loaded into RAM_CODE for running */
 	RAM_CODE (xrw) : ORIGIN = 0x200A0000, LENGTH = 128K                /*ITCM RAM for running code*/
-	RAM (xrw) : ORIGIN = (0x200C0000+512+256), LENGTH = (256K-512-256+32K) /*DTCM RAM for .data .bss section and other, 增加原 RAM_SHARED 的 32K*/
+	RAM (xrw) : ORIGIN = (0x200C0000+512+256), LENGTH = (512K-512-256) /*DTCM(256K)+SRAM(256K) for .data .bss section and other*/ 
 	RAM_LOAD (xrw) : ORIGIN = (0x200C0000+512), LENGTH = 256           /* RAM for .load section*/
 }
 
@@ -55,9 +55,6 @@ SECTIONS
 		KEEP(*(SORT_NONE(.vector_handler)))
 		*(.text)
 		*(.text.*)
-		*(.rodata)
-		*(.rodata*)
-        *(.sdata2.*)
 		*(.glue_7)
 		*(.glue_7t)
 		*(.gnu.linkonce.t.*)
@@ -168,6 +165,9 @@ SECTIONS
     	*(.sdata .sdata.*)
 		*(.sdata2.*)
     	*(.gnu.linkonce.s.*)
+    	. = ALIGN(4);
+    	*(.rodata)
+    	*(.rodata*)
     	. = ALIGN(8);
     	*(.srodata.cst16)
     	*(.srodata.cst8)

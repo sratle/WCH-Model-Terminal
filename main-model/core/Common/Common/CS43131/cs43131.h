@@ -1,9 +1,9 @@
 /********************************** (C) COPYRIGHT *******************************
  * File Name          : cs43131.h
  * Author             : 
- * Version            : V1.0.0
- * Date               : 2025/03/01
- * Description        : CS43131 DAC driver header.
+ * Version            : V2.0.0
+ * Date               : 2025/06/09
+ * Description        : CS43131 DAC driver + multi-channel audio engine + effects.
  *******************************************************************************/
 #ifndef __CS43131_H__
 #define __CS43131_H__
@@ -15,11 +15,15 @@
 #include "ch32h417.h"
 #include "ch32h417_gpio.h"
 
+/* ======================================================================== */
+/*  Hardware Constants                                                       */
+/* ======================================================================== */
+
 #define AUDIO_BUFFER_SIZE   2048
 #define SPI2_TX_DMA_REQUEST 65
 #define CS43131_I2C_ADDR    0x30
 
-/* CS43131 GPIO definitions NOTE: SPI2==I2S1*/
+/* CS43131 GPIO definitions NOTE: SPI2==I2S1 */
 #define CS43131_RST_GPIO_PORT   GPIOB
 #define CS43131_RST_PIN         GPIO_Pin_3
 #define CS43131_OE_GPIO_PORT    GPIOB
@@ -42,13 +46,18 @@
 #define SPEAKER_LEFT_SHUTDOWN_GPIO_PORT    GPIOD
 #define SPEAKER_LEFT_SHUTDOWN_PIN          GPIO_Pin_11
 
-/* 播放模式 */
-typedef enum {
-    AUDIO_MODE_NONE = 0,
-    AUDIO_MODE_MEMORY,   /* 播放内存中的音频数据 */
-    AUDIO_MODE_SINE,     /* 正弦波测试 */
-    AUDIO_MODE_WAV       /* WAV 流式播放 */
-} audio_mode_t;
+/* ======================================================================== */
+/*  Audio Engine Constants                                                   */
+/* ======================================================================== */
+
+#define AUDIO_MAX_CHANNELS  2
+#define AUDIO_CH_RB_SIZE    (16 * 1024)     /* 16KB ring buffer per channel */
+#define AUDIO_RB_SIZE       (32 * 1024)     /* 32KB main mix ring buffer (legacy) */
+#define AUDIO_CH_READ_BLOCK (4 * 1024)      /* bytes per CH378 read burst */
+
+/* ======================================================================== */
+/*  Enums                                                                    */
+/* ======================================================================== */
 
 /* 播放状态 */
 typedef enum {
@@ -58,7 +67,10 @@ typedef enum {
     AUDIO_STATE_STOPPED
 } audio_state_t;
 
-/* WAV 文件信息 */
+/* ======================================================================== */
+/*  WAV Header                                                               */
+/* ======================================================================== */
+
 typedef struct {
     uint32_t sample_rate;
     uint16_t bits_per_sample;
@@ -67,73 +79,279 @@ typedef struct {
     uint32_t data_size;
 } wav_info_t;
 
-typedef struct {
-    uint8_t enable;               /* cs43131 enable */
-    uint8_t volume;               /* 音量 0~100 */
-    audio_state_t audio_state;    /* 播放状态 */
-    audio_mode_t audio_mode;      /* 播放模式 */
-    volatile uint32_t samples_played; /* 播放进度计数 (声道样本数) */
-    char track_name[64];          /* 当前曲目名称 */
-    wav_info_t wav_info;          /* WAV 文件信息 */
-    uint8_t wav_file_opened;      /* WAV 文件是否已打开 */
-    uint8_t wav_eof;              /* WAV 流是否已到文件末尾 */
-}cs43131_t;
+/* ======================================================================== */
+/*  Effects: Biquad Filter (Q12 fixed-point)                                 */
+/* ======================================================================== */
 
-/* Speaker 通道选择 */
+typedef struct {
+    int32_t b0, b1, b2, a1, a2;    /* Q12 coefficients */
+    int32_t x1, x2, y1, y2;        /* state variables */
+} biquad_t;
+
+/* ======================================================================== */
+/*  Effects: 3-Band EQ                                                       */
+/* ======================================================================== */
+
+typedef struct {
+    uint8_t  enable;
+    int16_t  bass_gain_db;      /* -12 ~ +12 dB, 100 Hz */
+    int16_t  mid_gain_db;       /* -12 ~ +12 dB, 1 kHz  */
+    int16_t  treble_gain_db;    /* -12 ~ +12 dB, 10 kHz */
+    biquad_t bands[3];          /* bass, mid, treble (computed internally) */
+} audio_eq_t;
+
+/* ======================================================================== */
+/*  Effects: Compressor                                                      */
+/* ======================================================================== */
+
+typedef struct {
+    uint8_t  enable;
+    int16_t  threshold_db;      /* -40 ~ 0 dB */
+    int16_t  ratio;             /* 1~10 (e.g. 4 = 4:1) */
+    int16_t  makeup_db;         /* 0 ~ 20 dB */
+    int32_t  env;               /* envelope follower state (internal) */
+} audio_compressor_t;
+
+/* ======================================================================== */
+/*  Effects: Echo / Delay                                                    */
+/* ======================================================================== */
+
+#define ECHO_DELAY_SAMPLES  4410    /* 100ms @ 44.1kHz */
+
+typedef struct {
+    uint8_t  enable;
+    uint16_t delay_ms;          /* 10 ~ 100 ms */
+    uint8_t  feedback;          /* 0 ~ 200 (0~78%) */
+    uint8_t  mix;               /* 0 ~ 100 (dry/wet %) */
+    /* internal */
+    int16_t  delay_line[ECHO_DELAY_SAMPLES * 2]; /* stereo interleaved */
+    uint16_t delay_len;         /* actual delay in samples */
+    uint16_t delay_pos;
+} audio_echo_t;
+
+/* ======================================================================== */
+/*  Audio Channel                                                            */
+/* ======================================================================== */
+
+typedef struct {
+    /* Ring buffer */
+    uint8_t  rb[AUDIO_CH_RB_SIZE];
+    volatile uint32_t rb_write_pos;
+    volatile uint32_t rb_read_pos;
+
+    /* Channel state */
+    uint8_t  active;
+    uint8_t  eof;
+    audio_state_t state;
+    uint32_t read_offset;       /* next byte offset in file to read */
+
+    /* File info */
+    char     path[260];
+    wav_info_t wav_info;
+
+    /* Per-channel controls */
+    uint8_t  volume;            /* 0~100 */
+    uint8_t  pan;               /* 0=left, 128=center, 255=right */
+
+    /* Progress */
+    volatile uint32_t samples_played;
+
+    /* Track name */
+    char     track_name[64];
+} audio_channel_t;
+
+/* ======================================================================== */
+/*  Speaker Channel Select                                                   */
+/* ======================================================================== */
+
 typedef enum {
     SPEAKER_CHANNEL_LEFT  = 0x01,
     SPEAKER_CHANNEL_RIGHT = 0x02,
     SPEAKER_CHANNEL_BOTH  = 0x03
 } speaker_channel_t;
 
+/* ======================================================================== */
+/*  CS43131 Global State                                                     */
+/* ======================================================================== */
+
+typedef struct {
+    uint8_t enable;                     /* cs43131 enable */
+    uint8_t volume;                     /* master volume 0~100 */
+    audio_state_t audio_state;          /* overall playback state */
+
+    /* Multi-channel engine */
+    audio_channel_t channels[AUDIO_MAX_CHANNELS];
+    uint8_t  active_channel_count;
+    volatile uint8_t ch378_locked;      /* 1 = CH378 in use by other module, skip audio reads */
+
+    /* DMA output buffer (mixed output) */
+    uint16_t dma_buf[AUDIO_BUFFER_SIZE];
+    volatile uint32_t dma_write_half;   /* which half ISR is filling: 0=first, 1=second */
+
+    /* Effects chain (globally configurable) */
+    audio_eq_t         eq;
+    audio_compressor_t compressor;
+    audio_echo_t       echo;
+
+    /* Status */
+    volatile uint8_t   status_dirty;    /* dirty flag for Display sync */
+    uint8_t            current_channel; /* last-started channel index */
+} cs43131_t;
+
+/* ======================================================================== */
+/*  Speaker API                                                              */
+/* ======================================================================== */
+
 void Speaker_Init(void);
 void Speaker_On(speaker_channel_t channel);
 void Speaker_Off(speaker_channel_t channel);
 speaker_channel_t Speaker_GetState(void);
 
+/* ======================================================================== */
+/*  CS43131 Hardware Init                                                    */
+/* ======================================================================== */
+
 void CS43131_init(cs43131_t *cs43131);
 void CS43131_I2C_Config(void);
-
 void I2S1_DMA_DoubleBufferInit(void);
 
-/* 音频播放核心 */
-void Audio_PlayStart(const uint16_t *data, uint32_t length);
-void Audio_PlayStop(void);
-void Audio_FillBuffer(uint16_t *buffer, uint32_t length);
-void Audio_GenerateSineWave(uint16_t *buffer, uint32_t length);
-void Audio_PlaySineStart(void);
+/* ======================================================================== */
+/*  Audio Engine: Channel Management                                         */
+/* ======================================================================== */
 
-/* 音量控制 */
+/**
+ * Start streaming a WAV file on the given channel.
+ * Caller must have already parsed the WAV header.
+ * The engine takes ownership of CH378 reads from data_offset onward.
+ * File must NOT be left open by caller.
+ *
+ * @param ch        channel index (0 ~ AUDIO_MAX_CHANNELS-1)
+ * @param path      file path on CH378 (will be copied)
+ * @param info      parsed WAV header info
+ * @return          0 on success, non-zero on error
+ */
+uint8_t Audio_ChannelStart(uint8_t ch, const char *path, const wav_info_t *info);
+
+/** Stop a specific channel */
+void Audio_ChannelStop(uint8_t ch);
+
+/** Stop all channels */
+void Audio_StopAll(void);
+
+/** Pause/resume a specific channel */
+void Audio_ChannelPause(uint8_t ch);
+void Audio_ChannelResume(uint8_t ch);
+
+/** Per-channel volume and pan */
+void Audio_ChannelSetVolume(uint8_t ch, uint8_t vol);
+void Audio_ChannelSetPan(uint8_t ch, uint8_t pan);
+
+/** Query channel state */
+audio_state_t Audio_ChannelGetState(uint8_t ch);
+uint32_t Audio_ChannelGetPlayTime_ms(uint8_t ch);
+uint32_t Audio_ChannelGetDuration_ms(uint8_t ch);
+const char* Audio_ChannelGetTrackName(uint8_t ch);
+
+/* ======================================================================== */
+/*  Audio Engine: Master Controls                                            */
+/* ======================================================================== */
+
+/** Master volume 0~100 */
 void Audio_SetVolume(uint8_t vol);
 uint8_t Audio_GetVolume(void);
 
-/* 暂停/恢复 */
+/** Master pause/resume (all channels) */
 void Audio_Pause(void);
 void Audio_Resume(void);
 
-/* 播放状态查询 */
+/** Global playback state */
 audio_state_t Audio_GetState(void);
 uint8_t Audio_IsPlaying(void);
 
-/* CH378 占用查询（WAV 流式播放期间 CH378 不可用于其他操作） */
-uint8_t Audio_IsStreaming(void);
-
-/* 音乐状态脏标记：状态/音量/曲目变化时置位，供 Display 同步使用 */
+/** Status dirty flag (for Display sync) */
 uint8_t Audio_IsStatusDirty(void);
 void Audio_ClearStatusDirty(void);
 
-/* 播放进度与曲目信息 */
-uint32_t Audio_GetPlayTime_ms(void);
-uint32_t Audio_GetDuration_ms(void);
-const char* Audio_GetCurrentTrackName(void);
-void Audio_SetCurrentTrack(const char *name);
+/* ======================================================================== */
+/*  Audio Engine: CH378 Sharing                                              */
+/* ======================================================================== */
 
-/* 框架函数：后续实现 */
+/**
+ * Lock CH378: audio engine will skip reads until unlocked.
+ * Call before any CH378 file operation from CLI/Config/etc.
+ */
+void Audio_CH378_Lock(void);
+
+/**
+ * Unlock CH378: audio engine resumes reads.
+ * Call after CH378 file operation completes.
+ */
+void Audio_CH378_Unlock(void);
+
+/** Query if any channel is actively streaming (needs CH378 reads) */
+uint8_t Audio_IsStreaming(void);
+
+/* ======================================================================== */
+/*  Audio Engine: Effects Control                                            */
+/* ======================================================================== */
+
+/** EQ: set gains in dB (-12~+12), then recompute coefficients */
+void Audio_EQ_SetBass(int16_t gain_db);
+void Audio_EQ_SetMid(int16_t gain_db);
+void Audio_EQ_SetTreble(int16_t gain_db);
+void Audio_EQ_Enable(uint8_t en);
+void Audio_EQ_UpdateCoeffs(void);
+
+/** Compressor */
+void Audio_Comp_SetParams(int16_t threshold_db, int16_t ratio, int16_t makeup_db);
+void Audio_Comp_Enable(uint8_t en);
+
+/** Echo */
+void Audio_Echo_SetParams(uint16_t delay_ms, uint8_t feedback, uint8_t mix);
+void Audio_Echo_Enable(uint8_t en);
+
+/* ======================================================================== */
+/*  WAV Parsing (utility)                                                    */
+/* ======================================================================== */
+
 uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info);
-void Audio_PlayWAV_Start(wav_info_t *info);
+
+/* ======================================================================== */
+/*  Main Loop & DMA                                                          */
+/* ======================================================================== */
+
+/** Main loop polling: refills channel buffers from CH378, processes effects */
 void Audio_Process(void);
 
+/** DMA interrupt handler */
 void DMA1_Channel1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
+
+/* ======================================================================== */
+/*  Legacy Compatibility (backward-compat wrappers)                          */
+/* ======================================================================== */
+
+/**
+ * Legacy: start single-channel WAV playback on channel 0.
+ * Equivalent to Audio_ChannelStart(0, ...) but expects file to already
+ * be open and positioned at data_offset (old behavior).
+ * NOTE: File will be closed by the engine; caller should NOT close it.
+ */
+void Audio_PlayWAV_Start(wav_info_t *info);
+
+/** Legacy: stop all playback (alias for Audio_StopAll) */
+void Audio_PlayStop(void);
+
+/** Legacy: set current track name on channel 0 */
+void Audio_SetCurrentTrack(const char *name);
+
+/** Legacy: get current track name from channel 0 */
+const char* Audio_GetCurrentTrackName(void);
+
+/** Legacy: get play time from channel 0 */
+uint32_t Audio_GetPlayTime_ms(void);
+
+/** Legacy: get duration from channel 0 */
+uint32_t Audio_GetDuration_ms(void);
 
 #ifdef __cplusplus
 }
