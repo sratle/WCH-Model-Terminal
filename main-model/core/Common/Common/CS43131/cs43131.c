@@ -743,14 +743,18 @@ uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info)
 }
 
 /* ======================================================================== */
-/*  Audio_Process: Main Loop — CH378 Streaming (sequential read)             */
+/*  Audio_Process: Main Loop — CH378 Streaming (fill-until-high-watermark)   */
 /* ======================================================================== */
 
 static uint8_t stream_channel_idx = 0; /* round-robin index */
 
-/* Low watermark: only read when buffer drops below this.
- * 16KB = ~93ms of audio at 44.1kHz/16bit/stereo. */
-#define AUDIO_CH_LOW_WATERMARK (AUDIO_CH_RB_SIZE / 2)
+/* Low watermark: trigger read when buffer drops below this (~93ms). */
+#define AUDIO_CH_LOW_WATERMARK  (AUDIO_CH_RB_SIZE / 2)
+/* High watermark: keep reading until buffer reaches this (~140ms).
+ * The gap between low and high watermarks reduces channel switches:
+ * at 176KB/s, filling from 16KB to 24KB takes ~45ms, during which
+ * no seek is needed for this channel. */
+#define AUDIO_CH_HIGH_WATERMARK (AUDIO_CH_RB_SIZE * 3 / 4)
 
 /* Helper: close CH378 file for a channel if open */
 static void channel_file_close(audio_channel_t *ch)
@@ -785,8 +789,9 @@ void Audio_Process(void)
     audio_channel_t *ch;
     uint8_t status;
     uint16_t real_len;
-    uint8_t temp_buf[AUDIO_CH_READ_BLOCK];
+    uint8_t temp_buf[AUDIO_CH_READ_BLOCK]; /* 8KB stack buffer */
     uint8_t attempts;
+    uint32_t used, target, to_read;
 
     /* Quick exit if nothing to stream */
     if (CS43131_g.active_channel_count == 0) return;
@@ -807,18 +812,25 @@ void Audio_Process(void)
         stream_channel_idx++;
 
         if (!ch->active || ch->eof) {
-            /* Channel finished — close its file if still open */
             channel_file_close(ch);
             continue;
         }
 
-        /* Only read when buffer drops below low watermark */
-        if (ch_rb_used(ch) > AUDIO_CH_LOW_WATERMARK) continue;
+        used = ch_rb_used(ch);
 
-        /* Also check there's enough free space for a full block */
-        if (ch_rb_free(ch) < AUDIO_CH_READ_BLOCK) continue;
+        /* Only start filling when buffer drops below low watermark.
+         * Once we start, keep filling until high watermark (hysteresis).
+         * This minimizes channel switches (= expensive seeks). */
+        if (used > AUDIO_CH_LOW_WATERMARK) continue;
 
-        /* Ensure file is open (reopen + seek if was closed by lock or other channel) */
+        /* How much to read: fill up to high watermark */
+        target = AUDIO_CH_HIGH_WATERMARK - used;
+        if (target < AUDIO_CH_READ_BLOCK) target = AUDIO_CH_READ_BLOCK;
+
+        /* Cap to available free space (keep 1 byte for ring buffer sentinel) */
+        if (target > ch_rb_free(ch) - 1) target = ch_rb_free(ch) - 1;
+        if (target < AUDIO_CH_READ_BLOCK) continue; /* not enough room */
+
         /* CH378 has only one file handle: close other channels first */
         {
             uint8_t j;
@@ -827,6 +839,8 @@ void Audio_Process(void)
                     channel_file_close(&CS43131_g.channels[j]);
             }
         }
+
+        /* Open file (reopen + seek if was closed by lock or other channel) */
         status = channel_file_open(ch);
         if (status != ERR_SUCCESS) {
             printf("Audio: ch%d open failed (0x%02X)\r\n",
@@ -835,23 +849,26 @@ void Audio_Process(void)
             continue;
         }
 
-        /* Sequential read — no seek needed, CH378 continues from last position */
-        status = CH378ByteRead(temp_buf, AUDIO_CH_READ_BLOCK, &real_len);
-
-        if (status != ERR_SUCCESS || real_len == 0) {
-            ch->eof = 1;
-            channel_file_close(ch);
-            continue;
+        /* Read in chunks until we reach target or hit EOF.
+         * Sequential reads — no seek overhead within this loop. */
+        to_read = target;
+        while (to_read >= AUDIO_CH_READ_BLOCK) {
+            status = CH378ByteRead(temp_buf, AUDIO_CH_READ_BLOCK, &real_len);
+            if (status != ERR_SUCCESS || real_len == 0) {
+                ch->eof = 1;
+                channel_file_close(ch);
+                break;
+            }
+            ch_rb_write(ch, temp_buf, real_len);
+            ch->read_offset += real_len;
+            if (real_len < AUDIO_CH_READ_BLOCK) {
+                ch->eof = 1;
+                channel_file_close(ch);
+                break;
+            }
+            to_read -= real_len;
         }
-
-        ch_rb_write(ch, temp_buf, real_len);
-        ch->read_offset += real_len;
-
-        if (real_len < AUDIO_CH_READ_BLOCK) {
-            ch->eof = 1;
-            channel_file_close(ch);
-        }
-        break; /* Only serve one channel per call */
+        break; /* served this channel, return to main loop */
     }
 }
 
