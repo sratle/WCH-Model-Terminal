@@ -427,6 +427,8 @@ static void echo_process(audio_echo_t *echo, int16_t *buf, uint32_t len)
 
 static void effects_chain_process(int16_t *buf, uint32_t len)
 {
+    if (!CS43131_g.fx_master_enable) return;  /* 总开关关闭，旁路所有效果器 */
+
     if (CS43131_g.eq.enable) {
         uint32_t i;
         for (i = 0; i < len; i++) {
@@ -647,6 +649,22 @@ uint8_t Audio_IsStreaming(void)
 /* ======================================================================== */
 /*  Effects Control API                                                      */
 /* ======================================================================== */
+
+void Audio_FX_MasterEnable(uint8_t en)
+{
+    CS43131_g.fx_master_enable = en ? 1 : 0;
+    if (!en) {
+        /* 关闭时禁用所有子效果器，清空状态 */
+        CS43131_g.eq.enable = 0;
+        CS43131_g.compressor.enable = 0;
+        if (CS43131_g.echo.enable) {
+            memset(CS43131_g.echo.delay_line, 0, sizeof(CS43131_g.echo.delay_line));
+            CS43131_g.echo.enable = 0;
+        }
+    }
+}
+
+uint8_t Audio_FX_IsMasterEnabled(void) { return CS43131_g.fx_master_enable; }
 
 void Audio_EQ_SetBass(int16_t db)   { CS43131_g.eq.bass_gain_db = db; Audio_EQ_UpdateCoeffs(); }
 void Audio_EQ_SetMid(int16_t db)    { CS43131_g.eq.mid_gain_db = db; Audio_EQ_UpdateCoeffs(); }

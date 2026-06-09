@@ -130,6 +130,15 @@ void Hardware_Heartbeat(void)
             {
                 hardware_g.hb_slots[i].status = HB_STATUS_OFFLINE;
                 printf("[HB] %s OFFLINE\r\n", hb_slot_names[i]);
+
+                /* Keyboard 失联时自动停止音乐并关闭效果器 */
+                if (hardware_g.hb_slots[i].module_id == MODULE_ID_KEYBOARD) {
+                    if (Keyboard_Music_IsActive()) {
+                        Audio_PlayStop();
+                        Audio_FX_MasterEnable(0);
+                        printf("[HB] Music stopped & FX off (Keyboard disconnected)\r\n");
+                    }
+                }
             }
         }
 

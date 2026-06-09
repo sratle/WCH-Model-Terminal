@@ -190,6 +190,7 @@ typedef struct {
     volatile uint32_t dma_write_half;   /* which half ISR is filling: 0=first, 1=second */
 
     /* Effects chain (globally configurable) */
+    uint8_t          fx_master_enable;  /* 总开关: 0=bypass all, 1=apply enabled effects */
     audio_eq_t         eq;
     audio_compressor_t compressor;
     audio_echo_t       echo;
@@ -295,6 +296,10 @@ uint8_t Audio_IsStreaming(void);
 /* ======================================================================== */
 /*  Audio Engine: Effects Control                                            */
 /* ======================================================================== */
+
+/** Effects master switch: 0=bypass all effects, 1=apply enabled effects */
+void Audio_FX_MasterEnable(uint8_t en);
+uint8_t Audio_FX_IsMasterEnabled(void);
 
 /** EQ: set gains in dB (-12~+12), then recompute coefficients */
 void Audio_EQ_SetBass(int16_t gain_db);

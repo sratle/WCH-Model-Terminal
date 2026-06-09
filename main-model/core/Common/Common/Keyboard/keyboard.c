@@ -523,6 +523,12 @@ static void Keyboard_HandleMusicFaders(const protocol_frame_t *req)
 
     printf("[MUSIC] Faders: L=%3u%% M=%3u%% R=%3u%%\r\n", pct_l, pct_m, pct_r);
 
+    /* 效果器总开关关闭时，仅更新前值记录，不操作效果器 */
+    if (!CS43131_g.fx_master_enable) {
+        prev_l = pct_l; prev_m = pct_m; prev_r = pct_r;
+        return;
+    }
+
     /* ---- Fader L → Bass EQ (-12 ~ +12 dB) ---- */
     {
         int dl = (int)pct_l - (int)prev_l; if (dl < 0) dl = -dl;
@@ -537,34 +543,38 @@ static void Keyboard_HandleMusicFaders(const protocol_frame_t *req)
         }
     }
 
-    /* ---- Fader M → Echo Mix (0~80%) + Auto Enable ---- */
+    /* ---- Fader M → Echo Mix (0~40%) + Auto Enable ---- */
     {
         int dm = (int)pct_m - (int)prev_m; if (dm < 0) dm = -dm;
         if (dm >= 3) {
-            uint8_t echo_mix = (uint8_t)((uint32_t)pct_m * 80 / 100); /* 0%→0, 100%→80 */
-            uint8_t echo_fb  = (uint8_t)((uint32_t)pct_m * 150 / 100); /* 0%→0, 100%→150 (~59%) */
+            uint8_t echo_mix = (uint8_t)((uint32_t)pct_m * 40 / 100); /* 0%→0, 100%→40 */
+            uint8_t echo_fb  = (uint8_t)((uint32_t)pct_m * 80 / 100);  /* 0%→0, 100%→80 (~31%) */
             if (pct_m > 2) {
-                Audio_Echo_SetParams(80, echo_fb, echo_mix); /* 80ms delay */
-                Audio_Echo_Enable(1);
+                if (!CS43131_g.echo.enable)
+                    Audio_Echo_Enable(1); /* 仅首次启用时清空延迟线 */
+                Audio_Echo_SetParams(60, echo_fb, echo_mix); /* 60ms delay */
             } else {
-                Audio_Echo_Enable(0);
+                if (CS43131_g.echo.enable)
+                    Audio_Echo_Enable(0);
             }
             prev_m = pct_m;
         }
     }
 
-    /* ---- Fader R → Compressor (threshold 0 ~ -30dB, ratio 1~6) ---- */
+    /* ---- Fader R → Compressor (threshold 0 ~ -18dB, ratio 1~3) ---- */
     {
         int dr = (int)pct_r - (int)prev_r; if (dr < 0) dr = -dr;
         if (dr >= 3) {
             if (pct_r > 2) {
-                int16_t threshold = -(int16_t)((uint32_t)pct_r * 30 / 100); /* 0%→0, 100%→-30 */
-                int16_t ratio = 1 + (int16_t)((uint32_t)pct_r * 5 / 100);   /* 0%→1, 100%→6 */
-                int16_t makeup = (int16_t)((uint32_t)pct_r * 10 / 100);      /* 补偿增益 0~10dB */
+                int16_t threshold = -(int16_t)((uint32_t)pct_r * 18 / 100); /* 0%→0, 100%→-18 */
+                int16_t ratio = 1 + (int16_t)((uint32_t)pct_r * 2 / 100);   /* 0%→1, 100%→3 */
+                int16_t makeup = (int16_t)((uint32_t)pct_r * 5 / 100);      /* 补偿增益 0~5dB */
                 Audio_Comp_SetParams(threshold, ratio, makeup);
-                Audio_Comp_Enable(1);
+                if (!CS43131_g.compressor.enable)
+                    Audio_Comp_Enable(1);
             } else {
-                Audio_Comp_Enable(0);
+                if (CS43131_g.compressor.enable)
+                    Audio_Comp_Enable(0);
             }
             prev_r = pct_r;
         }
@@ -607,7 +617,10 @@ uint8_t Keyboard_Music_Start(void)
     prev_key_bitmap[0] = prev_key_bitmap[1] = prev_key_bitmap[2] = 0;
     current_playing_key = 0;
 
-    printf("[MUSIC] Keyboard-3 event reporting STARTED\r\n");
+    /* 启用效果器总开关 */
+    Audio_FX_MasterEnable(1);
+
+    printf("[MUSIC] Keyboard-3 event reporting STARTED (FX enabled)\r\n");
     return 1;
 }
 
@@ -633,12 +646,13 @@ uint8_t Keyboard_Music_Stop(void)
     Keyboard_Send_Data(keyboard_ptr, buf, len);
     music_active = 0;
 
-    /* 停止播放 */
+    /* 停止播放并关闭效果器总开关 */
     Audio_PlayStop();
+    Audio_FX_MasterEnable(0);
     current_playing_key = 0;
     prev_key_bitmap[0] = prev_key_bitmap[1] = prev_key_bitmap[2] = 0;
 
-    printf("[MUSIC] Keyboard-3 event reporting STOPPED\r\n");
+    printf("[MUSIC] Keyboard-3 event reporting STOPPED (FX disabled)\r\n");
     return 1;
 }
 
