@@ -51,9 +51,9 @@
 /* ======================================================================== */
 
 #define AUDIO_MAX_CHANNELS  2
-#define AUDIO_CH_RB_SIZE    (16 * 1024)     /* 16KB ring buffer per channel */
+#define AUDIO_CH_RB_SIZE    (32 * 1024)     /* 32KB ring buffer per channel (~186ms @ 44.1kHz/16bit/stereo) */
 #define AUDIO_RB_SIZE       (32 * 1024)     /* 32KB main mix ring buffer (legacy) */
-#define AUDIO_CH_READ_BLOCK (4 * 1024)      /* bytes per CH378 read burst */
+#define AUDIO_CH_READ_BLOCK (8 * 1024)      /* 8KB per CH378 read burst (~46ms of audio, reduces open/close overhead) */
 
 /* ======================================================================== */
 /*  Enums                                                                    */

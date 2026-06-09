@@ -724,6 +724,11 @@ uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info)
 
 static uint8_t stream_channel_idx = 0; /* round-robin index */
 
+/* Low watermark: only read when buffer drops below this.
+ * 16KB = ~93ms of audio at 44.1kHz/16bit/stereo.
+ * This reduces CH378 open/close cycles and leaves more idle time for CLI. */
+#define AUDIO_CH_LOW_WATERMARK (AUDIO_CH_RB_SIZE / 2)
+
 void Audio_Process(void)
 {
     audio_channel_t *ch;
@@ -736,7 +741,7 @@ void Audio_Process(void)
     if (CS43131_g.active_channel_count == 0) return;
     if (CS43131_g.ch378_locked) return;
 
-    /* Find next active, non-EOF channel (round-robin) */
+    /* Find next active, non-EOF channel that needs data (round-robin) */
     for (attempts = 0; attempts < AUDIO_MAX_CHANNELS; attempts++) {
         if (stream_channel_idx >= AUDIO_MAX_CHANNELS)
             stream_channel_idx = 0;
@@ -745,7 +750,12 @@ void Audio_Process(void)
 
         if (!ch->active || ch->eof) continue;
 
-        /* Check if channel needs more data */
+        /* Only read when buffer drops below low watermark.
+         * This reduces open/close frequency and gives CH378 more idle time
+         * for CLI/Config operations between reads. */
+        if (ch_rb_used(ch) > AUDIO_CH_LOW_WATERMARK) continue;
+
+        /* Also check there's enough free space for a full block */
         if (ch_rb_free(ch) < AUDIO_CH_READ_BLOCK) continue;
 
         /* Open file, seek, read, close */
