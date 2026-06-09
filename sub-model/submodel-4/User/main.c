@@ -21,7 +21,11 @@
 
 /* ======================== Module Identity ======================== */
 
-#define MY_MODULE_ID    MODULE_ID_SUBMODEL_1  /* 0x40 */
+/* Our own module ID, learned from the first received frame's DST field.
+ * Can be plugged into slot 1 (0x40), slot 2 (0x41), or slot 3 (0x42).
+ * Initially MODULE_ID_SUBMODEL_1 (0x40), updated on first frame reception. */
+uint8_t g_my_module_id = MODULE_ID_SUBMODEL_1;
+
 #define HW_VERSION      0x01
 #define FW_MAJOR        0x01
 #define FW_MINOR        0x00
@@ -77,8 +81,13 @@ static void ReportTouchEvent(void)
 
 static void ProcessCoreFrame(const protocol_frame_t *frame)
 {
-    if (frame->dst != MY_MODULE_ID)
+    /* Only handle frames destined to Submodel slots (0x40~0x42) */
+    if (frame->dst < MODULE_ID_SUBMODEL_1 || frame->dst > MODULE_ID_SUBMODEL_3)
         return;
+
+    /* Learn our module ID from the DST field of the first valid frame */
+    if (g_my_module_id != frame->dst)
+        g_my_module_id = frame->dst;
 
     switch (frame->cmd)
     {
@@ -142,7 +151,7 @@ static void CheckProtocolRx(void)
 {
     if (uart_core_rx_ctx.frame_ready)
     {
-        ProcessCoreFrame(&uart_core_rx_ctx.frame);
+        ProcessCoreFrame(&uart_core_rx_ctx.read_frame);
         Protocol_ResetRxCtx(&uart_core_rx_ctx);
     }
 }

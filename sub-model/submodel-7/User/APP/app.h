@@ -173,6 +173,7 @@ typedef struct {
 #define PAGE_COUNT                  3       /* Total pages in status mode */
 
 extern bulk_transfer_t g_bulk;
+extern uint8_t g_my_module_id;
 
 #define BMP_NAME_MAX_LEN    20
 extern char g_bmp_name[BMP_NAME_MAX_LEN];

@@ -6,6 +6,11 @@
 
 volatile uint8_t g_touchout_flag = 0;
 
+/* Our own module ID, learned from the first received frame's DST field.
+ * Can be plugged into slot 1 (0x40), slot 2 (0x41), or slot 3 (0x42).
+ * Initially MODULE_ID_SUBMODEL_1 (0x40), updated on first frame reception. */
+uint8_t g_my_module_id = MODULE_ID_SUBMODEL_1;
+
 static void TouchOut_GPIO_Init(void)
 {
     GPIO_InitTypeDef gpio;
@@ -294,11 +299,15 @@ void Hardware_ProcessCoreFrame(void)
 
     frame = &uart_core_rx_ctx.read_frame;
 
-    if (frame->dst != MODULE_ID_SUBMODEL_1)
+    if (frame->dst < MODULE_ID_SUBMODEL_1 || frame->dst > MODULE_ID_SUBMODEL_3)
     {
         Protocol_ResetRxCtx(&uart_core_rx_ctx);
         return;
     }
+
+    /* Learn our module ID from the DST field of the first valid frame */
+    if (g_my_module_id != frame->dst)
+        g_my_module_id = frame->dst;
 
     switch (frame->cmd)
     {

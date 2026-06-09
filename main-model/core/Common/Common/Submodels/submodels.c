@@ -578,7 +578,20 @@ static uint8_t submodels_nfc_dispatch(submodels_t *submodel, const protocol_fram
     return 1;
 }
 
-/* ---- 4. 触摸圆环/旋钮 (type = 0x04) ---- */
+/* ---- 4. 触摸圆环 (type = 0x04, submodel-4) ----
+ *
+ * 协议见 Protocol_Submodels.md §4.4
+ *
+ * Touch → Core:
+ *   CMD_SUB_DATA_REPORT(0x43) SUB=0x01  触摸位图上报  [subcmd:1][bitmap_hi:1][bitmap_lo:1]
+ *   CMD_SUB_ACTION_RESULT(0x45)          预留
+ *
+ * Core → Touch:
+ *   CMD_SUB_GET_STATUS(0x42) SUB=0x00    查询触摸状态 → ACK [bitmap_hi:1][bitmap_lo:1]
+ *   CMD_SUB_SET_MODE(0x41)   SUB=0x01    重新校准基线（发送即忘）
+ *
+ * bitmap: bit0=Key1(TP9,方阵左上) … bit15=Key16(TP12,圆环11点钟), 1=touched
+ */
 static uint8_t submodels_touch_dispatch(submodels_t *submodel, const protocol_frame_t *req,
                                         uint8_t *resp, uint16_t resp_size, uint8_t *resp_len)
 {
@@ -588,15 +601,50 @@ static uint8_t submodels_touch_dispatch(submodels_t *submodel, const protocol_fr
 
     switch (cmd)
     {
+        /* ---- Touch → Core: 触摸位图上报 ---- */
         case CMD_SUB_DATA_REPORT:
             switch (subcmd)
             {
-                case 0x01: /* 旋钮状态 */
-                    /* TODO: req->data[1..2] = 旋钮值(uint16大端) */
+                case 0x01: /* 触摸位图 [bitmap_hi:1][bitmap_lo:1] */
+                    if (req->len >= 3)
+                    {
+                        uint16_t bitmap = ((uint16_t)req->data[1] << 8) | req->data[2];
+                        printf("[Touch] bitmap=0x%04X\r\n", bitmap);
+                    }
+                    *resp_len = 0;
+                    return 1;   /* 事件帧无需回复 */
+
+                default:
+                    break;
+            }
+            break;
+
+        /* ---- Core → Touch: 查询触摸状态 ---- */
+        case CMD_SUB_GET_STATUS:
+            switch (subcmd)
+            {
+                case 0x00: /* 查询触摸状态 → ACK [bitmap_hi:1][bitmap_lo:1] */
+                    /* Core 侧不缓存触摸状态，返回 0；实际触摸数据由 DATA_REPORT 主动上报 */
+                    resp[0] = 0x00;
+                    resp[1] = 0x00;
+                    *resp_len = 2;
                     return 1;
-                case 0x02: /* 触摸事件 */
-                    /* TODO: req->data[1..2]=X, data[3..4]=Y, data[5]=状态(按下/移动/释放) */
-                    return 1;
+
+                default:
+                    break;
+            }
+            break;
+
+        /* ---- Core → Touch: 重新校准基线（发送即忘） ---- */
+        case CMD_SUB_SET_MODE:
+            switch (subcmd)
+            {
+                case 0x01: /* 重新校准基线 */
+                    *resp_len = 0;
+                    return 1;   /* 发送即忘，不响应 */
+
+                default:
+                    break;
             }
             break;
 
@@ -1264,6 +1312,19 @@ submodels_t *Submodels_FindFpSlot(void)
     for (i = 0; i < 3; i++)
     {
         if (submodels_g[i].type_id == MODULE_SUBTYPE_SUBMODEL_FINGERPRINT)
+            return &submodels_g[i];
+    }
+    return NULL;
+}
+
+submodels_t *Submodels_FindTouchSlot(void)
+{
+    extern submodels_t submodels_g[3];
+    uint8_t i;
+
+    for (i = 0; i < 3; i++)
+    {
+        if (submodels_g[i].type_id == MODULE_SUBTYPE_SUBMODEL_TOUCH_RING)
             return &submodels_g[i];
     }
     return NULL;

@@ -2,6 +2,9 @@
 
 protocol_rx_ctx_t uart_core_rx_ctx;
 
+/* Defined in hardware.c: dynamically learned module ID */
+extern uint8_t g_my_module_id;
+
 static void UartCore_GPIO_Init(void)
 {
     GPIO_InitTypeDef gpio;
@@ -65,7 +68,7 @@ uint16_t UartCore_PackAndSend(uint8_t dst, uint8_t cmd,
     uint8_t buf[PROTO_MAX_FRAME_LEN];
     uint16_t len;
 
-    len = Protocol_PackFrame(MODULE_ID_SUBMODEL_1, dst, cmd,
+    len = Protocol_PackFrame(g_my_module_id, dst, cmd,
                              data, data_len, buf, sizeof(buf));
     if (len == 0)
         return 0;

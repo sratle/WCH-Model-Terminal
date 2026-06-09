@@ -16,6 +16,10 @@
 struct st7305_stu g_lcd;
 static uint8_t g_framebuffer[FULL_BUFFER_LENGTH];
 
+/** Our own module ID, learned from the first received frame's DST field.
+ *  Can be plugged into slot 1 (0x40), slot 2 (0x41), or slot 3 (0x42). */
+uint8_t g_my_module_id = MODULE_ID_SUBMODEL;
+
 /** Raw image buffer for multi-frame bulk receive.
  *  Max image: 122x250 @ 1bpp = ceil(122/8)*250 = 4000 bytes. */
 static uint8_t g_raw_img_buf[BULK_IMG_MAX_BYTES];
@@ -171,6 +175,14 @@ static void App_HandleFrame(void)
 {
     /* 从双缓冲的 read_frame 读取（ISR 写入 frame，完成后拷贝到 read_frame） */
     protocol_frame_t *f = &uart_core_rx_ctx.read_frame;
+
+    /* Only handle frames destined to Submodel slots (0x40~0x42) */
+    if (f->dst < MODULE_ID_SUBMODEL_1 || f->dst > MODULE_ID_SUBMODEL_3)
+        return;
+
+    /* Learn our module ID from the DST field of the first valid frame */
+    if (g_my_module_id != f->dst)
+        g_my_module_id = f->dst;
 
     switch (f->cmd)
     {

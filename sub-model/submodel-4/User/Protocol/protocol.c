@@ -7,6 +7,7 @@ void Protocol_InitRxCtx(protocol_rx_ctx_t *ctx)
 
     memset(ctx, 0, sizeof(protocol_rx_ctx_t));
     ctx->state = PROTO_STATE_WAIT_HEAD;
+    ctx->frame_consumed = 1;
 }
 
 void Protocol_ResetRxCtx(protocol_rx_ctx_t *ctx)
@@ -14,10 +15,8 @@ void Protocol_ResetRxCtx(protocol_rx_ctx_t *ctx)
     if (ctx == NULL)
         return;
 
-    ctx->state = PROTO_STATE_WAIT_HEAD;
-    ctx->data_idx = 0;
     ctx->frame_ready = 0;
-    memset(&ctx->frame, 0, sizeof(protocol_frame_t));
+    ctx->frame_consumed = 1;
 }
 
 uint16_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
@@ -163,7 +162,12 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
         {
             if (byte == PROTO_FRAME_TAIL3)
             {
-                ctx->frame_ready = 1;
+                if (ctx->frame_consumed)
+                {
+                    memcpy(&ctx->read_frame, &ctx->frame, sizeof(protocol_frame_t));
+                    ctx->frame_ready = 1;
+                    ctx->frame_consumed = 0;
+                }
                 ctx->state = PROTO_STATE_FRAME_READY;
                 return 1;
             }
@@ -178,10 +182,8 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
         {
             if (byte == PROTO_FRAME_HEAD)
             {
-                ctx->frame_ready = 0;
-                ctx->data_idx = 0;
-                memset(&ctx->frame, 0, sizeof(protocol_frame_t));
                 ctx->frame.head = byte;
+                ctx->data_idx = 0;
                 ctx->state = PROTO_STATE_WAIT_SRC;
             }
             break;

@@ -203,6 +203,12 @@ submodels_t *Submodels_FindSubDispSlot(void);
 submodels_t *Submodels_FindFpSlot(void);
 
 /**
+ * @brief  在 submodels_g[0..2] 中查找 Touch Ring 类型 submodel
+ * @return Touch Ring submodel 指针, 未找到返回 NULL
+ */
+submodels_t *Submodels_FindTouchSlot(void);
+
+/**
  * @brief  开始注册新指纹
  * @param  submodel   目标 submodel 实例指针（需为 Fingerprint 类型）
  * @return 1=发送成功, 0=失败

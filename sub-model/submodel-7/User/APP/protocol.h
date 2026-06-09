@@ -55,7 +55,10 @@ extern "C" {
  *=============================================================================*/
 
 #define MODULE_ID_CORE          0x00
-#define MODULE_ID_SUBMODEL      0x40    /* Default, Core assigns actual ID */
+#define MODULE_ID_SUBMODEL_1    0x40    /* Slot 1 (UART6) */
+#define MODULE_ID_SUBMODEL_2    0x41    /* Slot 2 (UART7) */
+#define MODULE_ID_SUBMODEL_3    0x42    /* Slot 3 (UART8) */
+#define MODULE_ID_SUBMODEL      MODULE_ID_SUBMODEL_1  /* Default */
 
 /*=============================================================================
  *  Module Type / Subtype

@@ -163,7 +163,7 @@ static void CheckProtocolRx(void)
 {
     if (uart_core_rx_ctx.frame_ready)
     {
-        ProcessCoreFrame(&uart_core_rx_ctx.frame);
+        ProcessCoreFrame(&uart_core_rx_ctx.read_frame);
         Protocol_ResetRxCtx(&uart_core_rx_ctx);
     }
 }

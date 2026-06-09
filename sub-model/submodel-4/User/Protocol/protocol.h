@@ -91,9 +91,11 @@ typedef struct {
 
 typedef struct {
     protocol_state_t state;
-    protocol_frame_t frame;
+    protocol_frame_t frame;       /* ISR writes here */
+    protocol_frame_t read_frame;  /* main loop reads here (double buffer) */
     uint16_t data_idx;
     uint8_t  frame_ready;
+    uint8_t  frame_consumed;      /* main loop done processing, ISR may overwrite read_frame */
 } protocol_rx_ctx_t;
 
 /* ======================== API ======================== */

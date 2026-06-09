@@ -21,6 +21,7 @@ void Hardware_SendTemplateCount(uint16_t count);
 void Hardware_SendIndexList(void);
 
 extern volatile uint8_t g_touchout_flag;
+extern uint8_t g_my_module_id;
 
 #ifdef __cplusplus
 }
