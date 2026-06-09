@@ -447,19 +447,16 @@ static void Keyboard_HandleMusicKeys(const protocol_frame_t *req)
         }
     }
 
-    /* 处理琴键事件 */
+    /* 处理琴键事件
+     * 延音逻辑：松键不主动停止播放，让 WAV 自然衰减结束。
+     * 只有新音符触发或外部音频打断才会停止当前播放。 */
     if (new_key_pressed) {
-        /* 有新键按下 → 播放最后按下的键（最高优先级） */
+        /* 有新键按下 → 播放最后按下的键（打断当前音符） */
         current_playing_key = last_pressed_key;
         Music_PlayPianoKey(current_playing_key);
     }
-    else if (pressed_count == 0 && current_playing_key != 0) {
-        /* 所有键释放 → 停止播放 */
-        Audio_PlayStop();
-        current_playing_key = 0;
-    }
     else if (pressed_count > 0 && current_playing_key != 0) {
-        /* 检查当前播放的键是否还在按下列表中 */
+        /* 有键仍按住：检查当前播放的键是否还在按下列表中 */
         uint8_t byte_idx = (current_playing_key - 1) >> 3;
         uint8_t bit_mask = 1u << ((current_playing_key - 1) & 7);
         if (!(bitmap[byte_idx] & bit_mask)) {
@@ -468,6 +465,7 @@ static void Keyboard_HandleMusicKeys(const protocol_frame_t *req)
             Music_PlayPianoKey(current_playing_key);
         }
     }
+    /* pressed_count == 0: 所有键释放 → 不主动停止，让 WAV 自然延音结束 */
 
     /* 保存当前位图 */
     prev_key_bitmap[0] = bitmap[0];
