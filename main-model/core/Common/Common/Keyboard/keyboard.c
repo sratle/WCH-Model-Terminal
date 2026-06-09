@@ -416,7 +416,7 @@ static void Music_PlayPianoKey(uint8_t key_id)
 static void Keyboard_HandleMusicKeys(const protocol_frame_t *req)
 {
     const uint8_t *bitmap;
-    uint8_t i, bit_idx;
+    uint8_t i;
     uint8_t pressed_count = 0;
     uint8_t last_pressed_key = 0;
     uint8_t new_key_pressed = 0;

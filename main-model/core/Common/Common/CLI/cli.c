@@ -1341,8 +1341,10 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  chmod <file> <attr>  Change file attributes (supports LFN)\r\n");
         printf("  ver             Show CH378 firmware version\r\n");
         printf("  vol <0-100>     Set playback volume\r\n");
-        printf("  pause           Pause playback\r\n");
-        printf("  resume          Resume playback\r\n");
+        printf("  play <file> [ch]  Play WAV file (ch=0|1, default ch0 stops all)\r\n");
+        printf("  pause [ch]      Pause playback (no ch=all)\r\n");
+        printf("  resume [ch]     Resume playback (no ch=all)\r\n");
+        printf("  stop [ch]       Stop playback, cannot resume (no ch=all)\r\n");
         printf("  playst          Show playback status\r\n");
         printf("  lsdev           List module status (online/offline/type)\r\n");
         printf("  bmp get <file> [sub]  Read BMP file (hex dump, sub=send to SubDisplay)\r\n");
@@ -1355,7 +1357,6 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  roll <delta>    Send mouse scroll event\r\n");
         printf("  keyboard <key>  Send keyboard event (a-z 0-9 SPACE ENTER UP DOWN LEFT RIGHT)\r\n");
         printf("  music <start|stop|status>  Control music keyboard (Keyboard-3)\r\n");
-        printf("  play <file|path>  Play a WAV audio file (supports absolute path)\r\n");
         printf("  config get [module|file.json [key]]  Get config value\r\n");
         printf("  config getkey [module|file.json]  List all key names\r\n");
         printf("  config set <key|module key|file.json key> <value>  Set config value\r\n");
@@ -1389,7 +1390,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  head <file> [n], tail <file> [n], tree [dir], du <dir>\r\n");
         printf("  find <pattern>, df, free, device [usb|sd]\r\n");
         printf("  stat <file>, chmod <file> <attr>, ver\r\n");
-        printf("  play <file|path>, vol <0-100>, pause, resume, playst\r\n");
+        printf("  play <file> [ch], vol <0-100>, pause [ch], resume [ch], stop [ch], playst\r\n");
         printf("  music <start|stop|status>\r\n");
         printf("  lsdev, bmp get <file> [sub], lsstatus\r\n");
         printf("  subdisp mode <0|1>, subdisp refresh status\r\n");
@@ -1421,22 +1422,52 @@ static void CLI_Cmd_Vol(uint8_t argc, char **argv)
     printf("Volume: %d\r\n", vol);
 }
 
-static void CLI_Cmd_Pause(void)
+static void CLI_Cmd_Pause(uint8_t argc, char **argv)
 {
-    Audio_Pause();
-    printf("Paused\r\n");
+    if (argc >= 2) {
+        int ch = atoi(argv[1]);
+        if (ch < 0 || ch >= AUDIO_MAX_CHANNELS) {
+            printf("pause: invalid channel %d (0~%d)\r\n", ch, AUDIO_MAX_CHANNELS - 1);
+            return;
+        }
+        Audio_ChannelPause((uint8_t)ch);
+        printf("Paused ch%d\r\n", ch);
+    } else {
+        Audio_Pause();
+        printf("Paused all\r\n");
+    }
 }
 
-static void CLI_Cmd_Resume(void)
+static void CLI_Cmd_Resume(uint8_t argc, char **argv)
 {
-    Audio_Resume();
-    printf("Resumed\r\n");
+    if (argc >= 2) {
+        int ch = atoi(argv[1]);
+        if (ch < 0 || ch >= AUDIO_MAX_CHANNELS) {
+            printf("resume: invalid channel %d (0~%d)\r\n", ch, AUDIO_MAX_CHANNELS - 1);
+            return;
+        }
+        Audio_ChannelResume((uint8_t)ch);
+        printf("Resumed ch%d\r\n", ch);
+    } else {
+        Audio_Resume();
+        printf("Resumed all\r\n");
+    }
 }
 
-static void CLI_Cmd_Stop(void)
+static void CLI_Cmd_Stop(uint8_t argc, char **argv)
 {
-    Audio_PlayStop();
-    printf("Stopped\r\n");
+    if (argc >= 2) {
+        int ch = atoi(argv[1]);
+        if (ch < 0 || ch >= AUDIO_MAX_CHANNELS) {
+            printf("stop: invalid channel %d (0~%d)\r\n", ch, AUDIO_MAX_CHANNELS - 1);
+            return;
+        }
+        Audio_ChannelStop((uint8_t)ch);
+        printf("Stopped ch%d\r\n", ch);
+    } else {
+        Audio_PlayStop();
+        printf("Stopped all\r\n");
+    }
 }
 
 static void CLI_Cmd_Playst(void)
@@ -2514,15 +2545,34 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
     uint8_t header[512];
     uint16_t real_len;
     wav_info_t info;
+    uint8_t ch = 0;
 
     if (argc < 2) {
-        printf("Usage: play <wav_file>\r\n");
-        printf("       play \\SOUND\\PIANO1.WAV  (absolute path)\r\n");
+        printf("Usage: play <wav_file> [channel]\r\n");
+        printf("  No channel arg: play on ch0 (stop all first)\r\n");
+        printf("  channel 0 or 1: play on specified channel\r\n");
+        printf("  e.g. play song.wav        (ch0, stops ch1 too)\r\n");
+        printf("       play bgm.wav 1       (ch1, does not stop ch0)\r\n");
         return;
     }
 
-    /* 停止当前播放 */
-    Audio_PlayStop();
+    /* Parse optional channel argument */
+    if (argc >= 3) {
+        int parsed = atoi(argv[2]);
+        if (parsed < 0 || parsed >= AUDIO_MAX_CHANNELS) {
+            printf("play: invalid channel %d (0~%d)\r\n", parsed, AUDIO_MAX_CHANNELS - 1);
+            return;
+        }
+        ch = (uint8_t)parsed;
+    }
+
+    /* Default (no channel arg): stop all channels first */
+    if (argc < 3) {
+        Audio_PlayStop();
+    } else {
+        /* Explicit channel: only stop that channel */
+        Audio_ChannelStop(ch);
+    }
 
     /* 支持绝对路径（以 \ 或 / 开头）和相对路径 */
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
@@ -2556,17 +2606,23 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
     CH378FileClose(0);
 
     /* 启动流式播放 */
-    if (Audio_ChannelStart(0, full_path, &info) != 0) {
-        printf("play: failed to start channel\r\n");
+    if (Audio_ChannelStart(ch, full_path, &info) != 0) {
+        printf("play: failed to start channel %d\r\n", ch);
         return;
     }
-    Audio_SetCurrentTrack(argv[1]);
+    if (ch == 0) {
+        Audio_SetCurrentTrack(argv[1]);
+    } else {
+        strncpy(CS43131_g.channels[ch].track_name, argv[1],
+                sizeof(CS43131_g.channels[ch].track_name) - 1);
+        CS43131_g.channels[ch].track_name[sizeof(CS43131_g.channels[ch].track_name) - 1] = '\0';
+    }
     {
         uint32_t byte_rate = info.sample_rate * info.num_channels * (info.bits_per_sample / 8);
         uint32_t duration_sec = byte_rate > 0 ? info.data_size / byte_rate : 0;
         uint32_t dur_min = duration_sec / 60;
         uint32_t dur_s = duration_sec % 60;
-        printf("Playing: %s\r\n", argv[1]);
+        printf("Playing ch%d: %s\r\n", ch, argv[1]);
         printf("Duration: %02lu:%02lu\r\n", dur_min, dur_s);
         printf("Volume: %d\r\n", Audio_GetVolume());
     }
@@ -2959,11 +3015,11 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
     } else if (strcmp(argv[0], "vol") == 0) {
         CLI_Cmd_Vol(argc, argv);
     } else if (strcmp(argv[0], "pause") == 0) {
-        CLI_Cmd_Pause();
+        CLI_Cmd_Pause(argc, argv);
     } else if (strcmp(argv[0], "resume") == 0) {
-        CLI_Cmd_Resume();
+        CLI_Cmd_Resume(argc, argv);
     } else if (strcmp(argv[0], "stop") == 0) {
-        CLI_Cmd_Stop();
+        CLI_Cmd_Stop(argc, argv);
     } else if (strcmp(argv[0], "playst") == 0) {
         CLI_Cmd_Playst();
     } else if (strcmp(argv[0], "lsdev") == 0) {

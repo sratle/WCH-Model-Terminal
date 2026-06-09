@@ -235,18 +235,6 @@ static void ch_rb_write(audio_channel_t *ch, const uint8_t *data, uint32_t len)
     }
 }
 
-static void ch_rb_read_stereo(audio_channel_t *ch, int16_t *dst, uint32_t samples)
-{
-    uint32_t i;
-    for (i = 0; i < samples; i++) {
-        uint8_t lo = ch->rb[ch->rb_read_pos];
-        ch->rb_read_pos = (ch->rb_read_pos + 1) % AUDIO_CH_RB_SIZE;
-        uint8_t hi = ch->rb[ch->rb_read_pos];
-        ch->rb_read_pos = (ch->rb_read_pos + 1) % AUDIO_CH_RB_SIZE;
-        dst[i] = (int16_t)(lo | (hi << 8));
-    }
-}
-
 /* ======================================================================== */
 /*  Biquad Filter (Q13 fixed-point)                                         */
 /* ======================================================================== */
@@ -270,11 +258,6 @@ static inline int16_t biquad_process(biquad_t *bq, int16_t x)
     if (acc < -32768) acc = -32768;
     bq->y1 = (int16_t)acc;
     return (int16_t)acc;
-}
-
-static void biquad_reset(biquad_t *bq)
-{
-    bq->x1 = bq->x2 = bq->y1 = bq->y2 = 0;
 }
 
 /* ======================================================================== */
@@ -356,12 +339,6 @@ static void compressor_process(audio_compressor_t *comp, int16_t *buf, uint32_t 
     int32_t release_coeff = 131;  /* ~0.016 in Q13, slow release */
     int32_t threshold = comp->threshold_db;
     int32_t ratio = comp->ratio;
-    /* Makeup gain as linear multiplier in Q13 */
-    int32_t makeup_q13 = BQ_UNITY;
-    if (comp->makeup_db > 0) {
-        /* Approximate: gain = 1 + makeup_db/6 (doubling per 6dB) */
-        makeup_q13 = BQ_UNITY + (int32_t)comp->makeup_db * BQ_UNITY / 6;
-    }
 
     for (i = 0; i < len; i++) {
         int32_t in_db = comp_abs_db(buf[i]);
@@ -813,9 +790,8 @@ static void mixer_fill_half(uint16_t *out, uint32_t count)
 {
     int16_t *buf = (int16_t *)out;
     uint32_t i, ch_idx;
-    int16_t tmp;
     audio_channel_t *ch;
-    int32_t mix, vol, pan_l, pan_r;
+    int32_t vol, pan_l, pan_r;
     int32_t l, r;
 
     /* Step 1: Mix all active channels */

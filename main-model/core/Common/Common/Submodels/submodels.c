@@ -1626,7 +1626,7 @@ uint8_t Submodels_SubDisp_SendSysStatus(submodels_t *submodel)
 
     /* 音频曲目名称 (长度前缀) */
     {
-        const char *track = CS43131_g.track_name;
+        const char *track = Audio_GetCurrentTrackName();
         uint8_t tlen = 0;
         while (track[tlen] && tlen < 31) tlen++;
         status_buf[offset++] = tlen;

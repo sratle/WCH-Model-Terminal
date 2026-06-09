@@ -9,9 +9,9 @@ MEMORY
 {
 	/*FLASH, RAM, and RAM-CODE can be freely configured according to project 
 	requirements;Please refer to the datasheet manual for specific allocation*/
-	FLASH (rx) : ORIGIN = 0x00010000, LENGTH = 512K                    /* zero_wait flah ,and loaded into RAM_CODE for running */
-	RAM_CODE (xrw) : ORIGIN = 0x200A0000, LENGTH = 128K                /*ITCM RAM for running code*/
-	RAM (xrw) : ORIGIN = (0x200C0000+512+256), LENGTH = (512K-512-256) /*DTCM(256K)+SRAM(256K) for .data .bss section and other*/ 
+	FLASH (rx) : ORIGIN = 0x00010000, LENGTH = 832K                    /* CodeFlash: 960K total, V5F gets 832K (V3F uses first 64K) */
+	RAM_CODE (xrw) : ORIGIN = 0x200A0000, LENGTH = 128K                /* ITCM 128K for V5F code execution */
+	RAM (xrw) : ORIGIN = (0x200C0000+512+256), LENGTH = (512K-512-256) /* DTCM 256K + SRAM 256K for .data .bss (up to V3F 0x20140000) */
 	RAM_LOAD (xrw) : ORIGIN = (0x200C0000+512), LENGTH = 256           /* RAM for .load section*/
 }
 
