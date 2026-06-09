@@ -489,6 +489,7 @@ static void Keyboard_HandleMusicButtons(const protocol_frame_t *req)
 static void Keyboard_HandleMusicFaders(const protocol_frame_t *req)
 {
     uint16_t fader_l, fader_m, fader_r;
+    uint8_t pct_l, pct_m, pct_r;
 
     if (req->len < 7)  /* CMD + 6 bytes (3 x uint16 big-endian) */
         return;
@@ -497,7 +498,12 @@ static void Keyboard_HandleMusicFaders(const protocol_frame_t *req)
     fader_m = ((uint16_t)req->data[2] << 8) | req->data[3];
     fader_r = ((uint16_t)req->data[4] << 8) | req->data[5];
 
-    printf("[MUSIC] Faders: L=%5u M=%5u R=%5u\r\n", fader_l, fader_m, fader_r);
+    /* Convert 16-bit (0~65535) to percentage (0~100%) */
+    pct_l = (uint8_t)((uint32_t)fader_l * 100 / 65535);
+    pct_m = (uint8_t)((uint32_t)fader_m * 100 / 65535);
+    pct_r = (uint8_t)((uint32_t)fader_r * 100 / 65535);
+
+    printf("[MUSIC] Faders: L=%3u%% M=%3u%% R=%3u%%\r\n", pct_l, pct_m, pct_r);
 }
 
 static void Keyboard_HandleGameInput(const protocol_frame_t *req)

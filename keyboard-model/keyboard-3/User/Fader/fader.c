@@ -108,7 +108,8 @@ void Fader_Init(void)
 void Fader_Scan(void)
 {
     uint8_t i;
-    uint16_t raw, sum;
+    uint16_t raw;
+    uint32_t sum;
     int32_t diff;
 
     fader_changed = 0;

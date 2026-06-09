@@ -286,6 +286,9 @@ int main(void)
     /* Wait for TTP229 power-on stabilization (~500ms) */
     Delay_Ms(500);
 
+    /* Calibrate TTP229 baseline (capture idle state, cancel parasitic bits) */
+    TTP229_Calibrate();
+
     while (1)
     {
         /* ALWAYS check protocol - never blocked by scanning */

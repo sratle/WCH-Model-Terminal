@@ -80,7 +80,7 @@ Submodel模块三个
 - submodel-1, 指纹识别finger，主要功能是存储指纹数据并上报识别ID成功/失败，也会上报指纹数据。
 - submodel-2, 健康监测health, 主要功能是检测血氧、心跳、温湿度数据并上报。
 - submodel-3, NFC读卡nfc, 主要功能是存储NFC数据并上报识别ID成功/失败。
-- submodel-4, 触摸圆环/旋钮touch, 主要功能是可以通过触摸圆环发出操控指令，也可以通过旋钮控制。
+- submodel-4, 触摸圆环 touch, 主要功能是通过 TTP229-BSF 驱动 16 个触摸焊盘（2×2 中心方阵 + 12 位环绕圆环），支持多点触摸，上报触摸状态。
 - submodel-5, RGB点阵rgb, 主要功能是控制WS2812亮灯，接受指令以不同模式炫彩。
 - submodel-6, 红外测距infrared, 主要功能是通过红外测距。
 - submodel-7, 副屏显示subdisplay, 主要功能是接受一些数据，
