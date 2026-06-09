@@ -144,6 +144,7 @@ typedef struct {
     uint8_t  eof;
     audio_state_t state;
     uint32_t read_offset;       /* next byte offset in file to read */
+    uint8_t  file_open;         /* 1 = CH378 file currently open for sequential reads */
 
     /* File info */
     char     path[260];

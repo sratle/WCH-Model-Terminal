@@ -490,6 +490,12 @@ void Audio_ChannelStop(uint8_t ch)
     c = &CS43131_g.channels[ch];
     if (!c->active) return;
 
+    /* Close CH378 file if open */
+    if (c->file_open) {
+        CH378FileClose(0);
+        c->file_open = 0;
+    }
+
     c->active = 0;
     c->state = AUDIO_STATE_STOPPED;
     c->eof = 0;
@@ -719,15 +725,42 @@ uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info)
 }
 
 /* ======================================================================== */
-/*  Audio_Process: Main Loop — CH378 Streaming (round-robin)                 */
+/*  Audio_Process: Main Loop — CH378 Streaming (sequential read)             */
 /* ======================================================================== */
 
 static uint8_t stream_channel_idx = 0; /* round-robin index */
 
 /* Low watermark: only read when buffer drops below this.
- * 16KB = ~93ms of audio at 44.1kHz/16bit/stereo.
- * This reduces CH378 open/close cycles and leaves more idle time for CLI. */
+ * 16KB = ~93ms of audio at 44.1kHz/16bit/stereo. */
 #define AUDIO_CH_LOW_WATERMARK (AUDIO_CH_RB_SIZE / 2)
+
+/* Helper: close CH378 file for a channel if open */
+static void channel_file_close(audio_channel_t *ch)
+{
+    if (ch->file_open) {
+        CH378FileClose(0);
+        ch->file_open = 0;
+    }
+}
+
+/* Helper: open CH378 file for a channel and seek to read_offset */
+static uint8_t channel_file_open(audio_channel_t *ch)
+{
+    uint8_t status;
+
+    if (ch->file_open) return ERR_SUCCESS; /* already open */
+
+    status = CH378FileOpen((uint8_t *)ch->path);
+    if (status != ERR_SUCCESS) return status;
+
+    status = CH378ByteLocate(ch->read_offset);
+    if (status != ERR_SUCCESS) {
+        CH378FileClose(0);
+        return status;
+    }
+    ch->file_open = 1;
+    return ERR_SUCCESS;
+}
 
 void Audio_Process(void)
 {
@@ -739,7 +772,14 @@ void Audio_Process(void)
 
     /* Quick exit if nothing to stream */
     if (CS43131_g.active_channel_count == 0) return;
-    if (CS43131_g.ch378_locked) return;
+
+    /* If CH378 is locked by another module, close all open files and skip */
+    if (CS43131_g.ch378_locked) {
+        for (attempts = 0; attempts < AUDIO_MAX_CHANNELS; attempts++) {
+            channel_file_close(&CS43131_g.channels[attempts]);
+        }
+        return;
+    }
 
     /* Find next active, non-EOF channel that needs data (round-robin) */
     for (attempts = 0; attempts < AUDIO_MAX_CHANNELS; attempts++) {
@@ -748,18 +788,28 @@ void Audio_Process(void)
         ch = &CS43131_g.channels[stream_channel_idx];
         stream_channel_idx++;
 
-        if (!ch->active || ch->eof) continue;
+        if (!ch->active || ch->eof) {
+            /* Channel finished — close its file if still open */
+            channel_file_close(ch);
+            continue;
+        }
 
-        /* Only read when buffer drops below low watermark.
-         * This reduces open/close frequency and gives CH378 more idle time
-         * for CLI/Config operations between reads. */
+        /* Only read when buffer drops below low watermark */
         if (ch_rb_used(ch) > AUDIO_CH_LOW_WATERMARK) continue;
 
         /* Also check there's enough free space for a full block */
         if (ch_rb_free(ch) < AUDIO_CH_READ_BLOCK) continue;
 
-        /* Open file, seek, read, close */
-        status = CH378FileOpen((uint8_t *)ch->path);
+        /* Ensure file is open (reopen + seek if was closed by lock or other channel) */
+        /* CH378 has only one file handle: close other channels first */
+        {
+            uint8_t j;
+            for (j = 0; j < AUDIO_MAX_CHANNELS; j++) {
+                if (j != (uint8_t)(ch - CS43131_g.channels))
+                    channel_file_close(&CS43131_g.channels[j]);
+            }
+        }
+        status = channel_file_open(ch);
         if (status != ERR_SUCCESS) {
             printf("Audio: ch%d open failed (0x%02X)\r\n",
                    (int)(ch - CS43131_g.channels), status);
@@ -767,18 +817,12 @@ void Audio_Process(void)
             continue;
         }
 
-        status = CH378ByteLocate(ch->read_offset);
-        if (status != ERR_SUCCESS) {
-            CH378FileClose(0);
-            ch->eof = 1;
-            continue;
-        }
-
+        /* Sequential read — no seek needed, CH378 continues from last position */
         status = CH378ByteRead(temp_buf, AUDIO_CH_READ_BLOCK, &real_len);
-        CH378FileClose(0);
 
         if (status != ERR_SUCCESS || real_len == 0) {
             ch->eof = 1;
+            channel_file_close(ch);
             continue;
         }
 
@@ -787,6 +831,7 @@ void Audio_Process(void)
 
         if (real_len < AUDIO_CH_READ_BLOCK) {
             ch->eof = 1;
+            channel_file_close(ch);
         }
         break; /* Only serve one channel per call */
     }

@@ -499,6 +499,7 @@ static void Keyboard_HandleMusicFaders(const protocol_frame_t *req)
 {
     uint16_t fader_l, fader_m, fader_r;
     uint8_t pct_l, pct_m, pct_r;
+    static uint8_t prev_l = 0xFF, prev_m = 0xFF, prev_r = 0xFF;
 
     if (req->len < 7)  /* CMD + 6 bytes (3 x uint16 big-endian) */
         return;
@@ -512,7 +513,62 @@ static void Keyboard_HandleMusicFaders(const protocol_frame_t *req)
     pct_m = (uint8_t)((uint32_t)fader_m * 100 / 65535);
     pct_r = (uint8_t)((uint32_t)fader_r * 100 / 65535);
 
+    /* 死区滤波：变化 < 3% 不更新，避免 ADC 抖动导致频繁重算效果器系数 */
+    {
+        int dl = (int)pct_l - (int)prev_l; if (dl < 0) dl = -dl;
+        int dm = (int)pct_m - (int)prev_m; if (dm < 0) dm = -dm;
+        int dr = (int)pct_r - (int)prev_r; if (dr < 0) dr = -dr;
+        if (dl < 3 && dm < 3 && dr < 3) return;
+    }
+
     printf("[MUSIC] Faders: L=%3u%% M=%3u%% R=%3u%%\r\n", pct_l, pct_m, pct_r);
+
+    /* ---- Fader L → Bass EQ (-12 ~ +12 dB) ---- */
+    {
+        int dl = (int)pct_l - (int)prev_l; if (dl < 0) dl = -dl;
+        if (dl >= 3) {
+            int16_t bass_db = (int16_t)((int)pct_l * 24 / 100) - 12; /* 0%→-12, 50%→0, 100%→+12 */
+            Audio_EQ_SetBass(bass_db);
+            if (bass_db != 0)
+                Audio_EQ_Enable(1);
+            else if (CS43131_g.eq.mid_gain_db == 0 && CS43131_g.eq.treble_gain_db == 0)
+                Audio_EQ_Enable(0); /* 所有频段归零则关闭 EQ */
+            prev_l = pct_l;
+        }
+    }
+
+    /* ---- Fader M → Echo Mix (0~80%) + Auto Enable ---- */
+    {
+        int dm = (int)pct_m - (int)prev_m; if (dm < 0) dm = -dm;
+        if (dm >= 3) {
+            uint8_t echo_mix = (uint8_t)((uint32_t)pct_m * 80 / 100); /* 0%→0, 100%→80 */
+            uint8_t echo_fb  = (uint8_t)((uint32_t)pct_m * 150 / 100); /* 0%→0, 100%→150 (~59%) */
+            if (pct_m > 2) {
+                Audio_Echo_SetParams(80, echo_fb, echo_mix); /* 80ms delay */
+                Audio_Echo_Enable(1);
+            } else {
+                Audio_Echo_Enable(0);
+            }
+            prev_m = pct_m;
+        }
+    }
+
+    /* ---- Fader R → Compressor (threshold 0 ~ -30dB, ratio 1~6) ---- */
+    {
+        int dr = (int)pct_r - (int)prev_r; if (dr < 0) dr = -dr;
+        if (dr >= 3) {
+            if (pct_r > 2) {
+                int16_t threshold = -(int16_t)((uint32_t)pct_r * 30 / 100); /* 0%→0, 100%→-30 */
+                int16_t ratio = 1 + (int16_t)((uint32_t)pct_r * 5 / 100);   /* 0%→1, 100%→6 */
+                int16_t makeup = (int16_t)((uint32_t)pct_r * 10 / 100);      /* 补偿增益 0~10dB */
+                Audio_Comp_SetParams(threshold, ratio, makeup);
+                Audio_Comp_Enable(1);
+            } else {
+                Audio_Comp_Enable(0);
+            }
+            prev_r = pct_r;
+        }
+    }
 }
 
 static void Keyboard_HandleGameInput(const protocol_frame_t *req)

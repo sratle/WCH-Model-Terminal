@@ -2939,9 +2939,9 @@ void CLI_Init(void)
     /* CLI 无需特殊初始化，USART2 RX 中断在 Debug_EnableRxIRQ 中启用 */
 }
 
-/* NOTE: CH378 同一时刻只能打开一个文件，WAV 流式播放期间执行文件操作命令
- * (ls/cd/cat/rm/mkdir/touch/write/hexdump/stat/cp/mv/tree/du/find 等) 会抢占
- * 文件句柄，导致播放中断。文件访问优先级更高，不做限制。 */
+/* NOTE: 音频引擎使用顺序读取（保持文件打开），CLI 命令执行前需要
+ * 通过 Audio_CH378_Lock 关闭音频文件句柄，执行后音频引擎会自动
+ * reopen + seek 恢复播放。 */
 void CLI_Process(uint8_t *cmd, uint8_t len)
 {
     char buf[CLI_BUF_SIZE];
@@ -2959,6 +2959,9 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
 
     argc = CLI_ParseArgs(buf, argv, CLI_MAX_ARGC);
     if (argc == 0) return;
+
+    /* Lock CH378: close audio streaming files before CLI uses CH378 */
+    Audio_CH378_Lock();
 
     if (strcmp(argv[0], "ls") == 0) {
         CLI_Cmd_Ls();
@@ -3053,4 +3056,7 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }
+
+    /* Unlock CH378: audio engine will reopen files and resume streaming */
+    Audio_CH378_Unlock();
 }
