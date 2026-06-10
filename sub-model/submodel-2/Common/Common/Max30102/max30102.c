@@ -745,9 +745,11 @@ static void maxim_heart_rate_and_oxygen_saturation(
         *pch_spo2_valid = 0;
     }
 
-    /* Compute HRV (SDNN) from peak intervals */
+    /* Compute HRV (SDNN) from peak intervals.
+     * Need at least 3 peaks (2 RR intervals) for meaningful variance.
+     * With only 2 peaks there is 1 RR interval and variance is always 0. */
     *pn_hrv = 0;
-    if (n_npks >= 2) {
+    if (n_npks >= 3) {
         uint32_t sum = 0, mean, variance = 0;
         int32_t rr_count = n_npks - 1;
         uint16_t rr[15];
