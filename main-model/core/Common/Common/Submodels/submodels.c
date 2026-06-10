@@ -1,6 +1,7 @@
 #include "submodels.h"
 #include "../Protocol/protocol_common.h"
 #include "../hardware.h"
+#include "../Display/display.h"
 #include "../CS43131/cs43131.h"
 #include "../Config/config.h"
 #include "../CH378/CH378.h"
@@ -435,10 +436,49 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
                 {
                     uint8_t fp_id = (req->len >= 2) ? req->data[1] : 0;
                     printf("[FP] Identify OK: ID=%d\r\n", fp_id);
+
+                    /* Forward to Display if online */
+                    {
+                        uint8_t i;
+                        for (i = 0; i < HB_MAX_SLOTS; i++)
+                        {
+                            if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY &&
+                                hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+                            {
+                                uint8_t evt[2];
+                                evt[0] = FP_SUB_IDENTIFY_OK;
+                                evt[1] = fp_id;
+                                Display_SendSubmodelEvent(&display_g,
+                                    MODULE_SUBTYPE_SUBMODEL_FINGERPRINT,
+                                    FP_SUB_IDENTIFY_OK,
+                                    evt, 2);
+                                break;
+                            }
+                        }
+                    }
                     return 1;
                 }
                 case FP_SUB_IDENTIFY_FAIL:
                     printf("[FP] Identify FAIL\r\n");
+
+                    /* Forward to Display if online */
+                    {
+                        uint8_t i;
+                        for (i = 0; i < HB_MAX_SLOTS; i++)
+                        {
+                            if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY &&
+                                hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+                            {
+                                uint8_t evt[1];
+                                evt[0] = FP_SUB_IDENTIFY_FAIL;
+                                Display_SendSubmodelEvent(&display_g,
+                                    MODULE_SUBTYPE_SUBMODEL_FINGERPRINT,
+                                    FP_SUB_IDENTIFY_FAIL,
+                                    evt, 1);
+                                break;
+                            }
+                        }
+                    }
                     return 1;
                 case FP_SUB_ENROLL_PROGRESS:
                 {
@@ -525,6 +565,29 @@ static uint8_t submodels_health_dispatch(submodels_t *submodel, const protocol_f
 
                         printf("[Health] HR=%d BPM, SpO2=%d%%, HRV=%d ms\r\n",
                                hr, spo2, hrv);
+
+                        /* Forward to Display if online */
+                        {
+                            uint8_t i;
+                            for (i = 0; i < HB_MAX_SLOTS; i++)
+                            {
+                                if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY &&
+                                    hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+                                {
+                                    /* Re-pack: [HR:1][SpO2:1][HRV:2(BE)] */
+                                    uint8_t evt[4];
+                                    evt[0] = hr;
+                                    evt[1] = spo2;
+                                    evt[2] = (uint8_t)(hrv >> 8);
+                                    evt[3] = (uint8_t)(hrv & 0xFF);
+                                    Display_SendSubmodelEvent(&display_g,
+                                        MODULE_SUBTYPE_SUBMODEL_HEALTH,
+                                        HEALTH_SUB_DATA_REPORT,
+                                        evt, 4);
+                                    break;
+                                }
+                            }
+                        }
                     }
                     return 1;
                 }
