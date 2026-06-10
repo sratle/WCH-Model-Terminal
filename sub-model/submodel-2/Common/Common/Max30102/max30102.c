@@ -577,41 +577,57 @@ static void maxim_heart_rate_and_oxygen_saturation(
     int32_t n_nume, n_denom;
     uint32_t un_only_once;
 
-    /* Remove DC of IR signal */
+    /* ---- HR Calculation ----
+     * Compute derivative directly from ir_linear without modifying it,
+     * so the original data is preserved for SpO2 calculation. */
+
+    /* Remove DC */
     un_ir_mean = 0;
     for (k = 0; k < buf_len; k++)
-        un_ir_mean += an_x[k];
+        un_ir_mean += ir_linear[k];
     un_ir_mean /= buf_len;
-    for (k = 0; k < buf_len; k++)
-        an_x[k] = an_x[k] - (int32_t)un_ir_mean;
 
-    /* 4-point moving average */
-    for (k = 0; k < buf_len - MAX30102_MA4_SIZE; k++) {
-        n_denom = an_x[k] + an_x[k+1] + an_x[k+2] + an_x[k+3];
-        an_x[k] = n_denom / 4;
+    /* Compute derivative: DC-remove + MA4 + diff + MA2, all in one pass.
+     * This avoids modifying ir_linear (which an_x aliases). */
+    {
+        int32_t dx_len = buf_len - MAX30102_MA4_SIZE - 1;
+        for (k = 0; k < dx_len; k++)
+        {
+            int32_t ma4_k   = ((int32_t)ir_linear[k]   - (int32_t)un_ir_mean)
+                            + ((int32_t)ir_linear[k+1] - (int32_t)un_ir_mean)
+                            + ((int32_t)ir_linear[k+2] - (int32_t)un_ir_mean)
+                            + ((int32_t)ir_linear[k+3] - (int32_t)un_ir_mean);
+            int32_t ma4_k1  = ((int32_t)ir_linear[k+1] - (int32_t)un_ir_mean)
+                            + ((int32_t)ir_linear[k+2] - (int32_t)un_ir_mean)
+                            + ((int32_t)ir_linear[k+3] - (int32_t)un_ir_mean)
+                            + ((int32_t)ir_linear[k+4] - (int32_t)un_ir_mean);
+            an_dx[k] = ma4_k1 / 4 - ma4_k / 4;
+        }
+
+        /* 2-point moving average on derivative */
+        for (k = 0; k < dx_len - 1; k++)
+            an_dx[k] = (an_dx[k] + an_dx[k+1]) / 2;
     }
 
-    /* Get difference of smoothed IR signal */
-    for (k = 0; k < buf_len - MAX30102_MA4_SIZE - 1; k++)
-        an_dx[k] = an_x[k+1] - an_x[k];
-
-    /* 2-point moving average on derivative */
-    for (k = 0; k < buf_len - MAX30102_MA4_SIZE - 2; k++)
-        an_dx[k] = (an_dx[k] + an_dx[k+1]) / 2;
-
     /* Hamming window - flip waveform to detect valley as peak */
-    for (i = 0; i < buf_len - MAX30102_HAMMING_SIZE - MAX30102_MA4_SIZE - 2; i++) {
-        s = 0;
-        for (k = i; k < i + MAX30102_HAMMING_SIZE; k++)
-            s -= an_dx[k] * auw_hamm[k - i];
-        an_dx[i] = s / 1146;
+    {
+        int32_t hamm_len = buf_len - MAX30102_HAMMING_SIZE - MAX30102_MA4_SIZE - 2;
+        for (i = 0; i < hamm_len; i++) {
+            s = 0;
+            for (k = i; k < i + MAX30102_HAMMING_SIZE; k++)
+                s -= an_dx[k] * auw_hamm[k - i];
+            an_dx[i] = s / 1146;
+        }
     }
 
     /* Threshold calculation */
     n_th1 = 0;
-    for (k = 0; k < buf_len - MAX30102_HAMMING_SIZE; k++)
-        n_th1 += (an_dx[k] > 0) ? an_dx[k] : (-an_dx[k]);
-    n_th1 = n_th1 / (buf_len - MAX30102_HAMMING_SIZE);
+    {
+        int32_t hamm_len = buf_len - MAX30102_HAMMING_SIZE;
+        for (k = 0; k < hamm_len; k++)
+            n_th1 += (an_dx[k] > 0) ? an_dx[k] : (-an_dx[k]);
+        n_th1 = n_th1 / hamm_len;
+    }
 
     /* Find peaks (actually valleys in original signal) */
     algo_find_peaks(an_dx_peak_locs, &n_npks, an_dx,
@@ -634,14 +650,11 @@ static void maxim_heart_rate_and_oxygen_saturation(
     for (k = 0; k < n_npks; k++)
         an_ir_valley_locs[k] = an_dx_peak_locs[k] + MAX30102_HAMMING_SIZE / 2;
 
-    /* Restore raw IR and Red for SpO2 calculation
-     * (an_x/an_y were modified above, need to re-copy from original buffers) */
-    for (k = 0; k < buf_len; k++) {
-        an_x[k] = (int32_t)ir_linear[k];
-        an_y[k] = (int32_t)red_linear[k];
-    }
+    /* ---- SpO2 Calculation ----
+     * ir_linear and red_linear are still intact (not modified above).
+     * an_x/an_y alias them, so we can use an_x/an_y directly. */
 
-    /* Find precise min near each valley */
+    /* Find precise min near each valley in the ORIGINAL IR signal */
     n_exact_ir_valley_locs_count = 0;
     for (k = 0; k < n_npks; k++) {
         un_only_once = 1;
@@ -668,7 +681,7 @@ static void maxim_heart_rate_and_oxygen_saturation(
         return;
     }
 
-    /* 4-point moving average on raw signals */
+    /* 4-point moving average on raw signals (modifies an_x/an_y in place) */
     for (k = 0; k < buf_len - MAX30102_MA4_SIZE; k++) {
         an_x[k] = (an_x[k] + an_x[k+1] + an_x[k+2] + an_x[k+3]) / 4;
         an_y[k] = (an_y[k] + an_y[k+1] + an_y[k+2] + an_y[k+3]) / 4;
