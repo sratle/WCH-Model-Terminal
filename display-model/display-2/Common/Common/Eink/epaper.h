@@ -2,8 +2,8 @@
  * @file    epaper.h
  * @brief   JD79686AB 648×480 B/W e-paper driver – high-level API.
  *
- * Based on manufacturer STM32 reference code (中景园电子).
- * Module has OTP pre-programmed LUT – no register writes needed.
+ * Based on Arduino OKRA0583BNF686F0 sample code (After OTP Model).
+ * Uses OTP LUT, no register LUT tables needed.
  *
  * Pixel format: 1bpp, bit=0 → white, bit=1 → black.
  * Each byte represents 8 horizontal pixels (MSB = leftmost).
@@ -25,39 +25,35 @@ extern "C" {
 #define EPD_ROW_BYTES       (EPD_WIDTH / 8)   /* 81 bytes per row */
 #define EPD_FRAME_SIZE      (EPD_ROW_BYTES * EPD_HEIGHT) /* 38880 bytes */
 
-/* Partial refresh buffer size */
-#define EPD_PARTIAL_BUF_SIZE  4096
-
-/* ---- Pixel colour constants (matching manufacturer: WHITE=0x00, BLACK=0xFF) ---- */
+/* ---- Pixel colour constants ---- */
 #define EPD_WHITE   0x00
 #define EPD_BLACK   0xFF
 
 /* ---- API ---- */
 
 /**
- * @brief  Initialise: HW reset + WaitBusy. Module uses OTP LUT.
+ * @brief  Initialise: HW reset + OTP LUT mode init.
  */
 void Epaper_Init(void);
 
 /**
- * @brief  Full-screen refresh with 1bpp image data.
+ * @brief  Display image (same data for DTM1 and DTM2, Arduino-style).
  * @param  image  EPD_FRAME_SIZE bytes. bit=0 white, bit=1 black.
- *                NULL to clear white.
  */
-void Epaper_DisplayFull(const uint8_t *image);
+void Epaper_DisplayImage(const uint8_t *image);
 
 /**
- * @brief  Full-screen clear to white.
+ * @brief  Full-screen clear to white (DTM1=0xFF, DTM2=0x00).
  */
 void Epaper_ClearWhite(void);
 
 /**
- * @brief  Trigger display update (PON → DRF) after writing DTM1/DTM2.
+ * @brief  Trigger display update (PON → DRF → POF).
  */
 void Epaper_Update(void);
 
 /**
- * @brief  Enter deep sleep (POF → WaitBusy → DSLP).
+ * @brief  Enter deep sleep (PON + DSLP).
  */
 void Epaper_Sleep(void);
 

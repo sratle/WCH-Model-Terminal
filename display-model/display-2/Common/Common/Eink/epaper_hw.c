@@ -58,17 +58,21 @@ void Epaper_Hw_Init(void)
 /*********************************************************************
  * @fn      Epaper_Hw_Reset
  *
- * @brief   Matches manufacturer EPD_HW_RESET():
- *          delay(100ms) → RES LOW → delay(20ms) → RES HIGH → delay(20ms)
- *          + WaitBusy
+ * @brief   Double-pulse reset matching Arduino OKRA0583BNF686F0 sample:
+ *          HIGH(20ms) → LOW(30ms) → HIGH(30ms) → LOW(30ms) → HIGH(30ms)
  */
 void Epaper_Hw_Reset(void)
 {
-    Delay_Ms(100);
-    EPD_RES_LOW();
-    Delay_Ms(20);
     EPD_RES_HIGH();
     Delay_Ms(20);
+    EPD_RES_LOW();
+    Delay_Ms(30);
+    EPD_RES_HIGH();
+    Delay_Ms(30);
+    EPD_RES_LOW();
+    Delay_Ms(30);
+    EPD_RES_HIGH();
+    Delay_Ms(30);
 
     printf("EPD: Reset done, BUSY_N=%d RES=%d DC=%d CS=%d SCK=%d\r\n",
            EPD_BUSY_READ() ? 1 : 0,
@@ -128,8 +132,11 @@ void Epaper_Hw_WriteCmd(uint8_t cmd)
             EPD_MOSI_LOW();
         cmd <<= 1;
 
+        EPD_SPI_DLY_DAT();   /* Data setup time ≥ 15ns */
         EPD_SCK_HIGH();
+        EPD_SPI_DLY_SCK();   /* SCK high ≥ 35ns */
         EPD_SCK_LOW();
+        EPD_SPI_DLY_SCK();   /* SCK low ≥ 35ns */
     }
 
     EPD_CS_HIGH();    /* CS high (latch command) */
@@ -157,8 +164,11 @@ void Epaper_Hw_WriteData(uint8_t data)
             EPD_MOSI_LOW();
         data <<= 1;
 
+        EPD_SPI_DLY_DAT();   /* Data setup time ≥ 15ns */
         EPD_SCK_HIGH();
+        EPD_SPI_DLY_SCK();   /* SCK high ≥ 35ns */
         EPD_SCK_LOW();
+        EPD_SPI_DLY_SCK();   /* SCK low ≥ 35ns */
     }
 
     EPD_CS_HIGH();
@@ -190,8 +200,11 @@ void Epaper_Hw_WriteDataBuf(const uint8_t *buf, uint32_t len)
                 EPD_MOSI_LOW();
             data <<= 1;
 
+            EPD_SPI_DLY_DAT();   /* Data setup time ≥ 15ns */
             EPD_SCK_HIGH();
+            EPD_SPI_DLY_SCK();   /* SCK high ≥ 35ns */
             EPD_SCK_LOW();
+            EPD_SPI_DLY_SCK();   /* SCK low ≥ 35ns */
         }
     }
 
@@ -218,10 +231,12 @@ void Epaper_Hw_ReadReg(uint8_t reg, uint8_t *buf, uint8_t len)
         for (j = 0; j < 8; j++)
         {
             EPD_SCK_HIGH();
+            EPD_SPI_DLY_SCK();   /* SCK high ≥ 35ns */
             val <<= 1;
             if (GPIOA->INDR & GPIO_Pin_6)
                 val |= 0x01;
             EPD_SCK_LOW();
+            EPD_SPI_DLY_SCK();   /* SCK low ≥ 35ns */
         }
         buf[i] = val;
     }

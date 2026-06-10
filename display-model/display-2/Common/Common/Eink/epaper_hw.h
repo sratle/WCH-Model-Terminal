@@ -34,6 +34,20 @@ extern "C" {
 #define EPD_BUSY_BIT  GPIO_Pin_5   /* PB5 */
 
 /*=============================================================================
+ *  SPI timing delay macros
+ *
+ *  CH32V307 @ 144MHz: 1 NOP ≈ 7ns
+ *  JD79686AB requires: SCK high/low ≥ 35ns, data setup ≥ 15ns
+ *  Use 8 NOPs (~56ns) for SCK, 4 NOPs (~28ns) for data setup
+ *===========================================================================*/
+#define EPD_SPI_DLY_SCK()  do { __asm__ volatile ("nop"); __asm__ volatile ("nop"); \
+                                __asm__ volatile ("nop"); __asm__ volatile ("nop"); \
+                                __asm__ volatile ("nop"); __asm__ volatile ("nop"); \
+                                __asm__ volatile ("nop"); __asm__ volatile ("nop"); } while(0)
+#define EPD_SPI_DLY_DAT()  do { __asm__ volatile ("nop"); __asm__ volatile ("nop"); \
+                                __asm__ volatile ("nop"); __asm__ volatile ("nop"); } while(0)
+
+/*=============================================================================
  *  Atomic pin control macros (BSHR = set, BCR = clear)
  *===========================================================================*/
 #define EPD_CS_LOW()   do { GPIOA->BCR  = EPD_CS_BIT;   } while(0)

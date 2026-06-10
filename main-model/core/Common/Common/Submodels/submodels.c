@@ -492,7 +492,7 @@ static uint8_t submodels_health_dispatch(submodels_t *submodel, const protocol_f
             switch (subcmd)
             {
                 case 0x01: /* 设置监测间隔（秒） */
-                    /* TODO: req->data[1..2] = 间隔(uint16大端) */
+                    /* req->data[1..2] = 间隔(uint16大端) */
                     return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
                 case 0x02: /* 开始监测 */
                     return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
@@ -505,7 +505,7 @@ static uint8_t submodels_health_dispatch(submodels_t *submodel, const protocol_f
             switch (subcmd)
             {
                 case 0x00: /* 查询当前数据 */
-                    /* TODO: resp = [心跳:1][血氧:1][体温:1] */
+                    /* ACK + [心跳:1][血氧:1][HRV:2(uint16大端)] */
                     *resp_len = 0;
                     return 0;
             }
@@ -515,8 +515,18 @@ static uint8_t submodels_health_dispatch(submodels_t *submodel, const protocol_f
             switch (subcmd)
             {
                 case 0x01: /* 健康数据上报 */
-                    /* TODO: req->data[1]=心跳, data[2]=血氧, data[3]=体温 */
+                {
+                    /* DATA: [子命令:1][心跳:1][血氧:1][HRV:2(uint16大端)] */
+                    if (req->len >= 5)
+                    {
+                        uint8_t hr = req->data[1];
+                        uint8_t spo2 = req->data[2];
+                        uint16_t hrv = ((uint16_t)req->data[3] << 8) | req->data[4];
+                        printf("[Health] HR=%d BPM, SpO2=%d%%, HRV=%d ms\r\n",
+                               hr, spo2, hrv);
+                    }
                     return 1;
+                }
             }
             break;
 
