@@ -88,18 +88,18 @@
 #define MAX30102_FINGER_OFF_COUNT       50     /* Consecutive low-IR samples = finger off */
 
 /* Algorithm parameters (adapted from Maxim MAXREFDES117 reference)
- * Buffer size set to 200 (2 seconds at 100Hz) for CH32V103 20KB RAM limit.
- * Reference uses 500 (5 seconds) but that requires ~18KB RAM just for buffers.
- * 200 samples gives 2-3 heartbeat cycles at 60-100 BPM, enough for the algorithm. */
+ * Buffer size set to 500 (5 seconds at 100Hz), matching the reference.
+ * CH32V103 has 20KB RAM; this uses ~12.4KB BSS, well within limits. */
 #define MAX30102_FS                     100    /* Sample rate (Hz) */
-#define MAX30102_BUFFER_SIZE            200    /* 200 samples = 2 seconds */
+#define MAX30102_BUFFER_SIZE            500    /* 500 samples = 5 seconds */
 #define MAX30102_MA4_SIZE               4      /* 4-point moving average */
 #define MAX30102_HAMMING_SIZE           5      /* Hamming window size */
-#define MAX30102_ALGO_RUN_SAMPLES       50     /* Run algorithm every 50 new samples (500ms) */
+#define MAX30102_ALGO_RUN_SAMPLES       100    /* Run algorithm every 100 new samples (1s) */
 
-/* PPG algorithm parameters (legacy, kept for smoothing) */
-#define MAX30102_HR_SMOOTH_WINDOW       5      /* Heart rate smoothing window */
-#define MAX30102_SPO2_SMOOTH_WINDOW     5      /* SpO2 smoothing window */
+/* PPG algorithm parameters */
+#define MAX30102_HR_SMOOTH_WINDOW       8      /* Heart rate smoothing window */
+#define MAX30102_SPO2_SMOOTH_WINDOW     8      /* SpO2 smoothing window */
+#define MAX30102_HRV_SMOOTH_WINDOW      8      /* HRV smoothing window */
 #define MAX30102_MIN_VALID_HR           40     /* Minimum valid heart rate */
 #define MAX30102_MAX_VALID_HR           200    /* Maximum valid heart rate */
 #define MAX30102_MIN_VALID_SPO2         70     /* Minimum valid SpO2 */
@@ -133,8 +133,10 @@ typedef struct {
     /* Smoothing buffers */
     uint8_t  hr_smooth[MAX30102_HR_SMOOTH_WINDOW];
     uint8_t  spo2_smooth[MAX30102_SPO2_SMOOTH_WINDOW];
+    uint16_t hrv_smooth[MAX30102_HRV_SMOOTH_WINDOW];
     uint8_t  hr_smooth_idx;
     uint8_t  spo2_smooth_idx;
+    uint8_t  hrv_smooth_idx;
 
     /* Monitor interval (seconds) */
     uint16_t monitor_interval;

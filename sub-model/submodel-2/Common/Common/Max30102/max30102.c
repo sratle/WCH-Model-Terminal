@@ -292,6 +292,7 @@ void Max30102_StartMonitoring(void)
     max30102_ctx.new_samples = 0;
     max30102_ctx.hr_smooth_idx = 0;
     max30102_ctx.spo2_smooth_idx = 0;
+    max30102_ctx.hrv_smooth_idx = 0;
     max30102_ctx.heart_rate = 0;
     max30102_ctx.spo2 = 0;
     max30102_ctx.hrv = 0;
@@ -378,12 +379,39 @@ void Max30102_ProcessInt(void)
 }
 
 /* Poll FIFO without relying on EXTI interrupt.
- * Called from main loop every ~10ms as a fallback/supplement to interrupt. */
+ * Called from main loop every ~10ms as a fallback/supplement to interrupt.
+ * In IDLE state, checks IR level to detect finger placement. */
 void Max30102_PollFIFO(void)
 {
     uint8_t wr_ptr, rd_ptr, num_samples;
     uint32_t red, ir;
 
+    /* ---- IDLE state: check for finger placement ---- */
+    if (max30102_ctx.state == HEALTH_STATE_IDLE)
+    {
+        /* Read and clear interrupt status */
+        Max30102_ReadReg(MAX30102_REG_INTR_STATUS_1);
+        Max30102_ReadReg(MAX30102_REG_INTR_STATUS_2);
+
+        /* Read FIFO pointers */
+        wr_ptr = Max30102_ReadReg(MAX30102_REG_FIFO_WR_PTR);
+        rd_ptr = Max30102_ReadReg(MAX30102_REG_FIFO_RD_PTR);
+
+        if (wr_ptr != rd_ptr)
+        {
+            /* Read one sample to check IR level */
+            Max30102_ReadFIFO(&red, &ir);
+
+            if (ir >= MAX30102_FINGER_OFF_IR_MIN)
+            {
+                /* Finger detected: auto-start monitoring */
+                Max30102_StartMonitoring();
+            }
+        }
+        return;
+    }
+
+    /* ---- MONITORING state: read FIFO data ---- */
     if (max30102_ctx.state != HEALTH_STATE_MONITORING)
         return;
 
@@ -804,6 +832,27 @@ static uint8_t SmoothValue(uint8_t *buf, uint8_t *idx, uint8_t window_size, uint
     return count > 0 ? (uint8_t)(sum / count) : 0;
 }
 
+/* Add value to HRV smoothing buffer and return average */
+static uint16_t SmoothValue16(uint16_t *buf, uint8_t *idx, uint8_t window_size, uint16_t val)
+{
+    uint32_t sum = 0;
+    uint8_t i, count = 0;
+
+    buf[*idx] = val;
+    *idx = (*idx + 1) % window_size;
+
+    for (i = 0; i < window_size; i++)
+    {
+        if (buf[i] > 0)
+        {
+            sum += buf[i];
+            count++;
+        }
+    }
+
+    return count > 0 ? (uint16_t)(sum / count) : 0;
+}
+
 void Max30102_ProcessAlgorithm(void)
 {
     if (max30102_ctx.state != HEALTH_STATE_MONITORING)
@@ -816,11 +865,11 @@ void Max30102_ProcessAlgorithm(void)
         return;
     }
 
-    /* Need full buffer (200 samples = 2 seconds) before running algorithm */
+    /* Need full buffer (500 samples = 5 seconds) before running algorithm */
     if (max30102_ctx.buf_count < MAX30102_BUFFER_SIZE)
         return;
 
-    /* Only run algorithm when enough new samples accumulated (every 50 samples = 500ms) */
+    /* Only run algorithm when enough new samples accumulated (every 100 samples = 1s) */
     if (max30102_ctx.new_samples < MAX30102_ALGO_RUN_SAMPLES)
         return;
 
@@ -871,7 +920,9 @@ void Max30102_ProcessAlgorithm(void)
         max30102_ctx.spo2_valid = 0;
     }
 
-    max30102_ctx.hrv = n_hrv;
+    max30102_ctx.hrv = SmoothValue16(
+        max30102_ctx.hrv_smooth, &max30102_ctx.hrv_smooth_idx,
+        MAX30102_HRV_SMOOTH_WINDOW, n_hrv);
 }
 
 uint8_t Max30102_GetHeartRate(void)
