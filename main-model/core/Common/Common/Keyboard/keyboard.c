@@ -14,6 +14,34 @@ static uint8_t music_active = 0;           /* 1=音乐键盘已启动事件上�
 static uint8_t prev_key_bitmap[3] = {0};   /* 上一帧琴键位图 */
 static uint8_t current_playing_key = 0;    /* 当前正在播放的琴键 ID (1~24, 0=无) */
 
+/* 检查 Display 是否在线 */
+static uint8_t Keyboard_IsDisplayOnline(void)
+{
+    uint8_t i;
+    for (i = 0; i < HB_MAX_SLOTS; i++) {
+        if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY &&
+            hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+            return 1;
+    }
+    return 0;
+}
+
+/* 将 Keyboard-3 音乐事件原始帧透传给 Display（SRC=CORE, DST=DISPLAY） */
+static void Keyboard_ForwardMusicEventToDisplay(const protocol_frame_t *req)
+{
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint16_t len;
+
+    if (!music_active) return;
+    if (!Keyboard_IsDisplayOnline()) return;
+
+    len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
+                             req->cmd, req->data, req->len,
+                             buf, sizeof(buf));
+    if (len > 0)
+        Display_Send_Data(&display_g, buf, len);
+}
+
 /* ============================================================================
  * 前向声明：Keyboard 专用命令 handler
  * ============================================================================ */
@@ -437,6 +465,9 @@ static void Keyboard_HandleMusicKeys(const protocol_frame_t *req)
     if (req->len < 4)  /* CMD + 3 bytes bitmap */
         return;
 
+    /* 透传给 Display */
+    Keyboard_ForwardMusicEventToDisplay(req);
+
     bitmap = &req->data[0];
 
     /* 打印当前琴键位图 */
@@ -491,6 +522,9 @@ static void Keyboard_HandleMusicButtons(const protocol_frame_t *req)
     if (req->len < 3)  /* CMD + 2 bytes bitmap */
         return;
 
+    /* 透传给 Display */
+    Keyboard_ForwardMusicEventToDisplay(req);
+
     bitmap = &req->data[0];
     printf("[MUSIC] Buttons: %02X %02X\r\n", bitmap[0], bitmap[1]);
 }
@@ -503,6 +537,9 @@ static void Keyboard_HandleMusicFaders(const protocol_frame_t *req)
 
     if (req->len < 7)  /* CMD + 6 bytes (3 x uint16 big-endian) */
         return;
+
+    /* 透传给 Display（不受死区滤波影响，Display 获得原始值） */
+    Keyboard_ForwardMusicEventToDisplay(req);
 
     fader_l = ((uint16_t)req->data[0] << 8) | req->data[1];
     fader_m = ((uint16_t)req->data[2] << 8) | req->data[3];

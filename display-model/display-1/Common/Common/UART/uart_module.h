@@ -345,6 +345,38 @@ typedef struct {
 extern uart_disp_state_t g_disp_state;
 
 /*=============================================================================
+ *  Keyboard-3 Music Event Opcodes (forwarded from Core)
+ *  These commands arrive as CMD=0x26/0x27/0x28 with SRC=Core, DST=Display.
+ *=============================================================================*/
+
+#define CMD_KBD_MUSIC_KEYS              0x26
+#define CMD_KBD_MUSIC_BUTTONS           0x27
+#define CMD_KBD_MUSIC_FADERS            0x28
+
+/*=============================================================================
+ *  EMusic App Callback (Keyboard-3 music events from Core)
+ *
+ *  The emusic app registers these callbacks to receive real-time music
+ *  keyboard events forwarded by Core via UART.
+ *=============================================================================*/
+
+typedef struct {
+    /* 24-bit piano key bitmap (3 bytes, bit=1 means pressed).
+     * key_bitmap[0] bit0 = key_id 1, etc. */
+    void (*on_music_keys)(const uint8_t *key_bitmap);
+
+    /* 12-bit button bitmap (2 bytes, bit=1 means pressed).
+     * buttons[0] bit0 = KEY1, etc. */
+    void (*on_music_buttons)(const uint8_t *buttons);
+
+    /* 3 fader values, each uint16 big-endian (0~65535). */
+    void (*on_music_faders)(uint16_t fader_l, uint16_t fader_m, uint16_t fader_r);
+} uart_emusic_callbacks_t;
+
+void UART_SetEMusicCallbacks(const uart_emusic_callbacks_t *cb);
+void UART_ClearEMusicCallbacks(void);
+
+/*=============================================================================
  *  UART Configuration
  *=============================================================================*/
 

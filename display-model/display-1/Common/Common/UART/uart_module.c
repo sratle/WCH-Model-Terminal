@@ -33,6 +33,10 @@ static uart_app_callbacks_t s_app_cb;
 static bool s_app_cb_valid = false;
 volatile pending_req_t g_pending_req = PENDING_NONE;
 
+/* EMusic app callbacks for Keyboard-3 music events */
+static uart_emusic_callbacks_t s_emusic_cb;
+static bool s_emusic_cb_valid = false;
+
 /*=============================================================================
  *  CLI Response Assembly Buffer (forward declarations for internal use)
  *=============================================================================*/
@@ -62,6 +66,23 @@ void UART_ClearAppCallbacks(void)
     memset(&s_app_cb, 0, sizeof(uart_app_callbacks_t));
     s_app_cb_valid = false;
     g_pending_req = PENDING_NONE;
+}
+
+void UART_SetEMusicCallbacks(const uart_emusic_callbacks_t *cb)
+{
+    if (cb) {
+        memcpy(&s_emusic_cb, cb, sizeof(uart_emusic_callbacks_t));
+        s_emusic_cb_valid = true;
+    } else {
+        memset(&s_emusic_cb, 0, sizeof(uart_emusic_callbacks_t));
+        s_emusic_cb_valid = false;
+    }
+}
+
+void UART_ClearEMusicCallbacks(void)
+{
+    memset(&s_emusic_cb, 0, sizeof(uart_emusic_callbacks_t));
+    s_emusic_cb_valid = false;
 }
 
 /*=============================================================================
@@ -801,6 +822,24 @@ static void process_frame(uint8_t src, uint8_t dst, uint8_t cmd,
         break;
     case CMD_DISP_FACTORY_RESET:
         handle_factory_reset(data, data_len);
+        break;
+
+    /* --- Keyboard-3 music event forwarding (Core→Display) --- */
+    case CMD_KBD_MUSIC_KEYS:
+        if (s_emusic_cb_valid && s_emusic_cb.on_music_keys && data_len >= 3)
+            s_emusic_cb.on_music_keys(data);
+        break;
+    case CMD_KBD_MUSIC_BUTTONS:
+        if (s_emusic_cb_valid && s_emusic_cb.on_music_buttons && data_len >= 2)
+            s_emusic_cb.on_music_buttons(data);
+        break;
+    case CMD_KBD_MUSIC_FADERS:
+        if (s_emusic_cb_valid && s_emusic_cb.on_music_faders && data_len >= 6) {
+            uint16_t fl = ((uint16_t)data[0] << 8) | data[1];
+            uint16_t fm = ((uint16_t)data[2] << 8) | data[3];
+            uint16_t fr = ((uint16_t)data[4] << 8) | data[5];
+            s_emusic_cb.on_music_faders(fl, fm, fr);
+        }
         break;
 
     /* --- Extended command dispatcher --- */
