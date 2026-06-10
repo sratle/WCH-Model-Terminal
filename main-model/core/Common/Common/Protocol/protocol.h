@@ -338,6 +338,18 @@
 #define FP_SECURITY_MEDIUM      0x02
 #define FP_SECURITY_HIGH        0x03
 
+/* ---- Health (0x02) 子命令 ---- */
+/* CMD_SUB_SET_CONFIG (0x44) sub-commands */
+#define HEALTH_SUB_SET_INTERVAL     0x01    /* 设置监测间隔(秒) [interval:2(BE)] */
+#define HEALTH_SUB_START_MONITOR    0x02    /* 开始监测 */
+#define HEALTH_SUB_STOP_MONITOR     0x03    /* 停止监测 */
+
+/* CMD_SUB_GET_STATUS (0x42) sub-commands */
+#define HEALTH_SUB_QUERY_DATA       0x00    /* 查询当前数据 → ACK [HR:1][SpO2:1][HRV:2(BE)] */
+
+/* CMD_SUB_DATA_REPORT (0x43) sub-commands */
+#define HEALTH_SUB_DATA_REPORT      0x01    /* 健康数据上报 [HR:1][SpO2:1][HRV:2(BE)] */
+
 /* ---- SubDisplay (0x07) 子命令 ---- */
 /* CMD_SUB_SET_MODE (0x41) sub-commands */
 #define SUBDISP_SUBCMD_SET_STATUS       0x01

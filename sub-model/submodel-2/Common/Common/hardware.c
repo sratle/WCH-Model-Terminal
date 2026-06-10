@@ -16,6 +16,10 @@ void Hardware_Init(void)
     Max30102_Init();
 
     Delay_Ms(50);
+
+    /* Auto-start monitoring on boot for testing.
+     * TODO: Switch to proximity-based auto-start once PROX_INT is verified. */
+    Max30102_StartMonitoring();
 }
 
 static void SendGetTypeResponse(const protocol_frame_t *req)
@@ -166,8 +170,11 @@ void Hardware_ProcessCoreFrame(void)
 
 void Hardware_ReportHealthData(void)
 {
-    /* [子命令:1][心跳:1][血氧:1][HRV:2(uint16大端)] */
-    uint8_t data[5];
+    /* DEBUG format: [子命令:1][心跳:1][血氧:1][HRV:2(BE)][buf_count:2(BE)][last_ir:4(BE)]
+     * Extra 6 bytes are diagnostic: buf_count shows if FIFO data is being collected,
+     * last_ir shows the raw IR value for I2C verification.
+     * TODO: Remove diagnostic bytes once data flow is verified. */
+    uint8_t data[11];
     uint16_t hrv;
 
     if (max30102_ctx.state != HEALTH_STATE_MONITORING)
@@ -180,6 +187,14 @@ void Hardware_ReportHealthData(void)
     data[2] = Max30102_GetSpO2();
     data[3] = (uint8_t)(hrv >> 8);
     data[4] = (uint8_t)(hrv & 0xFF);
+    /* Diagnostic: buf_count */
+    data[5] = (uint8_t)(max30102_ctx.buf_count >> 8);
+    data[6] = (uint8_t)(max30102_ctx.buf_count & 0xFF);
+    /* Diagnostic: last_ir (top 16 bits of 18-bit value) */
+    data[7] = (uint8_t)(max30102_ctx.last_ir >> 16);
+    data[8] = (uint8_t)(max30102_ctx.last_ir >> 8);
+    data[9] = (uint8_t)(max30102_ctx.last_ir & 0xFF);
+    data[10] = max30102_ctx.finger_off_count;
 
-    UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_DATA_REPORT, data, 5);
+    UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_DATA_REPORT, data, 11);
 }

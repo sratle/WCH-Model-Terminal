@@ -491,12 +491,12 @@ static uint8_t submodels_health_dispatch(submodels_t *submodel, const protocol_f
         case CMD_SUB_SET_CONFIG:
             switch (subcmd)
             {
-                case 0x01: /* 设置监测间隔（秒） */
+                case HEALTH_SUB_SET_INTERVAL: /* 设置监测间隔（秒） */
                     /* req->data[1..2] = 间隔(uint16大端) */
                     return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-                case 0x02: /* 开始监测 */
+                case HEALTH_SUB_START_MONITOR: /* 开始监测 */
                     return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-                case 0x03: /* 停止监测 */
+                case HEALTH_SUB_STOP_MONITOR: /* 停止监测 */
                     return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
             }
             break;
@@ -504,7 +504,7 @@ static uint8_t submodels_health_dispatch(submodels_t *submodel, const protocol_f
         case CMD_SUB_GET_STATUS:
             switch (subcmd)
             {
-                case 0x00: /* 查询当前数据 */
+                case HEALTH_SUB_QUERY_DATA: /* 查询当前数据 */
                     /* ACK + [心跳:1][血氧:1][HRV:2(uint16大端)] */
                     *resp_len = 0;
                     return 0;
@@ -514,16 +514,33 @@ static uint8_t submodels_health_dispatch(submodels_t *submodel, const protocol_f
         case CMD_SUB_DATA_REPORT:
             switch (subcmd)
             {
-                case 0x01: /* 健康数据上报 */
+                case HEALTH_SUB_DATA_REPORT: /* 健康数据上报 */
                 {
-                    /* DATA: [子命令:1][心跳:1][血氧:1][HRV:2(uint16大端)] */
+                    /* DATA: [子命令:1][心跳:1][血氧:1][HRV:2(BE)]
+                     *       [buf_count:2(BE)][last_ir:3(BE)][finger_off:1] (DEBUG) */
                     if (req->len >= 5)
                     {
                         uint8_t hr = req->data[1];
                         uint8_t spo2 = req->data[2];
                         uint16_t hrv = ((uint16_t)req->data[3] << 8) | req->data[4];
-                        printf("[Health] HR=%d BPM, SpO2=%d%%, HRV=%d ms\r\n",
-                               hr, spo2, hrv);
+
+                        if (req->len >= 11)
+                        {
+                            /* Debug format with diagnostics */
+                            uint16_t buf_count = ((uint16_t)req->data[5] << 8) | req->data[6];
+                            uint32_t last_ir = ((uint32_t)req->data[7] << 16) |
+                                               ((uint32_t)req->data[8] << 8) |
+                                               req->data[9];
+                            uint8_t finger_off = req->data[10];
+                            printf("[Health] HR=%d BPM, SpO2=%d%%, HRV=%d ms | "
+                                   "buf=%d, IR=%lu, foff=%d\r\n",
+                                   hr, spo2, hrv, buf_count, last_ir, finger_off);
+                        }
+                        else
+                        {
+                            printf("[Health] HR=%d BPM, SpO2=%d%%, HRV=%d ms\r\n",
+                                   hr, spo2, hrv);
+                        }
                     }
                     return 1;
                 }
@@ -1291,6 +1308,50 @@ submodels_t *Submodels_FindRgbSlot(void)
             return &submodels_g[i];
     }
     return NULL;
+}
+
+/* ============================================================================
+ * Health (健康监测, type=0x02) Control API Implementation
+ * ============================================================================ */
+
+submodels_t *Submodels_FindHealthSlot(void)
+{
+    extern submodels_t submodels_g[3];
+    uint8_t i;
+
+    for (i = 0; i < 3; i++)
+    {
+        if (submodels_g[i].type_id == MODULE_SUBTYPE_SUBMODEL_HEALTH)
+            return &submodels_g[i];
+    }
+    return NULL;
+}
+
+uint8_t Submodels_Health_StartMonitor(submodels_t *submodel)
+{
+    uint8_t data[1] = { HEALTH_SUB_START_MONITOR };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_CONFIG, data, 1);
+}
+
+uint8_t Submodels_Health_StopMonitor(submodels_t *submodel)
+{
+    uint8_t data[1] = { HEALTH_SUB_STOP_MONITOR };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_CONFIG, data, 1);
+}
+
+uint8_t Submodels_Health_SetInterval(submodels_t *submodel, uint16_t seconds)
+{
+    uint8_t data[3];
+    data[0] = HEALTH_SUB_SET_INTERVAL;
+    data[1] = (uint8_t)(seconds >> 8);
+    data[2] = (uint8_t)(seconds & 0xFF);
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_CONFIG, data, 3);
+}
+
+uint8_t Submodels_Health_QueryData(submodels_t *submodel)
+{
+    uint8_t data[1] = { HEALTH_SUB_QUERY_DATA };
+    return Submodels_SendCommand(submodel, CMD_SUB_GET_STATUS, data, 1);
 }
 
 /* ============================================================================

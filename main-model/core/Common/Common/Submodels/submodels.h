@@ -208,6 +208,46 @@ submodels_t *Submodels_FindFpSlot(void);
  */
 submodels_t *Submodels_FindTouchSlot(void);
 
+/* ============================================================================
+ * Health (健康监测, type=0x02) Control API
+ * Core → Health 命令发送函数
+ * ============================================================================ */
+
+/**
+ * @brief  在 submodels_g[0..2] 中查找 Health 类型 submodel
+ * @return Health submodel 指针, 未找到返回 NULL
+ */
+submodels_t *Submodels_FindHealthSlot(void);
+
+/**
+ * @brief  开始健康监测（fire-and-forget）
+ * @param  submodel   目标 submodel 实例指针（需为 Health 类型）
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_Health_StartMonitor(submodels_t *submodel);
+
+/**
+ * @brief  停止健康监测（fire-and-forget）
+ * @param  submodel   目标 submodel 实例指针
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_Health_StopMonitor(submodels_t *submodel);
+
+/**
+ * @brief  设置健康数据上报间隔（fire-and-forget）
+ * @param  submodel   目标 submodel 实例指针
+ * @param  seconds    上报间隔（秒），最小 1
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_Health_SetInterval(submodels_t *submodel, uint16_t seconds);
+
+/**
+ * @brief  查询当前健康数据（异步，响应由 Submodels_Process 处理）
+ * @param  submodel   目标 submodel 实例指针
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_Health_QueryData(submodels_t *submodel);
+
 /**
  * @brief  开始注册新指纹
  * @param  submodel   目标 submodel 实例指针（需为 Fingerprint 类型）

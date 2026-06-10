@@ -231,6 +231,8 @@ static void Max30102_INT_Init(void)
 
 void Max30102_Init(void)
 {
+    uint8_t part_id;
+
     memset(&max30102_ctx, 0, sizeof(max30102_ctx_t));
     max30102_ctx.monitor_interval = 5;  /* Default: 5 seconds */
 
@@ -240,26 +242,30 @@ void Max30102_Init(void)
     Max30102_WriteReg(MAX30102_REG_MODE_CONFIG, 0x40);
     Delay_Ms(10);
 
-    /* Configure: SpO2 mode, 100Hz sample rate, 18-bit pulse width */
-    Max30102_WriteReg(MAX30102_REG_MODE_CONFIG, MAX30102_MODE_SPO2);
-    Max30102_WriteReg(MAX30102_REG_SPO2_CONFIG,
-                      MAX30102_SR_100HZ | MAX30102_PW_18BIT | (0x03 << 5) /* ADC range=4096 */);
+    /* Verify I2C communication by reading PART_ID (should be 0x15 for MAX30102) */
+    part_id = Max30102_ReadReg(MAX30102_REG_PART_ID);
+    if (part_id != 0x15)
+    {
+        /* I2C communication failed, don't configure the sensor */
+        max30102_ctx.state = HEALTH_STATE_IDLE;
+        return;
+    }
 
-    /* LED pulse amplitude */
-    Max30102_WriteReg(MAX30102_REG_LED1_PA, MAX30102_LED_PA_DEFAULT);  /* Red */
-    Max30102_WriteReg(MAX30102_REG_LED2_PA, MAX30102_LED_PA_DEFAULT);  /* IR */
-
-    /* FIFO config: average 4 samples per FIFO almost-full interrupt */
-    Max30102_WriteReg(MAX30102_REG_FIFO_CONFIG, MAX30102_FIFO_A_FULL_4 | 0x40 /* SMP_AVE=4 */);
-
-    /* Enable A_FULL interrupt */
-    Max30102_WriteReg(MAX30102_REG_INTR_ENABLE_1, MAX30102_INT_A_FULL_BIT);
+    /* Configure: SpO2 mode, 100Hz sample rate, 18-bit pulse width, ADC range=4096nA
+     * Matches reference Nucleo_MAX30102 configuration */
+    Max30102_WriteReg(MAX30102_REG_INTR_ENABLE_1,
+                      MAX30102_INT_A_FULL_BIT | MAX30102_INT_PPG_RDY_BIT | MAX30102_INT_PROX_INT_BIT);
     Max30102_WriteReg(MAX30102_REG_INTR_ENABLE_2, 0x00);
-
-    /* Clear FIFO */
     Max30102_WriteReg(MAX30102_REG_FIFO_WR_PTR, 0x00);
     Max30102_WriteReg(MAX30102_REG_OVF_COUNTER, 0x00);
     Max30102_WriteReg(MAX30102_REG_FIFO_RD_PTR, 0x00);
+    Max30102_WriteReg(MAX30102_REG_FIFO_CONFIG, 0x0F);    /* SMP_AVE=0, A_FULL=15 */
+    Max30102_WriteReg(MAX30102_REG_MODE_CONFIG, MAX30102_MODE_SPO2);
+    Max30102_WriteReg(MAX30102_REG_SPO2_CONFIG, 0x27);    /* ADC=4096nA, 100Hz, 18bit */
+    Max30102_WriteReg(MAX30102_REG_LED1_PA, MAX30102_LED_PA_DEFAULT);  /* Red ~7mA */
+    Max30102_WriteReg(MAX30102_REG_LED2_PA, MAX30102_LED_PA_DEFAULT);  /* IR ~7mA */
+    Max30102_WriteReg(MAX30102_REG_PILOT_PA, 0x7F);       /* Pilot ~25mA */
+    Max30102_WriteReg(MAX30102_REG_PROX_INT_THRESH, MAX30102_PROX_THRESH);
 
     /* INT pin setup */
     Max30102_INT_Init();
@@ -306,14 +312,28 @@ void Max30102_SetInterval(uint16_t seconds)
 /* Read all available FIFO samples on interrupt */
 void Max30102_ProcessInt(void)
 {
+    uint8_t intr_status;
     uint8_t wr_ptr, rd_ptr, num_samples;
     uint32_t red, ir;
 
+    /* Read and clear interrupt status */
+    intr_status = Max30102_ReadReg(MAX30102_REG_INTR_STATUS_1);
+    Max30102_ReadReg(MAX30102_REG_INTR_STATUS_2);
+
+    /* ---- IDLE state: only handle PROX_INT (finger detected) ---- */
+    if (max30102_ctx.state == HEALTH_STATE_IDLE)
+    {
+        if (intr_status & MAX30102_INT_PROX_INT_BIT)
+        {
+            /* Finger detected: auto-start monitoring */
+            Max30102_StartMonitoring();
+        }
+        return;
+    }
+
+    /* ---- MONITORING state: read FIFO data ---- */
     if (max30102_ctx.state != HEALTH_STATE_MONITORING)
         return;
-
-    /* Clear interrupt */
-    Max30102_ReadReg(MAX30102_REG_INTR_STATUS_1);
 
     /* Read FIFO pointers */
     wr_ptr = Max30102_ReadReg(MAX30102_REG_FIFO_WR_PTR);
@@ -337,6 +357,64 @@ void Max30102_ProcessInt(void)
 
         if (max30102_ctx.buf_count < MAX30102_PPG_BUF_SIZE)
             max30102_ctx.buf_count++;
+
+        /* Finger-off detection: count consecutive low-IR samples */
+        if (ir < MAX30102_FINGER_OFF_IR_MIN)
+            max30102_ctx.finger_off_count++;
+        else
+            max30102_ctx.finger_off_count = 0;
+
+        max30102_ctx.last_ir = ir;
+
+        num_samples--;
+    }
+}
+
+/* Poll FIFO without relying on EXTI interrupt.
+ * Called from main loop every ~10ms as a fallback/supplement to interrupt. */
+void Max30102_PollFIFO(void)
+{
+    uint8_t wr_ptr, rd_ptr, num_samples;
+    uint32_t red, ir;
+
+    if (max30102_ctx.state != HEALTH_STATE_MONITORING)
+        return;
+
+    /* Read FIFO pointers */
+    wr_ptr = Max30102_ReadReg(MAX30102_REG_FIFO_WR_PTR);
+    rd_ptr = Max30102_ReadReg(MAX30102_REG_FIFO_RD_PTR);
+
+    if (wr_ptr == rd_ptr)
+        return;  /* No new data */
+
+    /* Calculate number of available samples */
+    if (wr_ptr >= rd_ptr)
+        num_samples = wr_ptr - rd_ptr;
+    else
+        num_samples = 32 - rd_ptr + wr_ptr;
+
+    /* Limit to prevent blocking too long */
+    if (num_samples > 16)
+        num_samples = 16;
+
+    /* Read samples */
+    while (num_samples > 0)
+    {
+        Max30102_ReadFIFO(&red, &ir);
+
+        max30102_ctx.ir_buf[max30102_ctx.buf_idx] = ir;
+        max30102_ctx.red_buf[max30102_ctx.buf_idx] = red;
+        max30102_ctx.buf_idx = (max30102_ctx.buf_idx + 1) % MAX30102_PPG_BUF_SIZE;
+
+        if (max30102_ctx.buf_count < MAX30102_PPG_BUF_SIZE)
+            max30102_ctx.buf_count++;
+
+        if (ir < MAX30102_FINGER_OFF_IR_MIN)
+            max30102_ctx.finger_off_count++;
+        else
+            max30102_ctx.finger_off_count = 0;
+
+        max30102_ctx.last_ir = ir;
 
         num_samples--;
     }
@@ -469,6 +547,14 @@ void Max30102_ProcessAlgorithm(void)
 
     if (max30102_ctx.state != HEALTH_STATE_MONITORING)
         return;
+
+    /* Finger-off detection: if IR signal has been low for consecutive samples,
+     * finger is no longer on the sensor → auto-stop monitoring */
+    if (max30102_ctx.finger_off_count >= MAX30102_FINGER_OFF_COUNT)
+    {
+        Max30102_StopMonitoring();
+        return;
+    }
 
     if (max30102_ctx.buf_count < 30)
         return;

@@ -15,14 +15,44 @@
 
 extern volatile uint8_t g_max30102_int_flag;
 
-/* Report interval counter (in main loop iterations).
- * At ~100MHz with minimal work per iteration, we approximate timing.
- * Use TIM2 for precise timing instead if needed. */
-static volatile uint32_t report_counter = 0;
+/* Millisecond tick counter, incremented by TIM2 ISR */
+static volatile uint32_t ms_tick = 0;
+static uint32_t last_report_tick = 0;
+static uint32_t last_poll_tick = 0;
 
-/* Approximate number of main loop iterations per second.
- * Calibrated empirically; rough estimate for 72MHz CH32V103. */
-#define LOOPS_PER_SECOND    200000UL
+void TIM2_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
+
+static void TIM2_Init(void)
+{
+    TIM_TimeBaseInitTypeDef tim;
+
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+
+    /* 72MHz / 72000 = 1kHz = 1ms per tick */
+    TIM_DeInit(TIM2);
+    tim.TIM_Period = 1000 - 1;
+    tim.TIM_Prescaler = 72 - 1;
+    tim.TIM_ClockDivision = TIM_CKD_DIV1;
+    tim.TIM_CounterMode = TIM_CounterMode_Up;
+    TIM_TimeBaseInit(TIM2, &tim);
+
+    TIM_ClearFlag(TIM2, TIM_FLAG_Update);
+    TIM_ITConfig(TIM2, TIM_IT_Update, ENABLE);
+
+    NVIC_SetPriority(TIM2_IRQn, 0x80);
+    NVIC_EnableIRQ(TIM2_IRQn);
+
+    TIM_Cmd(TIM2, ENABLE);
+}
+
+void TIM2_IRQHandler(void)
+{
+    if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET)
+    {
+        TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
+        ms_tick++;
+    }
+}
 
 int main(void)
 {
@@ -35,6 +65,10 @@ int main(void)
      * Using printf would corrupt protocol frames. */
 
     Hardware_Init();
+    TIM2_Init();
+
+    last_report_tick = ms_tick;
+    last_poll_tick = ms_tick;
 
     while (1)
     {
@@ -43,6 +77,13 @@ int main(void)
         {
             g_max30102_int_flag = 0;
             Max30102_ProcessInt();
+        }
+
+        /* Poll FIFO every 10ms as fallback (reference code uses polling) */
+        if (ms_tick - last_poll_tick >= 10)
+        {
+            last_poll_tick = ms_tick;
+            Max30102_PollFIFO();
         }
 
         /* Run PPG algorithm on collected data */
@@ -54,17 +95,16 @@ int main(void)
         /* Periodic health data report when monitoring */
         if (max30102_ctx.state == HEALTH_STATE_MONITORING)
         {
-            report_counter++;
-
-            if (report_counter >= LOOPS_PER_SECOND * max30102_ctx.monitor_interval)
+            uint32_t elapsed = ms_tick - last_report_tick;
+            if (elapsed >= (uint32_t)max30102_ctx.monitor_interval * 1000)
             {
-                report_counter = 0;
+                last_report_tick = ms_tick;
                 Hardware_ReportHealthData();
             }
         }
         else
         {
-            report_counter = 0;
+            last_report_tick = ms_tick;
         }
     }
 }

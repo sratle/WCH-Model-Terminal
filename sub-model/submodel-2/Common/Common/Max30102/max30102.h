@@ -82,6 +82,11 @@
 #define MAX30102_LED_PA_LOW             0x1F   /* ~6.2mA */
 #define MAX30102_LED_PA_HIGH            0x3F   /* ~12.6mA */
 
+/* Proximity detection */
+#define MAX30102_PROX_THRESH            0x14   /* IR threshold for finger detection */
+#define MAX30102_FINGER_OFF_IR_MIN      5000   /* IR below this = no finger */
+#define MAX30102_FINGER_OFF_COUNT       50     /* Consecutive low-IR samples = finger off */
+
 /* PPG algorithm parameters */
 #define MAX30102_PPG_BUF_SIZE           100    /* PPG circular buffer size */
 #define MAX30102_HR_SMOOTH_WINDOW       5      /* Heart rate smoothing window */
@@ -94,8 +99,8 @@
 
 /* Health monitor state */
 typedef enum {
-    HEALTH_STATE_IDLE = 0,
-    HEALTH_STATE_MONITORING
+    HEALTH_STATE_IDLE = 0,       /* Waiting for finger (PROX_INT only) */
+    HEALTH_STATE_MONITORING      /* Finger detected, collecting & reporting */
 } health_state_t;
 
 /* MAX30102 context */
@@ -126,6 +131,12 @@ typedef struct {
     /* Monitor interval (seconds) */
     uint16_t monitor_interval;
 
+    /* Finger-off detection: count consecutive low-IR samples */
+    uint8_t  finger_off_count;
+
+    /* Diagnostic: last IR sample value for debugging */
+    uint32_t last_ir;
+
     /* INT flag */
     volatile uint8_t int_flag;
 } max30102_ctx_t;
@@ -136,6 +147,7 @@ void Max30102_StartMonitoring(void);
 void Max30102_StopMonitoring(void);
 void Max30102_SetInterval(uint16_t seconds);
 void Max30102_ProcessInt(void);
+void Max30102_PollFIFO(void);
 void Max30102_ProcessAlgorithm(void);
 
 uint8_t Max30102_GetHeartRate(void);
