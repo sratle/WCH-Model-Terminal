@@ -21,9 +21,9 @@
 
 #define FP_LEFT_W           370
 #define FP_LIST_X           8
-#define FP_LIST_Y           (APP_TITLE_BAR_H + 4)
+#define FP_LIST_Y           (FP_RESULT_Y + FP_RESULT_H + 4)
 #define FP_LIST_W           (FP_LEFT_W - 16)
-#define FP_LIST_H           (UI_SCREEN_HEIGHT - APP_TITLE_BAR_H - 36)
+#define FP_LIST_H           (UI_SCREEN_HEIGHT - FP_LIST_Y - 36)
 #define FP_ITEM_H           34
 #define FP_VISIBLE_ITEMS    (FP_LIST_H / FP_ITEM_H)
 
@@ -58,6 +58,10 @@
 /* Status bar */
 #define FP_STATUS_Y         (UI_SCREEN_HEIGHT - 30)
 #define FP_STATUS_H         30
+
+/* Identification result display area (top of left panel) */
+#define FP_RESULT_Y         (APP_TITLE_BAR_H + 4)
+#define FP_RESULT_H         60
 
 /*=============================================================================
  *  Colors
@@ -129,6 +133,15 @@ static uint8_t s_sec_level;           /* 1-3 */
 /* Status message */
 static char s_status[80];
 
+/* Identification result state */
+typedef struct {
+    uint8_t result;      /* 0=none, 1=success, 2=fail */
+    uint8_t fp_id;       /* Fingerprint ID on success */
+    uint32_t timestamp;  /* Tick when result arrived (for auto-clear) */
+} fp_identify_result_t;
+
+static fp_identify_result_t s_id_result;
+
 /* Widgets */
 static ui_widget_t  s_list_touch;
 static ui_button_t  btn_register, btn_delete, btn_refresh;
@@ -156,6 +169,13 @@ static uart_app_callbacks_t s_fp_callbacks = {
     .on_cwd_notify   = NULL,
 };
 
+static void fp_on_submodel_event(uint8_t sub_type, uint8_t sub_cmd,
+                                  const uint8_t *evt_data, uint8_t evt_len);
+
+static uart_submodel_cb_t s_fp_submodel_cb = {
+    .on_submodel_event = fp_on_submodel_event,
+};
+
 /*=============================================================================
  *  Helpers
  *=============================================================================*/
@@ -176,6 +196,12 @@ static void fp_invalidate_list(void)
 static void fp_invalidate_status(void)
 {
     ui_rect_t r = {0, FP_STATUS_Y, UI_SCREEN_WIDTH, FP_STATUS_H};
+    ui_page_invalidate(&r);
+}
+
+static void fp_invalidate_result(void)
+{
+    ui_rect_t r = {0, FP_RESULT_Y, FP_LEFT_W, FP_RESULT_H};
     ui_page_invalidate(&r);
 }
 
@@ -210,6 +236,42 @@ static void fp_refresh_list(void)
     fp_clear_list();
     fp_set_status("Querying fingerprint list...");
     UART_SendCLI("fp ls");
+}
+
+/*=============================================================================
+ *  Submodel Event Handler (fingerprint identify results)
+ *=============================================================================*/
+
+static void fp_on_submodel_event(uint8_t sub_type, uint8_t sub_cmd,
+                                  const uint8_t *evt_data, uint8_t evt_len)
+{
+    if (sub_type != SUBMODEL_FINGERPRINT)
+        return;
+
+    switch (sub_cmd) {
+    case FP_EVT_IDENTIFY_OK:
+    {
+        /* Core sends evt_data = [FP_SUB_IDENTIFY_OK, fp_id], so fp_id is at [1] */
+        uint8_t fp_id = (evt_data && evt_len >= 2) ? evt_data[1] : 0;
+        s_id_result.result = 1;  /* success */
+        s_id_result.fp_id = fp_id;
+        s_id_result.timestamp = 0;  /* reserved for future auto-clear */
+        fp_invalidate_result();
+        char msg[48];
+        snprintf(msg, sizeof(msg), "Identify OK: ID #%d", fp_id);
+        fp_set_status(msg);
+        break;
+    }
+    case FP_EVT_IDENTIFY_FAIL:
+        s_id_result.result = 2;  /* fail */
+        s_id_result.fp_id = 0;
+        s_id_result.timestamp = 0;
+        fp_invalidate_result();
+        fp_set_status("Identify FAIL: no match");
+        break;
+    default:
+        break;
+    }
 }
 
 /*=============================================================================
@@ -520,6 +582,8 @@ static void fp_page_enter(ui_page_t *page)
 {
     (void)page;
     UART_SetAppCallbacks(&s_fp_callbacks);
+    UART_SetSubmodelCallbacks(&s_fp_submodel_cb);
+    s_id_result.result = 0;
     fp_refresh_list();
 }
 
@@ -527,6 +591,7 @@ static void fp_page_exit(ui_page_t *page)
 {
     (void)page;
     UART_ClearAppCallbacks();
+    UART_ClearSubmodelCallbacks();
 }
 
 static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
@@ -539,6 +604,47 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
 
     int16_t dirty_top = dirty->y;
     int16_t dirty_bot = dirty->y + dirty->h;
+
+    /* Identification result display */
+    if (dirty_top < FP_RESULT_Y + FP_RESULT_H && dirty_bot > FP_RESULT_Y) {
+        ui_rect_t result_bg = {0, FP_RESULT_Y, FP_LEFT_W, FP_RESULT_H};
+        if (s_id_result.result == 1) {
+            /* Success */
+            ui_draw_fill_rect(&result_bg, UI_HEX(0xE8F5E9));
+            ui_draw_rect_border(&result_bg, UI_HEX(0x4CAF50), 2);
+            /* Icon area */
+            ui_draw_fill_circle(30, FP_RESULT_Y + FP_RESULT_H / 2, 16, UI_HEX(0x4CAF50));
+            ui_draw_text(22, FP_RESULT_Y + FP_RESULT_H / 2 - 6, "OK",
+                         &font_montserrat_12, UI_COLOR_WHITE);
+            /* Text */
+            ui_draw_text(54, FP_RESULT_Y + 8, "Identify Success",
+                         &font_montserrat_16, UI_HEX(0x2E7D32));
+            char id_str[24];
+            snprintf(id_str, sizeof(id_str), "Fingerprint ID: #%d", s_id_result.fp_id);
+            ui_draw_text(54, FP_RESULT_Y + 30, id_str,
+                         &font_montserrat_12, UI_HEX(0x388E3C));
+        } else if (s_id_result.result == 2) {
+            /* Fail */
+            ui_draw_fill_rect(&result_bg, UI_HEX(0xFBE9E7));
+            ui_draw_rect_border(&result_bg, UI_HEX(0xF44336), 2);
+            /* Icon area */
+            ui_draw_fill_circle(30, FP_RESULT_Y + FP_RESULT_H / 2, 16, UI_HEX(0xF44336));
+            ui_draw_text(23, FP_RESULT_Y + FP_RESULT_H / 2 - 6, "X",
+                         &font_montserrat_12, UI_COLOR_WHITE);
+            /* Text */
+            ui_draw_text(54, FP_RESULT_Y + 8, "Identify Failed",
+                         &font_montserrat_16, UI_HEX(0xC62828));
+            ui_draw_text(54, FP_RESULT_Y + 30, "No matching fingerprint",
+                         &font_montserrat_12, UI_HEX(0xD32F2F));
+        } else {
+            /* No result yet */
+            ui_draw_fill_rect(&result_bg, FP_LIST_BG);
+            ui_draw_rect_border(&result_bg, FP_BORDER, 1);
+            ui_draw_text(12, FP_RESULT_Y + FP_RESULT_H / 2 - 6,
+                         "Waiting for identification...",
+                         &font_montserrat_12, FP_ITEM_ID);
+        }
+    }
 
     /* Left panel: fingerprint list */
     if (dirty_top < FP_LIST_Y + FP_LIST_H && dirty_bot > FP_LIST_Y) {

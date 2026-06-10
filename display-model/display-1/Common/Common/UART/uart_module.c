@@ -37,6 +37,10 @@ volatile pending_req_t g_pending_req = PENDING_NONE;
 static uart_emusic_callbacks_t s_emusic_cb;
 static bool s_emusic_cb_valid = false;
 
+/* Submodel event callbacks (fingerprint, health, etc.) */
+static uart_submodel_cb_t s_submodel_cb;
+static bool s_submodel_cb_valid = false;
+
 /*=============================================================================
  *  CLI Response Assembly Buffer (forward declarations for internal use)
  *=============================================================================*/
@@ -66,6 +70,23 @@ void UART_ClearAppCallbacks(void)
     memset(&s_app_cb, 0, sizeof(uart_app_callbacks_t));
     s_app_cb_valid = false;
     g_pending_req = PENDING_NONE;
+}
+
+void UART_SetSubmodelCallbacks(const uart_submodel_cb_t *cb)
+{
+    if (cb) {
+        memcpy(&s_submodel_cb, cb, sizeof(uart_submodel_cb_t));
+        s_submodel_cb_valid = true;
+    } else {
+        memset(&s_submodel_cb, 0, sizeof(uart_submodel_cb_t));
+        s_submodel_cb_valid = false;
+    }
+}
+
+void UART_ClearSubmodelCallbacks(void)
+{
+    memset(&s_submodel_cb, 0, sizeof(uart_submodel_cb_t));
+    s_submodel_cb_valid = false;
 }
 
 void UART_SetEMusicCallbacks(const uart_emusic_callbacks_t *cb)
@@ -613,11 +634,17 @@ static void handle_ext_bt_event(const uint8_t *data, uint8_t len)
 
 static void handle_ext_submodel_event(const uint8_t *data, uint8_t len)
 {
-    if (len < 3) return;  /* ext(1) + subtype(1) + evt_op(1) + ... */
-    /* uint8_t sub_type = data[1]; */
-    /* uint8_t evt_op   = data[2]; */
-    /* Route to appropriate UI handler based on sub_type */
-    /* TODO: implement per-submodel UI updates */
+    if (len < 3) return;  /* ext(1) + subtype(1) + sub_cmd(1) + ... */
+    uint8_t sub_type = data[1];
+    uint8_t sub_cmd  = data[2];
+    const uint8_t *evt_data = (len > 3) ? &data[3] : NULL;
+    uint8_t evt_len = (len > 3) ? (len - 3) : 0;
+
+    printf("[SUB] type=%d cmd=%d len=%d\r\n", sub_type, sub_cmd, evt_len);
+
+    if (s_submodel_cb_valid && s_submodel_cb.on_submodel_event) {
+        s_submodel_cb.on_submodel_event(sub_type, sub_cmd, evt_data, evt_len);
+    }
 }
 
 static void handle_ext_power_event(const uint8_t *data, uint8_t len)

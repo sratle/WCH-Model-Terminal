@@ -208,6 +208,19 @@ extern "C" {
 #define SUBMODEL_SUBDISPLAY     0x07
 
 /*=============================================================================
+ *  Fingerprint Sub-commands (forwarded via DISP_EXT_SUBMODEL_EVENT)
+ *=============================================================================*/
+
+#define FP_EVT_IDENTIFY_OK      0x01    /* [fp_id:1] */
+#define FP_EVT_IDENTIFY_FAIL    0x02    /* (no payload) */
+
+/*=============================================================================
+ *  Health Sub-commands (forwarded via DISP_EXT_SUBMODEL_EVENT)
+ *=============================================================================*/
+
+#define HEALTH_EVT_DATA_REPORT  0x01    /* [HR:1][SpO2:1][HRV:2(BE)] */
+
+/*=============================================================================
  *  Power Event Types  (Protocol_Display.md §5.13)
  *=============================================================================*/
 
@@ -252,6 +265,27 @@ typedef enum {
 } pending_req_t;
 
 extern volatile pending_req_t g_pending_req;
+
+/*=============================================================================
+ *  Submodel Event Callback Interface
+ *
+ *  Core forwards submodel events (fingerprint, health, NFC, etc.) via
+ *  DISP_EXT_SUBMODEL_EVENT. Apps register a callback to receive these
+ *  events only while active, avoiding RAM waste for inactive apps.
+ *=============================================================================*/
+
+typedef struct {
+    /* Submodel event from Core.
+     * 'sub_type' = SUBMODEL_FINGERPRINT / SUBMODEL_HEALTH / etc.
+     * 'sub_cmd'  = event opcode (FP_SUB_IDENTIFY_OK, HEALTH_SUB_DATA_REPORT, etc.)
+     * 'evt_data' = event payload (after sub_cmd), NOT null-terminated.
+     * 'evt_len'  = payload length. */
+    void (*on_submodel_event)(uint8_t sub_type, uint8_t sub_cmd,
+                              const uint8_t *evt_data, uint8_t evt_len);
+} uart_submodel_cb_t;
+
+void UART_SetSubmodelCallbacks(const uart_submodel_cb_t *cb);
+void UART_ClearSubmodelCallbacks(void);
 
 /*=============================================================================
  *  App-Layer Callback Interface
