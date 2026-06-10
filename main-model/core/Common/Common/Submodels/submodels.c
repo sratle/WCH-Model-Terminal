@@ -517,24 +517,27 @@ static uint8_t submodels_health_dispatch(submodels_t *submodel, const protocol_f
                 case HEALTH_SUB_DATA_REPORT: /* 健康数据上报 */
                 {
                     /* DATA: [子命令:1][心跳:1][血氧:1][HRV:2(BE)]
-                     *       [buf_count:2(BE)][last_ir:3(BE)][finger_off:1] (DEBUG) */
+                     *       [valid:1][buf_count:2(BE)][last_ir:3(BE)][foff:1] (DEBUG) */
                     if (req->len >= 5)
                     {
                         uint8_t hr = req->data[1];
                         uint8_t spo2 = req->data[2];
                         uint16_t hrv = ((uint16_t)req->data[3] << 8) | req->data[4];
 
-                        if (req->len >= 11)
+                        if (req->len >= 12)
                         {
                             /* Debug format with diagnostics */
-                            uint16_t buf_count = ((uint16_t)req->data[5] << 8) | req->data[6];
-                            uint32_t last_ir = ((uint32_t)req->data[7] << 16) |
-                                               ((uint32_t)req->data[8] << 8) |
-                                               req->data[9];
-                            uint8_t finger_off = req->data[10];
-                            printf("[Health] HR=%d BPM, SpO2=%d%%, HRV=%d ms | "
+                            uint8_t valid = req->data[5];
+                            uint16_t buf_count = ((uint16_t)req->data[6] << 8) | req->data[7];
+                            uint32_t last_ir = ((uint32_t)req->data[8] << 16) |
+                                               ((uint32_t)req->data[9] << 8) |
+                                               req->data[10];
+                            uint8_t finger_off = req->data[11];
+                            printf("[Health] HR=%d BPM(%s), SpO2=%d%%(%s), HRV=%d ms | "
                                    "buf=%d, IR=%lu, foff=%d\r\n",
-                                   hr, spo2, hrv, buf_count, last_ir, finger_off);
+                                   hr, (valid & 0x01) ? "OK" : "INV",
+                                   spo2, (valid & 0x02) ? "OK" : "INV",
+                                   hrv, buf_count, last_ir, finger_off);
                         }
                         else
                         {

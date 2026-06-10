@@ -87,8 +87,17 @@
 #define MAX30102_FINGER_OFF_IR_MIN      5000   /* IR below this = no finger */
 #define MAX30102_FINGER_OFF_COUNT       50     /* Consecutive low-IR samples = finger off */
 
-/* PPG algorithm parameters */
-#define MAX30102_PPG_BUF_SIZE           100    /* PPG circular buffer size */
+/* Algorithm parameters (adapted from Maxim MAXREFDES117 reference)
+ * Buffer size set to 200 (2 seconds at 100Hz) for CH32V103 20KB RAM limit.
+ * Reference uses 500 (5 seconds) but that requires ~18KB RAM just for buffers.
+ * 200 samples gives 2-3 heartbeat cycles at 60-100 BPM, enough for the algorithm. */
+#define MAX30102_FS                     100    /* Sample rate (Hz) */
+#define MAX30102_BUFFER_SIZE            200    /* 200 samples = 2 seconds */
+#define MAX30102_MA4_SIZE               4      /* 4-point moving average */
+#define MAX30102_HAMMING_SIZE           5      /* Hamming window size */
+#define MAX30102_ALGO_RUN_SAMPLES       50     /* Run algorithm every 50 new samples (500ms) */
+
+/* PPG algorithm parameters (legacy, kept for smoothing) */
 #define MAX30102_HR_SMOOTH_WINDOW       5      /* Heart rate smoothing window */
 #define MAX30102_SPO2_SMOOTH_WINDOW     5      /* SpO2 smoothing window */
 #define MAX30102_MIN_VALID_HR           40     /* Minimum valid heart rate */
@@ -107,16 +116,19 @@ typedef enum {
 typedef struct {
     health_state_t state;
 
-    /* PPG raw data buffer (red + IR interleaved from FIFO) */
-    uint32_t ir_buf[MAX30102_PPG_BUF_SIZE];
-    uint32_t red_buf[MAX30102_PPG_BUF_SIZE];
+    /* PPG raw data buffer (100 samples = 1 second at 100Hz) */
+    uint32_t ir_buf[MAX30102_BUFFER_SIZE];
+    uint32_t red_buf[MAX30102_BUFFER_SIZE];
     uint16_t buf_count;         /* Number of samples in buffer */
     uint16_t buf_idx;           /* Write index (circular) */
+    uint16_t new_samples;       /* Count of new samples since last algorithm run */
 
     /* Computed results */
     uint8_t  heart_rate;        /* BPM, smoothed */
     uint8_t  spo2;              /* SpO2 percentage, smoothed */
     uint16_t hrv;               /* HRV (SDNN) in ms */
+    uint8_t  hr_valid;          /* 1 if HR is valid */
+    uint8_t  spo2_valid;        /* 1 if SpO2 is valid */
 
     /* Smoothing buffers */
     uint8_t  hr_smooth[MAX30102_HR_SMOOTH_WINDOW];
@@ -124,17 +136,13 @@ typedef struct {
     uint8_t  hr_smooth_idx;
     uint8_t  spo2_smooth_idx;
 
-    /* RR intervals for HRV (in sample counts) */
-    uint16_t rr_intervals[32];
-    uint8_t  rr_count;
-
     /* Monitor interval (seconds) */
     uint16_t monitor_interval;
 
-    /* Finger-off detection: count consecutive low-IR samples */
+    /* Finger-off detection */
     uint8_t  finger_off_count;
 
-    /* Diagnostic: last IR sample value for debugging */
+    /* Diagnostic: last IR sample value */
     uint32_t last_ir;
 
     /* INT flag */

@@ -8,12 +8,14 @@ volatile uint8_t g_max30102_int_flag = 0;
  * Software I2C (PB14=SCL, PB15=SDA)
  * ============================================================================ */
 
-#define I2C_DELAY_US    2
+#define I2C_DELAY_US    5
 
 static void I2C_Delay(void)
 {
-    uint8_t i;
-    for (i = 0; i < I2C_DELAY_US * 8; i++)
+    /* At 72MHz, each loop iteration is ~4 cycles (nop + loop overhead).
+     * For 5μs: need 72 * 5 = 360 cycles ≈ 90 iterations. */
+    uint16_t i;
+    for (i = 0; i < 90; i++)
         __asm volatile ("nop");
 }
 
@@ -254,12 +256,12 @@ void Max30102_Init(void)
     /* Configure: SpO2 mode, 100Hz sample rate, 18-bit pulse width, ADC range=4096nA
      * Matches reference Nucleo_MAX30102 configuration */
     Max30102_WriteReg(MAX30102_REG_INTR_ENABLE_1,
-                      MAX30102_INT_A_FULL_BIT | MAX30102_INT_PPG_RDY_BIT | MAX30102_INT_PROX_INT_BIT);
+                      MAX30102_INT_A_FULL_BIT | MAX30102_INT_PPG_RDY_BIT);
     Max30102_WriteReg(MAX30102_REG_INTR_ENABLE_2, 0x00);
     Max30102_WriteReg(MAX30102_REG_FIFO_WR_PTR, 0x00);
     Max30102_WriteReg(MAX30102_REG_OVF_COUNTER, 0x00);
     Max30102_WriteReg(MAX30102_REG_FIFO_RD_PTR, 0x00);
-    Max30102_WriteReg(MAX30102_REG_FIFO_CONFIG, 0x0F);    /* SMP_AVE=0, A_FULL=15 */
+    Max30102_WriteReg(MAX30102_REG_FIFO_CONFIG, 0x1F);    /* SMP_AVE=0, ROLLOVER=1, A_FULL=15 */
     Max30102_WriteReg(MAX30102_REG_MODE_CONFIG, MAX30102_MODE_SPO2);
     Max30102_WriteReg(MAX30102_REG_SPO2_CONFIG, 0x27);    /* ADC=4096nA, 100Hz, 18bit */
     Max30102_WriteReg(MAX30102_REG_LED1_PA, MAX30102_LED_PA_DEFAULT);  /* Red ~7mA */
@@ -287,12 +289,15 @@ void Max30102_StartMonitoring(void)
     /* Reset state */
     max30102_ctx.buf_count = 0;
     max30102_ctx.buf_idx = 0;
-    max30102_ctx.rr_count = 0;
+    max30102_ctx.new_samples = 0;
     max30102_ctx.hr_smooth_idx = 0;
     max30102_ctx.spo2_smooth_idx = 0;
     max30102_ctx.heart_rate = 0;
     max30102_ctx.spo2 = 0;
     max30102_ctx.hrv = 0;
+    max30102_ctx.hr_valid = 0;
+    max30102_ctx.spo2_valid = 0;
+    max30102_ctx.finger_off_count = 0;
 
     max30102_ctx.state = HEALTH_STATE_MONITORING;
 }
@@ -353,10 +358,12 @@ void Max30102_ProcessInt(void)
         /* Store in circular buffer */
         max30102_ctx.ir_buf[max30102_ctx.buf_idx] = ir;
         max30102_ctx.red_buf[max30102_ctx.buf_idx] = red;
-        max30102_ctx.buf_idx = (max30102_ctx.buf_idx + 1) % MAX30102_PPG_BUF_SIZE;
+        max30102_ctx.buf_idx = (max30102_ctx.buf_idx + 1) % MAX30102_BUFFER_SIZE;
 
-        if (max30102_ctx.buf_count < MAX30102_PPG_BUF_SIZE)
+        if (max30102_ctx.buf_count < MAX30102_BUFFER_SIZE)
             max30102_ctx.buf_count++;
+
+        max30102_ctx.new_samples++;
 
         /* Finger-off detection: count consecutive low-IR samples */
         if (ir < MAX30102_FINGER_OFF_IR_MIN)
@@ -379,6 +386,10 @@ void Max30102_PollFIFO(void)
 
     if (max30102_ctx.state != HEALTH_STATE_MONITORING)
         return;
+
+    /* Read and clear interrupt status (required by MAX30102 before FIFO read) */
+    Max30102_ReadReg(MAX30102_REG_INTR_STATUS_1);
+    Max30102_ReadReg(MAX30102_REG_INTR_STATUS_2);
 
     /* Read FIFO pointers */
     wr_ptr = Max30102_ReadReg(MAX30102_REG_FIFO_WR_PTR);
@@ -404,10 +415,12 @@ void Max30102_PollFIFO(void)
 
         max30102_ctx.ir_buf[max30102_ctx.buf_idx] = ir;
         max30102_ctx.red_buf[max30102_ctx.buf_idx] = red;
-        max30102_ctx.buf_idx = (max30102_ctx.buf_idx + 1) % MAX30102_PPG_BUF_SIZE;
+        max30102_ctx.buf_idx = (max30102_ctx.buf_idx + 1) % MAX30102_BUFFER_SIZE;
 
-        if (max30102_ctx.buf_count < MAX30102_PPG_BUF_SIZE)
+        if (max30102_ctx.buf_count < MAX30102_BUFFER_SIZE)
             max30102_ctx.buf_count++;
+
+        max30102_ctx.new_samples++;
 
         if (ir < MAX30102_FINGER_OFF_IR_MIN)
             max30102_ctx.finger_off_count++;
@@ -421,96 +434,337 @@ void Max30102_PollFIFO(void)
 }
 
 /* ============================================================================
- * PPG Algorithm: Peak detection, HR, SpO2, HRV
+ * PPG Algorithm: Maxim MAXREFDES117 reference algorithm ported to C
+ * Original: algorithm.cpp by Maxim Integrated Products, Inc.
  * ============================================================================ */
 
-/* Find peaks in IR PPG signal and compute heart rate */
-static uint16_t FindPeaks(const uint32_t *buf, uint16_t count,
-                          uint16_t *peak_indices, uint16_t max_peaks)
+/* SpO2 lookup table: -45.060*ratioAverage^2 + 30.354*ratioAverage + 94.845 */
+static const uint8_t uch_spo2_table[184] = {
+    95, 95, 95, 96, 96, 96, 97, 97, 97, 97, 97, 98, 98, 98, 98, 98, 99, 99, 99, 99,
+    99, 99, 99, 99,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,
+   100,100,100,100, 99, 99, 99, 99, 99, 99, 99, 99, 98, 98, 98, 98, 98, 98, 97, 97,
+    97, 97, 96, 96, 96, 96, 95, 95, 95, 94, 94, 94, 93, 93, 93, 92, 92, 92, 91, 91,
+    90, 90, 89, 89, 89, 88, 88, 87, 87, 86, 86, 85, 85, 84, 84, 83, 82, 82, 81, 81,
+    80, 80, 79, 78, 78, 77, 76, 76, 75, 74, 74, 73, 72, 72, 71, 70, 69, 69, 68, 67,
+    66, 66, 65, 64, 63, 62, 62, 61, 60, 59, 58, 57, 56, 56, 55, 54, 53, 52, 51, 50,
+    49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 31, 30, 29,
+    28, 27, 26, 25, 23, 22, 21, 20, 19, 17, 16, 15, 14, 12, 11, 10,  9,  7,  6,  5,
+     3,  2,  1
+};
+
+/* Hamming window coefficients (512 * hamming(5)) */
+static const uint16_t auw_hamm[5] = { 41, 276, 512, 276, 41 };
+
+/* Algorithm working buffers (static to avoid stack overflow)
+ * an_x and an_y are reused from ir_linear/red_linear after copying.
+ * an_dx is separate since it holds derivative data. */
+static int32_t an_dx[MAX30102_BUFFER_SIZE];  /* Derivative */
+static uint32_t ir_linear[MAX30102_BUFFER_SIZE];  /* Also used as an_x (int32_t cast) in algorithm */
+static uint32_t red_linear[MAX30102_BUFFER_SIZE]; /* Also used as an_y (int32_t cast) in algorithm */
+
+/* ---- Helper functions (from Maxim reference) ---- */
+
+static void algo_sort_ascend(int32_t *pn_x, int32_t n_size)
 {
-    uint16_t peak_count = 0;
-    uint16_t i;
-    uint32_t threshold;
-    uint32_t max_val;
-    int32_t prev_diff, curr_diff;
-
-    if (count < 5)
-        return 0;
-
-    /* Compute signal threshold as 60% of max */
-    max_val = 0;
-    for (i = 0; i < count; i++)
-    {
-        if (buf[i] > max_val)
-            max_val = buf[i];
+    int32_t i, j, n_temp;
+    for (i = 1; i < n_size; i++) {
+        n_temp = pn_x[i];
+        for (j = i; j > 0 && n_temp < pn_x[j-1]; j--)
+            pn_x[j] = pn_x[j-1];
+        pn_x[j] = n_temp;
     }
-    threshold = max_val * 6 / 10;
-
-    /* Detect peaks: sign change from positive to negative slope */
-    prev_diff = 0;
-    for (i = 1; i < count - 1 && peak_count < max_peaks; i++)
-    {
-        curr_diff = (int32_t)buf[i + 1] - (int32_t)buf[i];
-
-        if (prev_diff > 0 && curr_diff <= 0 && buf[i] > threshold)
-        {
-            /* Ensure minimum distance between peaks (~25 samples at 100Hz = 250ms) */
-            if (peak_count == 0 ||
-                (i - peak_indices[peak_count - 1]) >= 25)
-            {
-                peak_indices[peak_count++] = i;
-            }
-        }
-
-        prev_diff = curr_diff;
-    }
-
-    return peak_count;
 }
 
-/* Compute SpO2 using R = (AC_red/DC_red) / (AC_ir/DC_ir) */
-static uint8_t ComputeSpO2(const uint32_t *red_buf, const uint32_t *ir_buf,
-                           uint16_t count)
+static void algo_sort_indices_descend(int32_t *pn_x, int32_t *pn_indx, int32_t n_size)
 {
-    uint32_t red_dc, ir_dc;
-    uint32_t red_ac, ir_ac;
-    uint32_t red_min, red_max, ir_min, ir_max;
-    uint16_t i;
-    float r_val, spo2;
+    int32_t i, j, n_temp;
+    for (i = 1; i < n_size; i++) {
+        n_temp = pn_indx[i];
+        for (j = i; j > 0 && pn_x[n_temp] > pn_x[pn_indx[j-1]]; j--)
+            pn_indx[j] = pn_indx[j-1];
+        pn_indx[j] = n_temp;
+    }
+}
 
-    if (count < 10)
-        return 0;
+static void algo_peaks_above_min_height(int32_t *pn_locs, int32_t *pn_npks,
+                                         int32_t *pn_x, int32_t n_size,
+                                         int32_t n_min_height)
+{
+    int32_t i = 1, n_width;
+    *pn_npks = 0;
 
-    /* Find AC/DC for red */
-    red_min = red_max = red_buf[0];
-    ir_min = ir_max = ir_buf[0];
+    while (i < n_size - 1) {
+        if (pn_x[i] > n_min_height && pn_x[i] > pn_x[i-1]) {
+            n_width = 1;
+            while (i + n_width < n_size && pn_x[i] == pn_x[i + n_width])
+                n_width++;
+            if (pn_x[i] > pn_x[i + n_width] && (*pn_npks) < 15) {
+                pn_locs[(*pn_npks)++] = i;
+                i += n_width + 1;
+            } else {
+                i += n_width;
+            }
+        } else {
+            i++;
+        }
+    }
+}
 
-    for (i = 1; i < count; i++)
-    {
-        if (red_buf[i] < red_min) red_min = red_buf[i];
-        if (red_buf[i] > red_max) red_max = red_buf[i];
-        if (ir_buf[i] < ir_min) ir_min = ir_buf[i];
-        if (ir_buf[i] > ir_max) ir_max = ir_buf[i];
+static void algo_remove_close_peaks(int32_t *pn_locs, int32_t *pn_npks,
+                                     int32_t *pn_x, int32_t n_min_distance)
+{
+    int32_t i, j, n_old_npks, n_dist;
+
+    algo_sort_indices_descend(pn_x, pn_locs, *pn_npks);
+
+    for (i = -1; i < *pn_npks; i++) {
+        n_old_npks = *pn_npks;
+        *pn_npks = i + 1;
+        for (j = i + 1; j < n_old_npks; j++) {
+            n_dist = pn_locs[j] - (i == -1 ? -1 : pn_locs[i]);
+            if (n_dist > n_min_distance || n_dist < -n_min_distance)
+                pn_locs[(*pn_npks)++] = pn_locs[j];
+        }
     }
 
-    red_dc = (red_min + red_max) / 2;
-    ir_dc = (ir_min + ir_max) / 2;
-    red_ac = red_max - red_min;
-    ir_ac = ir_max - ir_min;
+    algo_sort_ascend(pn_locs, *pn_npks);
+}
 
-    if (ir_dc == 0 || red_dc == 0 || ir_ac == 0)
-        return 0;
+static void algo_find_peaks(int32_t *pn_locs, int32_t *pn_npks,
+                             int32_t *pn_x, int32_t n_size,
+                             int32_t n_min_height, int32_t n_min_distance,
+                             int32_t n_max_num)
+{
+    algo_peaks_above_min_height(pn_locs, pn_npks, pn_x, n_size, n_min_height);
+    algo_remove_close_peaks(pn_locs, pn_npks, pn_x, n_min_distance);
+    if (*pn_npks > n_max_num)
+        *pn_npks = n_max_num;
+}
 
-    /* R = (AC_red/DC_red) / (AC_ir/DC_ir) */
-    r_val = ((float)red_ac / (float)red_dc) / ((float)ir_ac / (float)ir_dc);
+/**
+ * Maxim reference algorithm: heart rate and SpO2 calculation.
+ * Ported from algorithm.cpp (MAXREFDES117#).
+ * Uses ir_linear/red_linear as an_x/an_y working buffers directly.
+ *
+ * @param buf_len    Buffer length
+ * @param[out] pn_spo2, pch_spo2_valid, pn_heart_rate, pch_hr_valid, pn_hrv
+ */
+static void maxim_heart_rate_and_oxygen_saturation(
+    int32_t buf_len,
+    int32_t *pn_spo2, int8_t *pch_spo2_valid,
+    int32_t *pn_heart_rate, int8_t *pch_hr_valid,
+    uint16_t *pn_hrv)
+{
+    /* an_x = (int32_t*)ir_linear, an_y = (int32_t*)red_linear
+     * ir_linear/red_linear already contain the raw data */
+    int32_t *an_x = (int32_t *)ir_linear;
+    int32_t *an_y = (int32_t *)red_linear;
 
-    /* Empirical formula: SpO2 = 110 - 25*R (simplified linear approximation) */
-    spo2 = 110.0f - 25.0f * r_val;
+    uint32_t un_ir_mean;
+    int32_t k, n_i_ratio_count;
+    int32_t i, s, m, n_exact_ir_valley_locs_count, n_middle_idx;
+    int32_t n_th1, n_npks, n_c_min;
+    int32_t an_ir_valley_locs[15];
+    int32_t an_exact_ir_valley_locs[15];
+    int32_t an_dx_peak_locs[15];
+    int32_t n_peak_interval_sum;
 
-    if (spo2 > 100.0f) spo2 = 100.0f;
-    if (spo2 < 0.0f) spo2 = 0.0f;
+    int32_t n_y_ac, n_x_ac;
+    int32_t n_spo2_calc;
+    int32_t n_y_dc_max, n_x_dc_max;
+    int32_t n_y_dc_max_idx, n_x_dc_max_idx;
+    int32_t an_ratio[5], n_ratio_average;
+    int32_t n_nume, n_denom;
+    uint32_t un_only_once;
 
-    return (uint8_t)spo2;
+    /* Remove DC of IR signal */
+    un_ir_mean = 0;
+    for (k = 0; k < buf_len; k++)
+        un_ir_mean += an_x[k];
+    un_ir_mean /= buf_len;
+    for (k = 0; k < buf_len; k++)
+        an_x[k] = an_x[k] - (int32_t)un_ir_mean;
+
+    /* 4-point moving average */
+    for (k = 0; k < buf_len - MAX30102_MA4_SIZE; k++) {
+        n_denom = an_x[k] + an_x[k+1] + an_x[k+2] + an_x[k+3];
+        an_x[k] = n_denom / 4;
+    }
+
+    /* Get difference of smoothed IR signal */
+    for (k = 0; k < buf_len - MAX30102_MA4_SIZE - 1; k++)
+        an_dx[k] = an_x[k+1] - an_x[k];
+
+    /* 2-point moving average on derivative */
+    for (k = 0; k < buf_len - MAX30102_MA4_SIZE - 2; k++)
+        an_dx[k] = (an_dx[k] + an_dx[k+1]) / 2;
+
+    /* Hamming window - flip waveform to detect valley as peak */
+    for (i = 0; i < buf_len - MAX30102_HAMMING_SIZE - MAX30102_MA4_SIZE - 2; i++) {
+        s = 0;
+        for (k = i; k < i + MAX30102_HAMMING_SIZE; k++)
+            s -= an_dx[k] * auw_hamm[k - i];
+        an_dx[i] = s / 1146;
+    }
+
+    /* Threshold calculation */
+    n_th1 = 0;
+    for (k = 0; k < buf_len - MAX30102_HAMMING_SIZE; k++)
+        n_th1 += (an_dx[k] > 0) ? an_dx[k] : (-an_dx[k]);
+    n_th1 = n_th1 / (buf_len - MAX30102_HAMMING_SIZE);
+
+    /* Find peaks (actually valleys in original signal) */
+    algo_find_peaks(an_dx_peak_locs, &n_npks, an_dx,
+                    buf_len - MAX30102_HAMMING_SIZE, n_th1, 8, 5);
+
+    /* Calculate heart rate from peak intervals */
+    n_peak_interval_sum = 0;
+    if (n_npks >= 2) {
+        for (k = 1; k < n_npks; k++)
+            n_peak_interval_sum += (an_dx_peak_locs[k] - an_dx_peak_locs[k-1]);
+        n_peak_interval_sum = n_peak_interval_sum / (n_npks - 1);
+        *pn_heart_rate = (int32_t)(6000 / n_peak_interval_sum);
+        *pch_hr_valid = 1;
+    } else {
+        *pn_heart_rate = -999;
+        *pch_hr_valid = 0;
+    }
+
+    /* Valley locations in original signal */
+    for (k = 0; k < n_npks; k++)
+        an_ir_valley_locs[k] = an_dx_peak_locs[k] + MAX30102_HAMMING_SIZE / 2;
+
+    /* Restore raw IR and Red for SpO2 calculation
+     * (an_x/an_y were modified above, need to re-copy from original buffers) */
+    for (k = 0; k < buf_len; k++) {
+        an_x[k] = (int32_t)ir_linear[k];
+        an_y[k] = (int32_t)red_linear[k];
+    }
+
+    /* Find precise min near each valley */
+    n_exact_ir_valley_locs_count = 0;
+    for (k = 0; k < n_npks; k++) {
+        un_only_once = 1;
+        m = an_ir_valley_locs[k];
+        n_c_min = 16777216;
+        if (m + 5 < buf_len - MAX30102_HAMMING_SIZE && m - 5 > 0) {
+            for (i = m - 5; i < m + 5; i++) {
+                if (an_x[i] < n_c_min) {
+                    if (un_only_once > 0)
+                        un_only_once = 0;
+                    n_c_min = an_x[i];
+                    an_exact_ir_valley_locs[k] = i;
+                }
+            }
+            if (un_only_once == 0)
+                n_exact_ir_valley_locs_count++;
+        }
+    }
+
+    if (n_exact_ir_valley_locs_count < 2) {
+        *pn_spo2 = -999;
+        *pch_spo2_valid = 0;
+        *pn_hrv = 0;
+        return;
+    }
+
+    /* 4-point moving average on raw signals */
+    for (k = 0; k < buf_len - MAX30102_MA4_SIZE; k++) {
+        an_x[k] = (an_x[k] + an_x[k+1] + an_x[k+2] + an_x[k+3]) / 4;
+        an_y[k] = (an_y[k] + an_y[k+1] + an_y[k+2] + an_y[k+3]) / 4;
+    }
+
+    /* Calculate SpO2 ratio between valley pairs */
+    n_ratio_average = 0;
+    n_i_ratio_count = 0;
+    for (k = 0; k < 5; k++) an_ratio[k] = 0;
+
+    for (k = 0; k < n_exact_ir_valley_locs_count; k++) {
+        if (an_exact_ir_valley_locs[k] > buf_len) {
+            *pn_spo2 = -999;
+            *pch_spo2_valid = 0;
+            *pn_hrv = 0;
+            return;
+        }
+    }
+
+    for (k = 0; k < n_exact_ir_valley_locs_count - 1; k++) {
+        n_y_dc_max = -16777216;
+        n_x_dc_max = -16777216;
+        if (an_exact_ir_valley_locs[k+1] - an_exact_ir_valley_locs[k] > 10) {
+            for (i = an_exact_ir_valley_locs[k]; i < an_exact_ir_valley_locs[k+1]; i++) {
+                if (an_x[i] > n_x_dc_max) { n_x_dc_max = an_x[i]; n_x_dc_max_idx = i; }
+                if (an_y[i] > n_y_dc_max) { n_y_dc_max = an_y[i]; n_y_dc_max_idx = i; }
+            }
+            n_y_ac = (an_y[an_exact_ir_valley_locs[k+1]] - an_y[an_exact_ir_valley_locs[k]])
+                     * (n_y_dc_max_idx - an_exact_ir_valley_locs[k]);
+            n_y_ac = an_y[an_exact_ir_valley_locs[k]] + n_y_ac / (an_exact_ir_valley_locs[k+1] - an_exact_ir_valley_locs[k]);
+            n_y_ac = an_y[n_y_dc_max_idx] - n_y_ac;
+
+            n_x_ac = (an_x[an_exact_ir_valley_locs[k+1]] - an_x[an_exact_ir_valley_locs[k]])
+                     * (n_x_dc_max_idx - an_exact_ir_valley_locs[k]);
+            n_x_ac = an_x[an_exact_ir_valley_locs[k]] + n_x_ac / (an_exact_ir_valley_locs[k+1] - an_exact_ir_valley_locs[k]);
+            n_x_ac = an_x[n_y_dc_max_idx] - n_x_ac;
+
+            n_nume = (n_y_ac * n_x_dc_max) >> 7;
+            n_denom = (n_x_ac * n_y_dc_max) >> 7;
+            if (n_denom > 0 && n_i_ratio_count < 5 && n_nume != 0) {
+                an_ratio[n_i_ratio_count] = (n_nume * 100) / n_denom;
+                n_i_ratio_count++;
+            }
+        }
+    }
+
+    algo_sort_ascend(an_ratio, n_i_ratio_count);
+    n_middle_idx = n_i_ratio_count / 2;
+
+    if (n_middle_idx > 1)
+        n_ratio_average = (an_ratio[n_middle_idx-1] + an_ratio[n_middle_idx]) / 2;
+    else
+        n_ratio_average = an_ratio[n_middle_idx];
+
+    if (n_ratio_average > 2 && n_ratio_average < 184) {
+        n_spo2_calc = uch_spo2_table[n_ratio_average];
+        *pn_spo2 = n_spo2_calc;
+        *pch_spo2_valid = 1;
+    } else {
+        *pn_spo2 = -999;
+        *pch_spo2_valid = 0;
+    }
+
+    /* Compute HRV (SDNN) from peak intervals */
+    *pn_hrv = 0;
+    if (n_npks >= 2) {
+        uint32_t sum = 0, mean, variance = 0;
+        int32_t rr_count = n_npks - 1;
+        uint16_t rr[15];
+        int32_t ri;
+
+        for (ri = 1; ri < n_npks; ri++)
+            rr[ri - 1] = (uint16_t)((an_dx_peak_locs[ri] - an_dx_peak_locs[ri - 1]) * 10);
+
+        for (ri = 0; ri < rr_count; ri++)
+            sum += rr[ri];
+        mean = sum / rr_count;
+
+        for (ri = 0; ri < rr_count; ri++) {
+            int32_t diff = (int32_t)rr[ri] - (int32_t)mean;
+            variance += (uint32_t)(diff * diff);
+        }
+        variance /= rr_count;
+
+        /* Integer sqrt */
+        {
+            uint32_t root = 0, bit = 1 << 30;
+            while (bit > variance) bit >>= 2;
+            while (bit != 0) {
+                if (variance >= root + bit) { variance -= root + bit; root = (root >> 1) + bit; }
+                else { root >>= 1; }
+                bit >>= 2;
+            }
+            *pn_hrv = (uint16_t)root;
+        }
+    }
 }
 
 /* Add value to smoothing buffer and return average */
@@ -537,148 +791,72 @@ static uint8_t SmoothValue(uint8_t *buf, uint8_t *idx, uint8_t window_size, uint
 
 void Max30102_ProcessAlgorithm(void)
 {
-    uint16_t peak_indices[32];
-    uint16_t peak_count;
-    uint16_t i;
-    uint8_t raw_hr;
-    uint8_t raw_spo2;
-    uint16_t start_idx;
-    uint16_t count;
-
     if (max30102_ctx.state != HEALTH_STATE_MONITORING)
         return;
 
-    /* Finger-off detection: if IR signal has been low for consecutive samples,
-     * finger is no longer on the sensor → auto-stop monitoring */
+    /* Finger-off detection */
     if (max30102_ctx.finger_off_count >= MAX30102_FINGER_OFF_COUNT)
     {
         Max30102_StopMonitoring();
         return;
     }
 
-    if (max30102_ctx.buf_count < 30)
+    /* Need full buffer (200 samples = 2 seconds) before running algorithm */
+    if (max30102_ctx.buf_count < MAX30102_BUFFER_SIZE)
         return;
 
-    /* Use the most recent samples from circular buffer */
-    count = max30102_ctx.buf_count;
-    if (count > MAX30102_PPG_BUF_SIZE)
-        count = MAX30102_PPG_BUF_SIZE;
+    /* Only run algorithm when enough new samples accumulated (every 50 samples = 500ms) */
+    if (max30102_ctx.new_samples < MAX30102_ALGO_RUN_SAMPLES)
+        return;
 
-    /* Build linear buffer from circular buffer for peak detection */
-    uint32_t ir_linear[MAX30102_PPG_BUF_SIZE];
-    uint32_t red_linear[MAX30102_PPG_BUF_SIZE];
+    max30102_ctx.new_samples = 0;
 
-    start_idx = (max30102_ctx.buf_idx + MAX30102_PPG_BUF_SIZE - count) % MAX30102_PPG_BUF_SIZE;
+    /* Build linear buffers from circular buffer (using static buffers) */
+    uint16_t start_idx = max30102_ctx.buf_idx;  /* Oldest sample */
+    uint16_t i;
 
-    for (i = 0; i < count; i++)
+    for (i = 0; i < MAX30102_BUFFER_SIZE; i++)
     {
-        uint16_t idx = (start_idx + i) % MAX30102_PPG_BUF_SIZE;
+        uint16_t idx = (start_idx + i) % MAX30102_BUFFER_SIZE;
         ir_linear[i] = max30102_ctx.ir_buf[idx];
         red_linear[i] = max30102_ctx.red_buf[idx];
     }
 
-    /* Peak detection on IR signal */
-    peak_count = FindPeaks(ir_linear, count, peak_indices, 32);
+    /* Run Maxim reference algorithm */
+    int32_t n_hr, n_spo2;
+    int8_t hr_valid, spo2_valid;
+    uint16_t n_hrv;
 
-    if (peak_count < 2)
-        return;
+    maxim_heart_rate_and_oxygen_saturation(
+        MAX30102_BUFFER_SIZE,
+        &n_spo2, &spo2_valid, &n_hr, &hr_valid, &n_hrv);
 
-    /* Compute heart rate from peak intervals
-     * Sample rate = 100Hz, so interval_samples / 100 = time in seconds
-     * HR = 60 / (interval_samples / 100) = 6000 / interval_samples */
-    {
-        uint32_t total_interval = 0;
-        uint8_t valid_intervals = 0;
-
-        for (i = 1; i < peak_count; i++)
-        {
-            uint16_t interval = peak_indices[i] - peak_indices[i - 1];
-            if (interval >= 25 && interval <= 150)  /* 40-240 BPM range */
-            {
-                total_interval += interval;
-                valid_intervals++;
-
-                /* Store RR intervals for HRV (convert samples to ms: interval * 10) */
-                if (max30102_ctx.rr_count < 32)
-                {
-                    max30102_ctx.rr_intervals[max30102_ctx.rr_count++] = interval * 10;
-                }
-            }
-        }
-
-        if (valid_intervals == 0)
-            return;
-
-        raw_hr = (uint8_t)(6000UL / (total_interval / valid_intervals));
-    }
-
-    /* Compute SpO2 */
-    raw_spo2 = ComputeSpO2(red_linear, ir_linear, count);
-
-    /* Validate and smooth */
-    if (raw_hr >= MAX30102_MIN_VALID_HR && raw_hr <= MAX30102_MAX_VALID_HR)
+    /* Update results with validation and smoothing */
+    if (hr_valid && n_hr >= MAX30102_MIN_VALID_HR && n_hr <= MAX30102_MAX_VALID_HR)
     {
         max30102_ctx.heart_rate = SmoothValue(
             max30102_ctx.hr_smooth, &max30102_ctx.hr_smooth_idx,
-            MAX30102_HR_SMOOTH_WINDOW, raw_hr);
+            MAX30102_HR_SMOOTH_WINDOW, (uint8_t)n_hr);
+        max30102_ctx.hr_valid = 1;
+    }
+    else
+    {
+        max30102_ctx.hr_valid = 0;
     }
 
-    if (raw_spo2 >= MAX30102_MIN_VALID_SPO2 && raw_spo2 <= MAX30102_MAX_VALID_SPO2)
+    if (spo2_valid && n_spo2 >= MAX30102_MIN_VALID_SPO2 && n_spo2 <= MAX30102_MAX_VALID_SPO2)
     {
         max30102_ctx.spo2 = SmoothValue(
             max30102_ctx.spo2_smooth, &max30102_ctx.spo2_smooth_idx,
-            MAX30102_SPO2_SMOOTH_WINDOW, raw_spo2);
+            MAX30102_SPO2_SMOOTH_WINDOW, (uint8_t)n_spo2);
+        max30102_ctx.spo2_valid = 1;
     }
-
-    /* Compute HRV (SDNN) if enough RR intervals */
-    if (max30102_ctx.rr_count >= MAX30102_HRV_MIN_RR_COUNT)
+    else
     {
-        uint32_t sum = 0;
-        uint32_t mean;
-        uint32_t variance = 0;
-
-        for (i = 0; i < max30102_ctx.rr_count; i++)
-            sum += max30102_ctx.rr_intervals[i];
-
-        mean = sum / max30102_ctx.rr_count;
-
-        for (i = 0; i < max30102_ctx.rr_count; i++)
-        {
-            int32_t diff = (int32_t)max30102_ctx.rr_intervals[i] - (int32_t)mean;
-            variance += (uint32_t)(diff * diff);
-        }
-
-        /* SDNN = sqrt(variance / count), integer approximation */
-        variance /= max30102_ctx.rr_count;
-
-        /* Integer sqrt */
-        {
-            uint32_t root = 0;
-            uint32_t bit = 1 << 30;
-
-            while (bit > variance)
-                bit >>= 2;
-
-            while (bit != 0)
-            {
-                if (variance >= root + bit)
-                {
-                    variance -= root + bit;
-                    root = (root >> 1) + bit;
-                }
-                else
-                {
-                    root >>= 1;
-                }
-                bit >>= 2;
-            }
-
-            max30102_ctx.hrv = (uint16_t)root;
-        }
-
-        /* Reset RR buffer for next calculation */
-        max30102_ctx.rr_count = 0;
+        max30102_ctx.spo2_valid = 0;
     }
+
+    max30102_ctx.hrv = n_hrv;
 }
 
 uint8_t Max30102_GetHeartRate(void)
