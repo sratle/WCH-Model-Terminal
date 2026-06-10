@@ -50,25 +50,6 @@ extern "C" {
 #define EPD_BUSY_READ() (GPIOB->INDR & EPD_BUSY_BIT)
 
 /*=============================================================================
- *  Software SPI: shift one byte MSB-first (CPOL=0, CPHA=0)
- *===========================================================================*/
-static inline void EPD_SPI_WriteByte(uint8_t data)
-{
-    uint8_t i;
-    for (i = 0; i < 8; i++)
-    {
-        if (data & 0x80)
-            EPD_MOSI_HIGH();
-        else
-            EPD_MOSI_LOW();
-        data <<= 1;
-
-        EPD_SCK_HIGH();
-        EPD_SCK_LOW();
-    }
-}
-
-/*=============================================================================
  *  Inline pin helpers
  *===========================================================================*/
 static inline uint8_t Epd_Is_Busy(void)
