@@ -431,9 +431,12 @@ USART_WKUP_IRQHandler:
 _load_base:
 
 /* Load highcode code  section from flash to RAM */
+    .option push
+    .option norelax
     la a0, _highcode_lma
     la a1, _highcode_vma_start
     la a2, _highcode_vma_end
+    .option pop
     bgeu a1, a2, 2f
 1:
     lw t0, (a0)
@@ -444,9 +447,12 @@ _load_base:
 
 /* Load highcode code  section from flash to RAM */
 2:
+    .option push
+    .option norelax
     la a0, _highcode_lma1
     la a1, _highcode_vma_start1
     la a2, _highcode_vma_end1
+    .option pop
     bgeu a1, a2, 2f
 1:
     lw t0, (a0)
@@ -457,9 +463,12 @@ _load_base:
 
 /* Load data section from flash to RAM */
 2:
+	.option push
+	.option norelax
 	la a0, _data_lma
 	la a1, _data_vma
 	la a2, _edata
+	.option pop
 	bgeu a1, a2, 2f
 1:
 	lw t0, (a0)

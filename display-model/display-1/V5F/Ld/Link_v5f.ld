@@ -7,12 +7,12 @@ PROVIDE( _stack_size = __stack_size );
 
 MEMORY
 {
-	/*FLASH, RAM, and RAM-CODE can be freely configured according to project 
-	requirements;Please refer to the datasheet manual for specific allocation*/
-	FLASH (rx) : ORIGIN = 0x00010000, LENGTH = 512K                    /* zero_wait flah ,and loaded into RAM_CODE for running */
-	RAM_CODE (xrw) : ORIGIN = 0x200A0000, LENGTH = 128K                /*ITCM RAM for running code*/
-	RAM (xrw) : ORIGIN = (0x200C0000+512+256), LENGTH = (512K-512-256) /*DTCM(256K)+SRAM(256K) for .data .bss section and other*/ 
-	RAM_LOAD (xrw) : ORIGIN = (0x200C0000+512), LENGTH = 256           /* RAM for .load section*/
+	/* 896KB total: ITCM(128K) + DTCM(256K) + SRAM(512K)
+	   V3F occupies last 32K of SRAM (0x20178000-0x20180000) */
+	FLASH (rx) : ORIGIN = 0x00010000, LENGTH = 512K                    /* zero_wait flash, loaded into RAM_CODE for running */
+	RAM_CODE (xrw) : ORIGIN = 0x200A0000, LENGTH = 144K                /* ITCM RAM for running code (128K was tight, +16K headroom) */
+	RAM (xrw) : ORIGIN = (0x200C4000+256), LENGTH = (0x20178000 - 0x200C4000 - 256) /* DTCM(256K)+SRAM for .data/.bss, V5F up to V3F boundary */
+	RAM_LOAD (xrw) : ORIGIN = 0x200C4000, LENGTH = 256                /* RAM for .load section */
 }
 
 SECTIONS
