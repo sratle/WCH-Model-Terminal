@@ -2602,14 +2602,25 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
         return;
     }
 
-    /* 关闭文件：新引擎自行管理 CH378 读取 */
-    CH378FileClose(0);
+    /* 定位到 data chunk 起始位置（读完 header 后 CH378 指针在 512，需要回退到 data_offset） */
+    status = CH378ByteLocate(info.data_offset);
+    if (status != ERR_SUCCESS) {
+        printf("play: seek failed (status=%02X)\r\n", status);
+        CH378FileClose(0);
+        return;
+    }
+
+    /* 不关闭文件：直接交给音频引擎继续顺序读取。
+     * CH378 保持文件打开状态，避免二次 open 时路径解析失败 (0x42)。 */
 
     /* 启动流式播放 */
     if (Audio_ChannelStart(ch, full_path, &info) != 0) {
         printf("play: failed to start channel %d\r\n", ch);
+        CH378FileClose(0);
         return;
     }
+    /* 标记文件已由 play 命令打开，Audio_Process 直接顺序读取 */
+    CS43131_g.channels[ch].file_open = 1;
     if (ch == 0) {
         Audio_SetCurrentTrack(argv[1]);
     } else {

@@ -82,7 +82,7 @@ Submodel模块三个
 - submodel-3, NFC读卡nfc, 主要功能是存储NFC数据并上报识别ID成功/失败。
 - submodel-4, 触摸圆环 touch, 主要功能是通过 TTP229-BSF 驱动 16 个触摸焊盘（2×2 中心方阵 + 12 位环绕圆环），支持多点触摸，上报触摸状态。
 - submodel-5, RGB点阵rgb, 主要功能是控制WS2812亮灯，接受指令以不同模式炫彩。
-- submodel-6, 红外测距infrared, 主要功能是通过红外测距。
+- submodel-6, 激光测距dis, 主要功能是通过激光模块测距。
 - submodel-7, 副屏显示subdisplay, 主要功能是接受一些数据，
   在2.13寸122*250全反屏上显示简单的LOGO和当前状态。
 

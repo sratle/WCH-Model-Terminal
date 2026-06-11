@@ -442,14 +442,24 @@ static void Music_PlayPianoKey(uint8_t key_id)
         return;
     }
 
-    /* 关闭文件：新引擎自行管理 CH378 读取 */
-    CH378FileClose(0);
+    /* 定位到 data chunk 起始位置 */
+    status = CH378ByteLocate(info.data_offset);
+    if (status != ERR_SUCCESS) {
+        printf("[PIANO] Seek failed (0x%02X)\r\n", status);
+        CH378FileClose(0);
+        return;
+    }
+
+    /* 不关闭文件：交给音频引擎继续顺序读取，避免二次 open 失败 */
 
     /* 启动流式播放 */
     if (Audio_ChannelStart(ch, path, &info) != 0) {
         printf("[PIANO] Failed to start channel %d\r\n", ch);
+        CH378FileClose(0);
         return;
     }
+    /* 标记文件已打开，Audio_Process 直接顺序读取 */
+    CS43131_g.channels[ch].file_open = 1;
 
     printf("[PIANO] Key %d → ch%d %s\r\n", key_id, ch, path);
 }
