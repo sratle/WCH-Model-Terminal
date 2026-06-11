@@ -1,49 +1,36 @@
 /********************************** (C) COPYRIGHT *******************************
  * File Name          : main.c
- * Author             : WCH
- * Version            : V1.0.0
- * Date               : 2024/01/05
- * Description        : Main program body.
- *********************************************************************************
- * Copyright (c) 2021 Nanjing Qinheng Microelectronics Co., Ltd.
- * Attention: This software (modified or not) and binary are used for 
- * microcontroller manufactured by Nanjing Qinheng Microelectronics.
- *******************************************************************************/
-
-/*
- *@Note
- *USART Print debugging routine:
- *USART1_Tx(PA9).
- *This example demonstrates using USART1(PA9) as a print debug port output.
- *
- */
+ * Description        : Submodel-3 (NFC) main program.
+ *                      CH32V103C8T6, 72MHz HSE.
+ *                      UART1 (PA9/PA10) @ 230400 for Core protocol communication.
+ *                      UART2 (PA2/PA3) @ 9600 for NFC module (passive receive).
+ *********************************************************************************/
 
 #include "debug.h"
+#include "../Common/Common/hardware.h"
+#include "../Common/Common/Nfc/nfc.h"
 
-/* Global typedef */
-
-/* Global define */
-
-/* Global Variable */
-
-/*********************************************************************
- * @fn      main
- *
- * @brief   Main program.
- *
- * @return  none
- */
 int main(void)
 {
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_1);
     SystemCoreClockUpdate();
     Delay_Init();
-    USART_Printf_Init(115200);
-    printf("SystemClk:%d\r\n", SystemCoreClock);
-    printf( "ChipID:%08x\r\n", DBGMCU_GetCHIPID() );
-    printf("This is printf example\r\n");
 
-    while(1)
+    /* NOTE: Do NOT call USART_Printf_Init() here.
+     * printf uses USART1 (PA9/PA10) which is shared with the Core protocol UART.
+     * Using printf would corrupt protocol frames. */
+
+    Hardware_Init();
+
+    while (1)
     {
+        /* Process NFC module data: debounce + card-absent detection */
+        Nfc_Process();
+
+        /* Report new card to Core if debounce passed */
+        Hardware_ProcessNfcCard();
+
+        /* Handle Core protocol frames (GET_TYPE, NOP, GET_STATUS) */
+        Hardware_ProcessCoreFrame();
     }
 }

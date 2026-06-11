@@ -349,6 +349,12 @@ void Submodels_Process(submodels_t *submodel)
     {
         handled = submodels_fp_dispatch(submodel, req, resp, sizeof(resp), &resp_len);
     }
+    /* 4. NFC 模块的 ACK 响应 (GET_STATUS 查询结果) */
+    else if (submodel->type_id == MODULE_SUBTYPE_SUBMODEL_NFC &&
+             req->cmd == CMD_ACK)
+    {
+        handled = submodels_nfc_dispatch(submodel, req, resp, sizeof(resp), &resp_len);
+    }
 
     /* 发送响应（如果有） */
     if (handled && resp_len > 0)
@@ -603,7 +609,16 @@ static uint8_t submodels_health_dispatch(submodels_t *submodel, const protocol_f
     return 1;
 }
 
-/* ---- 3. NFC (type = 0x03) ---- */
+/* ---- 3. NFC (type = 0x03) ----
+ *
+ * NFC 模块为被动读卡模块，不可配置。
+ * NFC → Core:
+ *   CMD_SUB_EVT_NOTIFY(0x40) SUB=0x01  卡片识别 [subcmd:1][card_id:1][card_number:5]
+ *   CMD_ACK(0x04)                       GET_STATUS 响应 [card_id:1][card_number:5]
+ *
+ * Core → NFC:
+ *   CMD_SUB_GET_STATUS(0x42) SUB=0x00  查询当前卡状态
+ */
 static uint8_t submodels_nfc_dispatch(submodels_t *submodel, const protocol_frame_t *req,
                                       uint8_t *resp, uint16_t resp_size, uint8_t *resp_len)
 {
@@ -613,33 +628,86 @@ static uint8_t submodels_nfc_dispatch(submodels_t *submodel, const protocol_fram
 
     switch (cmd)
     {
-        case CMD_SUB_SET_CONFIG:
-            switch (subcmd)
+        /* ---- ACK 响应: GET_STATUS 查询结果 ---- */
+        case CMD_ACK:
+        {
+            /* ACK data: [card_id:1][card_number:5], len = 7 (CMD+6) */
+            if (req->len >= 7)
             {
-                case 0x01: /* 删除标签 */
-                    /* TODO: req->data[1] = 标签ID */
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-                case 0x02: /* 清空所有标签 */
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
+                uint8_t card_id = req->data[0];
+                if (card_id > 0)
+                {
+                    printf("[NFC] Card: id=%d number=%02X%02X%02X%02X%02X\r\n",
+                           card_id,
+                           req->data[1], req->data[2], req->data[3],
+                           req->data[4], req->data[5]);
+                }
+                else
+                {
+                    printf("[NFC] No card\r\n");
+                }
             }
-            break;
+            *resp_len = 0;
+            return 1;
+        }
 
+        /* ---- Core → NFC: 查询卡状态 ---- */
         case CMD_SUB_GET_STATUS:
             switch (subcmd)
             {
-                case 0x00: /* 查询标签列表 */
-                    /* TODO: resp = [数量:1][[ID:1][UID:7字节]...] */
+                case NFC_SUB_QUERY_STATUS:
+                    /* 发送查询命令，响应由 ACK 处理 */
                     *resp_len = 0;
                     return 0;
+
+                default:
+                    break;
             }
             break;
 
+        /* ---- NFC → Core: 卡片识别事件上报 ---- */
         case CMD_SUB_EVT_NOTIFY:
             switch (subcmd)
             {
-                case 0x01: /* 检测到标签 */
-                    /* TODO: req->data[1]=标签ID, data[2..8]=UID(7字节) */
-                    return 1;
+                case NFC_SUB_CARD_DETECT:
+                {
+                    /* DATA: [subcmd:1][card_id:1][card_number:5] */
+                    if (req->len >= 7)
+                    {
+                        uint8_t card_id = req->data[1];
+
+                        printf("[NFC] Card detected: id=%d number=%02X%02X%02X%02X%02X\r\n",
+                               card_id,
+                               req->data[2], req->data[3], req->data[4],
+                               req->data[5], req->data[6]);
+
+                        /* Forward to Display if online */
+                        {
+                            uint8_t i;
+                            for (i = 0; i < HB_MAX_SLOTS; i++)
+                            {
+                                if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY &&
+                                    hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+                                {
+                                    /* Re-pack: [card_id:1][card_number:5] */
+                                    uint8_t evt[6];
+                                    evt[0] = card_id;
+                                    memcpy(&evt[1], &req->data[2], 5);
+                                    Display_SendSubmodelEvent(&display_g,
+                                        MODULE_SUBTYPE_SUBMODEL_NFC,
+                                        NFC_SUB_CARD_DETECT,
+                                        evt, 6);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    *resp_len = 0;
+                    return 1;   /* 事件帧无需回复 */
+                }
+
+                default:
+                    break;
             }
             break;
 
@@ -1398,6 +1466,29 @@ uint8_t Submodels_Health_SetInterval(submodels_t *submodel, uint16_t seconds)
 uint8_t Submodels_Health_QueryData(submodels_t *submodel)
 {
     uint8_t data[1] = { HEALTH_SUB_QUERY_DATA };
+    return Submodels_SendCommand(submodel, CMD_SUB_GET_STATUS, data, 1);
+}
+
+/* ============================================================================
+ * NFC (type=0x03) Control API Implementation
+ * ============================================================================ */
+
+submodels_t *Submodels_FindNfcSlot(void)
+{
+    extern submodels_t submodels_g[3];
+    uint8_t i;
+
+    for (i = 0; i < 3; i++)
+    {
+        if (submodels_g[i].type_id == MODULE_SUBTYPE_SUBMODEL_NFC)
+            return &submodels_g[i];
+    }
+    return NULL;
+}
+
+uint8_t Submodels_NFC_QueryStatus(submodels_t *submodel)
+{
+    uint8_t data[1] = { NFC_SUB_QUERY_STATUS };
     return Submodels_SendCommand(submodel, CMD_SUB_GET_STATUS, data, 1);
 }
 

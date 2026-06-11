@@ -220,6 +220,19 @@ submodels_t *Submodels_FindTouchSlot(void);
 submodels_t *Submodels_FindHealthSlot(void);
 
 /**
+ * @brief  在 submodels_g[0..2] 中查找 NFC 类型 submodel
+ * @return NFC submodel 指针, 未找到返回 NULL
+ */
+submodels_t *Submodels_FindNfcSlot(void);
+
+/**
+ * @brief  查询 NFC 当前卡状态（异步，响应由 Submodels_Process 处理）
+ * @param  submodel   目标 submodel 实例指针（需为 NFC 类型）
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_NFC_QueryStatus(submodels_t *submodel);
+
+/**
  * @brief  开始健康监测（fire-and-forget）
  * @param  submodel   目标 submodel 实例指针（需为 Health 类型）
  * @return 1=发送成功, 0=失败

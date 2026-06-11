@@ -350,6 +350,13 @@
 /* CMD_SUB_DATA_REPORT (0x43) sub-commands */
 #define HEALTH_SUB_DATA_REPORT      0x01    /* 健康数据上报 [HR:1][SpO2:1][HRV:2(BE)] */
 
+/* ---- NFC (0x03) 子命令 ---- */
+/* CMD_SUB_EVT_NOTIFY (0x40) sub-commands */
+#define NFC_SUB_CARD_DETECT         0x01    /* 卡片识别 [card_id:1][card_number:5] */
+
+/* CMD_SUB_GET_STATUS (0x42) sub-commands */
+#define NFC_SUB_QUERY_STATUS        0x00    /* 查询卡状态 → ACK [card_id:1][card_number:5] */
+
 /* ---- SubDisplay (0x07) 子命令 ---- */
 /* CMD_SUB_SET_MODE (0x41) sub-commands */
 #define SUBDISP_SUBCMD_SET_STATUS       0x01

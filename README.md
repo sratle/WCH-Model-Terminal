@@ -55,7 +55,7 @@
 - **submodel-3**: NFC读卡
 - **submodel-4**: 触摸圆环/旋钮
 - **submodel-5**: RGB点阵
-- **submodel-6**: 红外测距
+- **submodel-6**: 激光测距
 - **submodel-7**: 副屏显示
 
 ## 快速开始
