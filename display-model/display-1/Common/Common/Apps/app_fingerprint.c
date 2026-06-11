@@ -1,6 +1,6 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : app_fingerprint.c
-* Description        : Fingerprint manager app.
+* Description        : Fingerprint manager app (V2.0 — dark theme UI).
 *                      List fingerprints with names from fp.json.
 *                      Add/edit names via keyboard input.
 *                      Register/delete via CLI passthrough.
@@ -12,41 +12,77 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* Layout (800x480) */
-#define FP_LEFT_W       400
-#define FP_LIST_X       8
-#define FP_LIST_Y       (APP_TITLE_BAR_H + 4)
-#define FP_LIST_W       (FP_LEFT_W - 16)
-#define FP_LIST_H       (UI_SCREEN_HEIGHT - FP_LIST_Y - 40)
-#define FP_ITEM_H       36
-#define FP_HDR_H        30
-#define FP_VISIBLE      ((FP_LIST_H - FP_HDR_H) / FP_ITEM_H)
+/*=============================================================================
+ *  Layout (800x480)
+ *=============================================================================*/
 
-#define FP_RIGHT_X      FP_LEFT_W
-#define FP_RIGHT_W      (UI_SCREEN_WIDTH - FP_LEFT_W)
-#define FP_BTN_W        120
-#define FP_BTN_H        34
-#define FP_BTN_GAP      10
+#define FP_LEFT_W           460
+#define FP_LIST_X           20
+#define FP_LIST_Y           (APP_TITLE_BAR_H + 10)
+#define FP_LIST_W           (FP_LEFT_W - 40)
+#define FP_LIST_H           (UI_SCREEN_HEIGHT - FP_LIST_Y - 40)
+#define FP_ITEM_H           38
+#define FP_HDR_H            32
+#define FP_VISIBLE          ((FP_LIST_H - FP_HDR_H) / FP_ITEM_H)
 
-/* Colors */
-#define FP_BG           UI_COLOR_BG_MAIN
-#define FP_LIST_BG      UI_COLOR_BG_CARD
-#define FP_SEL          UI_HEX(0xE0F2F1)
-#define FP_ALT          UI_HEX(0xFAFAFA)
-#define FP_BORDER       UI_HEX(0xE0E0E0)
-#define FP_CTRL_BG      UI_HEX(0xF0F0F0)
-#define FP_STATUS_BG    UI_HEX(0xE8E8E8)
+#define FP_RIGHT_X          FP_LEFT_W
+#define FP_RIGHT_W          (UI_SCREEN_WIDTH - FP_LEFT_W)
+#define FP_BTN_W            150
+#define FP_BTN_H            34
+#define FP_BTN_GAP_X        10
+#define FP_BTN_GAP_Y        8
+#define FP_BTN_START_Y      (APP_TITLE_BAR_H + 10)
+#define FP_BTN_LEFT_X       (FP_RIGHT_X + 15)
+#define FP_BTN_RIGHT_X      (FP_BTN_LEFT_X + FP_BTN_W + FP_BTN_GAP_X)
+#define FP_ID_RESULT_Y      (FP_BTN_START_Y + 4 * FP_BTN_H + 3 * FP_BTN_GAP_Y + 10)
+#define FP_ID_RESULT_H      44
+#define FP_INPUT_AREA_Y     (FP_ID_RESULT_Y + FP_ID_RESULT_H + 10)
+#define FP_INPUT_AREA_H     120
 
-/* State */
-#define FP_MAX_ENTRIES  32
-#define FP_CLI_BUF_SIZE 2048
-#define FP_NAME_MAX     20
-#define FP_INPUT_MAX    24
+/* Status bar */
+#define FP_STATUS_Y         (UI_SCREEN_HEIGHT - 32)
+#define FP_STATUS_H         32
+
+/*=============================================================================
+ *  Colors — Dark Theme
+ *=============================================================================*/
+
+#define FP_BG               UI_HEX(0x1A1A2E)
+#define FP_LIST_BG          UI_HEX(0x16213E)
+#define FP_LIST_HDR         UI_HEX(0x0F3460)
+#define FP_SEL              UI_HEX(0x0F3460)
+#define FP_ALT              UI_HEX(0x192240)
+#define FP_BORDER           UI_HEX(0x313244)
+#define FP_CTRL_BG          UI_HEX(0x16213E)
+#define FP_STATUS_BG        UI_HEX(0x181825)
+#define FP_STATUS_TEXT      UI_HEX(0x6C7086)
+#define FP_ACCENT           UI_HEX(0x7EC8C8)
+#define FP_ACCENT_DIM       UI_HEX(0x5AAFAF)
+#define FP_TEXT             UI_HEX(0xE0E0E0)
+#define FP_TEXT_DIM         UI_HEX(0x808080)
+#define FP_BADGE_BG         UI_HEX(0x0F3460)
+#define FP_BADGE_TEXT       UI_HEX(0x7EC8C8)
+#define FP_INPUT_BG         UI_HEX(0x1E1E3A)
+#define FP_INPUT_FIELD      UI_HEX(0x0F3460)
+#define FP_INPUT_BORDER     UI_HEX(0x7EC8C8)
+#define FP_OK_BG            UI_HEX(0x1B5E20)
+#define FP_OK_BORDER        UI_HEX(0x4CAF50)
+#define FP_FAIL_BG          UI_HEX(0x7F1D1D)
+#define FP_FAIL_BORDER      UI_HEX(0xEF4444)
+
+/*=============================================================================
+ *  State
+ *=============================================================================*/
+
+#define FP_MAX_ENTRIES      32
+#define FP_CLI_BUF_SIZE     2048
+#define FP_NAME_MAX         20
+#define FP_INPUT_MAX        24
 
 typedef struct {
     uint8_t id;
     char    name[FP_NAME_MAX + 1];
-    uint8_t from_hw;    /* 1 = found in hardware list */
+    uint8_t from_hw;
 } fp_entry_t;
 
 static ui_app_page_t s_app_fp;
@@ -60,14 +96,14 @@ static int16_t    s_fp_selected;
 static char     s_cli_buf[FP_CLI_BUF_SIZE];
 static uint16_t s_cli_len;
 static bool     s_cli_assembling;
-static uint8_t  s_cli_phase;   /* 0=idle, 1=waiting fp names, 2=waiting fp ls */
+static uint8_t  s_cli_phase;
 
 /* Editing state */
 static bool     s_editing;
-static bool     s_adding;      /* true=add new, false=edit existing */
+static bool     s_adding;
 static char     s_input[FP_INPUT_MAX + 1];
 static uint8_t  s_input_len;
-static uint8_t  s_edit_id;     /* ID being edited (for edit mode) */
+static uint8_t  s_edit_id;
 
 /* Status */
 static char     s_status[80];
@@ -101,7 +137,9 @@ static uart_submodel_cb_t s_fp_sub_cb = {
     .on_submodel_event = fp_on_submodel_event,
 };
 
-/* ---- Helpers ---- */
+/*=============================================================================
+ *  Helpers
+ *=============================================================================*/
 
 static void fp_set_status(const char *msg)
 {
@@ -118,13 +156,13 @@ static void fp_invalidate_list(void)
 
 static void fp_invalidate_status(void)
 {
-    ui_rect_t r = {0, UI_SCREEN_HEIGHT - 34, UI_SCREEN_WIDTH, 34};
+    ui_rect_t r = {0, FP_STATUS_Y, UI_SCREEN_WIDTH, FP_STATUS_H};
     ui_page_invalidate(&r);
 }
 
 static void fp_invalidate_input(void)
 {
-    ui_rect_t r = {FP_RIGHT_X + 12, UI_SCREEN_HEIGHT - 100, FP_RIGHT_W - 24, 60};
+    ui_rect_t r = {FP_RIGHT_X + 16, FP_INPUT_AREA_Y, FP_RIGHT_W - 32, FP_INPUT_AREA_H};
     ui_page_invalidate(&r);
 }
 
@@ -177,7 +215,6 @@ static void fp_save(void)
 
     char cmd[64];
     if (s_adding) {
-        /* Find next available ID */
         uint8_t next_id = 0;
         for (uint8_t i = 0; i < s_fp_count; i++) {
             if (s_fp_list[i].id >= next_id)
@@ -194,7 +231,6 @@ static void fp_save(void)
     fp_invalidate_input();
     fp_set_status("Saved, refreshing...");
 
-    /* Refresh after short delay (let CLI complete) */
     s_cli_phase = 1;
     UART_SendCLI("fp names");
 }
@@ -209,7 +245,9 @@ static void fp_refresh(void)
     UART_SendCLI("fp names");
 }
 
-/* ---- Submodel event handler ---- */
+/*=============================================================================
+ *  Submodel event handler
+ *=============================================================================*/
 
 static void fp_on_submodel_event(uint8_t sub_type, uint8_t sub_cmd,
                                   const uint8_t *evt_data, uint8_t evt_len)
@@ -237,11 +275,12 @@ static void fp_on_submodel_event(uint8_t sub_type, uint8_t sub_cmd,
     }
 }
 
-/* ---- CLI response parsing ---- */
+/*=============================================================================
+ *  CLI response parsing
+ *=============================================================================*/
 
 static void fp_parse_names(const char *text, uint16_t len)
 {
-    /* "fp names" output: "0: Sratle\n1: John\n..." */
     const char *p = text;
     const char *end = text + len;
 
@@ -256,12 +295,10 @@ static void fp_parse_names(const char *text, uint16_t len)
             memcpy(line, p, cpy);
             line[cpy] = '\0';
 
-            /* Parse "ID: Name" or "ID : Name" */
             const char *colon = strchr(line, ':');
             if (colon) {
                 int id_val = atoi(line);
                 if (id_val >= 0 && id_val <= 255) {
-                    /* Check if already in list */
                     bool found = false;
                     for (uint8_t i = 0; i < s_fp_count; i++) {
                         if (s_fp_list[i].id == (uint8_t)id_val) {
@@ -272,12 +309,10 @@ static void fp_parse_names(const char *text, uint16_t len)
                     if (!found) {
                         s_fp_list[s_fp_count].id = (uint8_t)id_val;
                         s_fp_list[s_fp_count].from_hw = 0;
-                        /* Skip past ": " */
                         const char *name = colon + 1;
                         while (*name == ' ') name++;
                         strncpy(s_fp_list[s_fp_count].name, name, FP_NAME_MAX);
                         s_fp_list[s_fp_count].name[FP_NAME_MAX] = '\0';
-                        /* Trim trailing whitespace */
                         int nlen = (int)strlen(s_fp_list[s_fp_count].name) - 1;
                         while (nlen >= 0 && (s_fp_list[s_fp_count].name[nlen] == ' ' ||
                                s_fp_list[s_fp_count].name[nlen] == '\r' ||
@@ -296,7 +331,6 @@ static void fp_parse_names(const char *text, uint16_t len)
 
 static void fp_parse_ls(const char *text, uint16_t len)
 {
-    /* "fp ls" response may contain "ID: X" or "ID=X" patterns */
     const char *p = text;
     const char *end = text + len;
 
@@ -318,7 +352,6 @@ static void fp_parse_ls(const char *text, uint16_t len)
             if (id_pos) {
                 int id_val = atoi(id_pos + 3);
                 if (id_val >= 0 && id_val <= 255) {
-                    /* Add to list if not already present */
                     bool found = false;
                     for (uint8_t i = 0; i < s_fp_count; i++) {
                         if (s_fp_list[i].id == (uint8_t)id_val) {
@@ -362,18 +395,14 @@ static void fp_on_cli_response(const char *output, uint16_t len, bool truncated,
 
     s_cli_assembling = false;
 
-    /* Phase-based processing */
     if (s_cli_phase == 1) {
-        /* Response to "fp names" */
         fp_parse_names(s_cli_buf, s_cli_len);
-        /* Now request hardware list */
         s_cli_phase = 2;
         UART_SendCLI("fp ls");
         return;
     }
 
     if (s_cli_phase == 2) {
-        /* Response to "fp ls" */
         fp_parse_ls(s_cli_buf, s_cli_len);
         s_cli_phase = 0;
 
@@ -384,8 +413,6 @@ static void fp_on_cli_response(const char *output, uint16_t len, bool truncated,
         return;
     }
 
-    /* Phase 0: ad-hoc CLI responses (register, delete, set, etc.) */
-    /* Show response as status */
     char status_msg[78];
     uint16_t slen = s_cli_len;
     if (slen > 77) slen = 77;
@@ -398,7 +425,9 @@ static void fp_on_cli_response(const char *output, uint16_t len, bool truncated,
     fp_set_status(status_msg);
 }
 
-/* ---- List touch handler ---- */
+/*=============================================================================
+ *  List touch handler
+ *=============================================================================*/
 
 static void list_touch_event(ui_widget_t *w, ui_event_t *e)
 {
@@ -424,7 +453,9 @@ static void list_touch_event(ui_widget_t *w, ui_event_t *e)
     }
 }
 
-/* ---- Button callbacks ---- */
+/*=============================================================================
+ *  Button callbacks
+ *=============================================================================*/
 
 static void btn_register_click(ui_widget_t *w)
 {
@@ -480,7 +511,9 @@ static void btn_cancel_click(ui_widget_t *w)
     fp_cancel_edit();
 }
 
-/* ---- Page callbacks ---- */
+/*=============================================================================
+ *  Page callbacks
+ *=============================================================================*/
 
 static void fp_page_enter(ui_page_t *page)
 {
@@ -503,24 +536,32 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
 {
     (void)page;
     int16_t dt = dirty->y, db = dirty->y + dirty->h;
+    int16_t dl = dirty->x, dr = dirty->x + dirty->w;
 
     /* Title bar */
     ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
     ui_draw_fill_rect(&bar, UI_COLOR_PRIMARY);
 
-    /* Left panel: list */
+    /* Main background */
+    if (db > APP_TITLE_BAR_H) {
+        ui_rect_t bg = {0, APP_TITLE_BAR_H, UI_SCREEN_WIDTH,
+                        UI_SCREEN_HEIGHT - APP_TITLE_BAR_H};
+        ui_draw_fill_rect(&bg, FP_BG);
+    }
+
+    /* ---- Left panel: list ---- */
     if (dt < FP_LIST_Y + FP_LIST_H && db > FP_LIST_Y) {
         ui_rect_t bg = {FP_LIST_X, FP_LIST_Y, FP_LIST_W, FP_LIST_H};
-        ui_draw_fill_rect(&bg, FP_LIST_BG);
-        ui_draw_rect_border(&bg, FP_BORDER, 1);
+        ui_draw_fill_round_rect(&bg, 8, FP_LIST_BG);
+        ui_draw_round_rect_border(&bg, 8, FP_BORDER, 1);
 
         /* Header */
         ui_rect_t hdr = {FP_LIST_X, FP_LIST_Y, FP_LIST_W, FP_HDR_H};
-        ui_draw_fill_rect(&hdr, UI_HEX(0xE8F5E9));
-        char hdr_text[32];
+        ui_draw_fill_round_rect(&hdr, 8, FP_LIST_HDR);
+        char hdr_text[40];
         snprintf(hdr_text, sizeof(hdr_text), "Fingerprints (%d)", s_fp_count);
-        ui_draw_text(FP_LIST_X + 10, FP_LIST_Y + 8, hdr_text,
-                     &font_montserrat_12, UI_COLOR_TEXT_PRIMARY);
+        ui_draw_text(FP_LIST_X + 14, FP_LIST_Y + 9, hdr_text,
+                     &font_montserrat_12, FP_ACCENT);
 
         /* Items */
         for (int16_t vis = 0; vis < FP_VISIBLE; vis++) {
@@ -530,29 +571,32 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
             int16_t iy = FP_LIST_Y + FP_HDR_H + vis * FP_ITEM_H;
             if (iy + FP_ITEM_H > FP_LIST_Y + FP_LIST_H) break;
 
-            ui_rect_t ir = {FP_LIST_X + 1, iy, FP_LIST_W - 2, FP_ITEM_H};
+            ui_rect_t ir = {FP_LIST_X + 4, iy, FP_LIST_W - 8, FP_ITEM_H - 2};
 
             if (idx == s_fp_selected)
-                ui_draw_fill_rect(&ir, FP_SEL);
+                ui_draw_fill_round_rect(&ir, 6, FP_SEL);
             else if (idx & 1)
-                ui_draw_fill_rect(&ir, FP_ALT);
+                ui_draw_fill_round_rect(&ir, 6, FP_ALT);
 
             /* ID badge */
             char id_text[8];
             snprintf(id_text, sizeof(id_text), "#%d", s_fp_list[idx].id);
             ui_draw_fill_round_rect(
-                &(ui_rect_t){FP_LIST_X + 8, iy + 7, 40, 22}, 4, UI_HEX(0x7EC8C8));
-            ui_draw_text(FP_LIST_X + 13, iy + 11, id_text,
-                         &font_montserrat_12, UI_COLOR_WHITE);
+                &(ui_rect_t){FP_LIST_X + 10, iy + 8, 44, 22}, 4, FP_BADGE_BG);
+            ui_draw_text(FP_LIST_X + 16, iy + 12, id_text,
+                         &font_montserrat_12, FP_BADGE_TEXT);
 
             /* Name */
-            ui_draw_text(FP_LIST_X + 56, iy + 11, s_fp_list[idx].name,
-                         &font_montserrat_12, UI_COLOR_TEXT_PRIMARY);
+            ui_draw_text(FP_LIST_X + 64, iy + 12, s_fp_list[idx].name,
+                         &font_montserrat_12, FP_TEXT);
 
             /* HW indicator */
             if (s_fp_list[idx].from_hw) {
-                ui_draw_text(FP_LIST_X + FP_LIST_W - 40, iy + 11, "HW",
-                             &font_montserrat_12, UI_HEX(0x4CAF50));
+                ui_draw_fill_round_rect(
+                    &(ui_rect_t){FP_LIST_X + FP_LIST_W - 52, iy + 10, 36, 18}, 4,
+                    UI_HEX(0x1B5E20));
+                ui_draw_text(FP_LIST_X + FP_LIST_W - 46, iy + 12, "HW",
+                             &font_montserrat_12, UI_HEX(0x66BB6A));
             }
         }
 
@@ -563,84 +607,77 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
             if (th_h < 20) th_h = 20;
             int16_t th_y = FP_LIST_Y + FP_HDR_H +
                 (sb_h - th_h) * s_fp_scroll / (s_fp_count - FP_VISIBLE + 1);
-            ui_rect_t thumb = {FP_LIST_X + FP_LIST_W - 6, th_y, 4, th_h};
-            ui_draw_fill_round_rect(&thumb, 2, UI_HEX(0xBDBDBD));
+            ui_rect_t thumb = {FP_LIST_X + FP_LIST_W - 8, th_y, 4, th_h};
+            ui_draw_fill_round_rect(&thumb, 2, FP_ACCENT_DIM);
         }
     }
 
-    /* Right panel: controls */
-    if (dt < UI_SCREEN_HEIGHT && db > APP_TITLE_BAR_H &&
-        dirty->x + dirty->w > FP_RIGHT_X) {
+    /* ---- Right panel ---- */
+    if (dr > FP_RIGHT_X && db > APP_TITLE_BAR_H) {
         ui_rect_t ctrl = {FP_RIGHT_X, APP_TITLE_BAR_H, FP_RIGHT_W,
-                          UI_SCREEN_HEIGHT - APP_TITLE_BAR_H - 34};
+                          UI_SCREEN_HEIGHT - APP_TITLE_BAR_H - FP_STATUS_H};
         ui_draw_fill_rect(&ctrl, FP_CTRL_BG);
 
+        /* Divider line */
+        ui_rect_t div = {FP_RIGHT_X, APP_TITLE_BAR_H, 1,
+                         UI_SCREEN_HEIGHT - APP_TITLE_BAR_H - FP_STATUS_H};
+        ui_draw_fill_rect(&div, FP_BORDER);
+
         /* Identify result area */
-        int16_t ry = APP_TITLE_BAR_H + 12;
+        int16_t ry = FP_ID_RESULT_Y;
         if (s_id_result == 1) {
-            ui_rect_t rr = {FP_RIGHT_X + 12, ry, FP_RIGHT_W - 24, 48};
-            ui_draw_fill_rect(&rr, UI_HEX(0xE8F5E9));
-            ui_draw_rect_border(&rr, UI_HEX(0x4CAF50), 2);
+            ui_rect_t rr = {FP_RIGHT_X + 16, ry, FP_RIGHT_W - 32, FP_ID_RESULT_H};
+            ui_draw_fill_round_rect(&rr, 8, FP_OK_BG);
+            ui_draw_round_rect_border(&rr, 8, FP_OK_BORDER, 2);
             char buf[40];
             snprintf(buf, sizeof(buf), "OK: ID #%d", s_id_fp_id);
-            ui_draw_text(FP_RIGHT_X + 24, ry + 16, buf,
-                         &font_montserrat_16, UI_HEX(0x2E7D32));
+            ui_draw_text(FP_RIGHT_X + 28, ry + 13, buf,
+                         &font_montserrat_16, UI_HEX(0x66BB6A));
         } else if (s_id_result == 2) {
-            ui_rect_t rr = {FP_RIGHT_X + 12, ry, FP_RIGHT_W - 24, 48};
-            ui_draw_fill_rect(&rr, UI_HEX(0xFBE9E7));
-            ui_draw_rect_border(&rr, UI_HEX(0xF44336), 2);
-            ui_draw_text(FP_RIGHT_X + 24, ry + 16, "Identify Failed",
-                         &font_montserrat_16, UI_HEX(0xC62828));
-        }
-
-        /* Action buttons */
-        int16_t by = ry + 64;
-        /* Row 1: Register, Delete, Refresh */
-        /* (buttons drawn by widget system) */
-
-        /* Row 2: Add, Edit (only when not editing) */
-        if (!s_editing) {
-            by += FP_BTN_H + FP_BTN_GAP + 20;
-            ui_draw_text(FP_RIGHT_X + 12, by - 16, "Name Management",
-                         &font_montserrat_12, UI_COLOR_TEXT_SECONDARY);
+            ui_rect_t rr = {FP_RIGHT_X + 16, ry, FP_RIGHT_W - 32, FP_ID_RESULT_H};
+            ui_draw_fill_round_rect(&rr, 8, FP_FAIL_BG);
+            ui_draw_round_rect_border(&rr, 8, FP_FAIL_BORDER, 2);
+            ui_draw_text(FP_RIGHT_X + 28, ry + 13, "Identify Failed",
+                         &font_montserrat_16, UI_HEX(0xEF4444));
         }
 
         /* Input area (when editing) */
         if (s_editing) {
-            int16_t input_y = UI_SCREEN_HEIGHT - 140;
-            ui_rect_t input_bg = {FP_RIGHT_X + 12, input_y, FP_RIGHT_W - 24, 100};
-            ui_draw_fill_rect(&input_bg, UI_COLOR_BG_CARD);
-            ui_draw_rect_border(&input_bg, UI_COLOR_PRIMARY, 2);
+            int16_t input_y = FP_INPUT_AREA_Y;
+            ui_rect_t input_bg = {FP_RIGHT_X + 16, input_y, FP_RIGHT_W - 32, FP_INPUT_AREA_H};
+            ui_draw_fill_round_rect(&input_bg, 8, FP_INPUT_BG);
+            ui_draw_round_rect_border(&input_bg, 8, FP_INPUT_BORDER, 2);
 
-            ui_draw_text(FP_RIGHT_X + 20, input_y + 8,
+            ui_draw_text(FP_RIGHT_X + 28, input_y + 10,
                          s_adding ? "Add New Fingerprint" : "Edit Fingerprint Name",
-                         &font_montserrat_12, UI_COLOR_TEXT_PRIMARY);
+                         &font_montserrat_12, FP_ACCENT);
 
             /* Input field */
-            ui_rect_t field = {FP_RIGHT_X + 20, input_y + 32, FP_RIGHT_W - 40, 28};
-            ui_draw_fill_rect(&field, UI_COLOR_WHITE);
-            ui_draw_rect_border(&field, UI_HEX(0x90CAF9), 1);
+            ui_draw_text(FP_RIGHT_X + 28, input_y + 30, "Name:",
+                         &font_montserrat_12, FP_TEXT_DIM);
+            ui_rect_t field = {FP_RIGHT_X + 28, input_y + 46, FP_RIGHT_W - 56, 28};
+            ui_draw_fill_round_rect(&field, 4, FP_INPUT_FIELD);
+            ui_draw_round_rect_border(&field, 4, FP_BORDER, 1);
 
-            /* Draw input text with cursor */
             char display[FP_INPUT_MAX + 2];
             memcpy(display, s_input, s_input_len);
             display[s_input_len] = '|';
             display[s_input_len + 1] = '\0';
-            ui_draw_text(FP_RIGHT_X + 26, input_y + 38, display,
-                         &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+            ui_draw_text(FP_RIGHT_X + 34, input_y + 52, display,
+                         &font_montserrat_16, FP_TEXT);
 
-            ui_draw_text(FP_RIGHT_X + 20, input_y + 68,
-                         "Type with keyboard, Enter=Save, Esc=Cancel",
-                         &font_montserrat_12, UI_COLOR_TEXT_SECONDARY);
+            ui_draw_text(FP_RIGHT_X + 28, input_y + 82,
+                         "Enter=Save  Esc=Cancel",
+                         &font_montserrat_12, FP_TEXT_DIM);
         }
     }
 
     /* Status bar */
-    if (db > UI_SCREEN_HEIGHT - 34) {
-        ui_rect_t sb = {0, UI_SCREEN_HEIGHT - 34, UI_SCREEN_WIDTH, 34};
+    if (db > FP_STATUS_Y) {
+        ui_rect_t sb = {0, FP_STATUS_Y, UI_SCREEN_WIDTH, FP_STATUS_H};
         ui_draw_fill_rect(&sb, FP_STATUS_BG);
-        ui_draw_text(12, UI_SCREEN_HEIGHT - 24, s_status,
-                     &font_montserrat_12, UI_HEX(0x555555));
+        ui_draw_text(16, FP_STATUS_Y + 9, s_status,
+                     &font_montserrat_12, FP_STATUS_TEXT);
     }
 }
 
@@ -650,7 +687,6 @@ static bool fp_page_event(ui_page_t *page, ui_event_t *e)
     if (e->source != UI_INPUT_KEYBOARD && e->source != UI_INPUT_CORE_KEY)
         return false;
 
-    /* Editing mode: capture all keyboard input */
     if (s_editing) {
         if (e->type == UI_EVENT_KEY_CLICK && e->char_code >= 0x20 && e->char_code <= 0x7E) {
             if (s_input_len < FP_INPUT_MAX) {
@@ -661,27 +697,23 @@ static bool fp_page_event(ui_page_t *page, ui_event_t *e)
             return true;
         }
         if (e->type == UI_EVENT_KEY_CLICK && e->char_code == 0x08) {
-            /* Backspace */
             if (s_input_len > 0) {
                 s_input[--s_input_len] = '\0';
                 fp_invalidate_input();
             }
             return true;
         }
-        if (e->type == UI_EVENT_KEY_CLICK && e->key_code == 0x05 /* UI_KEY_OK */) {
-            /* Enter = save */
+        if (e->type == UI_EVENT_KEY_CLICK && e->key_code == 0x05) {
             fp_save();
             return true;
         }
-        if (e->type == UI_EVENT_KEY_CLICK && e->key_code == 0x06 /* UI_KEY_BACK */) {
-            /* Esc/Back = cancel */
+        if (e->type == UI_EVENT_KEY_CLICK && e->key_code == 0x06) {
             fp_cancel_edit();
             return true;
         }
-        return true; /* consume all keys while editing */
+        return true;
     }
 
-    /* Navigation mode */
     if (e->type == UI_EVENT_KEY_DOWN_ARROW) {
         if (s_fp_selected < s_fp_count - 1) {
             s_fp_selected++;
@@ -709,7 +741,9 @@ static bool fp_page_event(ui_page_t *page, ui_event_t *e)
     return false;
 }
 
-/* ---- Init ---- */
+/*=============================================================================
+ *  Initialization
+ *=============================================================================*/
 
 void app_fingerprint_init(void)
 {
@@ -740,83 +774,81 @@ void app_fingerprint_init(void)
     }
     s_widgets[wi++] = &s_list_touch;
 
-    /* Right panel buttons */
-    int16_t bx = FP_RIGHT_X + 16;
-    int16_t by = APP_TITLE_BAR_H + 80;
+    /* Right panel buttons — 2 per row, compact */
+    int16_t bx_l = FP_BTN_LEFT_X;
+    int16_t bx_r = FP_BTN_RIGHT_X;
+    int16_t by = FP_BTN_START_Y;
 
-    /* Register */
+    /* Row 1: Register, Delete */
     {
-        ui_rect_t r = {bx, by, FP_BTN_W, FP_BTN_H};
+        ui_rect_t r = {bx_l, by, FP_BTN_W, FP_BTN_H};
         ui_button_init(&btn_register, &r, "Register", &font_montserrat_12);
         ui_button_set_callback(&btn_register, btn_register_click);
-        ui_button_set_colors(&btn_register, UI_COLOR_BG_CARD, UI_COLOR_PRIMARY, UI_COLOR_TEXT_PRIMARY);
-        btn_register.radius = 8;
+        ui_button_set_colors(&btn_register, UI_HEX(0x0F3460), UI_HEX(0x1565C0), UI_COLOR_WHITE);
+        btn_register.radius = 6;
     }
     s_widgets[wi++] = (ui_widget_t *)&btn_register;
 
-    /* Delete */
-    by += FP_BTN_H + FP_BTN_GAP;
     {
-        ui_rect_t r = {bx, by, FP_BTN_W, FP_BTN_H};
+        ui_rect_t r = {bx_r, by, FP_BTN_W, FP_BTN_H};
         ui_button_init(&btn_delete, &r, "Delete", &font_montserrat_12);
         ui_button_set_callback(&btn_delete, btn_delete_click);
-        ui_button_set_colors(&btn_delete, UI_COLOR_BG_CARD, UI_COLOR_DANGER, UI_COLOR_TEXT_PRIMARY);
-        btn_delete.radius = 8;
+        ui_button_set_colors(&btn_delete, UI_HEX(0x7F1D1D), UI_HEX(0x991B1B), UI_COLOR_WHITE);
+        btn_delete.radius = 6;
     }
     s_widgets[wi++] = (ui_widget_t *)&btn_delete;
 
-    /* Refresh */
-    by += FP_BTN_H + FP_BTN_GAP;
-    {
-        ui_rect_t r = {bx, by, FP_BTN_W, FP_BTN_H};
-        ui_button_init(&btn_refresh, &r, "Refresh", &font_montserrat_12);
-        ui_button_set_callback(&btn_refresh, btn_refresh_click);
-        ui_button_set_colors(&btn_refresh, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
-        btn_refresh.radius = 8;
-    }
-    s_widgets[wi++] = (ui_widget_t *)&btn_refresh;
+    by += FP_BTN_H + FP_BTN_GAP_Y;
 
-    /* Add (name management) */
-    by += FP_BTN_H + FP_BTN_GAP + 20;
+    /* Row 2: Add Name, Edit Name */
     {
-        ui_rect_t r = {bx, by, FP_BTN_W, FP_BTN_H};
+        ui_rect_t r = {bx_l, by, FP_BTN_W, FP_BTN_H};
         ui_button_init(&btn_add, &r, "Add Name", &font_montserrat_12);
         ui_button_set_callback(&btn_add, btn_add_click);
-        ui_button_set_colors(&btn_add, UI_COLOR_BG_CARD, UI_HEX(0x4CAF50), UI_COLOR_TEXT_PRIMARY);
-        btn_add.radius = 8;
+        ui_button_set_colors(&btn_add, UI_HEX(0x1B5E20), UI_HEX(0x2E7D32), UI_COLOR_WHITE);
+        btn_add.radius = 6;
     }
     s_widgets[wi++] = (ui_widget_t *)&btn_add;
 
-    /* Edit */
-    by += FP_BTN_H + FP_BTN_GAP;
     {
-        ui_rect_t r = {bx, by, FP_BTN_W, FP_BTN_H};
+        ui_rect_t r = {bx_r, by, FP_BTN_W, FP_BTN_H};
         ui_button_init(&btn_edit, &r, "Edit Name", &font_montserrat_12);
         ui_button_set_callback(&btn_edit, btn_edit_click);
-        ui_button_set_colors(&btn_edit, UI_COLOR_BG_CARD, UI_HEX(0xFF9800), UI_COLOR_TEXT_PRIMARY);
-        btn_edit.radius = 8;
+        ui_button_set_colors(&btn_edit, UI_HEX(0xE65100), UI_HEX(0xFF9800), UI_COLOR_WHITE);
+        btn_edit.radius = 6;
     }
     s_widgets[wi++] = (ui_widget_t *)&btn_edit;
 
-    /* Save (visible when editing) */
-    by += FP_BTN_H + FP_BTN_GAP;
+    by += FP_BTN_H + FP_BTN_GAP_Y;
+
+    /* Row 3: Refresh, Save */
     {
-        ui_rect_t r = {bx, by, FP_BTN_W, FP_BTN_H};
+        ui_rect_t r = {bx_l, by, FP_BTN_W, FP_BTN_H};
+        ui_button_init(&btn_refresh, &r, "Refresh", &font_montserrat_12);
+        ui_button_set_callback(&btn_refresh, btn_refresh_click);
+        ui_button_set_colors(&btn_refresh, UI_HEX(0x0F3460), UI_HEX(0x1565C0), UI_COLOR_WHITE);
+        btn_refresh.radius = 6;
+    }
+    s_widgets[wi++] = (ui_widget_t *)&btn_refresh;
+
+    {
+        ui_rect_t r = {bx_r, by, FP_BTN_W, FP_BTN_H};
         ui_button_init(&btn_save, &r, "Save", &font_montserrat_12);
         ui_button_set_callback(&btn_save, btn_save_click);
-        ui_button_set_colors(&btn_save, UI_COLOR_BG_CARD, UI_COLOR_PRIMARY, UI_COLOR_TEXT_PRIMARY);
-        btn_save.radius = 8;
+        ui_button_set_colors(&btn_save, UI_HEX(0x0F3460), UI_HEX(0x1565C0), UI_COLOR_WHITE);
+        btn_save.radius = 6;
     }
     s_widgets[wi++] = (ui_widget_t *)&btn_save;
 
-    /* Cancel (visible when editing) */
-    by += FP_BTN_H + FP_BTN_GAP;
+    by += FP_BTN_H + FP_BTN_GAP_Y;
+
+    /* Row 4: Cancel */
     {
-        ui_rect_t r = {bx, by, FP_BTN_W, FP_BTN_H};
+        ui_rect_t r = {bx_l, by, FP_BTN_W, FP_BTN_H};
         ui_button_init(&btn_cancel, &r, "Cancel", &font_montserrat_12);
         ui_button_set_callback(&btn_cancel, btn_cancel_click);
-        ui_button_set_colors(&btn_cancel, UI_COLOR_BG_CARD, UI_HEX(0x9E9E9E), UI_COLOR_TEXT_PRIMARY);
-        btn_cancel.radius = 8;
+        ui_button_set_colors(&btn_cancel, UI_HEX(0x424242), UI_HEX(0x616161), FP_TEXT);
+        btn_cancel.radius = 6;
     }
     s_widgets[wi++] = (ui_widget_t *)&btn_cancel;
 
