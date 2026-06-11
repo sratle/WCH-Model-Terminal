@@ -1378,6 +1378,12 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  fp count        Query fingerprint count\r\n");
         printf("  fp config led <func> <color> [speed]  Set LED effect\r\n");
         printf("  fp config sec <level:1-3>  Set security level\r\n");
+        printf("  fp set <id> <name>  Set fingerprint name (id=decimal, fp.json)\r\n");
+        printf("  fp get <id>     Get fingerprint name\r\n");
+        printf("  fp names        List all fingerprint names\r\n");
+        printf("  nfc set <hex_id> <name>  Set NFC card name (10-hex-digit id, nfc.json)\r\n");
+        printf("  nfc get <hex_id>  Get NFC card name\r\n");
+        printf("  nfc ls          List all NFC card names\r\n");
         printf("  clear           Clear screen\r\n");
         printf("  help            Show command list\r\n");
         printf("  help d          Show detailed help\r\n");
@@ -1399,7 +1405,8 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  config get|set|addkey|newfile|save|backup|rollback|reset|ls|rm\r\n");
         printf("  speaker <on|off> [left|right]\r\n");
         printf("  rgb mode|refresh|status\r\n");
-        printf("  fp register|del <ID>|ls|count|config [led|sec]\r\n");
+        printf("  fp register|del <ID>|ls|count|config [led|sec]|set|get|names\r\n");
+        printf("  nfc set <hex_id> <name>|get <hex_id>|ls\r\n");
         printf("  clear, help [d]\r\n");
     }
 }
@@ -2347,7 +2354,12 @@ static void CLI_Cmd_Config_Set(uint8_t argc, char **argv)
     if (argc >= 4 && !CLI_IsModuleKey(argv[2]) && !CLI_IsJsonFile(argv[2])) {
         int val = atoi(argv[3]);
         int ret = Config_SetInt(CONFIG_CORE_KEY, argv[2], val);
-        if (ret == 0) printf("OK\r\n");
+        if (ret == 0) {
+            /* 音量需立即同步硬件，否则 Config_SyncFromHardware 在 save 时会用旧硬件值覆盖 cJSON */
+            if (strcmp(argv[2], "volume") == 0)
+                Audio_SetVolume((uint8_t)val);
+            printf("OK\r\n");
+        }
         else if (ret == -1) printf("Error: module not found\r\n");
         else printf("Error: key not found\r\n");
         return;
@@ -2538,6 +2550,109 @@ static void CLI_Cmd_Config(uint8_t argc, char **argv)
     }
 }
 
+/* ---- NFC 名称管理命令 ----
+ * nfc set <hex_id> <name>   设置 NFC 卡名称 (ID 为 10 位十六进制，写入 nfc.json)
+ * nfc get <hex_id>          获取 NFC 卡名称
+ * nfc ls                    列出所有已存储的 NFC 卡
+ */
+static void CLI_Cmd_Nfc(uint8_t argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Usage: nfc set <hex_id> <name>\r\n");
+        printf("       nfc get <hex_id>\r\n");
+        printf("       nfc ls\r\n");
+        return;
+    }
+
+    if (!Config_IsDeviceMatch()) {
+        printf("Error: current device != config target (%s)\r\n", Config_GetTargetDeviceName());
+        return;
+    }
+
+    if (strcmp(argv[1], "set") == 0) {
+        cJSON *json;
+        cJSON *item;
+        uint8_t status;
+
+        if (argc < 4) {
+            printf("Usage: nfc set <hex_id> <name>\r\n");
+            printf("  hex_id: 10 hex digits (e.g. 0A1A3BAC20)\r\n");
+            return;
+        }
+
+        /* 校验 hex_id 长度 (5 字节 = 10 个十六进制字符) */
+        if (strlen(argv[2]) != 10) {
+            printf("Error: ID must be 10 hex digits\r\n");
+            return;
+        }
+
+        json = (cJSON*)Config_LoadFile("nfc.json");
+        if (!json) {
+            /* 文件不存在，创建新的 */
+            json = cJSON_CreateObject();
+            if (!json) { printf("Error: malloc failed\r\n"); return; }
+        }
+
+        item = cJSON_GetObjectItem(json, argv[2]);
+        if (item) {
+            /* 已存在：更新 */
+            cJSON_SetValuestring(item, argv[3]);
+        } else {
+            /* 不存在：新增 */
+            item = cJSON_CreateString(argv[3]);
+            if (!item) { cJSON_Delete(json); printf("Error: malloc failed\r\n"); return; }
+            cJSON_AddItemToObject(json, argv[2], item);
+        }
+
+        status = Config_SaveFile("nfc.json", json);
+        cJSON_Delete(json);
+
+        if (status == ERR_SUCCESS) printf("OK\r\n");
+        else printf("Error: save failed (status=%02X)\r\n", status);
+        return;
+    }
+
+    if (strcmp(argv[1], "get") == 0) {
+        cJSON *json;
+        cJSON *item;
+
+        if (argc < 3) {
+            printf("Usage: nfc get <hex_id>\r\n");
+            return;
+        }
+
+        json = (cJSON*)Config_LoadFile("nfc.json");
+        if (!json) { printf("Error: nfc.json not found\r\n"); return; }
+
+        item = cJSON_GetObjectItem(json, argv[2]);
+        if (item && cJSON_IsString(item)) {
+            printf("%s\r\n", item->valuestring);
+        } else {
+            printf("Not found\r\n");
+        }
+        cJSON_Delete(json);
+        return;
+    }
+
+    if (strcmp(argv[1], "ls") == 0) {
+        cJSON *json;
+        cJSON *item;
+
+        json = (cJSON*)Config_LoadFile("nfc.json");
+        if (!json) { printf("nfc.json not found\r\n"); return; }
+
+        cJSON_ArrayForEach(item, json) {
+            if (cJSON_IsString(item))
+                printf("%s: %s\r\n", item->string, item->valuestring);
+        }
+        cJSON_Delete(json);
+        return;
+    }
+
+    printf("Unknown nfc subcommand: %s\r\n", argv[1]);
+}
+
+
 static void CLI_Cmd_Play(uint8_t argc, char **argv)
 {
     char full_path[CH378_MAX_PATH_LEN];
@@ -2689,15 +2804,97 @@ static void CLI_Cmd_Speaker(uint8_t argc, char **argv)
 
 static void CLI_Cmd_Fp(uint8_t argc, char **argv)
 {
-    submodels_t *fp = Submodels_FindFpSlot();
+    submodels_t *fp;
 
-    if (fp == NULL) {
-        printf("fp: fingerprint module not found\r\n");
+    if (argc < 2) {
+        printf("Usage: fp <register|del|ls|count|config|set|get|names> [args]\r\n");
         return;
     }
 
-    if (argc < 2) {
-        printf("Usage: fp <register|del|ls|count|config> [args]\r\n");
+    /* ---- fp.json 名称管理（不依赖硬件模块在线） ---- */
+
+    /* fp set <id> <name> — 设置指纹名称 (ID 为十进制序号) */
+    if (strcmp(argv[1], "set") == 0) {
+        cJSON *json;
+        cJSON *item;
+        uint8_t status;
+
+        if (!Config_IsDeviceMatch()) {
+            printf("Error: current device != config target (%s)\r\n", Config_GetTargetDeviceName());
+            return;
+        }
+        if (argc < 4) {
+            printf("Usage: fp set <id> <name>\r\n");
+            printf("  id: decimal index (e.g. 0, 1, 5)\r\n");
+            return;
+        }
+
+        json = (cJSON*)Config_LoadFile("fp.json");
+        if (!json) {
+            json = cJSON_CreateObject();
+            if (!json) { printf("Error: malloc failed\r\n"); return; }
+        }
+
+        item = cJSON_GetObjectItem(json, argv[2]);
+        if (item) {
+            cJSON_SetValuestring(item, argv[3]);
+        } else {
+            item = cJSON_CreateString(argv[3]);
+            if (!item) { cJSON_Delete(json); printf("Error: malloc failed\r\n"); return; }
+            cJSON_AddItemToObject(json, argv[2], item);
+        }
+
+        status = Config_SaveFile("fp.json", json);
+        cJSON_Delete(json);
+
+        if (status == ERR_SUCCESS) printf("OK\r\n");
+        else printf("Error: save failed (status=%02X)\r\n", status);
+        return;
+    }
+
+    /* fp get <id> — 获取指纹名称 */
+    if (strcmp(argv[1], "get") == 0) {
+        cJSON *json;
+        cJSON *item;
+
+        if (argc < 3) {
+            printf("Usage: fp get <id>\r\n");
+            return;
+        }
+
+        json = (cJSON*)Config_LoadFile("fp.json");
+        if (!json) { printf("Error: fp.json not found\r\n"); return; }
+
+        item = cJSON_GetObjectItem(json, argv[2]);
+        if (item && cJSON_IsString(item)) {
+            printf("%s\r\n", item->valuestring);
+        } else {
+            printf("Not found\r\n");
+        }
+        cJSON_Delete(json);
+        return;
+    }
+
+    /* fp names — 列出所有指纹名称 */
+    if (strcmp(argv[1], "names") == 0) {
+        cJSON *json;
+        cJSON *item;
+
+        json = (cJSON*)Config_LoadFile("fp.json");
+        if (!json) { printf("fp.json not found\r\n"); return; }
+
+        cJSON_ArrayForEach(item, json) {
+            if (cJSON_IsString(item))
+                printf("%s: %s\r\n", item->string, item->valuestring);
+        }
+        cJSON_Delete(json);
+        return;
+    }
+
+    /* ---- 以下命令需要指纹硬件模块在线 ---- */
+    fp = Submodels_FindFpSlot();
+    if (fp == NULL) {
+        printf("fp: fingerprint module not found\r\n");
         return;
     }
 
@@ -3064,6 +3261,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Rgb(argc, argv);
     } else if (strcmp(argv[0], "fp") == 0) {
         CLI_Cmd_Fp(argc, argv);
+    } else if (strcmp(argv[0], "nfc") == 0) {
+        CLI_Cmd_Nfc(argc, argv);
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }
