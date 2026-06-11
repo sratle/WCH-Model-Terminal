@@ -2689,6 +2689,17 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
         Audio_ChannelStop(ch);
     }
 
+    /* CH378 单句柄：打开新文件会隐式关闭其他通道的文件，
+     * 必须显式清除其 file_open 标记 */
+    {
+        uint8_t j;
+        for (j = 0; j < AUDIO_MAX_CHANNELS; j++) {
+            if (j != ch && CS43131_g.channels[j].file_open) {
+                CS43131_g.channels[j].file_open = 0;
+            }
+        }
+    }
+
     /* 支持绝对路径（以 \ 或 / 开头）和相对路径 */
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 

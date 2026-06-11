@@ -10,7 +10,6 @@
 #include "../UART/uart_module.h"
 #include <string.h>
 #include <stdio.h>
-#include <stdlib.h>
 
 /*=============================================================================
  *  Layout (800x480)
@@ -143,7 +142,7 @@ static uint16_t  s_content_cap;
 static char     s_cli_buf[4096];
 static uint16_t s_cli_len;
 static bool     s_cli_assembling;
-static uint8_t  s_cli_phase;         /* 0=idle, 1=reading ls, 2=reading cat */
+static uint8_t  s_cli_phase;         /* 0=idle, 2=reading cat */
 
 /* View state */
 static bool     s_viewing;           /* true = showing file content */
@@ -167,7 +166,7 @@ static ui_widget_t *s_widgets[2 + 2 + 5]; /* back+title + touch*2 + buttons */
 
 /* Forward declarations */
 static void eb_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
-static void eb_on_cwd_notify(const char *path);
+static void eb_on_file_list(uint8_t status, const file_entry_t *entries, uint8_t count);
 static void eb_set_status(const char *msg);
 static void eb_invalidate_list(void);
 static void eb_invalidate_view(void);
@@ -330,75 +329,37 @@ static void eb_close_file(void)
 }
 
 /*=============================================================================
- *  CLI response parsing
+ *  File list callback (from UART module's built-in ls parser)
  *=============================================================================*/
 
-static void eb_parse_ls(const char *text, uint16_t len)
+static void eb_on_file_list(uint8_t status, const file_entry_t *entries, uint8_t count)
 {
-    const char *p = text;
-    const char *end = text + len;
+    (void)status;
     s_file_count = 0;
 
-    while (p < end && s_file_count < EB_MAX_FILES) {
-        const char *eol = p;
-        while (eol < end && *eol != '\r' && *eol != '\n') eol++;
+    for (uint8_t i = 0; i < count && s_file_count < EB_MAX_FILES; i++) {
+        if (entries[i].attr & FILE_ATTR_IS_DIR) continue;
+        if (!eb_is_book_ext(entries[i].name)) continue;
+        if (entries[i].size >= 20 * 1024) continue;
 
-        uint16_t line_len = (uint16_t)(eol - p);
-        if (line_len > 6) {
-            char line[256];
-            uint16_t cpy = (line_len < 255) ? line_len : 255;
-            memcpy(line, p, cpy);
-            line[cpy] = '\0';
-
-            /* Skip directory entries */
-            if (strstr(line, "[DIR]")) goto next_line;
-
-            /* Extract filename: after "[FILE] " */
-            const char *fp = strstr(line, "[FILE]");
-            if (!fp) goto next_line;
-            fp += 6;
-            while (*fp == ' ') fp++;
-
-            /* Extract size: find "  (" pattern */
-            const char *size_start = strstr(fp, "  (");
-            char fname[EB_MAX_NAME + 1] = {0};
-            uint32_t fsize = 0;
-
-            if (size_start) {
-                uint16_t nlen = (uint16_t)(size_start - fp);
-                if (nlen > EB_MAX_NAME) nlen = EB_MAX_NAME;
-                memcpy(fname, fp, nlen);
-                fname[nlen] = '\0';
-
-                /* Parse size */
-                const char *paren = size_start + 3;
-                fsize = (uint32_t)atoi(paren);
-            } else {
-                strncpy(fname, fp, EB_MAX_NAME);
-                fname[EB_MAX_NAME] = '\0';
-            }
-
-            /* Filter by extension and size */
-            if (eb_is_book_ext(fname) && fsize < 20 * 1024) {
-                strncpy(s_files[s_file_count].name, fname, EB_MAX_NAME);
-                s_files[s_file_count].name[EB_MAX_NAME] = '\0';
-                eb_get_ext(fname, s_files[s_file_count].ext);
-                s_files[s_file_count].size = fsize;
-                s_file_count++;
-            }
-        }
-next_line:
-        p = eol;
-        while (p < end && (*p == '\r' || *p == '\n')) p++;
+        strncpy(s_files[s_file_count].name, entries[i].name, EB_MAX_NAME);
+        s_files[s_file_count].name[EB_MAX_NAME] = '\0';
+        eb_get_ext(entries[i].name, s_files[s_file_count].ext);
+        s_files[s_file_count].size = entries[i].size;
+        s_file_count++;
     }
 
     char msg[48];
     snprintf(msg, sizeof(msg), "%d book(s)", s_file_count);
     eb_set_status(msg);
+    eb_invalidate_list();
+    eb_invalidate_toolbar();
 }
 
 static void eb_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
 {
+    if (s_cli_phase != 2) return;
+
     if (!s_cli_assembling) {
         s_cli_len = 0;
         s_cli_assembling = true;
@@ -415,36 +376,21 @@ static void eb_on_cli_response(const char *output, uint16_t len, bool truncated,
     if (!is_last) return;
     s_cli_assembling = false;
 
-    if (s_cli_phase == 1) {
-        /* ls response */
-        eb_parse_ls(s_cli_buf, s_cli_len);
-        s_cli_phase = 0;
-        eb_invalidate_list();
-        eb_invalidate_toolbar();
-        return;
-    }
+    /* cat response — file content */
+    uint16_t clen = s_cli_len;
+    if (clen > EB_FILE_BUF_SIZE - 1) clen = EB_FILE_BUF_SIZE - 1;
+    memcpy(s_content, s_cli_buf, clen);
+    s_content[clen] = '\0';
+    s_content_len = clen;
+    s_cli_phase = 0;
 
-    if (s_cli_phase == 2) {
-        /* cat response — file content */
-        uint16_t clen = s_cli_len;
-        if (clen > EB_FILE_BUF_SIZE - 1) clen = EB_FILE_BUF_SIZE - 1;
-        memcpy(s_content, s_cli_buf, clen);
-        s_content[clen] = '\0';
-        s_content_len = clen;
-        s_cli_phase = 0;
+    eb_calc_pages();
 
-        eb_calc_pages();
-
-        char msg[64];
-        snprintf(msg, sizeof(msg), "%s  (%d pages)", s_view_name, s_total_pages);
-        eb_set_status(msg);
-        eb_invalidate_view();
-        eb_invalidate_toolbar();
-        return;
-    }
-
-    /* Unexpected response */
-    eb_set_status(s_cli_buf);
+    char msg[64];
+    snprintf(msg, sizeof(msg), "%s  (%d pages)", s_view_name, s_total_pages);
+    eb_set_status(msg);
+    eb_invalidate_view();
+    eb_invalidate_toolbar();
 }
 
 /*=============================================================================
@@ -555,13 +501,15 @@ static void eb_page_enter(ui_page_t *page)
     (void)page;
     UART_SetAppCallbacks(&s_eb_cb_full);
     s_viewing = false;
-    s_cli_phase = 1;
+    s_cli_phase = 0;
+    s_cli_assembling = false;
+    s_cli_len = 0;
     s_file_count = 0;
     s_file_scroll = 0;
     s_file_selected = -1;
     s_content_len = 0;
     eb_set_status("Loading BOOK...");
-    UART_SendCLI("cd BOOK");
+    UART_RequestFileList("\\BOOK");
 }
 
 static void eb_page_exit(ui_page_t *page)
@@ -1015,18 +963,6 @@ static bool eb_page_event(ui_page_t *page, ui_event_t *e)
 }
 
 /*=============================================================================
- *  CWD notify — after cd BOOK succeeds, send ls
- *=============================================================================*/
-
-/* We need to hook into the CWD notify to chain cd -> ls */
-static void eb_on_cwd_notify(const char *path)
-{
-    if (s_cli_phase == 1) {
-        UART_SendCLI("ls");
-    }
-}
-
-/*=============================================================================
  *  Initialization
  *=============================================================================*/
 
@@ -1053,8 +989,8 @@ void app_ebook_init(void)
     strcpy(s_status, "Ready");
 
     s_eb_cb_full.on_cli_response = eb_on_cli_response;
-    s_eb_cb_full.on_file_list = NULL;
-    s_eb_cb_full.on_cwd_notify = eb_on_cwd_notify;
+    s_eb_cb_full.on_file_list = eb_on_file_list;
+    s_eb_cb_full.on_cwd_notify = NULL;
 
     int wi = 0;
     s_widgets[wi++] = (ui_widget_t *)&s_app_eb.btn_back;

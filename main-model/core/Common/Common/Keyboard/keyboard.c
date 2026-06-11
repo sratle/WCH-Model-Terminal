@@ -418,6 +418,17 @@ static void Music_PlayPianoKey(uint8_t key_id)
     /* 仅停止选中的通道 */
     Audio_ChannelStop(ch);
 
+    /* CH378 单句柄：打开新文件会隐式关闭其他通道的文件，
+     * 必须显式清除其 file_open 标记，否则 Audio_Process 会读错文件 */
+    {
+        uint8_t j;
+        for (j = 0; j < AUDIO_MAX_CHANNELS; j++) {
+            if (j != ch && CS43131_g.channels[j].file_open) {
+                CS43131_g.channels[j].file_open = 0;
+            }
+        }
+    }
+
     /* 构建路径: \SOUND\PIANO-xx.WAV (8.3 短文件名) */
     snprintf(path, sizeof(path), "\\SOUND\\PIANO-%02d.WAV", key_id);
 
