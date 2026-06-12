@@ -148,6 +148,72 @@ void Epaper_Update(void)
 }
 
 /*********************************************************************
+ * @fn      Epaper_PartialRefresh
+ *
+ * @brief   Partial refresh using PDTM1 + PDTM2 + PDRF.
+ *          X and W must be multiples of 8.
+ */
+void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
+                           const uint8_t *old_data, const uint8_t *new_data)
+{
+    uint16_t row_bytes = w / 8;
+    uint32_t data_len = (uint32_t)row_bytes * h;
+
+    /* PDTM1: OLD data */
+    Epaper_Hw_WriteCmd(0x14);
+    Epaper_Hw_WriteData((x >> 8) & 0x03);
+    Epaper_Hw_WriteData(x & 0xF8);
+    Epaper_Hw_WriteData((y >> 8) & 0x03);
+    Epaper_Hw_WriteData(y & 0xFF);
+    Epaper_Hw_WriteData((w >> 8) & 0x03);
+    Epaper_Hw_WriteData(w & 0xF8);
+    Epaper_Hw_WriteData((h >> 8) & 0x03);
+    Epaper_Hw_WriteData(h & 0xFF);
+    Epaper_Hw_WriteDataBuf(old_data, data_len);
+
+    /* PDTM2: NEW data */
+    Epaper_Hw_WriteCmd(0x15);
+    Epaper_Hw_WriteData((x >> 8) & 0x03);
+    Epaper_Hw_WriteData(x & 0xF8);
+    Epaper_Hw_WriteData((y >> 8) & 0x03);
+    Epaper_Hw_WriteData(y & 0xFF);
+    Epaper_Hw_WriteData((w >> 8) & 0x03);
+    Epaper_Hw_WriteData(w & 0xF8);
+    Epaper_Hw_WriteData((h >> 8) & 0x03);
+    Epaper_Hw_WriteData(h & 0xFF);
+    Epaper_Hw_WriteDataBuf(new_data, data_len);
+
+    /* PDRF: trigger partial refresh with DFV_EN=1 */
+    Epaper_Hw_WriteCmd(0x16);
+    Epaper_Hw_WriteData(((1 << 7) | ((x >> 8) & 0x03)));  /* DFV_EN=1 + X[9:8] */
+    Epaper_Hw_WriteData(x & 0xF8);
+    Epaper_Hw_WriteData((y >> 8) & 0x03);
+    Epaper_Hw_WriteData(y & 0xFF);
+    Epaper_Hw_WriteData((w >> 8) & 0x03);
+    Epaper_Hw_WriteData(w & 0xF8);
+    Epaper_Hw_WriteData((h >> 8) & 0x03);
+    Epaper_Hw_WriteData(h & 0xFF);
+
+    Epaper_Hw_WaitBusy(3000);
+}
+
+/*********************************************************************
+ * @fn      Epaper_DisplayImageDiff
+ *
+ * @brief   Full refresh with separate old/new images.
+ */
+void Epaper_DisplayImageDiff(const uint8_t *old_image, const uint8_t *new_image)
+{
+    /* DTM1: OLD data */
+    Epaper_Hw_WriteCmd(0x10);
+    Epaper_Hw_WriteDataBuf(old_image, EPD_FRAME_SIZE);
+
+    /* DTM2: NEW data */
+    Epaper_Hw_WriteCmd(0x13);
+    Epaper_Hw_WriteDataBuf(new_image, EPD_FRAME_SIZE);
+}
+
+/*********************************************************************
  * @fn      Epaper_Sleep
  *
  * @brief   DSLP (deep sleep). Per datasheet, needs PON before DSLP.
