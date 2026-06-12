@@ -1076,23 +1076,24 @@ static void cli_parse_ls_output(void)
 static void cli_resp_dispatch(void)
 {
     s_cli_resp_buf[s_cli_resp_len] = '\0';
-    Delay_Ms(20);
+    printf("[CLI] dispatch tag='%s' len=%d p_ls=%d\r\n",
+           s_cli_cmd_tag, s_cli_resp_len, s_pending_ls_after_cd);
 
     if (!s_cli_cb_valid) return;
 
     /* After "cd" response, auto-send "ls" if pending */
     if (strcmp(s_cli_cmd_tag, "cd") == 0 && s_pending_ls_after_cd) {
         s_pending_ls_after_cd = false;
-        Delay_Ms(20);
+        printf("[CLI] cd done, sending ls\r\n");
         UART_SendCLI("ls");
         return;
     }
 
     /* Priority 1: ls parsing (if callback set and command was "ls") */
     if (s_cli_cb.on_file_list && strcmp(s_cli_cmd_tag, "ls") == 0) {
-        Delay_Ms(20);
+        printf("[CLI] parsing ls output\r\n");
         cli_parse_ls_output();
-        Delay_Ms(20);
+        printf("[CLI] ls parse done\r\n");
         return;
     }
 

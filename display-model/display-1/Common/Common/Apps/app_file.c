@@ -385,6 +385,7 @@ static void file_ensure_selected_visible(void)
 
 static void on_file_list_received(uint8_t status, const file_entry_t *entries, uint8_t count)
 {
+    printf("[FILE] list: status=%d count=%d\r\n", status, count);
     s_fs.loading = false;
     s_fs.data_ready = true;
     s_fs.last_status = status;
@@ -419,6 +420,7 @@ static uart_cli_cb_t s_file_cb = {
 
 static void file_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
+    printf("[FILE] complete: tag='%s' len=%d\r\n", tag ? tag : "(null)", len);
     if (!tag) return;
 
     /* Handle stat response */
@@ -1013,13 +1015,9 @@ static void file_page_enter(ui_page_t *page)
 {
     (void)page;
     UART_SetCLICallbacks(&s_file_cb);
-
-    /* Compiler memory barrier: prevent reordering of callback setup
-     * and CLI command send. Also ensures UART state is committed. */
-    __asm volatile ("" ::: "memory");
-
     if (!s_fs.data_ready && !s_fs.loading) {
-        Delay_Ms(1);
+        /* Debug: trace enter flow and add delay to avoid timing issue */
+        printf("[FILE] enter, requesting root\r\n");
         UART_RequestFileList("\\");
     }
     ui_page_invalidate_all();
