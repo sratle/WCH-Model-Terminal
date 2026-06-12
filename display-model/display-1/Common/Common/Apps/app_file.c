@@ -16,6 +16,7 @@
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
 #include "../MiniUI/miniui_page.h"
+#include "debug.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -418,6 +419,8 @@ static uart_cli_cb_t s_file_cb = {
 
 static void file_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
+    if (!tag) return;
+
     /* Handle stat response */
     if (strcmp(tag, "stat") == 0 && s_fs.stat_visible) {
         uint16_t copy = len;
@@ -1010,7 +1013,13 @@ static void file_page_enter(ui_page_t *page)
 {
     (void)page;
     UART_SetCLICallbacks(&s_file_cb);
+
+    /* Compiler memory barrier: prevent reordering of callback setup
+     * and CLI command send. Also ensures UART state is committed. */
+    __asm volatile ("" ::: "memory");
+
     if (!s_fs.data_ready && !s_fs.loading) {
+        Delay_Ms(1);
         UART_RequestFileList("\\");
     }
     ui_page_invalidate_all();

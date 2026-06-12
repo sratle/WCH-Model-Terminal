@@ -250,6 +250,101 @@ static void VL53L0X_GPIO_Init(void)
     SDA_H();
 }
 
+/* DEBUG: I2C bus recovery — 9 clock pulses with SDA high, then STOP.
+ * This can unstick a sensor that is stuck mid-transaction (SDA held low). */
+static void VL53L0X_I2C_BusRecovery(void)
+{
+    uint8_t i;
+
+    printf("[IR] I2C bus recovery...\r\n");
+
+    /* Check if SDA is stuck low */
+    SDA_H(); SCL_H();
+    Delay_Ms(1);
+    printf("[IR] Before recovery: SCL=%d SDA=%d\r\n", SCL_READ(), SDA_READ());
+
+    if (SDA_READ() == 0)
+    {
+        /* SDA stuck low — clock SCL 9 times to release */
+        for (i = 0; i < 9; i++)
+        {
+            SCL_L(); Delay_Ms(1);
+            SCL_H(); Delay_Ms(1);
+            printf("[IR]   clock %d: SDA=%d\r\n", i, SDA_READ());
+            if (SDA_READ()) break;  /* SDA released */
+        }
+        /* Generate STOP */
+        SDA_L(); Delay_Ms(1);
+        SCL_H(); Delay_Ms(1);
+        SDA_H(); Delay_Ms(1);
+    }
+
+    printf("[IR] After recovery: SCL=%d SDA=%d\r\n", SCL_READ(), SDA_READ());
+}
+
+/* DEBUG: Scan I2C bus with SCL/SDA SWAPPED to detect wiring swap */
+static void VL53L0X_I2C_ScanSwapped(void)
+{
+    uint8_t addr, found = 0;
+
+    printf("[IR] I2C scan with SCL<->SDA SWAPPED...\r\n");
+
+    for (addr = 0x03; addr <= 0x77; addr++)
+    {
+        /* START: SCL(PB14) high, drive SDA(PB15) low while SCL high */
+        GPIO_SetBits(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);   /* SDA -> PB15 high */
+        GPIO_SetBits(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN);   /* SCL -> PB14 high */
+        I2C_Delay();
+        GPIO_ResetBits(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN); /* SDA -> PB15 low (START) */
+        I2C_Delay();
+        GPIO_ResetBits(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN); /* SCL -> PB14 low */
+        I2C_Delay();
+
+        /* Send address byte, MSB first — but on swapped pins */
+        uint8_t byte = addr << 1;
+        uint8_t i;
+        for (i = 0; i < 8; i++)
+        {
+            if (byte & 0x80)
+                GPIO_SetBits(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);   /* SDA -> PB15 */
+            else
+                GPIO_ResetBits(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);
+            byte <<= 1;
+            I2C_Delay();
+            GPIO_SetBits(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN);       /* SCL -> PB14 high */
+            I2C_Delay();
+            GPIO_ResetBits(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN);     /* SCL -> PB14 low */
+            I2C_Delay();
+        }
+
+        /* ACK: release SDA(PB15), clock SCL(PB14), read SDA(PB15) */
+        GPIO_SetBits(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);
+        I2C_Delay();
+        GPIO_SetBits(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN);
+        I2C_Delay();
+        if (GPIO_ReadInputDataBit(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN) == 0)
+        {
+            printf("[IR]   Device at 0x%02X (7-bit) *** SCL/SDA SWAPPED! ***\r\n", addr);
+            found++;
+        }
+        GPIO_ResetBits(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN);
+        I2C_Delay();
+
+        /* STOP */
+        GPIO_ResetBits(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);
+        I2C_Delay();
+        GPIO_SetBits(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN);
+        I2C_Delay();
+        GPIO_SetBits(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);
+        I2C_Delay();
+    }
+
+    if (found == 0)
+        printf("[IR]   No device found with swapped pins either\r\n");
+    else
+        printf("[IR]   Total: %d device(s) with SWAPPED pins\r\n", found);
+}
+
 /* DEBUG: Scan I2C bus for any responding device (address 0x03..0x77) */
 static void VL53L0X_I2C_Scan(void)
 {
@@ -390,15 +485,160 @@ void VL53L0X_Init(void)
     /* DEBUG: Verify GPIO pins are actually driving */
     VL53L0X_GPIO_Diag();
 
-    /* Hardware reset via XSHUT */
-    printf("[IR] XSHUT reset...\r\n");
+    /* Hardware reset via XSHUT — monitor GPIO1 to see if sensor is alive */
+    printf("[IR] XSHUT reset with GPIO1 monitor...\r\n");
+    printf("[IR] GPIO1 before reset: %d\r\n",
+           GPIO_ReadInputDataBit(VL53L0X_GPIO1_PORT, VL53L0X_GPIO1_PIN));
     GPIO_ResetBits(VL53L0X_XSHUT_PORT, VL53L0X_XSHUT_PIN);
-    Delay_Ms(2);
-    GPIO_SetBits(VL53L0X_XSHUT_PORT, VL53L0X_XSHUT_PIN);
     Delay_Ms(10);
+    printf("[IR] GPIO1 during reset (XSHUT low): %d\r\n",
+           GPIO_ReadInputDataBit(VL53L0X_GPIO1_PORT, VL53L0X_GPIO1_PIN));
+    GPIO_SetBits(VL53L0X_XSHUT_PORT, VL53L0X_XSHUT_PIN);
+    Delay_Ms(5);
+    printf("[IR] GPIO1 5ms after release: %d\r\n",
+           GPIO_ReadInputDataBit(VL53L0X_GPIO1_PORT, VL53L0X_GPIO1_PIN));
+    Delay_Ms(45);
+    printf("[IR] GPIO1 50ms after release: %d\r\n",
+           GPIO_ReadInputDataBit(VL53L0X_GPIO1_PORT, VL53L0X_GPIO1_PIN));
+
+    /* DEBUG: Bus recovery in case sensor is stuck */
+    VL53L0X_I2C_BusRecovery();
 
     /* DEBUG: Scan I2C bus to see if sensor is present */
     VL53L0X_I2C_Scan();
+
+    /* DEBUG: Scan with SCL/SDA swapped to detect wiring swap */
+    VL53L0X_I2C_ScanSwapped();
+
+    /* DEBUG: Ultra-slow I2C scan (10ms per half-cycle) to rule out timing */
+    {
+        uint8_t addr, found = 0;
+        printf("[IR] Ultra-slow I2C scan (10ms/bit)...\r\n");
+        for (addr = 0x20; addr <= 0x30; addr++)
+        {
+            uint8_t byte = addr << 1;
+            uint8_t i, ack_val;
+
+            /* START */
+            SDA_H(); SCL_H(); Delay_Ms(10);
+            SDA_L(); Delay_Ms(10);
+            SCL_L(); Delay_Ms(10);
+
+            /* Send address byte */
+            for (i = 0; i < 8; i++)
+            {
+                if (byte & 0x80) SDA_H(); else SDA_L();
+                byte <<= 1;
+                Delay_Ms(10);
+                SCL_H(); Delay_Ms(10);
+                SCL_L(); Delay_Ms(10);
+            }
+
+            /* ACK */
+            SDA_H(); Delay_Ms(10);
+            SCL_H(); Delay_Ms(10);
+            ack_val = SDA_READ();
+            SCL_L(); Delay_Ms(10);
+
+            if (ack_val == 0)
+            {
+                printf("[IR]   Device at 0x%02X (ultra-slow)\r\n", addr);
+                found++;
+            }
+
+            /* STOP */
+            SDA_L(); Delay_Ms(10);
+            SCL_H(); Delay_Ms(10);
+            SDA_H(); Delay_Ms(10);
+        }
+        if (found == 0)
+            printf("[IR]   No device found (ultra-slow)\r\n");
+    }
+
+    /* DEBUG: Brute-force scan — try every PB pin pair as SCL/SDA
+     * This finds the sensor even if PCB traces go to unexpected pins */
+    {
+        /* GPIOB pin mapping: bit position to GPIO_Pin_x */
+        static const uint16_t pb_pins[] = {
+            GPIO_Pin_0,  GPIO_Pin_1,  GPIO_Pin_2,  GPIO_Pin_3,
+            GPIO_Pin_4,  GPIO_Pin_5,  GPIO_Pin_6,  GPIO_Pin_7,
+            GPIO_Pin_8,  GPIO_Pin_9,  GPIO_Pin_10, GPIO_Pin_11,
+            GPIO_Pin_12, GPIO_Pin_13, GPIO_Pin_14, GPIO_Pin_15
+        };
+        uint8_t scl_idx, sda_idx;
+
+        printf("[IR] Brute-force I2C scan on ALL GPIOB pin pairs...\r\n");
+
+        for (scl_idx = 0; scl_idx < 16; scl_idx++)
+        {
+            for (sda_idx = 0; sda_idx < 16; sda_idx++)
+            {
+                if (scl_idx == sda_idx) continue;
+
+                GPIO_InitTypeDef gpio;
+                uint8_t byte = 0x52; /* VL53L0X write addr */
+                uint8_t i, ack_val;
+
+                /* Configure both pins as open-drain output */
+                gpio.GPIO_Pin   = pb_pins[scl_idx];
+                gpio.GPIO_Speed = GPIO_Speed_50MHz;
+                gpio.GPIO_Mode  = GPIO_Mode_Out_OD;
+                GPIO_Init(GPIOB, &gpio);
+
+                gpio.GPIO_Pin   = pb_pins[sda_idx];
+                GPIO_Init(GPIOB, &gpio);
+
+                /* Both high (idle) */
+                GPIO_SetBits(GPIOB, pb_pins[scl_idx] | pb_pins[sda_idx]);
+                Delay_Ms(1);
+
+                /* START: SDA low while SCL high */
+                GPIO_ResetBits(GPIOB, pb_pins[sda_idx]);
+                Delay_Ms(1);
+                GPIO_ResetBits(GPIOB, pb_pins[scl_idx]);
+                Delay_Ms(1);
+
+                /* Send 0x52 (VL53L0X write address) */
+                for (i = 0; i < 8; i++)
+                {
+                    if (byte & 0x80)
+                        GPIO_SetBits(GPIOB, pb_pins[sda_idx]);
+                    else
+                        GPIO_ResetBits(GPIOB, pb_pins[sda_idx]);
+                    byte <<= 1;
+                    Delay_Ms(1);
+                    GPIO_SetBits(GPIOB, pb_pins[scl_idx]);
+                    Delay_Ms(1);
+                    GPIO_ResetBits(GPIOB, pb_pins[scl_idx]);
+                    Delay_Ms(1);
+                }
+
+                /* ACK: release SDA, clock SCL, read SDA */
+                GPIO_SetBits(GPIOB, pb_pins[sda_idx]);
+                Delay_Ms(1);
+                GPIO_SetBits(GPIOB, pb_pins[scl_idx]);
+                Delay_Ms(1);
+                ack_val = GPIO_ReadInputDataBit(GPIOB, pb_pins[sda_idx]);
+                GPIO_ResetBits(GPIOB, pb_pins[scl_idx]);
+                Delay_Ms(1);
+
+                if (ack_val == 0)
+                {
+                    printf("[IR]   *** FOUND at 0x29: SCL=PB%d SDA=PB%d ***\r\n",
+                           scl_idx, sda_idx);
+                }
+
+                /* STOP */
+                GPIO_ResetBits(GPIOB, pb_pins[sda_idx]);
+                Delay_Ms(1);
+                GPIO_SetBits(GPIOB, pb_pins[scl_idx]);
+                Delay_Ms(1);
+                GPIO_SetBits(GPIOB, pb_pins[sda_idx]);
+                Delay_Ms(1);
+            }
+        }
+        printf("[IR] Brute-force scan done\r\n");
+    }
 
     /* DEBUG: Raw I2C transaction trace for address 0x29 */
     VL53L0X_I2C_RawDebug();
