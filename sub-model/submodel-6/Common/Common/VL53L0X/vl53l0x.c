@@ -556,7 +556,9 @@ void VL53L0X_Init(void)
     }
 
     /* DEBUG: Brute-force scan — try every PB pin pair as SCL/SDA
-     * This finds the sensor even if PCB traces go to unexpected pins */
+     * This finds the sensor even if PCB traces go to unexpected pins.
+     * NOTE: floating pins (no pull-up) will read 0 when released → false ACK.
+     * Only trust hits on pins with external pull-ups (PB12-PB15). */
     {
         /* GPIOB pin mapping: bit position to GPIO_Pin_x */
         static const uint16_t pb_pins[] = {
@@ -638,6 +640,89 @@ void VL53L0X_Init(void)
             }
         }
         printf("[IR] Brute-force scan done\r\n");
+    }
+
+    /* DEBUG: Also scan GPIOA — sensor might be on PA pins */
+    {
+        static const uint16_t pa_pins[] = {
+            GPIO_Pin_0,  GPIO_Pin_1,  GPIO_Pin_2,  GPIO_Pin_3,
+            GPIO_Pin_4,  GPIO_Pin_5,  GPIO_Pin_6,  GPIO_Pin_7,
+            GPIO_Pin_8,  GPIO_Pin_11, GPIO_Pin_12, GPIO_Pin_15
+            /* Skip PA9/PA10 (UART1), PA13/PA14 (SWD) */
+        };
+        uint8_t scl_idx, sda_idx, num_pins = sizeof(pa_pins)/sizeof(pa_pins[0]);
+
+        printf("[IR] Brute-force I2C scan on GPIOA pin pairs...\r\n");
+
+        RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+
+        for (scl_idx = 0; scl_idx < num_pins; scl_idx++)
+        {
+            for (sda_idx = 0; sda_idx < num_pins; sda_idx++)
+            {
+                if (scl_idx == sda_idx) continue;
+
+                GPIO_InitTypeDef gpio;
+                uint8_t byte = 0x52;
+                uint8_t i, ack_val;
+
+                gpio.GPIO_Pin   = pa_pins[scl_idx];
+                gpio.GPIO_Speed = GPIO_Speed_50MHz;
+                gpio.GPIO_Mode  = GPIO_Mode_Out_OD;
+                GPIO_Init(GPIOA, &gpio);
+
+                gpio.GPIO_Pin   = pa_pins[sda_idx];
+                GPIO_Init(GPIOA, &gpio);
+
+                GPIO_SetBits(GPIOA, pa_pins[scl_idx] | pa_pins[sda_idx]);
+                Delay_Ms(1);
+
+                GPIO_ResetBits(GPIOA, pa_pins[sda_idx]);
+                Delay_Ms(1);
+                GPIO_ResetBits(GPIOA, pa_pins[scl_idx]);
+                Delay_Ms(1);
+
+                for (i = 0; i < 8; i++)
+                {
+                    if (byte & 0x80) GPIO_SetBits(GPIOA, pa_pins[sda_idx]);
+                    else             GPIO_ResetBits(GPIOA, pa_pins[sda_idx]);
+                    byte <<= 1;
+                    Delay_Ms(1);
+                    GPIO_SetBits(GPIOA, pa_pins[scl_idx]);
+                    Delay_Ms(1);
+                    GPIO_ResetBits(GPIOA, pa_pins[scl_idx]);
+                    Delay_Ms(1);
+                }
+
+                GPIO_SetBits(GPIOA, pa_pins[sda_idx]);
+                Delay_Ms(1);
+                GPIO_SetBits(GPIOA, pa_pins[scl_idx]);
+                Delay_Ms(1);
+                ack_val = GPIO_ReadInputDataBit(GPIOA, pa_pins[sda_idx]);
+                GPIO_ResetBits(GPIOA, pa_pins[scl_idx]);
+                Delay_Ms(1);
+
+                if (ack_val == 0)
+                {
+                    /* Verify: check if SDA pin has a real pull-up (reads 1 when released alone) */
+                    GPIO_SetBits(GPIOA, pa_pins[sda_idx]);
+                    Delay_Ms(1);
+                    if (GPIO_ReadInputDataBit(GPIOA, pa_pins[sda_idx]) == 1)
+                    {
+                        printf("[IR]   *** FOUND at 0x29: SCL=PA%d SDA=PA%d (verified) ***\r\n",
+                               scl_idx, sda_idx);
+                    }
+                }
+
+                GPIO_ResetBits(GPIOA, pa_pins[sda_idx]);
+                Delay_Ms(1);
+                GPIO_SetBits(GPIOA, pa_pins[scl_idx]);
+                Delay_Ms(1);
+                GPIO_SetBits(GPIOA, pa_pins[sda_idx]);
+                Delay_Ms(1);
+            }
+        }
+        printf("[IR] GPIOA scan done\r\n");
     }
 
     /* DEBUG: Raw I2C transaction trace for address 0x29 */
