@@ -51,8 +51,6 @@ void Epaper_Hw_Init(void)
     EPD_MOSI_LOW();
     EPD_RES_HIGH();
     EPD_DC_HIGH();
-
-    printf("EPD: GPIO init done\r\n");
 }
 
 /*********************************************************************
@@ -73,13 +71,6 @@ void Epaper_Hw_Reset(void)
     Delay_Ms(30);
     EPD_RES_HIGH();
     Delay_Ms(30);
-
-    printf("EPD: Reset done, BUSY_N=%d RES=%d DC=%d CS=%d SCK=%d\r\n",
-           EPD_BUSY_READ() ? 1 : 0,
-           (GPIOB->OUTDR & EPD_RES_BIT) ? 1 : 0,
-           (GPIOB->OUTDR & EPD_DC_BIT) ? 1 : 0,
-           (GPIOA->OUTDR & EPD_CS_BIT) ? 1 : 0,
-           (GPIOA->OUTDR & EPD_SCK_BIT) ? 1 : 0);
 }
 
 /*********************************************************************
@@ -93,17 +84,9 @@ int Epaper_Hw_WaitBusy(uint32_t timeout_ms)
     while (Epd_Is_Busy())
     {
         if (elapsed >= timeout_ms)
-        {
-            printf("EPD: WaitBusy TIMEOUT %ums (raw=%d)\r\n",
-                   (unsigned)elapsed, EPD_BUSY_READ() ? 1 : 0);
             return -1;
-        }
         Delay_Ms(10);
         elapsed += 10;
-    }
-    if (elapsed > 0)
-    {
-        printf("EPD: WaitBusy OK %ums\r\n", (unsigned)elapsed);
     }
     return 0;
 }
