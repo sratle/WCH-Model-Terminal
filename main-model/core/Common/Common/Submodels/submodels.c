@@ -851,7 +851,21 @@ static uint8_t submodels_rgb_dispatch(submodels_t *submodel, const protocol_fram
     return 1;
 }
 
-/* ---- 6. 红外测距 (type = 0x06) ---- */
+/* ---- 6. 红外测距 (type = 0x06) ----
+ *
+ * 协议见 Protocol_Submodels.md §4.6
+ *
+ * Core → IR:
+ *   CMD_SUB_SET_MODE(0x41) SUB=0x01  开始测距（fire-and-forget）
+ *   CMD_SUB_SET_MODE(0x41) SUB=0x02  停止测距（fire-and-forget）
+ *
+ * IR → Core:
+ *   CMD_SUB_ACTION_RESULT(0x45) SUB=0x01  测距结果 [distance_mm:2(BE)]
+ *   CMD_SUB_ACTION_RESULT(0x45) SUB=0x02  测距失败 [error_code:1]
+ *
+ * Core 收到测距结果后转发给在线的 Display：
+ *   Display_SendSubmodelEvent(SUBMODEL_TYPE_INFRARED, subcmd, data, len)
+ */
 static uint8_t submodels_ir_dispatch(submodels_t *submodel, const protocol_frame_t *req,
                                      uint8_t *resp, uint16_t resp_size, uint8_t *resp_len)
 {
@@ -861,27 +875,66 @@ static uint8_t submodels_ir_dispatch(submodels_t *submodel, const protocol_frame
 
     switch (cmd)
     {
-        case CMD_SUB_SET_MODE:
-            switch (subcmd)
-            {
-                case 0x01: /* 开始测距 */
-                    /* TODO: 启动红外测距 */
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-                case 0x02: /* 停止测距 */
-                    /* TODO: 停止测距 */
-                    return ProtocolCommon_Ack(req->dst, req->src, resp, resp_size);
-            }
-            break;
-
         case CMD_SUB_ACTION_RESULT:
             switch (subcmd)
             {
-                case 0x01: /* 测距结果 */
-                    /* TODO: data[1..2]=距离(uint16大端), data[3]=单位, data[4]=精度 */
-                    return 1;
-                case 0x02: /* 测距失败 */
-                    /* TODO: data[1]=错误码 */
-                    return 1;
+                case IR_SUB_RESULT_OK: /* 测距结果 [distance_mm:2(BE)] */
+                    if (req->len >= 3)
+                    {
+                        uint16_t distance_mm = ((uint16_t)req->data[1] << 8) | req->data[2];
+                        printf("[IR] Distance: %d mm\r\n", distance_mm);
+
+                        /* 转发给在线的 Display */
+                        {
+                            uint8_t i;
+                            for (i = 0; i < HB_MAX_SLOTS; i++)
+                            {
+                                if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY &&
+                                    hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+                                {
+                                    uint8_t evt[2];
+                                    evt[0] = (uint8_t)(distance_mm >> 8);
+                                    evt[1] = (uint8_t)(distance_mm & 0xFF);
+                                    Display_SendSubmodelEvent(&display_g,
+                                        MODULE_SUBTYPE_SUBMODEL_INFRARED,
+                                        IR_SUB_RESULT_OK,
+                                        evt, 2);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    *resp_len = 0;
+                    return 1;   /* 事件帧无需回复 */
+
+                case IR_SUB_RESULT_FAIL: /* 测距失败 [error_code:1] */
+                    if (req->len >= 2)
+                    {
+                        uint8_t err_code = req->data[1];
+                        printf("[IR] Ranging failed: err=%d\r\n", err_code);
+
+                        /* 转发给在线的 Display */
+                        {
+                            uint8_t i;
+                            for (i = 0; i < HB_MAX_SLOTS; i++)
+                            {
+                                if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY &&
+                                    hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+                                {
+                                    Display_SendSubmodelEvent(&display_g,
+                                        MODULE_SUBTYPE_SUBMODEL_INFRARED,
+                                        IR_SUB_RESULT_FAIL,
+                                        &err_code, 1);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    *resp_len = 0;
+                    return 1;   /* 事件帧无需回复 */
+
+                default:
+                    break;
             }
             break;
 
@@ -1467,6 +1520,35 @@ uint8_t Submodels_Health_QueryData(submodels_t *submodel)
 {
     uint8_t data[1] = { HEALTH_SUB_QUERY_DATA };
     return Submodels_SendCommand(submodel, CMD_SUB_GET_STATUS, data, 1);
+}
+
+/* ============================================================================
+ * Infrared/IR (激光测距, type=0x06) Control API Implementation
+ * ============================================================================ */
+
+submodels_t *Submodels_FindIRSlot(void)
+{
+    extern submodels_t submodels_g[3];
+    uint8_t i;
+
+    for (i = 0; i < 3; i++)
+    {
+        if (submodels_g[i].type_id == MODULE_SUBTYPE_SUBMODEL_INFRARED)
+            return &submodels_g[i];
+    }
+    return NULL;
+}
+
+uint8_t Submodels_IR_StartRanging(submodels_t *submodel)
+{
+    uint8_t data[1] = { IR_SUB_START_RANGING };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 1);
+}
+
+uint8_t Submodels_IR_StopRanging(submodels_t *submodel)
+{
+    uint8_t data[1] = { IR_SUB_STOP_RANGING };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 1);
 }
 
 /* ============================================================================

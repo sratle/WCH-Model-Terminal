@@ -134,9 +134,7 @@ static int16_t s_tab_values[SETTINGS_TAB_COUNT][SETTINGS_MAX_ITEMS];
 /* Which module we are currently fetching (-1 = idle) */
 static int8_t s_fetch_module = -1;
 
-/* CLI response accumulation */
-static char s_cli_buf[512];
-static uint16_t s_cli_len = 0;
+/* CLI response handled via on_cli_complete callback */
 
 /* Pending config set commands (queued during fetch to avoid interference) */
 #define PENDING_CMD_MAX 8
@@ -450,20 +448,9 @@ static void about_item_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
  *  CLI Response Parsing
  *=============================================================================*/
 
-static void settings_cli_response_cb(const char *output, uint16_t len,
-                                     bool truncated, bool is_last)
+static void settings_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
-    /* Accumulate response */
-    if (s_cli_len + len < sizeof(s_cli_buf) - 1) {
-        memcpy(&s_cli_buf[s_cli_len], output, len);
-        s_cli_len += len;
-    }
-
-    if (!is_last) return;
-
-    /* Full response received — parse key:value pairs */
-    s_cli_buf[s_cli_len] = '\0';
-
+    (void)tag;
     if (s_fetch_module < 0 || s_fetch_module >= CFG_MODULE_COUNT) {
         s_fetch_module = -1;
         return;
@@ -473,23 +460,26 @@ static void settings_cli_response_cb(const char *output, uint16_t len,
     bool found_any = false;
 
     /* Parse lines like "volume:50\r\n" */
-    char *line = s_cli_buf;
+    /* Work on a mutable copy since we modify delimiters */
+    char parse_buf[512];
+    uint16_t copy_len = (len < sizeof(parse_buf) - 1) ? len : (uint16_t)(sizeof(parse_buf) - 1);
+    memcpy(parse_buf, buf, copy_len);
+    parse_buf[copy_len] = '\0';
+
+    char *line = parse_buf;
     while (line && *line) {
         char *nl = strchr(line, '\n');
         if (nl) *nl = '\0';
 
-        /* Strip trailing \r */
         char *cr = strchr(line, '\r');
         if (cr) *cr = '\0';
 
-        /* Find colon separator */
         char *colon = strchr(line, ':');
         if (colon) {
             *colon = '\0';
             const char *key = line;
             int val = atoi(colon + 1);
 
-            /* Match key across all tabs and items */
             for (uint8_t t = 0; t < SETTINGS_TAB_COUNT; t++) {
                 for (uint8_t i = 0; i < s_tabs[t].item_count; i++) {
                     if (strcmp(s_tabs[t].items[i].module_key, cur_mk) == 0 &&
@@ -505,23 +495,18 @@ static void settings_cli_response_cb(const char *output, uint16_t len,
         else break;
     }
 
-    /* Only mark as fetched if we actually received matching keys.
-     * If the response was from a config set (e.g. "OK"), don't mark it. */
     if (found_any) {
         s_module_fetched[s_fetch_module] = true;
     }
     s_fetch_module = -1;
 
-    /* Update content if the active tab is now fully fetched */
     uint8_t active = ui_tabview_get_active(&tab_modules);
     if (is_tab_fetched(active)) {
         settings_update_content();
     }
 
-    /* Continue fetching next unfetched module */
     settings_fetch_next();
 
-    /* After all fetches complete, flush any queued config set commands */
     if (all_modules_fetched()) {
         flush_pending_cmds();
     }
@@ -538,7 +523,6 @@ static void settings_fetch_next(void)
             char cmd[32];
             snprintf(cmd, sizeof(cmd), "config get %s", s_cfg_modules[m]);
             s_fetch_module = (int8_t)m;
-            s_cli_len = 0;
             UART_SendCLI(cmd);
             return;
         }
@@ -765,17 +749,14 @@ void ui_settings_enter(ui_page_t *page)
     (void)page;
 
     /* Register CLI response callback */
-    uart_app_callbacks_t cb = {
-        .on_cli_response = settings_cli_response_cb,
-        .on_file_list    = NULL,
-        .on_cwd_notify   = NULL,
+    uart_cli_cb_t cb = {
+        .on_cli_complete = settings_on_cli_complete,
     };
-    UART_SetAppCallbacks(&cb);
+    UART_SetCLICallbacks(&cb);
 
     /* Reset fetch state */
     memset(s_module_fetched, 0, sizeof(s_module_fetched));
     s_fetch_module = -1;
-    s_cli_len = 0;
     s_pending_count = 0;
     s_scroll_y = 0;
 
@@ -803,7 +784,7 @@ static void ui_settings_exit(ui_page_t *page)
     }
 
     /* Clear our callback */
-    UART_ClearAppCallbacks();
+    UART_ClearCLICallbacks();
     s_fetch_module = -1;
 }
 

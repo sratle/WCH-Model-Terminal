@@ -107,12 +107,14 @@
 #define BK_W                (WK_W * 3 / 5)
 #define BK_H                (PIANO_H * 3 / 5)
 
-/* Key ID → is black key */
+/* Key ID → is black key (used for piano rendering) */
+#if 0
 static const uint8_t s_key_is_black[25] = {
     0, /* 0 unused */
     0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, /* 1-12: C4-B4 */
     0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0  /* 13-24: C5-B5 */
 };
+#endif
 
 /* White key ID list (in order from left to right) */
 static const uint8_t s_white_keys[WHITE_KEY_COUNT] = {
@@ -541,7 +543,6 @@ static void emusic_page_draw(ui_page_t *page, ui_rect_t *dirty)
 
     int16_t dirty_top = dirty->y;
     int16_t dirty_bot = dirty->y + dirty->h;
-    int16_t dirty_left = dirty->x;
     int16_t dirty_right = dirty->x + dirty->w;
 
     /* Title bar background */

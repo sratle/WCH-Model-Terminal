@@ -408,34 +408,31 @@ static void on_cwd_changed(const char *path)
     file_invalidate_breadcrumb();
 }
 
-static void on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
+static void file_on_cli_complete(const char *buf, uint16_t len, const char *tag);
 
-static uart_app_callbacks_t s_file_callbacks = {
+static uart_cli_cb_t s_file_cb = {
     .on_file_list = on_file_list_received,
-    .on_cli_response = on_cli_response,
+    .on_cli_complete = file_on_cli_complete,
     .on_cwd_notify = on_cwd_changed,
 };
 
-static void on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void file_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
     /* Handle stat response */
-    if (s_fs.stat_visible && is_last) {
+    if (strcmp(tag, "stat") == 0 && s_fs.stat_visible) {
         uint16_t copy = len;
         if (copy > sizeof(s_fs.stat_text) - 1) copy = sizeof(s_fs.stat_text) - 1;
-        memcpy(s_fs.stat_text, output, copy);
+        memcpy(s_fs.stat_text, buf, copy);
         s_fs.stat_text[copy] = '\0';
         file_invalidate_stat_dialog();
         return;
     }
 
     /* After file operations (mkdir/rm/copy/rename/device switch), refresh */
-    if (is_last) {
-        s_fs.loading = true;
-        s_fs.data_ready = false;
-        UART_SetAppCallbacks(&s_file_callbacks);
-        UART_RequestFileList(NULL);
-        file_invalidate_content();
-    }
+    s_fs.loading = true;
+    s_fs.data_ready = false;
+    UART_RequestFileList(NULL);
+    file_invalidate_content();
 }
 
 /*=============================================================================
@@ -446,7 +443,7 @@ static void file_request_list(void)
 {
     s_fs.loading = true;
     s_fs.data_ready = false;
-    UART_SetAppCallbacks(&s_file_callbacks);
+    UART_SetCLICallbacks(&s_file_cb);
     UART_RequestFileList(NULL);
     file_update_status();
     file_invalidate_content();
@@ -456,7 +453,7 @@ static void file_enter_path(const char *name)
 {
     s_fs.loading = true;
     s_fs.data_ready = false;
-    UART_SetAppCallbacks(&s_file_callbacks);
+    UART_SetCLICallbacks(&s_file_cb);
     UART_RequestFileList(name);
     file_update_status();
     file_invalidate_content();
@@ -466,7 +463,7 @@ static void file_go_up(void)
 {
     s_fs.loading = true;
     s_fs.data_ready = false;
-    UART_SetAppCallbacks(&s_file_callbacks);
+    UART_SetCLICallbacks(&s_file_cb);
     UART_RequestFileList("..");
     file_update_status();
     file_invalidate_content();
@@ -476,7 +473,7 @@ static void file_go_root(void)
 {
     s_fs.loading = true;
     s_fs.data_ready = false;
-    UART_SetAppCallbacks(&s_file_callbacks);
+    UART_SetCLICallbacks(&s_file_cb);
     UART_RequestFileList("\\");
     file_update_status();
     file_invalidate_content();
@@ -490,7 +487,7 @@ static void file_switch_device(void)
     s_fs.loading = true;
     s_fs.data_ready = false;
     s_fs.path[0] = '\0';
-    UART_SetAppCallbacks(&s_file_callbacks);
+    UART_SetCLICallbacks(&s_file_cb);
     UART_SendCLI(dev_cmd);
     file_update_status();
     file_invalidate_content();
@@ -501,7 +498,7 @@ static void file_delete_selected(void)
     if (s_fs.selected < 0 || s_fs.selected >= s_fs.count) return;
     file_entry_t *e = &s_fs.entries[s_fs.selected];
     s_fs.loading = true;
-    UART_SetAppCallbacks(&s_file_callbacks);
+    UART_SetCLICallbacks(&s_file_cb);
     if (e->attr & FILE_ATTR_IS_DIR)
         UART_SendFileOperation(FILE_OP_DELETE_DIR, e->name);
     else
@@ -645,7 +642,7 @@ static void file_ctx_menu_execute(void)
         /* Send stat command */
         s_fs.stat_visible = true;
         s_fs.stat_text[0] = '\0';
-        UART_SetAppCallbacks(&s_file_callbacks);
+        UART_SetCLICallbacks(&s_file_cb);
         char cmd[128];
         snprintf(cmd, sizeof(cmd), "stat \"%s\"", e->name);
         UART_SendCLI(cmd);
@@ -712,7 +709,7 @@ static void file_input_dialog_confirm(void)
         return;
     }
 
-    UART_SetAppCallbacks(&s_file_callbacks);
+    UART_SetCLICallbacks(&s_file_cb);
     char cmd[256];
 
     switch (dlg->type) {
@@ -1012,7 +1009,7 @@ static void file_draw_stat_dialog(void)
 static void file_page_enter(ui_page_t *page)
 {
     (void)page;
-    UART_SetAppCallbacks(&s_file_callbacks);
+    UART_SetCLICallbacks(&s_file_cb);
     if (!s_fs.data_ready && !s_fs.loading) {
         UART_RequestFileList("\\");
     }

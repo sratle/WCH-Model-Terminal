@@ -600,14 +600,14 @@ static void editor_select_all(void)
  *  Protocol Callbacks
  *=============================================================================*/
 
-static void on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void editor_on_cli_stream(const char *chunk, uint16_t len, bool is_last)
 {
     /* File content received via CLI "cat" command */
     if (!s_ed.save_sent) {
         uint16_t space = EDIT_BUF_SIZE - 1 - s_ed.content_len;
         uint16_t copy_len = (len < space) ? len : space;
         if (copy_len > 0) {
-            memcpy(&s_ed.content[s_ed.content_len], output, copy_len);
+            memcpy(&s_ed.content[s_ed.content_len], chunk, copy_len);
             s_ed.content_len += copy_len;
         }
 
@@ -625,16 +625,12 @@ static void on_cli_response(const char *output, uint16_t len, bool truncated, bo
             editor_update_status();
             editor_invalidate_content();
         }
-    } else {
-        /* Save response: since we mark save complete immediately after
-         * sending all frames, just ignore any late CLI responses. */
-        (void)output; (void)len; (void)truncated; (void)is_last;
     }
+    /* Save response: ignore — save is marked complete immediately after sending */
 }
 
-static uart_app_callbacks_t s_editor_callbacks = {
-    .on_file_list = NULL,
-    .on_cli_response = on_cli_response,
+static uart_cli_cb_t s_editor_cb = {
+    .on_cli_stream = editor_on_cli_stream,
 };
 
 /*=============================================================================
@@ -664,7 +660,7 @@ void app_editor_open_file(const char *path, const char *name)
     s_ed.file_path[sizeof(s_ed.file_path) - 1] = '\0';
 
     ui_label_set_text(&s_app_editor.lbl_title, s_ed.file_name);
-    UART_SetAppCallbacks(&s_editor_callbacks);
+    UART_SetCLICallbacks(&s_editor_cb);
     UART_RequestFileRead(s_ed.file_path);
     editor_update_status();
 }
@@ -673,7 +669,7 @@ static void editor_save_file(void)
 {
     if (!s_ed.has_content || s_ed.save_sent) return;
 
-    UART_SetAppCallbacks(&s_editor_callbacks);
+    UART_SetCLICallbacks(&s_editor_cb);
     s_ed.save_sent = true;
     editor_update_status();     /* Show "Saving..." immediately */
     editor_invalidate_status();
@@ -905,7 +901,7 @@ static void editor_draw_status(void)
 static void editor_page_enter(ui_page_t *page)
 {
     (void)page;
-    UART_SetAppCallbacks(&s_editor_callbacks);
+    UART_SetCLICallbacks(&s_editor_cb);
     editor_update_status();
     ui_page_invalidate_all();
 }

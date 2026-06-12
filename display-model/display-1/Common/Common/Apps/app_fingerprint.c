@@ -75,7 +75,7 @@
  *=============================================================================*/
 
 #define FP_MAX_ENTRIES      32
-#define FP_CLI_BUF_SIZE     2048
+/* CLI response via global buffer (on_cli_complete) */
 #define FP_NAME_MAX         20
 #define FP_INPUT_MAX        24
 
@@ -93,9 +93,7 @@ static int16_t    s_fp_scroll;
 static int16_t    s_fp_selected;
 
 /* CLI response assembly */
-static char     s_cli_buf[FP_CLI_BUF_SIZE];
-static uint16_t s_cli_len;
-static bool     s_cli_assembling;
+/* CLI state removed — uses global assembly buffer */
 static uint8_t  s_cli_phase;
 
 /* Editing state */
@@ -119,7 +117,7 @@ static ui_button_t  btn_add, btn_edit, btn_save, btn_cancel;
 static ui_widget_t *s_widgets[2 + 1 + 4 + 4]; /* back + title + touch + buttons */
 
 /* Forward declarations */
-static void fp_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
+static void fp_on_cli_complete(const char *buf, uint16_t len, const char *tag);
 static void fp_on_submodel_event(uint8_t sub_type, uint8_t sub_cmd,
                                   const uint8_t *evt_data, uint8_t evt_len);
 static void fp_set_status(const char *msg);
@@ -128,10 +126,8 @@ static void fp_invalidate_status(void);
 static void fp_invalidate_input(void);
 static void fp_invalidate_all(void);
 
-static uart_app_callbacks_t s_fp_cb = {
-    .on_cli_response = fp_on_cli_response,
-    .on_file_list = NULL,
-    .on_cwd_notify = NULL,
+static uart_cli_cb_t s_fp_cb = {
+    .on_cli_complete = fp_on_cli_complete,
 };
 static uart_submodel_cb_t s_fp_sub_cb = {
     .on_submodel_event = fp_on_submodel_event,
@@ -376,34 +372,19 @@ static void fp_parse_ls(const char *text, uint16_t len)
     }
 }
 
-static void fp_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void fp_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
-    if (!s_cli_assembling) {
-        s_cli_len = 0;
-        s_cli_assembling = true;
-    }
-
-    uint16_t space = FP_CLI_BUF_SIZE - 1 - s_cli_len;
-    uint16_t copy_len = (len < space) ? len : space;
-    if (copy_len > 0) {
-        memcpy(&s_cli_buf[s_cli_len], output, copy_len);
-        s_cli_len += copy_len;
-    }
-    s_cli_buf[s_cli_len] = '\0';
-
-    if (!is_last) return;
-
-    s_cli_assembling = false;
+    (void)tag;
 
     if (s_cli_phase == 1) {
-        fp_parse_names(s_cli_buf, s_cli_len);
+        fp_parse_names(buf, len);
         s_cli_phase = 2;
         UART_SendCLI("fp ls");
         return;
     }
 
     if (s_cli_phase == 2) {
-        fp_parse_ls(s_cli_buf, s_cli_len);
+        fp_parse_ls(buf, len);
         s_cli_phase = 0;
 
         char msg[48];
@@ -414,9 +395,9 @@ static void fp_on_cli_response(const char *output, uint16_t len, bool truncated,
     }
 
     char status_msg[78];
-    uint16_t slen = s_cli_len;
+    uint16_t slen = len;
     if (slen > 77) slen = 77;
-    memcpy(status_msg, s_cli_buf, slen);
+    memcpy(status_msg, buf, slen);
     status_msg[slen] = '\0';
     for (uint16_t i = 0; i < slen; i++) {
         if (status_msg[i] == '\r' || status_msg[i] == '\n')
@@ -518,7 +499,7 @@ static void btn_cancel_click(ui_widget_t *w)
 static void fp_page_enter(ui_page_t *page)
 {
     (void)page;
-    UART_SetAppCallbacks(&s_fp_cb);
+    UART_SetCLICallbacks(&s_fp_cb);
     UART_SetSubmodelCallbacks(&s_fp_sub_cb);
     s_id_result = 0;
     s_editing = false;
@@ -528,7 +509,7 @@ static void fp_page_enter(ui_page_t *page)
 static void fp_page_exit(ui_page_t *page)
 {
     (void)page;
-    UART_ClearAppCallbacks();
+    UART_ClearCLICallbacks();
     UART_ClearSubmodelCallbacks();
 }
 
@@ -536,7 +517,7 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
 {
     (void)page;
     int16_t dt = dirty->y, db = dirty->y + dirty->h;
-    int16_t dl = dirty->x, dr = dirty->x + dirty->w;
+    int16_t dr = dirty->x + dirty->w;
 
     /* Title bar */
     ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
@@ -752,8 +733,6 @@ void app_fingerprint_init(void)
     s_fp_count = 0;
     s_fp_scroll = 0;
     s_fp_selected = -1;
-    s_cli_len = 0;
-    s_cli_assembling = false;
     s_cli_phase = 0;
     s_editing = false;
     s_adding = false;

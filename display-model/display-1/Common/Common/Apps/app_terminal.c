@@ -26,10 +26,14 @@
 #define TERM_PROMPT_LEN     2   /* "> " */
 #define TERM_INPUT_MAX      128
 #define TERM_HISTORY_MAX    16
-#define TERM_OUTPUT_LINES   512
-#define TERM_LINE_MAX       256
 #define TERM_STATUS_H       20
 #define TERM_CONTENT_H      (TERM_TEXT_H - TERM_STATUS_H)
+
+/* Compact line buffer: 16KB text pool + 256-entry circular index.
+ * Replaces the old 512×258=132KB static array. */
+#define TERM_POOL_SIZE      (16 * 1024)
+#define TERM_MAX_LINES      256
+#define TERM_LINE_MAX       200
 
 /* Scroll speeds */
 #define TERM_WHEEL_PX       32  /* pixels per mouse wheel notch */
@@ -50,23 +54,19 @@
 #define TERM_BORDER         UI_HEX(0x313244)
 
 /*=============================================================================
- *  Terminal Line Buffer
- *=============================================================================*/
-
-typedef struct {
-    char text[TERM_LINE_MAX];
-    uint16_t len;
-} term_line_t;
-
-/*=============================================================================
  *  Terminal State
  *=============================================================================*/
 
 typedef struct {
-    /* Output buffer: circular array of lines */
-    term_line_t lines[TERM_OUTPUT_LINES];
-    uint16_t line_count;       /* Total lines written (wraps) */
-    uint16_t line_head;        /* Index of oldest line in buffer */
+    /* Compact line buffer: text pool + circular index */
+    char     pool[TERM_POOL_SIZE];
+    uint32_t pool_used;
+    struct {
+        uint32_t offset;
+        uint8_t  len;
+    } lines[TERM_MAX_LINES];
+    uint16_t line_count;       /* Total lines written (monotonic) */
+    uint16_t line_head;        /* Index of oldest line in circular buffer */
 
     /* Pixel-level scroll: scroll_y = pixel offset from top of content.
      * Content height = (line_count + 1) * TERM_LINE_H  (+1 for input line)
@@ -190,34 +190,67 @@ static void term_invalidate_input_line(void)
 }
 
 /*=============================================================================
- *  Line Buffer Management
+ *  Line Buffer Management (pool-based)
  *=============================================================================*/
 
-static term_line_t *term_get_line(uint16_t idx)
+/* Evict oldest line, reclaim pool text space */
+static void term_evict_oldest(void)
 {
-    /* idx is absolute (0..line_count-1). Map to circular buffer. */
-    if (idx >= s_term.line_count) return NULL;
-    uint16_t buf_idx;
-    if (s_term.line_count <= TERM_OUTPUT_LINES) {
-        buf_idx = idx;
-    } else {
-        buf_idx = (s_term.line_head + (idx - (s_term.line_count - TERM_OUTPUT_LINES)))
-                  % TERM_OUTPUT_LINES;
+    uint16_t idx = s_term.line_head % TERM_MAX_LINES;
+    uint8_t tlen = s_term.lines[idx].len;
+    s_term.line_head++;
+
+    /* Shift pool left by (tlen + 1) to reclaim space */
+    uint32_t shift = (uint32_t)tlen + 1;
+    if (shift < s_term.pool_used) {
+        memmove(s_term.pool, &s_term.pool[shift], s_term.pool_used - shift);
     }
-    return &s_term.lines[buf_idx];
+    s_term.pool_used -= shift;
+
+    /* Adjust offsets of remaining lines */
+    uint16_t active = s_term.line_count - s_term.line_head;
+    for (uint16_t i = 0; i < active; i++) {
+        uint16_t li = (s_term.line_head + i) % TERM_MAX_LINES;
+        s_term.lines[li].offset -= shift;
+    }
+}
+
+/* Get pointer to line text and its length (text is null-terminated in pool) */
+static const char *term_get_line(uint16_t idx, uint8_t *out_len)
+{
+    if (idx < s_term.line_head || idx >= s_term.line_count) {
+        if (out_len) *out_len = 0;
+        return "";
+    }
+    uint16_t li = idx % TERM_MAX_LINES;
+    if (out_len) *out_len = s_term.lines[li].len;
+    return &s_term.pool[s_term.lines[li].offset];
 }
 
 static void term_add_line(const char *text, uint16_t len)
 {
-    uint16_t buf_idx = s_term.line_count % TERM_OUTPUT_LINES;
-    if (s_term.line_count >= TERM_OUTPUT_LINES) {
-        s_term.line_head = (s_term.line_head + 1) % TERM_OUTPUT_LINES;
+    uint8_t copy_len = (len < TERM_LINE_MAX) ? (uint8_t)len : (TERM_LINE_MAX - 1);
+    uint32_t needed = (uint32_t)copy_len + 1;
+
+    /* Evict oldest lines until we have space in both pool and index */
+    while (s_term.pool_used + needed > TERM_POOL_SIZE &&
+           s_term.line_count > s_term.line_head) {
+        term_evict_oldest();
     }
-    term_line_t *line = &s_term.lines[buf_idx];
-    uint16_t copy_len = (len < TERM_LINE_MAX - 1) ? len : (TERM_LINE_MAX - 1);
-    memcpy(line->text, text, copy_len);
-    line->text[copy_len] = '\0';
-    line->len = copy_len;
+    while (s_term.line_count - s_term.line_head >= TERM_MAX_LINES) {
+        term_evict_oldest();
+    }
+
+    /* Write text to pool end */
+    uint32_t offset = s_term.pool_used;
+    memcpy(&s_term.pool[offset], text, copy_len);
+    s_term.pool[offset + copy_len] = '\0';
+    s_term.pool_used += needed;
+
+    /* Record line index */
+    uint16_t idx = s_term.line_count % TERM_MAX_LINES;
+    s_term.lines[idx].offset = offset;
+    s_term.lines[idx].len = copy_len;
     s_term.line_count++;
 }
 
@@ -274,30 +307,26 @@ static void term_history_push(const char *cmd)
  *  Protocol Callbacks
  *=============================================================================*/
 
-static void on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void term_on_cli_stream(const char *chunk, uint16_t len, bool is_last)
 {
-    (void)truncated;
-    term_add_output(output, len);
-
+    term_add_output(chunk, len);
     if (is_last) {
         s_term.cli_busy = false;
     }
-
     term_invalidate_content();
     term_invalidate_status();
 }
 
-static void on_cwd_notify(const char *path)
+static void term_on_cwd_notify(const char *path)
 {
     strncpy(s_term.cwd, path, sizeof(s_term.cwd) - 1);
     s_term.cwd[sizeof(s_term.cwd) - 1] = '\0';
     term_invalidate_status();
 }
 
-static uart_app_callbacks_t s_terminal_callbacks = {
-    .on_file_list = NULL,
-    .on_cli_response = on_cli_response,
-    .on_cwd_notify = on_cwd_notify,
+static uart_cli_cb_t s_terminal_cb = {
+    .on_cli_stream = term_on_cli_stream,
+    .on_cwd_notify = term_on_cwd_notify,
 };
 
 /*=============================================================================
@@ -324,7 +353,7 @@ static void term_execute(void)
 
     /* Send to Core via CLI passthrough */
     s_term.cli_busy = true;
-    UART_SetAppCallbacks(&s_terminal_callbacks);
+    UART_SetCLICallbacks(&s_terminal_cb);
     UART_SendCLI(s_term.input);
 
     /* Clear input */
@@ -564,11 +593,11 @@ static void term_draw_output(const ui_rect_t *dirty)
 
         if (line_idx < (int16_t)s_term.line_count) {
             /* Output line */
-            term_line_t *line = term_get_line((uint16_t)line_idx);
-            if (line && line->len > 0) {
+            uint8_t line_len;
+            const char *text = term_get_line((uint16_t)line_idx, &line_len);
+            if (line_len > 0) {
                 ui_color_t color = TERM_TEXT_COLOR;
-                const char *text = line->text;
-                uint16_t len = line->len;
+                uint16_t len = line_len;
 
                 if (len >= 2 && text[0] == '>' && text[1] == ' ') {
                     /* Prompt line: draw "> " in prompt color, rest in input color */
@@ -685,7 +714,7 @@ static void term_draw_status(void)
 static void term_page_enter(ui_page_t *page)
 {
     (void)page;
-    UART_SetAppCallbacks(&s_terminal_callbacks);
+    UART_SetCLICallbacks(&s_terminal_cb);
     term_invalidate_all();
 }
 

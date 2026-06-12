@@ -118,7 +118,7 @@ static ui_widget_t *s_img_widgets[2 + 2];  /* back_btn + title + list_touch + ..
  *  Forward Declarations
  *=============================================================================*/
 
-static void img_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
+static void img_on_cli_stream(const char *chunk, uint16_t len, bool is_last);
 static void img_parse_bmp_ls(const char *text, uint16_t len);
 static void img_decode_bmp(void);
 static void img_render_preview(ui_rect_t *dirty);
@@ -126,10 +126,8 @@ static void img_set_bar(const char *msg);
 static void img_invalidate_list(void);
 static void img_invalidate_preview(void);
 
-static uart_app_callbacks_t s_img_callbacks = {
-    .on_cli_response = img_on_cli_response,
-    .on_file_list    = NULL,
-    .on_cwd_notify   = NULL,
+static uart_cli_cb_t s_img_cb = {
+    .on_cli_stream = img_on_cli_stream,
 };
 
 /*=============================================================================
@@ -266,8 +264,9 @@ static void img_request_get(const char *filename)
  *  CLI Response
  *=============================================================================*/
 
-static void img_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void img_on_cli_stream(const char *chunk, uint16_t len, bool is_last)
 {
+    /* First frame: reset accumulation */
     if (!s_cli_assembling) {
         s_cli_len = 0;
         s_cli_assembling = true;
@@ -276,7 +275,7 @@ static void img_on_cli_response(const char *output, uint16_t len, bool truncated
     uint16_t space = IMG_CLI_BUF_SIZE - 1 - s_cli_len;
     uint16_t copy_len = (len < space) ? len : space;
     if (copy_len > 0) {
-        memcpy(&s_cli_buf[s_cli_len], output, copy_len);
+        memcpy(&s_cli_buf[s_cli_len], chunk, copy_len);
         s_cli_len += copy_len;
     }
     s_cli_buf[s_cli_len] = '\0';
@@ -610,14 +609,14 @@ static void list_touch_event(ui_widget_t *w, ui_event_t *e)
 static void img_page_enter(ui_page_t *page)
 {
     (void)page;
-    UART_SetAppCallbacks(&s_img_callbacks);
+    UART_SetCLICallbacks(&s_img_cb);
     img_request_ls();
 }
 
 static void img_page_exit(ui_page_t *page)
 {
     (void)page;
-    UART_ClearAppCallbacks();
+    UART_ClearCLICallbacks();
 }
 
 static void img_page_draw(ui_page_t *page, ui_rect_t *dirty)

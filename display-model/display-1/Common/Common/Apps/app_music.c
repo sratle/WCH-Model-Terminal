@@ -155,13 +155,11 @@ static bool s_skip_playst = false;
  *  Forward Declarations
  *=============================================================================*/
 
-static void music_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
+static void music_on_cli_complete(const char *output, uint16_t len, const char *tag);
 static void music_ensure_current_visible(void);
 
-static uart_app_callbacks_t s_music_callbacks = {
-    .on_file_list = NULL,
-    .on_cli_response = music_on_cli_response,
-    .on_cwd_notify = NULL,
+static uart_cli_cb_t s_music_cb = {
+    .on_cli_complete = music_on_cli_complete,
 };
 
 /*=============================================================================
@@ -290,10 +288,8 @@ static void music_update_texts(void)
  *  CLI Response Callback (music-specific)
  *=============================================================================*/
 
-static void music_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void music_on_cli_complete(const char *output, uint16_t len, const char *tag)
 {
-    (void)truncated;
-    if (!is_last) return;
     if (!output || len == 0) return;
 
     if (strcmp(UART_GetLastCLITag(), "playst") == 0) {
@@ -495,7 +491,7 @@ static void music_page_enter(ui_page_t *page)
     s_track_ended = false;
 
     /* Register music callbacks so CLI responses don't go to file app */
-    UART_SetAppCallbacks(&s_music_callbacks);
+    UART_SetCLICallbacks(&s_music_cb);
 
     /* Send playst to sync music state from Core, but skip if a play
      * command was just sent from file browser (it would overwrite the

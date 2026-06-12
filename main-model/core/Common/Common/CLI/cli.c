@@ -1384,6 +1384,8 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  nfc set <hex_id> <name>  Set NFC card name (10-hex-digit id, nfc.json)\r\n");
         printf("  nfc get <hex_id>  Get NFC card name\r\n");
         printf("  nfc ls          List all NFC card names\r\n");
+        printf("  ir start        Start IR ranging (submodel-6)\r\n");
+        printf("  ir stop         Stop IR ranging (submodel-6)\r\n");
         printf("  clear           Clear screen\r\n");
         printf("  help            Show command list\r\n");
         printf("  help d          Show detailed help\r\n");
@@ -1407,6 +1409,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  rgb mode|refresh|status\r\n");
         printf("  fp register|del <ID>|ls|count|config [led|sec]|set|get|names\r\n");
         printf("  nfc set <hex_id> <name>|get <hex_id>|ls\r\n");
+        printf("  ir start|stop\r\n");
         printf("  clear, help [d]\r\n");
     }
 }
@@ -2550,6 +2553,40 @@ static void CLI_Cmd_Config(uint8_t argc, char **argv)
     }
 }
 
+/* ---- IR 激光测距命令 ----
+ * ir start   开始测距（发送 CMD_SUB_SET_MODE SUB=0x01 到 submodel-6）
+ * ir stop    停止测距（发送 CMD_SUB_SET_MODE SUB=0x02 到 submodel-6）
+ */
+static void CLI_Cmd_Ir(uint8_t argc, char **argv)
+{
+    submodels_t *ir;
+
+    if (argc < 2) {
+        printf("Usage: ir <start|stop>\r\n");
+        return;
+    }
+
+    ir = Submodels_FindIRSlot();
+    if (ir == NULL) {
+        printf("ir: no IR submodel online\r\n");
+        return;
+    }
+
+    if (strcmp(argv[1], "start") == 0) {
+        if (Submodels_IR_StartRanging(ir))
+            printf("ir: start ranging sent\r\n");
+        else
+            printf("ir: failed to send start command\r\n");
+    } else if (strcmp(argv[1], "stop") == 0) {
+        if (Submodels_IR_StopRanging(ir))
+            printf("ir: stop ranging sent\r\n");
+        else
+            printf("ir: failed to send stop command\r\n");
+    } else {
+        printf("ir: unknown subcommand '%s' (start|stop)\r\n", argv[1]);
+    }
+}
+
 /* ---- NFC 名称管理命令 ----
  * nfc set <hex_id> <name>   设置 NFC 卡名称 (ID 为 10 位十六进制，写入 nfc.json)
  * nfc get <hex_id>          获取 NFC 卡名称
@@ -3274,6 +3311,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Fp(argc, argv);
     } else if (strcmp(argv[0], "nfc") == 0) {
         CLI_Cmd_Nfc(argc, argv);
+    } else if (strcmp(argv[0], "ir") == 0) {
+        CLI_Cmd_Ir(argc, argv);
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }

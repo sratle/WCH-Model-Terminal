@@ -200,6 +200,16 @@ void ui_page_invalidate(const ui_rect_t *rect)
 
     if (r.w <= 0 || r.h <= 0) return;
 
+    /* Fast-path: try merging with the last region first (O(1) common case) */
+    if (s_dirty_list.count > 0) {
+        ui_rect_t *last = &s_dirty_list.regions[s_dirty_list.count - 1];
+        if (rects_overlap(&r, last)) {
+            rect_merge(&r, last, last);
+            rect_clamp_screen(last);
+            return;
+        }
+    }
+
     int16_t merge_target = -1;
 
     for (uint16_t i = 0; i < s_dirty_list.count; i++) {

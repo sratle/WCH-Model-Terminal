@@ -240,28 +240,14 @@ static char s_core_info_text[3][24];
 static char s_sub_info_text[3][24];
 
 /* Accumulation buffer for multi-frame CLI responses */
-#define LSDEV_RESP_BUF_SIZE  512
-static char s_lsdev_resp_buf[LSDEV_RESP_BUF_SIZE];
-static uint16_t s_lsdev_resp_len = 0;
+/* lsdev response uses global CLI buffer via on_cli_complete */
 
-static void on_lsdev_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void on_lsdev_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
-    (void)truncated;
+    (void)tag;
 
-    /* Accumulate response data across frames */
-    if (len > 0 && s_lsdev_resp_len + len < LSDEV_RESP_BUF_SIZE) {
-        memcpy(&s_lsdev_resp_buf[s_lsdev_resp_len], output, len);
-        s_lsdev_resp_len += len;
-    }
+    parse_lsdev_response(buf, len);
 
-    if (!is_last) return;
-
-    /* Null-terminate and parse the full accumulated response */
-    s_lsdev_resp_buf[s_lsdev_resp_len] = '\0';
-    parse_lsdev_response(s_lsdev_resp_buf, s_lsdev_resp_len);
-    s_lsdev_resp_len = 0;
-
-    /* Copy info strings to persistent buffers */
     for (int i = 0; i < 3; i++) {
         strncpy(s_core_info_text[i], s_core_modules[i].info, sizeof(s_core_info_text[i]) - 1);
         s_core_info_text[i][sizeof(s_core_info_text[i]) - 1] = '\0';
@@ -274,10 +260,8 @@ static void on_lsdev_cli_response(const char *output, uint16_t len, bool truncat
     ui_page_invalidate_all();
 }
 
-static uart_app_callbacks_t s_models_callbacks = {
-    .on_cli_response = on_lsdev_cli_response,
-    .on_file_list = NULL,
-    .on_cwd_notify = NULL,
+static uart_cli_cb_t s_models_cb = {
+    .on_cli_complete = on_lsdev_cli_complete,
 };
 
 /*=============================================================================
@@ -430,8 +414,7 @@ void ui_models_enter(ui_page_t *page)
     /* Send lsdev command to query current module status */
     if (!s_lsdev_pending) {
         s_lsdev_pending = true;
-        s_lsdev_resp_len = 0;
-        UART_SetAppCallbacks(&s_models_callbacks);
+        UART_SetCLICallbacks(&s_models_cb);
         UART_SendCLI("lsdev");
     }
 }

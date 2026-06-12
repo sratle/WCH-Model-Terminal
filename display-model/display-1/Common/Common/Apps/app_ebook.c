@@ -138,10 +138,7 @@ static char     *s_content;          /* dynamically allocated or static */
 static uint16_t  s_content_len;
 static uint16_t  s_content_cap;
 
-/* CLI response assembly */
-static char     s_cli_buf[4096];
-static uint16_t s_cli_len;
-static bool     s_cli_assembling;
+/* CLI phase tracking */
 static uint8_t  s_cli_phase;         /* 0=idle, 2=reading cat */
 
 /* View state */
@@ -165,7 +162,7 @@ static ui_button_t  btn_prev, btn_next, btn_theme, btn_font, btn_back_list;
 static ui_widget_t *s_widgets[2 + 2 + 5]; /* back+title + touch*2 + buttons */
 
 /* Forward declarations */
-static void eb_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
+static void eb_on_cli_complete(const char *buf, uint16_t len, const char *tag);
 static void eb_on_file_list(uint8_t status, const file_entry_t *entries, uint8_t count);
 static void eb_set_status(const char *msg);
 static void eb_invalidate_list(void);
@@ -176,7 +173,7 @@ static void eb_calc_pages(void);
 static void eb_open_file(int16_t idx);
 static void eb_close_file(void);
 
-static uart_app_callbacks_t s_eb_cb_full;
+static uart_cli_cb_t s_eb_cb;
 
 /*=============================================================================
  *  Helpers
@@ -306,8 +303,6 @@ static void eb_open_file(int16_t idx)
 
     s_content_len = 0;
     s_cli_phase = 2;
-    s_cli_len = 0;
-    s_cli_assembling = false;
 
     char cmd[80];
     snprintf(cmd, sizeof(cmd), "cat %s", s_files[idx].name);
@@ -356,30 +351,15 @@ static void eb_on_file_list(uint8_t status, const file_entry_t *entries, uint8_t
     eb_invalidate_toolbar();
 }
 
-static void eb_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void eb_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
+    (void)tag;
     if (s_cli_phase != 2) return;
 
-    if (!s_cli_assembling) {
-        s_cli_len = 0;
-        s_cli_assembling = true;
-    }
-
-    uint16_t space = sizeof(s_cli_buf) - 1 - s_cli_len;
-    uint16_t copy_len = (len < space) ? len : space;
-    if (copy_len > 0) {
-        memcpy(&s_cli_buf[s_cli_len], output, copy_len);
-        s_cli_len += copy_len;
-    }
-    s_cli_buf[s_cli_len] = '\0';
-
-    if (!is_last) return;
-    s_cli_assembling = false;
-
     /* cat response — file content */
-    uint16_t clen = s_cli_len;
+    uint16_t clen = len;
     if (clen > EB_FILE_BUF_SIZE - 1) clen = EB_FILE_BUF_SIZE - 1;
-    memcpy(s_content, s_cli_buf, clen);
+    memcpy(s_content, buf, clen);
     s_content[clen] = '\0';
     s_content_len = clen;
     s_cli_phase = 0;
@@ -499,11 +479,9 @@ static void btn_back_list_click(ui_widget_t *w)
 static void eb_page_enter(ui_page_t *page)
 {
     (void)page;
-    UART_SetAppCallbacks(&s_eb_cb_full);
+    UART_SetCLICallbacks(&s_eb_cb);
     s_viewing = false;
     s_cli_phase = 0;
-    s_cli_assembling = false;
-    s_cli_len = 0;
     s_file_count = 0;
     s_file_scroll = 0;
     s_file_selected = -1;
@@ -515,7 +493,7 @@ static void eb_page_enter(ui_page_t *page)
 static void eb_page_exit(ui_page_t *page)
 {
     (void)page;
-    UART_ClearAppCallbacks();
+    UART_ClearCLICallbacks();
 }
 
 /*=============================================================================
@@ -978,8 +956,6 @@ void app_ebook_init(void)
     s_file_scroll = 0;
     s_file_selected = -1;
     s_content_len = 0;
-    s_cli_len = 0;
-    s_cli_assembling = false;
     s_cli_phase = 0;
     s_viewing = false;
     s_theme_idx = 0;
@@ -988,9 +964,9 @@ void app_ebook_init(void)
     s_total_pages = 1;
     strcpy(s_status, "Ready");
 
-    s_eb_cb_full.on_cli_response = eb_on_cli_response;
-    s_eb_cb_full.on_file_list = eb_on_file_list;
-    s_eb_cb_full.on_cwd_notify = NULL;
+    s_eb_cb.on_cli_complete = eb_on_cli_complete;
+    s_eb_cb.on_file_list = eb_on_file_list;
+    s_eb_cb.on_cwd_notify = NULL;
 
     int wi = 0;
     s_widgets[wi++] = (ui_widget_t *)&s_app_eb.btn_back;

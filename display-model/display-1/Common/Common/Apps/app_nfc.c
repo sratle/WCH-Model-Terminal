@@ -76,7 +76,7 @@
  *=============================================================================*/
 
 #define NFC_MAX_ENTRIES     32
-#define NFC_CLI_BUF_SIZE    2048
+/* CLI response via global buffer (on_cli_complete) */
 #define NFC_NAME_MAX        20
 #define NFC_INPUT_MAX       24
 #define NFC_HEX_ID_LEN      10  /* 5 bytes = 10 hex chars */
@@ -95,9 +95,7 @@ static int16_t     s_nfc_scroll;
 static int16_t     s_nfc_selected;
 
 /* CLI response */
-static char     s_cli_buf[NFC_CLI_BUF_SIZE];
-static uint16_t s_cli_len;
-static bool     s_cli_assembling;
+/* CLI state removed — uses global assembly buffer */
 
 /* Editing state */
 static bool     s_editing;
@@ -121,7 +119,7 @@ static ui_button_t  btn_refresh, btn_add, btn_edit, btn_save, btn_cancel;
 static ui_widget_t *s_widgets[2 + 1 + 5]; /* back + title + touch + 5 buttons */
 
 /* Forward declarations */
-static void nfc_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
+static void nfc_on_cli_complete(const char *buf, uint16_t len, const char *tag);
 static void nfc_on_submodel_event(uint8_t sub_type, uint8_t sub_cmd,
                                    const uint8_t *evt_data, uint8_t evt_len);
 static void nfc_set_status(const char *msg);
@@ -130,10 +128,8 @@ static void nfc_invalidate_status(void);
 static void nfc_invalidate_detect(void);
 static void nfc_invalidate_input(void);
 
-static uart_app_callbacks_t s_nfc_cb = {
-    .on_cli_response = nfc_on_cli_response,
-    .on_file_list = NULL,
-    .on_cwd_notify = NULL,
+static uart_cli_cb_t s_nfc_cb = {
+    .on_cli_complete = nfc_on_cli_complete,
 };
 static uart_submodel_cb_t s_nfc_sub_cb = {
     .on_submodel_event = nfc_on_submodel_event,
@@ -342,31 +338,16 @@ static void nfc_parse_ls(const char *text, uint16_t len)
     nfc_invalidate_list();
 }
 
-static void nfc_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void nfc_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
-    if (!s_cli_assembling) {
-        s_cli_len = 0;
-        s_cli_assembling = true;
-    }
-
-    uint16_t space = NFC_CLI_BUF_SIZE - 1 - s_cli_len;
-    uint16_t copy_len = (len < space) ? len : space;
-    if (copy_len > 0) {
-        memcpy(&s_cli_buf[s_cli_len], output, copy_len);
-        s_cli_len += copy_len;
-    }
-    s_cli_buf[s_cli_len] = '\0';
-
-    if (!is_last) return;
-    s_cli_assembling = false;
-
-    if (strstr(s_cli_buf, ":") != NULL && s_cli_len > 12) {
-        nfc_parse_ls(s_cli_buf, s_cli_len);
+    (void)tag;
+    if (strstr(buf, ":") != NULL && len > 12) {
+        nfc_parse_ls(buf, len);
     } else {
         char msg[78];
-        uint16_t slen = s_cli_len;
+        uint16_t slen = len;
         if (slen > 77) slen = 77;
-        memcpy(msg, s_cli_buf, slen);
+        memcpy(msg, buf, slen);
         msg[slen] = '\0';
         for (uint16_t i = 0; i < slen; i++) {
             if (msg[i] == '\r' || msg[i] == '\n') msg[i] = ' ';
@@ -431,7 +412,7 @@ static void btn_cancel_click(ui_widget_t *w) { (void)w; nfc_cancel(); }
 static void nfc_page_enter(ui_page_t *page)
 {
     (void)page;
-    UART_SetAppCallbacks(&s_nfc_cb);
+    UART_SetCLICallbacks(&s_nfc_cb);
     UART_SetSubmodelCallbacks(&s_nfc_sub_cb);
     s_detect_active = 0;
     s_editing = false;
@@ -441,7 +422,7 @@ static void nfc_page_enter(ui_page_t *page)
 static void nfc_page_exit(ui_page_t *page)
 {
     (void)page;
-    UART_ClearAppCallbacks();
+    UART_ClearCLICallbacks();
     UART_ClearSubmodelCallbacks();
 }
 
@@ -449,7 +430,7 @@ static void nfc_page_draw(ui_page_t *page, ui_rect_t *dirty)
 {
     (void)page;
     int16_t dt = dirty->y, db = dirty->y + dirty->h;
-    int16_t dl = dirty->x, dr = dirty->x + dirty->w;
+    int16_t dr = dirty->x + dirty->w;
 
     /* Title bar */
     ui_rect_t bar = {0, 0, UI_SCREEN_WIDTH, APP_TITLE_BAR_H};
@@ -706,8 +687,6 @@ void app_nfc_init(void)
     s_nfc_count = 0;
     s_nfc_scroll = 0;
     s_nfc_selected = -1;
-    s_cli_len = 0;
-    s_cli_assembling = false;
     s_editing = false;
     s_adding = false;
     s_input_len = 0;

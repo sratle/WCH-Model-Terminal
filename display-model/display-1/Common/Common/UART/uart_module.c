@@ -29,8 +29,8 @@ uart_disp_state_t g_disp_state;
  *  App-Layer Callback Storage
  *=============================================================================*/
 
-static uart_app_callbacks_t s_app_cb;
-static bool s_app_cb_valid = false;
+static uart_cli_cb_t s_cli_cb;
+static bool s_cli_cb_valid = false;
 volatile pending_req_t g_pending_req = PENDING_NONE;
 
 /* EMusic app callbacks for Keyboard-3 music events */
@@ -42,35 +42,52 @@ static uart_submodel_cb_t s_submodel_cb;
 static bool s_submodel_cb_valid = false;
 
 /*=============================================================================
- *  CLI Response Assembly Buffer (forward declarations for internal use)
+ *  CLI Response Assembly Engine (V3.1 — unified, single global buffer)
  *=============================================================================*/
 
-#define CLI_RESP_BUF_SIZE   2048
+#define CLI_RESP_BUF_SIZE   4096
 static char s_cli_resp_buf[CLI_RESP_BUF_SIZE];
 static uint16_t s_cli_resp_len = 0;
-static bool s_cli_resp_active = false;
 static bool s_cli_resp_accumulating = false;  /* multi-frame accumulation in progress */
+
+/* Track the last CLI command sent, for context-aware parsing */
+#define CLI_CMD_TAG_SIZE   32
+static char s_cli_cmd_tag[CLI_CMD_TAG_SIZE];  /* e.g. "ls", "cd", "play" */
+
+/* When UART_RequestFileList(path) is called with a non-empty path,
+ * we first send "cd <path>" and set this flag. */
+static bool s_pending_ls_after_cd = false;
+
+/* Static parsed entries buffer (avoids 2.2KB stack allocation in dispatch) */
+static file_entry_t s_parsed_entries[FILE_LIST_MAX_ENTRIES];
+
+/* Static poll data buffer (avoids 255B stack allocation per frame) */
+static uint8_t s_poll_data[PROTO_MAX_DATA_LEN];
 
 static void cli_resp_append(const char *data, uint16_t len);
 static void cli_resp_dispatch(void);
+static void cli_parse_ls_output(void);
 
-void UART_SetAppCallbacks(const uart_app_callbacks_t *cb)
+void UART_SetCLICallbacks(const uart_cli_cb_t *cb)
 {
     if (cb) {
-        memcpy(&s_app_cb, cb, sizeof(uart_app_callbacks_t));
-        s_app_cb_valid = true;
+        memcpy(&s_cli_cb, cb, sizeof(uart_cli_cb_t));
+        s_cli_cb_valid = true;
     } else {
-        memset(&s_app_cb, 0, sizeof(uart_app_callbacks_t));
-        s_app_cb_valid = false;
+        memset(&s_cli_cb, 0, sizeof(uart_cli_cb_t));
+        s_cli_cb_valid = false;
     }
 }
 
-void UART_ClearAppCallbacks(void)
+void UART_ClearCLICallbacks(void)
 {
-    memset(&s_app_cb, 0, sizeof(uart_app_callbacks_t));
-    s_app_cb_valid = false;
+    memset(&s_cli_cb, 0, sizeof(uart_cli_cb_t));
+    s_cli_cb_valid = false;
     g_pending_req = PENDING_NONE;
 }
+
+const char *UART_GetCLIBuf(void) { return s_cli_resp_buf; }
+uint16_t UART_GetCLIBufLen(void) { return s_cli_resp_len; }
 
 void UART_SetSubmodelCallbacks(const uart_submodel_cb_t *cb)
 {
@@ -140,13 +157,13 @@ typedef enum {
 } rx_state_t;
 
 static volatile rx_state_t s_rx_state = RX_WAIT_HEAD;
-static volatile uint8_t s_rx_src, s_rx_dst, s_rx_len, s_rx_cmd;
-static volatile uint8_t s_rx_data[PROTO_MAX_DATA_LEN];
+static uint8_t s_rx_src, s_rx_dst, s_rx_len, s_rx_cmd;  /* only accessed in ISR context */
+static uint8_t s_rx_data[PROTO_MAX_DATA_LEN];             /* only accessed in ISR context */
 static volatile uint8_t s_rx_idx;
 static volatile uint8_t s_rx_remaining;
 
-/* Stream frame buffer (larger, allocated statically) */
-#define STREAM_BUF_SIZE  2048
+/* Stream frame buffer (512B sufficient — data capped at PROTO_MAX_DATA_LEN on dispatch) */
+#define STREAM_BUF_SIZE  512
 static volatile uint8_t s_stream_buf[STREAM_BUF_SIZE];
 static volatile uint16_t s_stream_idx;
 
@@ -710,23 +727,14 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
         break;
     case DISP_EXT_CLI:
         /* CLI response from Core (text output).
-         * New format: data[1] = flags (CLI_FLAG_SOF | CLI_FLAG_EOF), data[2..N] = text
-         * Legacy format (no flags byte): data[1..N] = text, dispatch immediately.
-         *
-         * Two dispatch modes:
-         * - If on_file_list is set (file manager): accumulate all frames, parse ls output
-         * - If only on_cli_response (terminal): stream each frame immediately for live output
-         */
+         * Format: data[1] = flags (CLI_FLAG_SOF | CLI_FLAG_EOF), data[2..N] = text
+         * Legacy (len < 3): data[1..N] = text, dispatch immediately. */
         if (len >= 3) {
             uint8_t flags = data[1];
-            bool has_sof = (flags & 0x01) != 0;  /* CLI_FLAG_SOF */
-            bool has_eof = (flags & 0x02) != 0;  /* CLI_FLAG_EOF */
-
-            printf("[CLI_RX] len=%d flags=0x%02X sof=%d eof=%d accum=%d\r\n",
-                   len, flags, has_sof, has_eof, s_cli_resp_accumulating);
+            bool has_sof = (flags & 0x01) != 0;
+            bool has_eof = (flags & 0x02) != 0;
 
             if (has_sof) {
-                /* Start of new multi-frame response: reset buffer */
                 s_cli_resp_len = 0;
                 s_cli_resp_accumulating = true;
             }
@@ -735,40 +743,36 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
                 const char *frame_text = (const char *)&data[2];
                 uint16_t frame_len = len - 2;
 
-                /* Stream mode: if no on_file_list, deliver each frame immediately */
-                if (s_app_cb_valid && s_app_cb.on_cli_response && !s_app_cb.on_file_list) {
-                    bool truncated = (s_cli_resp_len + frame_len > CLI_RESP_BUF_SIZE - 1);
-                    s_app_cb.on_cli_response(frame_text, frame_len, truncated, has_eof);
-                    cli_resp_append(frame_text, frame_len);
-                } else {
-                    /* Accumulate mode: buffer for on_file_list parsing */
-                    cli_resp_append(frame_text, frame_len);
+                /* Stream callback: deliver each frame immediately */
+                if (s_cli_cb_valid && s_cli_cb.on_cli_stream) {
+                    s_cli_cb.on_cli_stream(frame_text, frame_len, has_eof);
                 }
+
+                /* Always accumulate for complete/file_list dispatch */
+                cli_resp_append(frame_text, frame_len);
 
                 if (has_eof) {
                     s_cli_resp_accumulating = false;
-                    printf("[CLI_RX] EOF reached, buf_len=%d, dispatching\r\n", s_cli_resp_len);
                     cli_resp_dispatch();
                 }
             } else {
-                /* Legacy frame without SOF/EOF: dispatch immediately */
+                /* Legacy frame without SOF/EOF: stream + dispatch immediately */
                 const char *frame_text = (const char *)&data[1];
                 uint16_t frame_len = len - 1;
 
-                if (s_app_cb_valid && s_app_cb.on_cli_response && !s_app_cb.on_file_list) {
-                    s_app_cb.on_cli_response(frame_text, frame_len, false, true);
+                if (s_cli_cb_valid && s_cli_cb.on_cli_stream) {
+                    s_cli_cb.on_cli_stream(frame_text, frame_len, true);
                 }
                 cli_resp_append(frame_text, frame_len);
                 cli_resp_dispatch();
             }
         } else if (len >= 2) {
             /* Legacy short frame: no flags byte */
-            printf("[CLI_RX] legacy len=%d\r\n", len);
             const char *frame_text = (const char *)&data[1];
             uint16_t frame_len = len - 1;
 
-            if (s_app_cb_valid && s_app_cb.on_cli_response && !s_app_cb.on_file_list) {
-                s_app_cb.on_cli_response(frame_text, frame_len, false, true);
+            if (s_cli_cb_valid && s_cli_cb.on_cli_stream) {
+                s_cli_cb.on_cli_stream(frame_text, frame_len, true);
             }
             cli_resp_append(frame_text, frame_len);
             cli_resp_dispatch();
@@ -778,14 +782,14 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
     case DISP_EXT_CWD_NOTIFY:
         /* CWD change notification from Core (pushed on cd/device success).
          * DATA[1..N] = path string (null-terminated or len-delimited). */
-        if (len >= 2 && s_app_cb_valid && s_app_cb.on_cwd_notify) {
+        if (len >= 2 && s_cli_cb_valid && s_cli_cb.on_cwd_notify) {
             /* Ensure null-termination */
             char path_buf[64];
             uint8_t plen = len - 1;
             if (plen > sizeof(path_buf) - 1) plen = sizeof(path_buf) - 1;
             memcpy(path_buf, &data[1], plen);
             path_buf[plen] = '\0';
-            s_app_cb.on_cwd_notify(path_buf);
+            s_cli_cb.on_cwd_notify(path_buf);
         }
         break;
     case DISP_EXT_APP_LAUNCH:
@@ -902,10 +906,12 @@ static void process_frame(uint8_t src, uint8_t dst, uint8_t cmd,
         g_pending_req = PENDING_NONE;
         break;
     case CMD_NACK:
-        if (s_app_cb_valid && g_pending_req == PENDING_CLI && s_app_cb.on_cli_response) {
-            s_cli_resp_buf[0] = '\0';
+        if (s_cli_cb_valid && g_pending_req == PENDING_CLI) {
             s_cli_resp_len = 0;
-            s_app_cb.on_cli_response("ERROR: NACK", 11, false, true);
+            if (s_cli_cb.on_cli_stream)
+                s_cli_cb.on_cli_stream("ERROR: NACK", 11, true);
+            else if (s_cli_cb.on_cli_complete)
+                s_cli_cb.on_cli_complete("ERROR: NACK", 11, s_cli_cmd_tag);
         }
         g_pending_req = PENDING_NONE;
         break;
@@ -932,16 +938,17 @@ void UART_Module_Poll(void)
         uint8_t dlen = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
 
         if (s_ring_head - s_ring_tail < dlen) {
-            s_ring_tail -= 4;  /* rewind */
+            /* Rewind 4 bytes with wrap-around safety */
+            if (s_ring_tail >= 4) s_ring_tail -= 4;
+            else s_ring_tail = UART_RX_BUF_SIZE - (4 - s_ring_tail);
             break;
         }
 
-        uint8_t data[PROTO_MAX_DATA_LEN];
         for (uint8_t i = 0; i < dlen; i++) {
-            data[i] = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
+            s_poll_data[i] = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
         }
 
-        process_frame(src, dst, cmd, data, dlen);
+        process_frame(src, dst, cmd, s_poll_data, dlen);
     }
 
     /* Auto screen-off check */
@@ -959,19 +966,9 @@ void UART_Module_Poll(void)
  *  CLI Response Assembly — implementation
  *=============================================================================*/
 
-/* Track the last CLI command sent, for context-aware parsing */
-#define CLI_CMD_TAG_SIZE   32
-static char s_cli_cmd_tag[CLI_CMD_TAG_SIZE];  /* e.g. "ls", "cd", "play" */
-
-/* When UART_RequestFileList(path) is called with a non-empty path,
- * we first send "cd <path>" and set this flag. When the cd response
- * arrives, cli_resp_dispatch automatically sends "ls". */
-static bool s_pending_ls_after_cd = false;
-
 static void cli_resp_reset(void)
 {
     s_cli_resp_len = 0;
-    s_cli_resp_active = true;
     s_cli_resp_accumulating = false;
 }
 
@@ -985,147 +982,123 @@ static void cli_resp_append(const char *data, uint16_t len)
     }
 }
 
-/* Parse CLI "ls" output into file_entry_t array.
- * ls output format:
- *   --- \PATH ---
- *     [DIR]  dirname
- *     [FILE] filename  (12345 bytes)
- */
+/* Parse CLI "ls" output into the static s_parsed_entries array.
+ * Returns entry count. Also extracts CWD path and notifies via callback. */
+static void cli_parse_ls_output(void)
+{
+    uint8_t count = 0;
+    const char *p = s_cli_resp_buf;
+
+    /* Extract path from "--- \PATH ---" header line */
+    const char *hdr_start = strstr(p, "--- ");
+    if (hdr_start) {
+        const char *path_start = hdr_start + 4;
+        const char *path_end = strstr(path_start, " ---");
+        if (path_end) {
+            uint8_t path_len = (uint8_t)(path_end - path_start);
+            char ls_path[64];
+            if (path_len > sizeof(ls_path) - 1) path_len = sizeof(ls_path) - 1;
+            memcpy(ls_path, path_start, path_len);
+            ls_path[path_len] = '\0';
+            if (s_cli_cb_valid && s_cli_cb.on_cwd_notify)
+                s_cli_cb.on_cwd_notify(ls_path);
+        }
+    }
+
+    while (*p && count < FILE_LIST_MAX_ENTRIES) {
+        const char *dir_tag = strstr(p, "[DIR]");
+        const char *file_tag = strstr(p, "[FILE]");
+
+        const char *tag = NULL;
+        uint8_t is_dir = 0;
+        if (dir_tag && (!file_tag || dir_tag < file_tag)) {
+            tag = dir_tag; is_dir = 1;
+        } else if (file_tag) {
+            tag = file_tag; is_dir = 0;
+        }
+        if (!tag) break;
+
+        p = tag + (is_dir ? 5 : 6);
+        while (*p == ' ' || *p == '\t') p++;
+
+        uint8_t nlen = 0;
+        while (*p && *p != '\r' && *p != '\n' && nlen < FILE_NAME_MAX_LEN) {
+            s_parsed_entries[count].name[nlen++] = *p++;
+        }
+        s_parsed_entries[count].name[nlen] = '\0';
+
+        while (nlen > 0 && (s_parsed_entries[count].name[nlen-1] == ' ' ||
+                             s_parsed_entries[count].name[nlen-1] == '\t')) {
+            s_parsed_entries[count].name[--nlen] = '\0';
+        }
+        if (nlen == 0) continue;
+
+        s_parsed_entries[count].attr = is_dir ? FILE_ATTR_IS_DIR : 0;
+        s_parsed_entries[count].size = 0;
+
+        if (!is_dir) {
+            const char *size_start = NULL;
+            uint8_t nlen2 = (uint8_t)strlen(s_parsed_entries[count].name);
+            for (int8_t k = (int8_t)nlen2 - 1; k >= 0; k--) {
+                if (s_parsed_entries[count].name[k] == '(') {
+                    size_start = &s_parsed_entries[count].name[k];
+                    break;
+                }
+            }
+            if (size_start) {
+                uint8_t trim_pos = (uint8_t)(size_start - s_parsed_entries[count].name);
+                s_parsed_entries[count].name[trim_pos] = '\0';
+                uint32_t val = 0;
+                const char *sp = size_start + 1;
+                while (*sp >= '0' && *sp <= '9') {
+                    val = val * 10 + (uint32_t)(*sp - '0');
+                    sp++;
+                }
+                s_parsed_entries[count].size = val;
+            }
+            /* Final trim trailing whitespace */
+            nlen2 = (uint8_t)strlen(s_parsed_entries[count].name);
+            while (nlen2 > 0 && (s_parsed_entries[count].name[nlen2-1] == ' ' ||
+                                  s_parsed_entries[count].name[nlen2-1] == '\t')) {
+                s_parsed_entries[count].name[--nlen2] = '\0';
+            }
+        }
+        count++;
+    }
+
+    if (s_cli_cb_valid && s_cli_cb.on_file_list) {
+        s_cli_cb.on_file_list(0x00, s_parsed_entries, count);
+    }
+}
+
+/* Dispatch assembled CLI response to registered callbacks.
+ * Called after EOF or on legacy single-frame responses. */
 static void cli_resp_dispatch(void)
 {
     s_cli_resp_buf[s_cli_resp_len] = '\0';
-    s_cli_resp_active = false;
 
-    printf("[CLI_DISPATCH] tag=%s len=%d pending_ls=%d\r\n",
-           s_cli_cmd_tag, s_cli_resp_len, s_pending_ls_after_cd);
-
-    if (!s_app_cb_valid) return;
+    if (!s_cli_cb_valid) return;
 
     /* After "cd" response, auto-send "ls" if pending */
     if (strcmp(s_cli_cmd_tag, "cd") == 0 && s_pending_ls_after_cd) {
         s_pending_ls_after_cd = false;
-        /* cd succeeded — now send ls to get the file list */
         UART_SendCLI("ls");
         return;
     }
 
-    /* If on_file_list is set and command was "ls", parse the ls output */
-    if (s_app_cb.on_file_list && strcmp(s_cli_cmd_tag, "ls") == 0) {
-        file_entry_t entries[FILE_LIST_MAX_ENTRIES];
-        uint8_t count = 0;
-        const char *p = s_cli_resp_buf;
-
-        /* Extract path from "--- \PATH ---" header line */
-        const char *hdr_start = strstr(p, "--- ");
-        if (hdr_start) {
-            const char *path_start = hdr_start + 4; /* skip "--- " */
-            const char *path_end = strstr(path_start, " ---");
-            if (path_end) {
-                uint8_t path_len = (uint8_t)(path_end - path_start);
-                char ls_path[64];
-                if (path_len > sizeof(ls_path) - 1) path_len = sizeof(ls_path) - 1;
-                memcpy(ls_path, path_start, path_len);
-                ls_path[path_len] = '\0';
-                /* Notify app of the real CWD from ls output */
-                if (s_app_cb.on_cwd_notify)
-                    s_app_cb.on_cwd_notify(ls_path);
-            }
-        }
-
-        while (*p && count < FILE_LIST_MAX_ENTRIES) {
-            /* Skip to next line starting with [DIR] or [FILE] */
-            const char *dir_tag = strstr(p, "[DIR]");
-            const char *file_tag = strstr(p, "[FILE]");
-
-            /* Find the earliest tag */
-            const char *tag = NULL;
-            uint8_t is_dir = 0;
-            if (dir_tag && (!file_tag || dir_tag < file_tag)) {
-                tag = dir_tag;
-                is_dir = 1;
-            } else if (file_tag) {
-                tag = file_tag;
-                is_dir = 0;
-            }
-
-            if (!tag) break;
-
-            /* Skip past the tag */
-            p = tag + (is_dir ? 5 : 6);
-            /* Skip whitespace */
-            while (*p == ' ' || *p == '\t') p++;
-
-            /* Extract name */
-            uint8_t nlen = 0;
-            while (*p && *p != '\r' && *p != '\n' && nlen < FILE_NAME_MAX_LEN) {
-                entries[count].name[nlen++] = *p++;
-            }
-            entries[count].name[nlen] = '\0';
-
-            /* Skip trailing whitespace in name */
-            while (nlen > 0 && (entries[count].name[nlen-1] == ' ' ||
-                                entries[count].name[nlen-1] == '\t')) {
-                entries[count].name[--nlen] = '\0';
-            }
-
-            if (nlen == 0) continue;
-
-            entries[count].attr = is_dir ? FILE_ATTR_IS_DIR : 0;
-
-            /* Parse size for files: look for "(NNN bytes)" at end of name.
-             * File names may contain parentheses, e.g.
-             *   "Showtek - Dream (Adrenalize Remix).wav  (35927704 bytes)"
-             * so we search from the END for the last '(' which is the size field. */
-            entries[count].size = 0;
-            if (!is_dir) {
-                const char *size_start = NULL;
-                {
-                    uint8_t nlen2 = (uint8_t)strlen(entries[count].name);
-                    for (int8_t k = (int8_t)nlen2 - 1; k >= 0; k--) {
-                        if (entries[count].name[k] == '(') {
-                            size_start = &entries[count].name[k];
-                            break;
-                        }
-                    }
-                }
-                if (size_start) {
-                    /* Trim name at '(' */
-                    uint8_t trim_pos = (uint8_t)(size_start - entries[count].name);
-                    entries[count].name[trim_pos] = '\0';
-                    /* Parse size */
-                    /* Simple ASCII-to-int (no stdlib on embedded) */
-                    {
-                        uint32_t val = 0;
-                        const char *sp = size_start + 1;
-                        while (*sp >= '0' && *sp <= '9') {
-                            val = val * 10 + (uint32_t)(*sp - '0');
-                            sp++;
-                        }
-                        entries[count].size = val;
-                    }
-                }
-            }
-
-            /* Final trim: remove ALL trailing whitespace from name
-             * (ls output may have multiple spaces before "(NNN bytes)") */
-            {
-                uint8_t nlen2 = (uint8_t)strlen(entries[count].name);
-                while (nlen2 > 0 && (entries[count].name[nlen2-1] == ' ' ||
-                                     entries[count].name[nlen2-1] == '\t')) {
-                    entries[count].name[--nlen2] = '\0';
-                }
-            }
-
-            count++;
-        }
-
-        printf("[CLI_DISPATCH] ls parsed %d entries\r\n", count);
-        s_app_cb.on_file_list(0x00, entries, count);
-    } else if (s_app_cb.on_cli_response && s_app_cb.on_file_list) {
-        /* Accumulate mode (file manager): deliver full buffer at EOF.
-         * Stream mode (terminal, no on_file_list) already delivered per-frame — skip. */
-        s_app_cb.on_cli_response(s_cli_resp_buf, s_cli_resp_len, false, true);
+    /* Priority 1: ls parsing (if callback set and command was "ls") */
+    if (s_cli_cb.on_file_list && strcmp(s_cli_cmd_tag, "ls") == 0) {
+        cli_parse_ls_output();
+        return;
     }
+
+    /* Priority 2: complete response callback */
+    if (s_cli_cb.on_cli_complete) {
+        s_cli_cb.on_cli_complete(s_cli_resp_buf, s_cli_resp_len, s_cli_cmd_tag);
+        return;
+    }
+
+    /* Priority 3: stream-only mode — already delivered per-frame, nothing to do */
 }
 
 /*=============================================================================

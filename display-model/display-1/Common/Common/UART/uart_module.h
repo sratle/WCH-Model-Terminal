@@ -239,7 +239,7 @@ extern "C" {
  *=============================================================================*/
 
 #define FILE_NAME_MAX_LEN       64
-#define FILE_LIST_MAX_ENTRIES   64
+#define FILE_LIST_MAX_ENTRIES   32
 
 #define FILE_ATTR_IS_DIR        (1 << 0)
 #define FILE_ATTR_READONLY      (1 << 1)
@@ -294,36 +294,44 @@ void UART_SetSubmodelCallbacks(const uart_submodel_cb_t *cb);
 void UART_ClearSubmodelCallbacks(void);
 
 /*=============================================================================
- *  App-Layer Callback Interface
+ *  Unified CLI Callback Interface (V3.1)
  *
- *  All Display→Core requests now use CLI passthrough. The Core executes
- *  CLI commands and returns text output via DISP_EXT_CLI. The app layer
- *  receives the full CLI text response and parses it as needed.
+ *  All Display→Core requests use CLI passthrough via DISP_EXT_CLI.
+ *  The UART module maintains a single global CLI response assembly buffer.
+ *  Apps register callbacks to consume responses — only ONE app at a time.
  *
- *  Event notifications (Core→Display) still use their specific opcodes
- *  (MODULE_STATUS, BT_EVENT, POWER_EVENT, etc.).
+ *  Three consumption modes:
+ *  - on_cli_stream:  per-frame delivery (Terminal, Editor — low latency)
+ *  - on_cli_complete: full assembled response (Music, Ebook, Settings)
+ *  - on_file_list:   parsed "ls" output (File Manager)
  *=============================================================================*/
 
 typedef struct {
-    /* CLI response: called when Core returns CLI output text.
-     * 'output' is NOT null-terminated; use 'len' for length.
-     * 'truncated' is true if output was truncated due to frame size limits.
-     * 'is_last' is true for the final frame of a multi-frame response. */
-    void (*on_cli_response)(const char *output, uint16_t len, bool truncated, bool is_last);
+    /* Streaming: called for EACH frame of CLI output immediately upon arrival.
+     * 'chunk' is NOT null-terminated; use 'len' for length.
+     * 'is_last' is true for the final frame (EOF).
+     * Use for: Terminal (add lines incrementally), Editor (append to content). */
+    void (*on_cli_stream)(const char *chunk, uint16_t len, bool is_last);
 
-    /* Legacy: file list parsed from "ls" CLI output.
-     * If set, the UART module will auto-parse ls output and call this.
-     * Otherwise, raw CLI text goes to on_cli_response. */
+    /* Complete: called ONCE after EOF with the full assembled response.
+     * 'buf' IS null-terminated for convenience.
+     * 'tag' is the first word of the CLI command (e.g. "ls", "stat", "playst").
+     * Use for: File manager (stat/mkdir/rm responses), Music (playst parsing),
+     *          Ebook (file content), Settings (config get). */
+    void (*on_cli_complete)(const char *buf, uint16_t len, const char *tag);
+
+    /* File list: called after "ls" output is parsed into entries.
+     * Only triggered when tag == "ls" AND this callback is set.
+     * 'status' = 0x00 for success.
+     * Entries stored in a static buffer — valid until next CLI command. */
     void (*on_file_list)(uint8_t status, const file_entry_t *entries, uint8_t count);
 
-    /* CWD change notification: called when Core pushes a CWD_NOTIFY frame.
-     * This happens when cd/device command succeeds on Core side,
-     * allowing Display to synchronize its local path display. */
+    /* CWD change notification: called when Core pushes CWD_NOTIFY frame. */
     void (*on_cwd_notify)(const char *path);
-} uart_app_callbacks_t;
+} uart_cli_cb_t;
 
-void UART_SetAppCallbacks(const uart_app_callbacks_t *cb);
-void UART_ClearAppCallbacks(void);
+void UART_SetCLICallbacks(const uart_cli_cb_t *cb);
+void UART_ClearCLICallbacks(void);
 
 /*=============================================================================
  *  Music Control Types  (Protocol_Display.md §5.2)
@@ -420,7 +428,7 @@ void UART_ClearEMusicCallbacks(void);
  *  UART Configuration
  *=============================================================================*/
 
-#define UART_RX_BUF_SIZE    4096
+#define UART_RX_BUF_SIZE    2048
 
 /*=============================================================================
  *  API
@@ -442,7 +450,7 @@ void UART_SendNACK(uint8_t dst, uint8_t error_code);
 /* --- Display → Core request helpers (all via CLI passthrough) --- */
 
 /* Send a CLI command to Core for execution.
- * The response will arrive via on_cli_response callback. */
+ * The response will arrive via on_cli_stream or on_cli_complete callback. */
 void UART_SendCLI(const char *cmd);
 
 /* Convenience wrappers that build CLI commands internally: */
@@ -490,6 +498,10 @@ void UART_NotifyActivity(void);
 
 /* Get the tag (first word) of the last CLI command sent, for context-aware parsing */
 const char *UART_GetLastCLITag(void);
+
+/* Get the global CLI response assembly buffer (read-only, null-terminated after EOF) */
+const char *UART_GetCLIBuf(void);
+uint16_t UART_GetCLIBufLen(void);
 
 #ifdef __cplusplus
 }

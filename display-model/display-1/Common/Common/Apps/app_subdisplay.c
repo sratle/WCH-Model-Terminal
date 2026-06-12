@@ -80,7 +80,7 @@
  *=============================================================================*/
 
 #define SD_MAX_BMP_FILES    32
-#define SD_CLI_BUF_SIZE     2048
+/* CLI response via global buffer (on_cli_complete) */
 #define SD_STATUS_BUF_SIZE  2048
 
 typedef struct {
@@ -98,9 +98,7 @@ static int16_t  s_bmp_scroll;
 static int16_t  s_bmp_selected;
 
 /* CLI response assembly */
-static char    s_cli_buf[SD_CLI_BUF_SIZE];
-static uint16_t s_cli_len;
-static bool    s_cli_assembling;
+/* CLI state removed — uses global assembly buffer */
 static bool    s_cli_expect_bmp_ls;     /* expecting bmp ls response */
 static bool    s_cli_expect_status;     /* expecting lsstatus response */
 
@@ -124,7 +122,7 @@ static ui_widget_t *s_sd_widgets[2 + 7];  /* back_btn + title + 6 app widgets */
  *  Forward Declarations
  *=============================================================================*/
 
-static void sd_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
+static void sd_on_cli_complete(const char *buf, uint16_t len, const char *tag);
 static void sd_parse_bmp_ls(const char *text, uint16_t len);
 static void sd_parse_status(const char *text, uint16_t len);
 static void sd_set_bar(const char *msg);
@@ -132,10 +130,8 @@ static void sd_invalidate_list(void);
 static void sd_invalidate_status_area(void);
 static void sd_invalidate_bar(void);
 
-static uart_app_callbacks_t s_sd_callbacks = {
-    .on_cli_response = sd_on_cli_response,
-    .on_file_list    = NULL,
-    .on_cwd_notify   = NULL,
+static uart_cli_cb_t s_sd_cb = {
+    .on_cli_complete = sd_on_cli_complete,
 };
 
 /*=============================================================================
@@ -200,38 +196,21 @@ static void sd_request_status(void)
  *  CLI Response
  *=============================================================================*/
 
-static void sd_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void sd_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
-    if (!s_cli_assembling) {
-        s_cli_len = 0;
-        s_cli_assembling = true;
-    }
-
-    uint16_t space = SD_CLI_BUF_SIZE - 1 - s_cli_len;
-    uint16_t copy_len = (len < space) ? len : space;
-    if (copy_len > 0) {
-        memcpy(&s_cli_buf[s_cli_len], output, copy_len);
-        s_cli_len += copy_len;
-    }
-    s_cli_buf[s_cli_len] = '\0';
-
-    if (!is_last)
-        return;
-
-    s_cli_assembling = false;
+    (void)tag;
 
     if (s_cli_expect_bmp_ls) {
-        sd_parse_bmp_ls(s_cli_buf, s_cli_len);
+        sd_parse_bmp_ls(buf, len);
         s_cli_expect_bmp_ls = false;
     } else if (s_cli_expect_status) {
-        sd_parse_status(s_cli_buf, s_cli_len);
+        sd_parse_status(buf, len);
         s_cli_expect_status = false;
     } else {
-        /* Generic response — show in status bar */
         char msg[78];
-        uint16_t slen = s_cli_len;
+        uint16_t slen = len;
         if (slen > 77) slen = 77;
-        memcpy(msg, s_cli_buf, slen);
+        memcpy(msg, buf, slen);
         msg[slen] = '\0';
         for (uint16_t i = 0; i < slen; i++) {
             if (msg[i] == '\r' || msg[i] == '\n') msg[i] = ' ';
@@ -434,7 +413,7 @@ static void btn_send_click(ui_widget_t *w)
 static void sd_page_enter(ui_page_t *page)
 {
     (void)page;
-    UART_SetAppCallbacks(&s_sd_callbacks);
+    UART_SetCLICallbacks(&s_sd_cb);
     sd_request_bmp_ls();
     /* Status loaded on demand via Refresh Status button */
 }
@@ -442,7 +421,7 @@ static void sd_page_enter(ui_page_t *page)
 static void sd_page_exit(ui_page_t *page)
 {
     (void)page;
-    UART_ClearAppCallbacks();
+    UART_ClearCLICallbacks();
 }
 
 static void sd_page_draw(ui_page_t *page, ui_rect_t *dirty)
@@ -628,8 +607,6 @@ void app_subdisplay_init(void)
     s_bmp_count = 0;
     s_bmp_scroll = 0;
     s_bmp_selected = -1;
-    s_cli_len = 0;
-    s_cli_assembling = false;
     s_cli_expect_bmp_ls = false;
     s_cli_expect_status = false;
     s_status_len = 0;

@@ -20,7 +20,7 @@ extern "C" {
  *=============================================================================*/
 
 #define UI_PAGE_STACK_DEPTH     16
-#define UI_MAX_DIRTY_REGIONS    256
+#define UI_MAX_DIRTY_REGIONS    64
 
 /*=============================================================================
  *  Page Structure

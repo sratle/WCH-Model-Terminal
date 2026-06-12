@@ -115,11 +115,7 @@ static uint8_t s_r, s_g, s_b;
 static uint8_t s_brightness;
 static uint8_t s_speed;
 
-/* CLI response buffer */
-#define RGB_CLI_BUF     1024
-static char s_cli_buf[RGB_CLI_BUF];
-static uint16_t s_cli_len;
-static bool s_cli_assembling;
+/* CLI response via global buffer (on_cli_complete) */
 
 /* Status message */
 static char s_status[80];
@@ -139,7 +135,7 @@ static ui_widget_t *s_rgb_widgets[2 + RGB_NUM_MODES + 5 + 3 + 8];
  *  Forward Declarations
  *=============================================================================*/
 
-static void rgb_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last);
+static void rgb_on_cli_complete(const char *buf, uint16_t len, const char *tag);
 static void rgb_send_apply(void);
 static void rgb_set_status(const char *msg);
 static void rgb_invalidate_preview(void);
@@ -147,10 +143,8 @@ static void rgb_invalidate_mode_btns(void);
 static void rgb_invalidate_status(void);
 static void rgb_invalidate_info(void);
 
-static uart_app_callbacks_t s_rgb_callbacks = {
-    .on_cli_response = rgb_on_cli_response,
-    .on_file_list    = NULL,
-    .on_cwd_notify   = NULL,
+static uart_cli_cb_t s_rgb_cb = {
+    .on_cli_complete = rgb_on_cli_complete,
 };
 
 /*=============================================================================
@@ -198,6 +192,8 @@ static void rgb_update_preview(void)
     rgb_invalidate_preview();
 }
 
+/* rgb_mode_to_index: reserved for future use */
+#if 0
 static int rgb_mode_to_index(uint8_t mode)
 {
     for (int i = 0; i < RGB_NUM_MODES; i++) {
@@ -205,38 +201,21 @@ static int rgb_mode_to_index(uint8_t mode)
     }
     return 0;
 }
+#endif
 
 /*=============================================================================
  *  CLI Response
  *=============================================================================*/
 
-static void rgb_on_cli_response(const char *output, uint16_t len, bool truncated, bool is_last)
+static void rgb_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
-    if (!s_cli_assembling) {
-        s_cli_len = 0;
-        s_cli_assembling = true;
-    }
-
-    uint16_t space = RGB_CLI_BUF - 1 - s_cli_len;
-    uint16_t copy_len = (len < space) ? len : space;
-    if (copy_len > 0) {
-        memcpy(&s_cli_buf[s_cli_len], output, copy_len);
-        s_cli_len += copy_len;
-    }
-    s_cli_buf[s_cli_len] = '\0';
-
-    if (!is_last)
-        return;
-
-    s_cli_assembling = false;
+    (void)tag;
 
     /* Check if this is an rgb-related response */
-    if (strstr(s_cli_buf, "rgb:") != NULL || strstr(s_cli_buf, "mode=") != NULL) {
-        /* Try to parse status info */
-        if (strstr(s_cli_buf, "mode=") != NULL) {
-            /* Parse: "rgb: mode=X R=Y G=Z B=W bright=B speed=S" */
+    if (strstr(buf, "rgb:") != NULL || strstr(buf, "mode=") != NULL) {
+        if (strstr(buf, "mode=") != NULL) {
             int mode = 0, r = 0, g = 0, b = 0, bright = 0, speed = 0;
-            if (sscanf(s_cli_buf, "rgb: mode=%d R=%d G=%d B=%d bright=%d speed=%d",
+            if (sscanf(buf, "rgb: mode=%d R=%d G=%d B=%d bright=%d speed=%d",
                        &mode, &r, &g, &b, &bright, &speed) >= 4) {
                 s_mode = (uint8_t)mode;
                 s_r = (uint8_t)r;
@@ -245,7 +224,6 @@ static void rgb_on_cli_response(const char *output, uint16_t len, bool truncated
                 s_brightness = (uint8_t)bright;
                 s_speed = (uint8_t)speed;
 
-                /* Update sliders */
                 ui_slider_set_value(&s_slider_r, s_r);
                 ui_slider_set_value(&s_slider_g, s_g);
                 ui_slider_set_value(&s_slider_b, s_b);
@@ -256,12 +234,10 @@ static void rgb_on_cli_response(const char *output, uint16_t len, bool truncated
                 rgb_invalidate_mode_btns();
             }
 
-            /* Store full response as info text */
-            uint16_t ilen = s_cli_len;
+            uint16_t ilen = len;
             if (ilen > 255) ilen = 255;
-            memcpy(s_info, s_cli_buf, ilen);
+            memcpy(s_info, buf, ilen);
             s_info[ilen] = '\0';
-            /* Replace \r\n with spaces for display */
             for (uint16_t i = 0; i < ilen; i++) {
                 if (s_info[i] == '\r' || s_info[i] == '\n')
                     s_info[i] = ' ';
@@ -269,11 +245,10 @@ static void rgb_on_cli_response(const char *output, uint16_t len, bool truncated
             rgb_invalidate_info();
         }
 
-        /* Show short status */
         char short_msg[78];
-        uint16_t slen = s_cli_len;
+        uint16_t slen = len;
         if (slen > 77) slen = 77;
-        memcpy(short_msg, s_cli_buf, slen);
+        memcpy(short_msg, buf, slen);
         short_msg[slen] = '\0';
         for (uint16_t i = 0; i < slen; i++) {
             if (short_msg[i] == '\r' || short_msg[i] == '\n')
@@ -410,7 +385,7 @@ static void preset_touch_event(ui_widget_t *w, ui_event_t *e)
 static void rgb_page_enter(ui_page_t *page)
 {
     (void)page;
-    UART_SetAppCallbacks(&s_rgb_callbacks);
+    UART_SetCLICallbacks(&s_rgb_cb);
     /* Query current state */
     UART_SendCLI("rgb status");
     rgb_set_status("Querying RGB status...");
@@ -419,7 +394,7 @@ static void rgb_page_enter(ui_page_t *page)
 static void rgb_page_exit(ui_page_t *page)
 {
     (void)page;
-    UART_ClearAppCallbacks();
+    UART_ClearCLICallbacks();
 }
 
 static void rgb_page_draw(ui_page_t *page, ui_rect_t *dirty)
@@ -559,8 +534,6 @@ void app_rgb_init(void)
     s_r = 0; s_g = 128; s_b = 255;
     s_brightness = 200;
     s_speed = 128;
-    s_cli_len = 0;
-    s_cli_assembling = false;
     s_info[0] = '\0';
     strcpy(s_status, "Ready");
 

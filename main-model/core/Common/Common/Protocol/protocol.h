@@ -357,6 +357,20 @@
 /* CMD_SUB_GET_STATUS (0x42) sub-commands */
 #define NFC_SUB_QUERY_STATUS        0x00    /* 查询卡状态 → ACK [card_id:1][card_number:5] */
 
+/* ---- Infrared/IR (0x06) 子命令 ---- */
+/* CMD_SUB_SET_MODE (0x41) sub-commands */
+#define IR_SUB_START_RANGING        0x01    /* 开始测距（发送即忘） */
+#define IR_SUB_STOP_RANGING         0x02    /* 停止测距（发送即忘） */
+
+/* CMD_SUB_ACTION_RESULT (0x45) sub-commands */
+#define IR_SUB_RESULT_OK            0x01    /* 测距结果 [distance_mm:2(BE)] */
+#define IR_SUB_RESULT_FAIL          0x02    /* 测距失败 [error_code:1] */
+
+/* IR error codes (IR_SUB_RESULT_FAIL data[1]) */
+#define IR_ERR_NOT_INIT             0x01    /* 传感器未初始化 */
+#define IR_ERR_TIMEOUT              0x02    /* 测量超时 */
+#define IR_ERR_OUT_OF_RANGE         0x03    /* 超出有效量程 */
+
 /* ---- SubDisplay (0x07) 子命令 ---- */
 /* CMD_SUB_SET_MODE (0x41) sub-commands */
 #define SUBDISP_SUBCMD_SET_STATUS       0x01
