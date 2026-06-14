@@ -177,6 +177,88 @@ typedef struct {
 void ui_list_item_init(ui_list_item_t *item, const ui_rect_t *rect, const char *title, const ui_font_t *font);
 void ui_list_item_set_control(ui_list_item_t *item, ui_widget_t *control);
 
+/*=============================================================================
+ *  Card Widget (container with rounded corners)
+ *=============================================================================*/
+
+#define UI_CARD_MAX_CHILDREN 8
+
+typedef struct {
+    ui_widget_t base;
+    int16_t radius;
+    ui_color_t border_color;
+    int16_t border_width;
+    ui_widget_t *children[UI_CARD_MAX_CHILDREN];
+    uint16_t child_count;
+    int16_t active_child;
+} ui_card_t;
+
+void ui_card_init(ui_card_t *card, const ui_rect_t *rect);
+void ui_card_add_child(ui_card_t *card, ui_widget_t *child);
+
+/*=============================================================================
+ *  TabView Widget
+ *=============================================================================*/
+
+#define UI_TABVIEW_MAX_TABS 6
+
+typedef struct {
+    ui_widget_t base;
+    const char *tab_labels[UI_TABVIEW_MAX_TABS];
+    uint8_t tab_count;
+    uint8_t active_tab;
+    ui_color_t tab_bg_color;
+    ui_color_t tab_active_color;
+    ui_color_t tab_text_color;
+    ui_color_t tab_active_text_color;
+    ui_color_t indicator_color;
+    ui_rect_t content_rect;
+    void (*on_tab_change)(ui_widget_t *w, uint8_t tab);
+} ui_tabview_t;
+
+void ui_tabview_init(ui_tabview_t *tv, const ui_rect_t *rect, uint8_t tab_count);
+void ui_tabview_set_label(ui_tabview_t *tv, uint8_t idx, const char *label);
+void ui_tabview_set_active(ui_tabview_t *tv, uint8_t idx);
+uint8_t ui_tabview_get_active(ui_tabview_t *tv);
+void ui_tabview_set_callback(ui_tabview_t *tv, void (*on_tab_change)(ui_widget_t *, uint8_t));
+
+/*=============================================================================
+ *  Status Dot Widget
+ *=============================================================================*/
+
+typedef struct {
+    ui_widget_t base;
+    bool online;
+    ui_color_t online_color;
+    ui_color_t offline_color;
+} ui_status_dot_t;
+
+void ui_status_dot_init(ui_status_dot_t *dot, const ui_rect_t *rect, bool online);
+void ui_status_dot_set_state(ui_status_dot_t *dot, bool online);
+
+/*=============================================================================
+ *  Dialog Widget (Modal Popup)
+ *=============================================================================*/
+
+typedef struct {
+    ui_page_t page;
+    const char *title;
+    const char *message;
+    void (*on_accept)(void);
+    void (*on_cancel)(void);
+
+    ui_widget_t bg;
+    ui_label_t lbl_title;
+    ui_button_t btn_accept;
+    ui_button_t btn_cancel;
+    ui_widget_t *widgets[4];
+} ui_dialog_t;
+
+void ui_dialog_init(ui_dialog_t *dlg);
+void ui_dialog_show(ui_dialog_t *dlg, const char *title, const char *message,
+                    void (*on_accept)(void), void (*on_cancel)(void));
+void ui_dialog_close(ui_dialog_t *dlg);
+
 #ifdef __cplusplus
 }
 #endif

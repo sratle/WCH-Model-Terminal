@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/ble_provider.dart';
 import '../providers/cli_provider.dart';
 import '../providers/terminal_provider.dart';
+import '../utils/constants.dart';
 
 class TerminalPage extends ConsumerStatefulWidget {
   const TerminalPage({super.key});
@@ -24,6 +25,14 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
   }
 
   bool _isSending = false;
+
+  /// Trim output to max lines to prevent unbounded memory growth.
+  void _trimOutput() {
+    const maxLines = AppConstants.terminalMaxLines;
+    if (_output.length > maxLines) {
+      _output.removeRange(0, _output.length - maxLines);
+    }
+  }
 
   Future<void> _sendCommand() async {
     final cmd = _controller.text.trim();
@@ -57,6 +66,7 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
       } else {
         _output.add('Error: ${resp.error}');
       }
+      _trimOutput();
     });
     _scrollToBottom();
   }
@@ -92,7 +102,10 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
   Widget build(BuildContext context) {
     ref.listen(terminalOutputProvider, (_, asyncValue) {
       asyncValue.whenData((text) {
-        setState(() => _output.addAll(text.split('\n')));
+        setState(() {
+          _output.addAll(text.split('\n'));
+          _trimOutput();
+        });
         _scrollToBottom();
       });
     });

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'terminal_page.dart';
 import 'file_browser_page.dart';
+import 'ebook_page.dart';
+import 'images_page.dart';
 import 'device_scan_page.dart';
 import '../providers/ble_provider.dart';
 
@@ -18,6 +20,8 @@ class _MainShellState extends ConsumerState<MainShell> {
   final _pages = const [
     TerminalPage(),
     FileBrowserPage(),
+    EBookPage(),
+    ImagesPage(),
   ];
 
   @override
@@ -52,7 +56,15 @@ class _MainShellState extends ConsumerState<MainShell> {
           ),
           NavigationDestination(
             icon: Icon(Icons.folder),
-            label: '资源管理器',
+            label: '文件',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.menu_book),
+            label: '阅读',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.image),
+            label: '图片',
           ),
         ],
       ),

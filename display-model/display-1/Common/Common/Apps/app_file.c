@@ -1337,6 +1337,7 @@ void app_file_init(void)
 {
     ui_app_page_init(&s_app_file, "Files", 0x101);
     memset(&s_fs, 0, sizeof(s_fs));
+    s_fs.current_device = 1;  /* Default to USB */
     file_update_status();
 
     ui_rect_t r_up = {10, TB_BTN_Y, TB_BTN_W, TB_BTN_H};
@@ -1346,7 +1347,7 @@ void app_file_init(void)
     btn_up.radius = 8;
 
     ui_rect_t r_dev = {74, TB_BTN_Y, TB_BTN_W, TB_BTN_H};
-    ui_button_init(&btn_device, &r_dev, "SD", &font_montserrat_12);
+    ui_button_init(&btn_device, &r_dev, "USB", &font_montserrat_12);
     ui_button_set_callback(&btn_device, btn_device_click);
     ui_button_set_colors(&btn_device, UI_HEX(0xE3F2FD), UI_HEX(0x1565C0), UI_HEX(0x1565C0));
     btn_device.radius = 8;

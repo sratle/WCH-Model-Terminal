@@ -40,12 +40,19 @@ class FileNotifier extends StateNotifier<FileSystemState> {
   }
 
   Future<DirectoryNode?> _ls() async {
-    final pwdResp = await _cli.execute(CliCommands.pwd());
-    final path = pwdResp.output.replaceAll('\r', '').trim();
-
     final lsResp = await _cli.execute(CliCommands.ls(),
         timeout: const Duration(seconds: 15));
-    final items = FileItem.parseLsOutput(lsResp.output);
+    final output = lsResp.output;
+    final items = FileItem.parseLsOutput(output);
+
+    // Extract path from "ls" header line: "--- \PATH ---"
+    // This avoids a separate "pwd" round-trip.
+    String path = state.currentPath;
+    final headerMatch =
+        RegExp(r'^---\s*(.+?)\s*---', multiLine: true).firstMatch(output);
+    if (headerMatch != null) {
+      path = headerMatch.group(1)!.replaceAll('\r', '').trim();
+    }
 
     return DirectoryNode(path: path, items: items);
   }
@@ -107,9 +114,13 @@ class FileNotifier extends StateNotifier<FileSystemState> {
       return false;
     }
     if (state.cache.containsKey(path)) {
-      final pwdResp = await _cli.execute(CliCommands.pwd());
-      final newPath = pwdResp.output.replaceAll('\r', '').trim();
-      state = state.copyWith(currentPath: newPath, isLoading: false);
+      // Use ls header to get the actual path instead of a separate pwd call
+      final dir = await _ls();
+      if (dir != null) {
+        state = state.copyWith(currentPath: dir.path, isLoading: false);
+      } else {
+        state = state.copyWith(isLoading: false);
+      }
       return true;
     }
     await _fetchAndCache();

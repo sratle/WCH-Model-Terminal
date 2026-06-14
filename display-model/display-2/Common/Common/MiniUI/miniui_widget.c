@@ -10,6 +10,8 @@
 #include "miniui_render.h"
 #include "miniui_input.h"
 #include "miniui_page.h"
+#include "font/font_montserrat_12.h"
+#include "font/font_montserrat_16.h"
 #include "debug.h"
 #include <string.h>
 
@@ -569,5 +571,394 @@ void ui_list_item_set_control(ui_list_item_t *item, ui_widget_t *control)
 {
     if (!item) return;
     item->control = control;
-    item->control_active = (control != NULL);
+    ui_widget_invalidate(&item->base);
+}
+
+/*=============================================================================
+ *  Card Widget Implementation
+ *=============================================================================*/
+
+static void card_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
+{
+    ui_card_t *card = (ui_card_t *)w;
+
+    if (card->radius > 0) {
+        ui_draw_fill_round_rect(&w->rect, card->radius, w->bg_color);
+        if (card->border_width > 0) {
+            ui_draw_round_rect_border(&w->rect, card->radius, card->border_color, card->border_width);
+        }
+    } else {
+        ui_draw_fill_rect(&w->rect, w->bg_color);
+        if (card->border_width > 0) {
+            ui_draw_rect_border(&w->rect, card->border_color, card->border_width);
+        }
+    }
+
+    for (uint16_t i = 0; i < card->child_count; i++) {
+        if (card->children[i]) {
+            ui_widget_draw(card->children[i], dirty);
+        }
+    }
+}
+
+static void card_event_cb(ui_widget_t *w, ui_event_t *e)
+{
+    ui_card_t *card = (ui_card_t *)w;
+
+    switch (e->type) {
+    case UI_EVENT_DOWN: {
+        card->active_child = -1;
+        for (uint16_t i = 0; i < card->child_count; i++) {
+            if (card->children[i] && ui_widget_hit_test(card->children[i], e->pos.x, e->pos.y)) {
+                card->active_child = (int16_t)i;
+                ui_widget_event(card->children[i], e);
+                break;
+            }
+        }
+        break;
+    }
+    case UI_EVENT_MOVE:
+        if (card->active_child >= 0 && card->active_child < (int16_t)card->child_count) {
+            ui_widget_event(card->children[card->active_child], e);
+        }
+        break;
+    case UI_EVENT_UP:
+        if (card->active_child >= 0 && card->active_child < (int16_t)card->child_count) {
+            ui_widget_event(card->children[card->active_child], e);
+        }
+        break;
+    case UI_EVENT_CLICK:
+    case UI_EVENT_DOUBLE_CLICK:
+    case UI_EVENT_LONG_PRESS:
+        if (card->active_child >= 0 && card->active_child < (int16_t)card->child_count) {
+            ui_widget_event(card->children[card->active_child], e);
+        }
+        card->active_child = -1;
+        break;
+    case UI_EVENT_SWIPE_UP:
+    case UI_EVENT_SWIPE_DOWN:
+    case UI_EVENT_SWIPE_LEFT:
+    case UI_EVENT_SWIPE_RIGHT:
+    case UI_EVENT_PRESS_CANCEL:
+        if (card->active_child >= 0 && card->active_child < (int16_t)card->child_count) {
+            ui_widget_event(card->children[card->active_child], e);
+            card->active_child = -1;
+        }
+        break;
+    default:
+        for (uint16_t i = 0; i < card->child_count; i++) {
+            if (card->children[i]) {
+                ui_widget_event(card->children[i], e);
+            }
+        }
+        break;
+    }
+}
+
+void ui_card_init(ui_card_t *card, const ui_rect_t *rect)
+{
+    if (!card) return;
+    ui_widget_init(&card->base, rect);
+    card->base.draw_cb = card_draw_cb;
+    card->base.event_cb = card_event_cb;
+    card->base.bg_color = UI_COLOR_BG_CARD;
+    card->radius = 8;
+    card->border_color = UI_COLOR_BLACK;
+    card->border_width = 0;
+    card->child_count = 0;
+    card->active_child = -1;
+}
+
+void ui_card_add_child(ui_card_t *card, ui_widget_t *child)
+{
+    if (!card || !child) return;
+    if (card->child_count < UI_CARD_MAX_CHILDREN) {
+        card->children[card->child_count++] = child;
+    }
+}
+
+/*=============================================================================
+ *  TabView Widget Implementation
+ *=============================================================================*/
+
+#define TAB_BAR_HEIGHT 36
+
+static void tabview_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
+{
+    ui_tabview_t *tv = (ui_tabview_t *)w;
+
+    ui_rect_t bar = { w->rect.x, w->rect.y, w->rect.w, TAB_BAR_HEIGHT };
+    ui_draw_fill_rect(&bar, tv->tab_bg_color);
+
+    int16_t tab_w = w->rect.w / tv->tab_count;
+
+    for (uint8_t i = 0; i < tv->tab_count; i++) {
+        ui_rect_t tab_rect = { w->rect.x + i * tab_w, w->rect.y, tab_w, TAB_BAR_HEIGHT };
+        if (i == tv->active_tab) {
+            ui_draw_fill_rect(&tab_rect, tv->tab_active_color);
+            ui_rect_t ind = { tab_rect.x, tab_rect.y + TAB_BAR_HEIGHT - 3, tab_rect.w, 3 };
+            ui_draw_fill_rect(&ind, tv->indicator_color);
+        }
+        if (tv->tab_labels[i]) {
+            ui_color_t tc = (i == tv->active_tab) ? tv->tab_active_text_color : tv->tab_text_color;
+            ui_draw_text_in_rect(&tab_rect, tv->tab_labels[i], &font_montserrat_12, tc, 1);
+        }
+    }
+}
+
+static void tabview_event_cb(ui_widget_t *w, ui_event_t *e)
+{
+    ui_tabview_t *tv = (ui_tabview_t *)w;
+
+    switch (e->type) {
+    case UI_EVENT_DOWN:
+        if (e->pos.y >= w->rect.y && e->pos.y < w->rect.y + TAB_BAR_HEIGHT) {
+            w->flags |= UI_WIDGET_FLAG_PRESSED;
+        }
+        break;
+    case UI_EVENT_UP:
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+        }
+        break;
+    case UI_EVENT_CLICK:
+    case UI_EVENT_DOUBLE_CLICK:
+        if (e->pos.y >= w->rect.y && e->pos.y < w->rect.y + TAB_BAR_HEIGHT) {
+            int16_t tab_w = w->rect.w / tv->tab_count;
+            int16_t idx = (e->pos.x - w->rect.x) / tab_w;
+            if (idx >= 0 && idx < tv->tab_count && idx != tv->active_tab) {
+                tv->active_tab = (uint8_t)idx;
+                ui_widget_invalidate(w);
+                if (tv->on_tab_change) tv->on_tab_change(w, tv->active_tab);
+            }
+        }
+        break;
+    case UI_EVENT_PRESS_CANCEL:
+    case UI_EVENT_SWIPE_UP:
+    case UI_EVENT_SWIPE_DOWN:
+    case UI_EVENT_SWIPE_LEFT:
+    case UI_EVENT_SWIPE_RIGHT:
+        w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+        break;
+    default:
+        break;
+    }
+}
+
+void ui_tabview_init(ui_tabview_t *tv, const ui_rect_t *rect, uint8_t tab_count)
+{
+    if (!tv) return;
+    ui_widget_init(&tv->base, rect);
+    tv->base.draw_cb = tabview_draw_cb;
+    tv->base.event_cb = tabview_event_cb;
+    tv->tab_count = (tab_count > UI_TABVIEW_MAX_TABS) ? UI_TABVIEW_MAX_TABS : tab_count;
+    tv->active_tab = 0;
+    tv->tab_bg_color = UI_COLOR_BG_MAIN;
+    tv->tab_active_color = UI_COLOR_BG_CARD;
+    tv->tab_text_color = UI_COLOR_TEXT_SECONDARY;
+    tv->tab_active_text_color = UI_COLOR_TEXT_PRIMARY;
+    tv->indicator_color = UI_COLOR_PRIMARY;
+    tv->content_rect.x = rect->x;
+    tv->content_rect.y = rect->y + TAB_BAR_HEIGHT;
+    tv->content_rect.w = rect->w;
+    tv->content_rect.h = rect->h - TAB_BAR_HEIGHT;
+    tv->on_tab_change = NULL;
+    memset(tv->tab_labels, 0, sizeof(tv->tab_labels));
+}
+
+void ui_tabview_set_label(ui_tabview_t *tv, uint8_t idx, const char *label)
+{
+    if (!tv || idx >= tv->tab_count) return;
+    tv->tab_labels[idx] = label;
+}
+
+void ui_tabview_set_active(ui_tabview_t *tv, uint8_t idx)
+{
+    if (!tv || idx >= tv->tab_count) return;
+    tv->active_tab = idx;
+    ui_widget_invalidate(&tv->base);
+}
+
+uint8_t ui_tabview_get_active(ui_tabview_t *tv)
+{
+    if (!tv) return 0;
+    return tv->active_tab;
+}
+
+void ui_tabview_set_callback(ui_tabview_t *tv, void (*on_tab_change)(ui_widget_t *, uint8_t))
+{
+    if (!tv) return;
+    tv->on_tab_change = on_tab_change;
+}
+
+/*=============================================================================
+ *  Status Dot Widget Implementation
+ *=============================================================================*/
+
+static void status_dot_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
+{
+    ui_status_dot_t *dot = (ui_status_dot_t *)w;
+    int16_t r = (w->rect.w < w->rect.h) ? w->rect.w / 2 : w->rect.h / 2;
+    if (r < 2) r = 2;
+    int16_t cx = w->rect.x + w->rect.w / 2;
+    int16_t cy = w->rect.y + w->rect.h / 2;
+    ui_color_t color = dot->online ? dot->online_color : dot->offline_color;
+    ui_draw_fill_circle(cx, cy, r, color);
+}
+
+void ui_status_dot_init(ui_status_dot_t *dot, const ui_rect_t *rect, bool online)
+{
+    if (!dot) return;
+    ui_widget_init(&dot->base, rect);
+    dot->base.draw_cb = status_dot_draw_cb;
+    dot->online = online;
+    dot->online_color = UI_COLOR_STATUS_ON;
+    dot->offline_color = UI_COLOR_STATUS_OFF;
+}
+
+void ui_status_dot_set_state(ui_status_dot_t *dot, bool online)
+{
+    if (!dot) return;
+    dot->online = online;
+    ui_widget_invalidate(&dot->base);
+}
+
+/*=============================================================================
+ *  Dialog Widget Implementation (Modal Popup)
+ *=============================================================================*/
+
+#define DLG_CARD_W      400
+#define DLG_CARD_H      240
+#define DLG_CARD_X      ((UI_SCREEN_WIDTH - DLG_CARD_W) / 2)
+#define DLG_CARD_Y      ((UI_SCREEN_HEIGHT - DLG_CARD_H) / 2)
+
+#define DLG_BTN_W       140
+#define DLG_BTN_H       36
+#define DLG_BTN_Y       (DLG_CARD_Y + DLG_CARD_H - 54)
+#define DLG_ACCEPT_X    (DLG_CARD_X + DLG_CARD_W - 24 - DLG_BTN_W)
+#define DLG_CANCEL_X    (DLG_CARD_X + 24)
+
+static void dialog_bg_event_cb(ui_widget_t *w, ui_event_t *e)
+{
+    (void)w;
+    if (e->type == UI_EVENT_DOWN) {
+        ui_page_pop();
+    }
+}
+
+static void dialog_draw_cb(ui_page_t *page, ui_rect_t *dirty)
+{
+    (void)dirty;
+    ui_dialog_t *dlg = (ui_dialog_t *)page;
+
+    /* Dimmed fullscreen background */
+    ui_rect_t bg_rect = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
+    ui_draw_fill_rect(&bg_rect, UI_COLOR_DARK_GRAY);
+
+    /* White rounded card */
+    ui_rect_t card = {DLG_CARD_X, DLG_CARD_Y, DLG_CARD_W, DLG_CARD_H};
+    ui_draw_fill_round_rect(&card, 16, UI_COLOR_BG_CARD);
+
+    /* Message text with '\n' line break support */
+    if (dlg->message) {
+        int16_t x = DLG_CARD_X + 24;
+        int16_t y = DLG_CARD_Y + 70;
+        int16_t max_y = DLG_BTN_Y - 10;
+        const char *p = dlg->message;
+
+        while (*p && y < max_y) {
+            const char *line_start = p;
+            while (*p && *p != '\n') p++;
+
+            uint16_t len = p - line_start;
+            if (len > 0) {
+                char buf[64];
+                if (len > 63) len = 63;
+                memcpy(buf, line_start, len);
+                buf[len] = '\0';
+                ui_draw_text(x, y, buf, &font_montserrat_12, UI_COLOR_TEXT_PRIMARY);
+            }
+            y += 20;
+            if (*p == '\n') p++;
+        }
+    }
+}
+
+static void dialog_accept_click(ui_widget_t *w)
+{
+    ui_dialog_t *dlg = (ui_dialog_t *)w->user_data;
+    if (dlg && dlg->on_accept) dlg->on_accept();
+    ui_page_pop();
+}
+
+static void dialog_cancel_click(ui_widget_t *w)
+{
+    ui_dialog_t *dlg = (ui_dialog_t *)w->user_data;
+    if (dlg && dlg->on_cancel) dlg->on_cancel();
+    ui_page_pop();
+}
+
+void ui_dialog_init(ui_dialog_t *dlg)
+{
+    if (!dlg) return;
+    memset(dlg, 0, sizeof(ui_dialog_t));
+
+    ui_page_struct_init_fullscreen(&dlg->page, "Dialog", 0xFF);
+
+    /* Fullscreen transparent background catcher */
+    ui_rect_t full = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
+    ui_widget_init(&dlg->bg, &full);
+    dlg->bg.event_cb = dialog_bg_event_cb;
+    dlg->bg.bg_color = UI_COLOR_TRANSPARENT;
+
+    /* Title label */
+    ui_rect_t title_rect = {DLG_CARD_X + 24, DLG_CARD_Y + 24, DLG_CARD_W - 48, 28};
+    ui_label_init(&dlg->lbl_title, &title_rect, "", &font_montserrat_16);
+    ui_label_set_color(&dlg->lbl_title, UI_COLOR_TEXT_PRIMARY);
+    ui_label_set_align(&dlg->lbl_title, 1);
+
+    /* Accept button (right) */
+    ui_rect_t accept_rect = {DLG_ACCEPT_X, DLG_BTN_Y, DLG_BTN_W, DLG_BTN_H};
+    ui_button_init(&dlg->btn_accept, &accept_rect, "Accept", &font_montserrat_12);
+    dlg->btn_accept.base.user_data = dlg;
+    ui_button_set_callback(&dlg->btn_accept, dialog_accept_click);
+    ui_button_set_colors(&dlg->btn_accept, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
+
+    /* Cancel button (left) */
+    ui_rect_t cancel_rect = {DLG_CANCEL_X, DLG_BTN_Y, DLG_BTN_W, DLG_BTN_H};
+    ui_button_init(&dlg->btn_cancel, &cancel_rect, "Cancel", &font_montserrat_12);
+    dlg->btn_cancel.base.user_data = dlg;
+    ui_button_set_callback(&dlg->btn_cancel, dialog_cancel_click);
+    ui_button_set_colors(&dlg->btn_cancel, UI_COLOR_LIGHT_GRAY, UI_COLOR_GRAY, UI_COLOR_TEXT_PRIMARY);
+
+    dlg->widgets[0] = (ui_widget_t *)&dlg->bg;
+    dlg->widgets[1] = (ui_widget_t *)&dlg->lbl_title;
+    dlg->widgets[2] = (ui_widget_t *)&dlg->btn_cancel;
+    dlg->widgets[3] = (ui_widget_t *)&dlg->btn_accept;
+
+    ui_page_set_widgets(&dlg->page, dlg->widgets, 4);
+    ui_page_set_callbacks(&dlg->page, NULL, NULL, dialog_draw_cb, NULL);
+}
+
+void ui_dialog_show(ui_dialog_t *dlg, const char *title, const char *message,
+                    void (*on_accept)(void), void (*on_cancel)(void))
+{
+    if (!dlg) return;
+
+    dlg->title = title;
+    dlg->message = message;
+    dlg->on_accept = on_accept;
+    dlg->on_cancel = on_cancel;
+
+    if (title) {
+        ui_label_set_text(&dlg->lbl_title, title);
+    }
+
+    ui_page_push(&dlg->page);
+}
+
+void ui_dialog_close(ui_dialog_t *dlg)
+{
+    (void)dlg;
+    ui_page_pop();
 }
