@@ -135,11 +135,6 @@ static int16_t s_scroll_y = 0;
 #define CONTENT_VIEW_TOP    CONTENT_TOP
 #define CONTENT_VIEW_BOTTOM UI_SCREEN_HEIGHT
 
-static const ui_rect_t s_viewport_rect = {
-    CONTENT_LEFT, CONTENT_VIEW_TOP,
-    CONTENT_W, CONTENT_VIEW_BOTTOM - CONTENT_VIEW_TOP
-};
-
 static const ui_rect_t s_invalidate_rect = {
     CONTENT_LEFT, SETTINGS_TOP + TAB_BAR_H,
     CONTENT_W, UI_SCREEN_HEIGHT - (SETTINGS_TOP + TAB_BAR_H)

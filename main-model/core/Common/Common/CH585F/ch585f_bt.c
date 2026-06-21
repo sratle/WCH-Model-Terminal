@@ -68,6 +68,33 @@ static uint16_t spi_tx_fifo_count(void)
     }
 }
 
+/*********************************************************************
+ * @fn      CH585F_BT_DrainTxFifo
+ *
+ * @brief   Drain the TX FIFO by performing SPI transfers (TX only).
+ *          Used for flow control when SendFrame detects FIFO overflow.
+ *          Does NOT parse RX data — bytes are discarded (the next
+ *          Poll cycle will read any CH585F response normally).
+ *
+ * @return  none
+ *********************************************************************/
+static void CH585F_BT_DrainTxFifo(void)
+{
+    uint8_t tx_buf[CH585F_BT_POLL_SIZE];
+    uint8_t rx_buf[CH585F_BT_POLL_SIZE];
+    uint16_t tx_len;
+
+    while (spi_tx_fifo_count() > 0)
+    {
+        tx_len = spi_tx_fifo_read(tx_buf, CH585F_BT_POLL_SIZE);
+        if (tx_len < CH585F_BT_POLL_SIZE)
+        {
+            memset(&tx_buf[tx_len], 0x00, CH585F_BT_POLL_SIZE - tx_len);
+        }
+        CH585F_SPI_Transfer(&ch585f_g, tx_buf, rx_buf, CH585F_BT_POLL_SIZE);
+    }
+}
+
 static void CH585F_BT_SendFrame(uint8_t cmd, const uint8_t *data, uint8_t data_len);
 static void CH585F_BT_HandleConnEvt(const protocol_frame_t *frame);
 static void CH585F_BT_HandleExtFrame(const protocol_frame_t *frame);
@@ -237,14 +264,9 @@ void CH585F_BT_HandleFrame(void)
 /*********************************************************************
  * @fn      CH585F_BT_SendFrame
  *
- * @brief   通过 SPI 发送一帧标准协议数据给 CH585F
- *
- * @return  none
- *********************************************************************/
-/*********************************************************************
- * @fn      CH585F_BT_SendFrame
- *
- * @brief   打包完整协议帧并写入 SPI TX FIFO，等 poll 时顺带发出
+ * @brief   Pack a protocol frame and write to SPI TX FIFO.
+ *          If the FIFO does not have enough space, drain it via
+ *          SPI transfers first (flow control) to avoid data loss.
  *
  * @return  none
  *********************************************************************/
@@ -252,16 +274,25 @@ static void CH585F_BT_SendFrame(uint8_t cmd, const uint8_t *data, uint8_t data_l
 {
     uint16_t len;
     uint16_t written;
+    uint16_t free_space;
 
     len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_WIRELESS, cmd,
                              data, data_len,
                              s_tx_buf, sizeof(s_tx_buf));
     if (len > 0)
     {
+        /* Flow control: ensure FIFO has room for this frame.
+         * If not, drain via SPI transfer to make space. */
+        free_space = SPI_TX_FIFO_SIZE - 1 - spi_tx_fifo_count();
+        if (free_space < len)
+        {
+            CH585F_BT_DrainTxFifo();
+        }
+
         written = spi_tx_fifo_write(s_tx_buf, len);
         if (written < len)
         {
-            printf("[BT] SendFrame: TX FIFO full! Dropped %d bytes\r\n", len - written);
+            printf("[BT] SendFrame: TX FIFO full after drain! Dropped %d bytes\r\n", len - written);
         }
     }
 }

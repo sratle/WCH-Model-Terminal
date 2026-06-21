@@ -79,13 +79,6 @@ static ui_widget_t *s_apps_widgets[4 + APPS_PER_PAGE];
 
 static char s_page_text[8];
 
-static int apps_on_page(void)
-{
-    int page_offset = s_current_page * APPS_PER_PAGE;
-    int remaining = APPS_TOTAL - page_offset;
-    return (remaining < APPS_PER_PAGE) ? remaining : APPS_PER_PAGE;
-}
-
 static void apps_update_grid(void)
 {
     int16_t cx = SIDEBAR_WIDTH + 20;

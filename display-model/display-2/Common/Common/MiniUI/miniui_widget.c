@@ -609,7 +609,7 @@ static void card_event_cb(ui_widget_t *w, ui_event_t *e)
     case UI_EVENT_DOWN: {
         card->active_child = -1;
         for (uint16_t i = 0; i < card->child_count; i++) {
-            if (card->children[i] && ui_widget_hit_test(card->children[i], e->pos.x, e->pos.y)) {
+            if (card->children[i] && ui_widget_hit_test(card->children[i], e->touch.x, e->touch.y)) {
                 card->active_child = (int16_t)i;
                 ui_widget_event(card->children[i], e);
                 break;
@@ -712,7 +712,7 @@ static void tabview_event_cb(ui_widget_t *w, ui_event_t *e)
 
     switch (e->type) {
     case UI_EVENT_DOWN:
-        if (e->pos.y >= w->rect.y && e->pos.y < w->rect.y + TAB_BAR_HEIGHT) {
+        if (e->touch.y >= w->rect.y && e->touch.y < w->rect.y + TAB_BAR_HEIGHT) {
             w->flags |= UI_WIDGET_FLAG_PRESSED;
         }
         break;
@@ -723,9 +723,9 @@ static void tabview_event_cb(ui_widget_t *w, ui_event_t *e)
         break;
     case UI_EVENT_CLICK:
     case UI_EVENT_DOUBLE_CLICK:
-        if (e->pos.y >= w->rect.y && e->pos.y < w->rect.y + TAB_BAR_HEIGHT) {
+        if (e->touch.y >= w->rect.y && e->touch.y < w->rect.y + TAB_BAR_HEIGHT) {
             int16_t tab_w = w->rect.w / tv->tab_count;
-            int16_t idx = (e->pos.x - w->rect.x) / tab_w;
+            int16_t idx = (e->touch.x - w->rect.x) / tab_w;
             if (idx >= 0 && idx < tv->tab_count && idx != tv->active_tab) {
                 tv->active_tab = (uint8_t)idx;
                 ui_widget_invalidate(w);

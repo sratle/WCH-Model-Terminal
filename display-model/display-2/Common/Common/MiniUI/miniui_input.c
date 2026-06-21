@@ -224,8 +224,8 @@ void ui_input_feed_core_key(uint8_t key_id, uint8_t action)
         break;
     case 2:  /* Enter key → click at center */
         e.type = UI_EVENT_CLICK;
-        e.pos.x = UI_SCREEN_WIDTH / 2;
-        e.pos.y = UI_SCREEN_HEIGHT / 2;
+        e.touch.x = UI_SCREEN_WIDTH / 2;
+        e.touch.y = UI_SCREEN_HEIGHT / 2;
         break;
     default:
         return;
