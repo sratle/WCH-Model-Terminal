@@ -660,6 +660,15 @@ void ui_render_flush_to_display(void)
     /* Compare new and old frame buffers to find the dirty region.
      * For simplicity, we do a full refresh if there are any differences.
      * TODO: optimize to find bounding box of changes for partial refresh. */
+    uint32_t black_pixels = 0;
+    for (uint32_t i = 0; i < EPD_FRAME_SIZE; i++) {
+        uint8_t v = g_frame_new[i];
+        uint8_t c = 0;
+        while (v) { c++; v &= v - 1; }
+        black_pixels += c;
+    }
+    printf("[render] flushing %lu black pixels (old vs new %d)\r\n",
+           black_pixels, memcmp(g_frame_old, g_frame_new, EPD_FRAME_SIZE) != 0);
     Epaper_DisplayImageDiff(g_frame_old, g_frame_new);
     Epaper_Update();
 

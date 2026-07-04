@@ -1,10 +1,10 @@
 /**
  * @file    epaper_hw.c
- * @brief   JD79686AB hardware abstraction – software SPI.
+ * @brief   JD79686AB hardware abstraction - software SPI.
  *
  * STRICTLY matches manufacturer STM32 SPI_Init.c timing:
- *   - EPD_WR_REG:  DC=LOW → CS=LOW → shift → CS=HIGH → DC=HIGH
- *   - EPD_WR_DATA: DC=HIGH → CS=LOW → shift → CS=HIGH
+ *   - EPD_WR_REG:  DC=LOW -> CS=LOW -> shift -> CS=HIGH -> DC=HIGH
+ *   - EPD_WR_DATA: DC=HIGH -> CS=LOW -> shift -> CS=HIGH
  *   - EPD_WR_Bus:  SCK=LOW before first bit
  */
 #include "epaper_hw.h"
@@ -56,21 +56,17 @@ void Epaper_Hw_Init(void)
 /*********************************************************************
  * @fn      Epaper_Hw_Reset
  *
- * @brief   Double-pulse reset matching Arduino OKRA0583BNF686F0 sample:
- *          HIGH(20ms) → LOW(30ms) → HIGH(30ms) → LOW(30ms) → HIGH(30ms)
+ * @brief   Single-pulse reset matching OKRA reference code:
+ *          HIGH(100ms) -> LOW(20ms) -> HIGH(20ms)
  */
 void Epaper_Hw_Reset(void)
 {
     EPD_RES_HIGH();
+    Delay_Ms(100);
+    EPD_RES_LOW();
     Delay_Ms(20);
-    EPD_RES_LOW();
-    Delay_Ms(30);
     EPD_RES_HIGH();
-    Delay_Ms(30);
-    EPD_RES_LOW();
-    Delay_Ms(30);
-    EPD_RES_HIGH();
-    Delay_Ms(30);
+    Delay_Ms(20);
 }
 
 /*********************************************************************
@@ -84,7 +80,11 @@ int Epaper_Hw_WaitBusy(uint32_t timeout_ms)
     while (Epd_Is_Busy())
     {
         if (elapsed >= timeout_ms)
+        {
+            printf("[epd_hw] BUSY timeout (%lu ms), BUSY=0x%08lX\r\n",
+                   timeout_ms, (uint32_t)EPD_BUSY_READ());
             return -1;
+        }
         Delay_Ms(10);
         elapsed += 10;
     }
@@ -95,7 +95,7 @@ int Epaper_Hw_WaitBusy(uint32_t timeout_ms)
  * @fn      Epaper_Hw_WriteCmd
  *
  * @brief   Send command byte. STRICTLY matches manufacturer EPD_WR_REG():
- *            DC=LOW → CS=LOW → shift(CS=LOW,SCK=LOW first) → CS=HIGH → DC=HIGH
+ *            DC=LOW -> CS=LOW -> shift(CS=LOW,SCK=LOW first) -> CS=HIGH -> DC=HIGH
  *
  *          KEY: DC must be set BEFORE CS goes low!
  */
@@ -115,11 +115,11 @@ void Epaper_Hw_WriteCmd(uint8_t cmd)
             EPD_MOSI_LOW();
         cmd <<= 1;
 
-        EPD_SPI_DLY_DAT();   /* Data setup time ≥ 15ns */
+        EPD_SPI_DLY_DAT();   /* Data setup time >= 15ns */
         EPD_SCK_HIGH();
-        EPD_SPI_DLY_SCK();   /* SCK high ≥ 35ns */
+        EPD_SPI_DLY_SCK();   /* SCK high >= 35ns */
         EPD_SCK_LOW();
-        EPD_SPI_DLY_SCK();   /* SCK low ≥ 35ns */
+        EPD_SPI_DLY_SCK();   /* SCK low >= 35ns */
     }
 
     EPD_CS_HIGH();    /* CS high (latch command) */
@@ -130,7 +130,7 @@ void Epaper_Hw_WriteCmd(uint8_t cmd)
  * @fn      Epaper_Hw_WriteData
  *
  * @brief   Send data byte. Matches manufacturer EPD_WR_DATA8():
- *            DC=HIGH → CS=LOW → shift → CS=HIGH
+ *            DC=HIGH -> CS=LOW -> shift -> CS=HIGH
  */
 void Epaper_Hw_WriteData(uint8_t data)
 {
@@ -147,21 +147,22 @@ void Epaper_Hw_WriteData(uint8_t data)
             EPD_MOSI_LOW();
         data <<= 1;
 
-        EPD_SPI_DLY_DAT();   /* Data setup time ≥ 15ns */
+        EPD_SPI_DLY_DAT();   /* Data setup time >= 15ns */
         EPD_SCK_HIGH();
-        EPD_SPI_DLY_SCK();   /* SCK high ≥ 35ns */
+        EPD_SPI_DLY_SCK();   /* SCK high >= 35ns */
         EPD_SCK_LOW();
-        EPD_SPI_DLY_SCK();   /* SCK low ≥ 35ns */
+        EPD_SPI_DLY_SCK();   /* SCK low >= 35ns */
     }
 
     EPD_CS_HIGH();
+    EPD_DC_HIGH();    /* Keep DC high after data write */
 }
 
 /*********************************************************************
  * @fn      Epaper_Hw_WriteDataBuf
  *
  * @brief   Send buffer. CS held low for entire transfer.
- *          DC=HIGH → CS=LOW → [shift per byte] → CS=HIGH
+ *          DC=HIGH -> CS=LOW -> [shift per byte] -> CS=HIGH
  */
 void Epaper_Hw_WriteDataBuf(const uint8_t *buf, uint32_t len)
 {
@@ -183,11 +184,11 @@ void Epaper_Hw_WriteDataBuf(const uint8_t *buf, uint32_t len)
                 EPD_MOSI_LOW();
             data <<= 1;
 
-            EPD_SPI_DLY_DAT();   /* Data setup time ≥ 15ns */
+            EPD_SPI_DLY_DAT();   /* Data setup time >= 15ns */
             EPD_SCK_HIGH();
-            EPD_SPI_DLY_SCK();   /* SCK high ≥ 35ns */
+            EPD_SPI_DLY_SCK();   /* SCK high >= 35ns */
             EPD_SCK_LOW();
-            EPD_SPI_DLY_SCK();   /* SCK low ≥ 35ns */
+            EPD_SPI_DLY_SCK();   /* SCK low >= 35ns */
         }
     }
 
@@ -196,7 +197,7 @@ void Epaper_Hw_WriteDataBuf(const uint8_t *buf, uint32_t len)
 
 /*********************************************************************
  * @fn      Epaper_Hw_ReadReg
- * @note   SPI read – may not work on modules without MISO connection.
+ * @note   SPI read - may not work on modules without MISO connection.
  */
 void Epaper_Hw_ReadReg(uint8_t reg, uint8_t *buf, uint8_t len)
 {
@@ -214,12 +215,12 @@ void Epaper_Hw_ReadReg(uint8_t reg, uint8_t *buf, uint8_t len)
         for (j = 0; j < 8; j++)
         {
             EPD_SCK_HIGH();
-            EPD_SPI_DLY_SCK();   /* SCK high ≥ 35ns */
+            EPD_SPI_DLY_SCK();   /* SCK high >= 35ns */
             val <<= 1;
             if (GPIOA->INDR & GPIO_Pin_6)
                 val |= 0x01;
             EPD_SCK_LOW();
-            EPD_SPI_DLY_SCK();   /* SCK low ≥ 35ns */
+            EPD_SPI_DLY_SCK();   /* SCK low >= 35ns */
         }
         buf[i] = val;
     }

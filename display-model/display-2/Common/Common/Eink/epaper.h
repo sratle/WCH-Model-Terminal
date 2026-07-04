@@ -1,11 +1,15 @@
 /**
  * @file    epaper.h
- * @brief   JD79686AB 648×480 B/W e-paper driver – high-level API.
+ * @brief   JD79686AB 648x480 B/W e-paper driver - high-level API.
  *
- * Based on Arduino OKRA0583BNF686F0 sample code (After OTP Model).
- * Uses OTP LUT, no register LUT tables needed.
+ * Simplified driver based on vendor reference code:
+ *   - Init: HW reset + wait BUSY
+ *   - Update: PON + DRF (no POF)
+ *   - Panel uses power-on default configuration
  *
- * Pixel format: 1bpp, bit=0 → white, bit=1 → black.
+ * Pixel format (panel): 1bpp, bit=1 -> white, bit=0 -> black.
+ * Pixel format (UI/renderer): 1bpp, bit=1 -> black, bit=0 -> white.
+ * The driver inverts data automatically when sending to the panel.
  * Each byte represents 8 horizontal pixels (MSB = leftmost).
  * Width must be a multiple of 8 (648 / 8 = 81 bytes per row).
  */
@@ -25,35 +29,35 @@ extern "C" {
 #define EPD_ROW_BYTES       (EPD_WIDTH / 8)   /* 81 bytes per row */
 #define EPD_FRAME_SIZE      (EPD_ROW_BYTES * EPD_HEIGHT) /* 38880 bytes */
 
-/* ---- Pixel colour constants ---- */
+/* ---- Pixel colour constants (UI/renderer side) ---- */
 #define EPD_WHITE   0x00
 #define EPD_BLACK   0xFF
 
 /* ---- API ---- */
 
 /**
- * @brief  Initialise: HW reset + OTP LUT mode init.
+ * @brief  Initialise: HW reset + wait for BUSY high.
  */
 void Epaper_Init(void);
 
 /**
- * @brief  Display image (same data for DTM1 and DTM2, Arduino-style).
- * @param  image  EPD_FRAME_SIZE bytes. bit=0 white, bit=1 black.
+ * @brief  Display image (same data for DTM1 and DTM2).
+ * @param  image  EPD_FRAME_SIZE bytes. bit=0 white, bit=1 black (UI format).
  */
 void Epaper_DisplayImage(const uint8_t *image);
 
 /**
- * @brief  Full-screen clear to white (DTM1=0xFF, DTM2=0x00).
+ * @brief  Full-screen clear to white.
  */
 void Epaper_ClearWhite(void);
 
 /**
- * @brief  Trigger display update (PON → DRF → POF).
+ * @brief  Trigger display update (PON -> DRF).
  */
 void Epaper_Update(void);
 
 /**
- * @brief  Enter deep sleep (PON + DSLP).
+ * @brief  Enter deep sleep (POF + DSLP).
  */
 void Epaper_Sleep(void);
 
@@ -70,16 +74,16 @@ void Epaper_WakeUp(void);
  * @param  y       Y origin
  * @param  w       Width (must be multiple of 8)
  * @param  h       Height
- * @param  old_data  Old image data (1bpp, w/8 * h bytes), bit=0 white, bit=1 black
- * @param  new_data  New image data (1bpp, w/8 * h bytes), bit=0 white, bit=1 black
+ * @param  old_data  Old image data (1bpp, w/8 * h bytes), UI format
+ * @param  new_data  New image data (1bpp, w/8 * h bytes), UI format
  */
 void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
                            const uint8_t *old_data, const uint8_t *new_data);
 
 /**
  * @brief  Full refresh with separate old/new images.
- * @param  old_image  OLD data (EPD_FRAME_SIZE bytes), bit=0 white, bit=1 black
- * @param  0=white, bit=1 black
+ * @param  old_image  OLD data (EPD_FRAME_SIZE bytes), UI format
+ * @param  new_image  NEW data (EPD_FRAME_SIZE bytes), UI format
  */
 void Epaper_DisplayImageDiff(const uint8_t *old_image, const uint8_t *new_image);
 

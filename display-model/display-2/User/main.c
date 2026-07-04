@@ -29,6 +29,9 @@ int main(void)
     SystemCoreClockUpdate();
     Delay_Init();
 
+    /* Initialize debug UART2 (PA2-TX) at 921600/8-N-1 */
+    USART_Printf_Init(921600);
+
     printf("\r\n=== Display-2 MiniUI Demo ===\r\n");
 
     /* Initialize MiniUI system (includes e-paper init) */

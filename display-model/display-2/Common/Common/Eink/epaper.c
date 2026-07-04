@@ -1,31 +1,33 @@
-/**
- * @file    epaper.c
- * @brief   JD79686AB 648×480 B/W e-paper driver.
- *
- * Init sequence per JD79686AB User Guide §2.4.1.2 "After OTP Model".
- * OTP LUT mode (REG_EN=0): no register LUT tables needed.
- *
- * Command order (MANDATORY per §3.2 Note 4):
- *   1. Dummy code  (0x08 = 0x00)
- *   2. TDY key     (0xF8 = 0x60 0xA5)
- *   3. TDY commands(0xF8 = addr data)
- *   4. User commands (PSR, TRES, etc.)
- */
+/********************************** (C) COPYRIGHT *******************************
+* File Name          : epaper.c
+* Author             : E-ink Model Team
+* Description        : JD79686AB 648x480 B/W e-paper driver.
+*
+* Simplified init based on vendor reference code:
+*   - EPD_HW_RESET() + EPD_READBUSY()
+*   - No register/LUT writes needed; panel uses power-on defaults.
+*
+* Pixel format (panel side): 1bpp, MSB = leftmost pixel, bit=1 = white,
+* bit=0 = black. The MiniUI renderer produces bit=1 = black, so we invert
+* data before sending it to the panel.
+********************************************************************************/
 #include "epaper.h"
 
 /*============================================================================
  *  Internal helpers
  *==========================================================================*/
 
-/**
- * @brief  Send a TDY register write: Cmd(0xF8) + Data(addr) + Data(data).
- *         Must be preceded by TDY key (F8 60 A5) at init start.
- */
-static void Epaper_TDY_Write(uint8_t addr, uint8_t data)
+static void Epaper_SendDataByte(uint8_t data)
 {
-    Epaper_Hw_WriteCmd(0xF8);
-    Epaper_Hw_WriteData(addr);
     Epaper_Hw_WriteData(data);
+}
+
+static void Epaper_SendDataBuf(const uint8_t *buf, uint32_t len)
+{
+    uint32_t i;
+    for (i = 0; i < len; i++) {
+        Epaper_Hw_WriteData(buf[i]);
+    }
 }
 
 /*============================================================================
@@ -35,66 +37,25 @@ static void Epaper_TDY_Write(uint8_t addr, uint8_t data)
 /*********************************************************************
  * @fn      Epaper_Init
  *
- * @brief   Init per JD79686AB §2.4.1.2 "After OTP Model" + essential
- *          user commands for modules with or without OTP.
- *
- *          Sequence:
- *          1. HW Reset + WaitBusy
- *          2. Dummy code (0x08 = 0x00)          ← MANDATORY first SPI tx
- *          3. TDY key (F8 60 A5)                ← unlocks TDY registers
- *          4. TDY commands (F8 addr data)        ← per datasheet table
- *          5. User commands: PSR, TRES, TSGS     ← resolution & panel cfg
+ * @brief   Hardware reset and wait for BUSY to go high.
+ *          The panel uses its power-on default configuration.
  */
 void Epaper_Init(void)
 {
     Epaper_Hw_Init();
+    printf("[epd_hw] gpio init ok, BUSY=0x%08lX\r\n", (uint32_t)EPD_BUSY_READ());
     Epaper_Hw_Reset();
-    Epaper_Hw_WaitBusy(2000);
-
-    /* ---- Step 1: Dummy code (MUST be first SPI transaction after reset) ---- */
-    Epaper_Hw_WriteCmd(0x08);
-    Epaper_Hw_WriteData(0x00);
-
-    /* ---- Step 2: TDY key (unlocks TDY register access) ---- */
-    Epaper_TDY_Write(0x60, 0xA5);   /* TDY key */
-
-    /* ---- Step 3: TDY commands (per §2.4.1.2 After OTP Model) ---- */
-    Epaper_TDY_Write(0x93, 0x18);   /* OSC clock keep running */
-    Epaper_TDY_Write(0x73, 0x05);   /* VCOM driving capability */
-    Epaper_TDY_Write(0x92, 0x08);   /* VGL → GND (T ≥ 10°C) */
-    Epaper_TDY_Write(0xA8, 0x3A);   /* r_partial_all_gate_en */
-    Epaper_TDY_Write(0x88, 0x06);   /* Power off: VCOM discharge → GND */
-
-    /* ---- Step 4: User commands ---- */
-
-    /* PSR: B/W mode, OTP LUT, scan up, shift right */
-    Epaper_Hw_WriteCmd(0x00);
-    Epaper_Hw_WriteData(0xDF);
-    /* 0xDF = 1101_1111:
-       RES[1:0]=11(default 800x600, overridden by TRES 0x61),
-       REG_EN=0(use OTP LUT),
-       BWR=1(B/W mode),
-       UD=1, SHL=1, SHD_N=1, RST_N=1 */
-
-    /* TRES: resolution 648×480 */
-    Epaper_Hw_WriteCmd(0x61);
-    Epaper_Hw_WriteData(0x02);   /* HRES[9:8] = 10 */
-    Epaper_Hw_WriteData(0x88);   /* HRES[7:3] = 10001, low 3 bits=000 → 648 */
-    Epaper_Hw_WriteData(0x01);   /* VRES[9:8] = 01 */
-    Epaper_Hw_WriteData(0xE0);   /* VRES[7:0] = 1110_0000 → 480 */
-
-    /* TSGS: gate/source start setting (S_Start=0, G_Start=0) */
-    Epaper_Hw_WriteCmd(0x62);
-    Epaper_Hw_WriteData(0x00);
-    Epaper_Hw_WriteData(0x10);
-    Epaper_Hw_WriteData(0x00);
-    Epaper_Hw_WriteData(0x00);
+    printf("[epd_hw] reset done, BUSY=0x%08lX\r\n", (uint32_t)EPD_BUSY_READ());
+    int ret = Epaper_Hw_WaitBusy(2000);
+    printf("[epd_hw] wait busy after reset: %d, BUSY=0x%08lX\r\n",
+           ret, (uint32_t)EPD_BUSY_READ());
 }
 
 /*********************************************************************
  * @fn      Epaper_ClearWhite
  *
- * @brief   Clear to white: DTM1=0xFF, DTM2=0x00
+ * @brief   Clear to white.
+ *          Panel data: DTM1 = black (0x00), DTM2 = white (0xFF).
  */
 void Epaper_ClearWhite(void)
 {
@@ -103,48 +64,51 @@ void Epaper_ClearWhite(void)
     Epaper_Hw_WriteCmd(0x10);
     for (j = 0; j < EPD_HEIGHT; j++)
         for (i = 0; i < EPD_ROW_BYTES; i++)
-            Epaper_Hw_WriteData(0xFF);
+            Epaper_Hw_WriteData(0x00);    /* old = black (panel: 0x00) */
 
     Epaper_Hw_WriteCmd(0x13);
     for (j = 0; j < EPD_HEIGHT; j++)
         for (i = 0; i < EPD_ROW_BYTES; i++)
-            Epaper_Hw_WriteData(0x00);
+            Epaper_Hw_WriteData(0xFF);    /* new = white (panel: 0xFF) */
 }
 
 /*********************************************************************
  * @fn      Epaper_DisplayImage
  *
  * @brief   Display image data (same data for both DTM1 and DTM2).
- *          Matches Arduino DisplayFrame() which sends same buffer twice.
+ *          Invert frame data to match panel mapping.
  */
 void Epaper_DisplayImage(const uint8_t *image)
 {
-    /* DTM1: OLD data */
-    Epaper_Hw_WriteCmd(0x10);
-    Epaper_Hw_WriteDataBuf(image, EPD_FRAME_SIZE);
+    uint32_t i;
 
-    /* DTM2: NEW data */
+    Epaper_Hw_WriteCmd(0x10);
+    for (i = 0; i < EPD_FRAME_SIZE; i++)
+        Epaper_Hw_WriteData(~image[i]);
+
     Epaper_Hw_WriteCmd(0x13);
-    Epaper_Hw_WriteDataBuf(image, EPD_FRAME_SIZE);
+    for (i = 0; i < EPD_FRAME_SIZE; i++)
+        Epaper_Hw_WriteData(~image[i]);
 }
 
 /*********************************************************************
  * @fn      Epaper_Update
  *
- * @brief   PON → WaitBusy → DRF → WaitBusy → POF → WaitBusy
- *          Matches Arduino Update() sequence.
+ * @brief   PON -> WaitBusy -> DRF -> WaitBusy.
+ *          Reference code does NOT send POF (0x02).
  */
 void Epaper_Update(void)
 {
+    int ret;
+    printf("[epd] update: pon\r\n");
     Epaper_Hw_WriteCmd(0x04);
-    Delay_Ms(1);
-    Epaper_Hw_WaitBusy(5000);
+    ret = Epaper_Hw_WaitBusy(5000);
+    printf("[epd] update: pon wait=%d\r\n", ret);
 
+    printf("[epd] update: drf\r\n");
     Epaper_Hw_WriteCmd(0x12);
-    Epaper_Hw_WaitBusy(10000);
-
-    Epaper_Hw_WriteCmd(0x02);
-    Epaper_Hw_WaitBusy(3000);
+    ret = Epaper_Hw_WaitBusy(10000);
+    printf("[epd] update: drf wait=%d, done\r\n", ret);
 }
 
 /*********************************************************************
@@ -169,7 +133,7 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
     Epaper_Hw_WriteData(w & 0xF8);
     Epaper_Hw_WriteData((h >> 8) & 0x03);
     Epaper_Hw_WriteData(h & 0xFF);
-    Epaper_Hw_WriteDataBuf(old_data, data_len);
+    Epaper_SendDataBuf(old_data, data_len);
 
     /* PDTM2: NEW data */
     Epaper_Hw_WriteCmd(0x15);
@@ -181,11 +145,11 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
     Epaper_Hw_WriteData(w & 0xF8);
     Epaper_Hw_WriteData((h >> 8) & 0x03);
     Epaper_Hw_WriteData(h & 0xFF);
-    Epaper_Hw_WriteDataBuf(new_data, data_len);
+    Epaper_SendDataBuf(new_data, data_len);
 
     /* PDRF: trigger partial refresh with DFV_EN=1 */
     Epaper_Hw_WriteCmd(0x16);
-    Epaper_Hw_WriteData(((1 << 7) | ((x >> 8) & 0x03)));  /* DFV_EN=1 + X[9:8] */
+    Epaper_Hw_WriteData(((1 << 7) | ((x >> 8) & 0x03)));
     Epaper_Hw_WriteData(x & 0xF8);
     Epaper_Hw_WriteData((y >> 8) & 0x03);
     Epaper_Hw_WriteData(y & 0xFF);
@@ -201,27 +165,32 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
  * @fn      Epaper_DisplayImageDiff
  *
  * @brief   Full refresh with separate old/new images.
+ *          Invert both old and new data to match panel mapping.
  */
 void Epaper_DisplayImageDiff(const uint8_t *old_image, const uint8_t *new_image)
 {
-    /* DTM1: OLD data */
-    Epaper_Hw_WriteCmd(0x10);
-    Epaper_Hw_WriteDataBuf(old_image, EPD_FRAME_SIZE);
+    uint32_t i;
 
-    /* DTM2: NEW data */
+    printf("[epd] diff: dtm1 start\r\n");
+    Epaper_Hw_WriteCmd(0x10);
+    for (i = 0; i < EPD_FRAME_SIZE; i++)
+        Epaper_Hw_WriteData(~old_image[i]);
+    printf("[epd] diff: dtm2 start\r\n");
     Epaper_Hw_WriteCmd(0x13);
-    Epaper_Hw_WriteDataBuf(new_image, EPD_FRAME_SIZE);
+    for (i = 0; i < EPD_FRAME_SIZE; i++)
+        Epaper_Hw_WriteData(~new_image[i]);
+    printf("[epd] diff: done\r\n");
 }
 
 /*********************************************************************
  * @fn      Epaper_Sleep
  *
- * @brief   DSLP (deep sleep). Per datasheet, needs PON before DSLP.
+ * @brief   POF then DSLP (deep sleep).
  */
 void Epaper_Sleep(void)
 {
-    Epaper_Hw_WriteCmd(0x04);
-    Epaper_Hw_WaitBusy(5000);
+    Epaper_Hw_WriteCmd(0x02);
+    Epaper_Hw_WaitBusy(3000);
 
     Epaper_Hw_WriteCmd(0x07);
     Epaper_Hw_WriteData(0xA5);
