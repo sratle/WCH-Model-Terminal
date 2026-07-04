@@ -16,6 +16,10 @@ void USART2_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 
 extern protocol_rx_ctx_t uart_core_rx_ctx;
 
+/* Diagnostic counters */
+volatile uint32_t g_usart2_isr_count = 0;
+volatile uint32_t g_usart2_byte_count = 0;
+
 void NMI_Handler(void)
 {
     while (1)
@@ -56,6 +60,7 @@ void USART2_IRQHandler(void)
     if (USART_GetITStatus(USART2, USART_IT_RXNE) != RESET)
     {
         uint8_t byte = (uint8_t)(USART_ReceiveData(USART2) & 0xFF);
+        g_usart2_isr_count++;
         Nfc_ParseByte(byte);
     }
 
@@ -63,5 +68,6 @@ void USART2_IRQHandler(void)
     if (USART_GetFlagStatus(USART2, USART_FLAG_ORE) != RESET)
     {
         USART_ReceiveData(USART2);
+        g_usart2_byte_count++;
     }
 }

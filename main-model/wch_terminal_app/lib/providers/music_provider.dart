@@ -105,18 +105,21 @@ class MusicNotifier extends StateNotifier<MusicStatus> {
   }
 
   Future<void> pause() async {
-    await _cli.execute(CliCommands.pause());
+    // Optimistic update: update state immediately, send CLI in background
     _stopPositionTick();
     state = state.copyWith(state: PlayerState.paused);
+    await _cli.execute(CliCommands.pause());
   }
 
   Future<void> resume() async {
-    await _cli.execute(CliCommands.resume());
+    // Optimistic update: update state immediately, send CLI in background
     state = state.copyWith(state: PlayerState.playing);
     _startPositionTick();
+    await _cli.execute(CliCommands.resume());
   }
 
   Future<void> setVolume(int level) async {
+    // Optimistic update: update state immediately
     state = state.copyWith(volume: level);
     await _cli.execute(CliCommands.vol(level));
   }

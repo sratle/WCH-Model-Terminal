@@ -1,13 +1,27 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : main.c
-* Description        : Display-2 E-paper test.
-*                      Matches Arduino OKRA0583BNF686F0 sample flow.
+* Description        : Display-2 E-paper demo with MiniUI.
 *********************************************************************************
 * Copyright (c) 2021 Nanjing Qinheng Microelectronics Co., Ltd.
 *******************************************************************************/
 
 #include "debug.h"
 #include "../Common/Common/Eink/epaper.h"
+#include "../Common/Common/MiniUI/miniui.h"
+#include "../Common/Common/MiniUI/font/font_montserrat_12.h"
+#include "../Common/Common/MiniUI/font/font_montserrat_16.h"
+#include "../Common/Common/Games/games.h"
+
+/* ui_system functions */
+void ui_system_init(void);
+void ui_system_tick(void);
+
+/* UI page functions */
+void ui_main_init(void);
+
+/*=============================================================================
+ *  Main
+ *=============================================================================*/
 
 int main(void)
 {
@@ -15,26 +29,22 @@ int main(void)
     SystemCoreClockUpdate();
     Delay_Init();
 
-    USART_Printf_Init(921600);
-    Delay_Ms(500);
+    printf("\r\n=== Display-2 MiniUI Demo ===\r\n");
 
-    printf("\r\n=== Display-2 E-paper Test ===\r\n");
-    printf("SystemClk: %d\r\n", SystemCoreClock);
+    /* Initialize MiniUI system (includes e-paper init) */
+    ui_system_init();
 
-    Epaper_Init();
+    /* Initialize UI pages (home, settings, models, games, etc.) */
+    ui_main_init();
 
-    /* Clear white then update (matches Arduino flow) */
-    printf("\r\n--- ClearWhite + Update ---\r\n");
-    Epaper_ClearWhite();
-    Epaper_Update();
+    /* Initialize all game modules */
+    games_init_all();
 
-    /* Enter deep sleep */
-    Epaper_Sleep();
-
-    printf("\r\n=== Test done ===\r\n");
+    printf("[main] entering main loop\r\n");
 
     while (1)
     {
-        Delay_Ms(10000);
+        ui_system_tick();
+        Delay_Ms(50);  /* 20 FPS tick rate for E-ink */
     }
 }

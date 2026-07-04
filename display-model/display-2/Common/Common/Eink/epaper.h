@@ -62,6 +62,27 @@ void Epaper_Sleep(void);
  */
 void Epaper_WakeUp(void);
 
+/**
+ * @brief  Partial refresh: update a rectangular region.
+ *         Uses PDTM1 + PDTM2 + PDRF commands.
+ *         X and W must be multiples of 8.
+ * @param  x       X origin (must be multiple of 8)
+ * @param  y       Y origin
+ * @param  w       Width (must be multiple of 8)
+ * @param  h       Height
+ * @param  old_data  Old image data (1bpp, w/8 * h bytes), bit=0 white, bit=1 black
+ * @param  new_data  New image data (1bpp, w/8 * h bytes), bit=0 white, bit=1 black
+ */
+void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
+                           const uint8_t *old_data, const uint8_t *new_data);
+
+/**
+ * @brief  Full refresh with separate old/new images.
+ * @param  old_image  OLD data (EPD_FRAME_SIZE bytes), bit=0 white, bit=1 black
+ * @param  0=white, bit=1 black
+ */
+void Epaper_DisplayImageDiff(const uint8_t *old_image, const uint8_t *new_image);
+
 #ifdef __cplusplus
 }
 #endif

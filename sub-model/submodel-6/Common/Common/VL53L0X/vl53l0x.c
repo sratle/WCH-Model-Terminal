@@ -467,6 +467,174 @@ static void VL53L0X_GPIO_Diag(void)
     printf("[IR] Expected: SCL L=0 H=1, SDA L=0 H=1, XSHUT L=0 H=1\r\n");
 }
 
+/* DEBUG: Level shifter loopback test.
+ * The GY-VL53L0X-V2 module has BSS138 MOSFET level shifters.
+ * When MCU pulls SDA low, the signal must pass through the level shifter
+ * to reach the sensor. If the level shifter is not working (e.g. module's
+ * 2.8V regulator dead, or bad solder joint), the sensor never sees the signal.
+ *
+ * Test: pull SDA low via MCU, then check if SDA actually goes low.
+ * With open-drain + external pull-up, SDA should go low when we drive it.
+ * But if the level shifter is blocking, the MCU side goes low while
+ * the sensor side stays high — we can't detect this from MCU alone.
+ *
+ * However, we CAN detect if the module's pull-ups are present.
+ * Module pull-ups are on the VIN side (3.3V). If module is not connected
+ * or VIN not powered, only MCU's internal pull-up (very weak, ~40k) exists.
+ * With module connected and VIN=3.3V, SDA/SCL should have strong pull-ups
+ * (~10k on module). We can test this by configuring as input and checking. */
+static void VL53L0X_LevelShifterTest(void)
+{
+    GPIO_InitTypeDef gpio;
+
+    printf("[IR] Level shifter / connection test...\r\n");
+
+    /* Step 1: Configure SCL/SDA as floating input (no pull-up/pull-down) */
+    gpio.GPIO_Pin   = VL53L0X_SCL_PIN;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    gpio.GPIO_Mode  = GPIO_Mode_IN_FLOATING;
+    GPIO_Init(VL53L0X_SCL_PORT, &gpio);
+
+    gpio.GPIO_Pin   = VL53L0X_SDA_PIN;
+    GPIO_Init(VL53L0X_SDA_PORT, &gpio);
+
+    Delay_Ms(1);
+
+    /* Read idle state — should be HIGH if external pull-ups exist */
+    {
+        uint8_t scl_idle = GPIO_ReadInputDataBit(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN);
+        uint8_t sda_idle = GPIO_ReadInputDataBit(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);
+        printf("[IR] Floating input: SCL=%d SDA=%d (expect 1,1 if module pull-ups present)\r\n",
+               scl_idle, sda_idle);
+
+        if (scl_idle == 0 || sda_idle == 0)
+            printf("[IR] WARNING: No pull-ups detected! Module may not be connected or VIN not powered.\r\n");
+    }
+
+    /* Step 2: Test SDA drive strength.
+     * Configure SDA as push-pull output LOW for 1us, then switch to input.
+     * With strong external pull-up (module), SDA should return to HIGH quickly.
+     * Without pull-up, SDA may float or stay low due to capacitance. */
+    {
+        uint8_t sda_after_release;
+
+        /* Drive SDA low briefly */
+        gpio.GPIO_Pin   = VL53L0X_SDA_PIN;
+        gpio.GPIO_Mode  = GPIO_Mode_Out_PP;
+        GPIO_Init(VL53L0X_SDA_PORT, &gpio);
+        GPIO_ResetBits(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);
+        Delay_Us(10);
+
+        /* Release: switch to floating input */
+        gpio.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+        GPIO_Init(VL53L0X_SDA_PORT, &gpio);
+
+        /* Read immediately after release */
+        Delay_Us(5);
+        sda_after_release = GPIO_ReadInputDataBit(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);
+        printf("[IR] SDA after release (5us): %d (expect 1 if strong pull-up)\r\n", sda_after_release);
+
+        Delay_Us(100);
+        sda_after_release = GPIO_ReadInputDataBit(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);
+        printf("[IR] SDA after release (105us): %d\r\n", sda_after_release);
+    }
+
+    /* Step 3: Test SCL drive strength */
+    {
+        uint8_t scl_after_release;
+
+        gpio.GPIO_Pin   = VL53L0X_SCL_PIN;
+        gpio.GPIO_Mode  = GPIO_Mode_Out_PP;
+        GPIO_Init(VL53L0X_SCL_PORT, &gpio);
+        GPIO_ResetBits(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN);
+        Delay_Us(10);
+
+        gpio.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+        GPIO_Init(VL53L0X_SCL_PORT, &gpio);
+
+        Delay_Us(5);
+        scl_after_release = GPIO_ReadInputDataBit(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN);
+        printf("[IR] SCL after release (5us): %d (expect 1 if strong pull-up)\r\n", scl_after_release);
+    }
+
+    /* Step 4: Check XSHUT effect on I2C bus.
+     * When XSHUT is LOW, sensor is in HW STANDBY.
+     * In HW STANDBY, the sensor's I2C pins should be high-impedance
+     * (not driving the bus). The bus should still be pulled HIGH by
+     * the module's pull-ups. */
+    {
+        uint8_t scl_xshut_low, sda_xshut_low;
+
+        /* Drive XSHUT low */
+        gpio.GPIO_Pin   = VL53L0X_XSHUT_PIN;
+        gpio.GPIO_Mode  = GPIO_Mode_Out_PP;
+        GPIO_Init(VL53L0X_XSHUT_PORT, &gpio);
+        GPIO_ResetBits(VL53L0X_XSHUT_PORT, VL53L0X_XSHUT_PIN);
+        Delay_Ms(5);
+
+        /* Make sure SCL/SDA are floating inputs */
+        gpio.GPIO_Pin   = VL53L0X_SCL_PIN;
+        gpio.GPIO_Mode  = GPIO_Mode_IN_FLOATING;
+        GPIO_Init(VL53L0X_SCL_PORT, &gpio);
+        gpio.GPIO_Pin   = VL53L0X_SDA_PIN;
+        GPIO_Init(VL53L0X_SDA_PORT, &gpio);
+        Delay_Ms(1);
+
+        scl_xshut_low = GPIO_ReadInputDataBit(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN);
+        sda_xshut_low = GPIO_ReadInputDataBit(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);
+        printf("[IR] XSHUT=LOW: SCL=%d SDA=%d (expect 1,1 — pull-ups only)\r\n",
+               scl_xshut_low, sda_xshut_low);
+
+        /* Release XSHUT */
+        GPIO_SetBits(VL53L0X_XSHUT_PORT, VL53L0X_XSHUT_PIN);
+        Delay_Ms(5);
+
+        /* After boot (1.2ms), sensor should be in SW STANDBY.
+         * I2C pins should still be high-impedance (not driving). */
+        {
+            uint8_t scl_after_boot, sda_after_boot;
+            scl_after_boot = GPIO_ReadInputDataBit(VL53L0X_SCL_PORT, VL53L0X_SCL_PIN);
+            sda_after_boot = GPIO_ReadInputDataBit(VL53L0X_SDA_PORT, VL53L0X_SDA_PIN);
+            printf("[IR] XSHUT=HIGH (5ms after boot): SCL=%d SDA=%d\r\n",
+                   scl_after_boot, sda_after_boot);
+        }
+    }
+
+    /* Step 5: Check XSHUT and GPIO1 as floating inputs.
+     * On the module, XSHUT and GPIO1 have pull-ups to VDD (2.8V LDO output).
+     * If VDD is present, these pins should read 1 even as floating input.
+     * If VDD = 0V (LDO dead), module pull-ups won't work → pins float to 0.
+     * This is an indirect VDD presence test. */
+    {
+        uint8_t xshut_float, gpio1_float;
+
+        /* XSHUT as floating input */
+        gpio.GPIO_Pin   = VL53L0X_XSHUT_PIN;
+        gpio.GPIO_Mode  = GPIO_Mode_IN_FLOATING;
+        GPIO_Init(VL53L0X_XSHUT_PORT, &gpio);
+        Delay_Ms(1);
+        xshut_float = GPIO_ReadInputDataBit(VL53L0X_XSHUT_PORT, VL53L0X_XSHUT_PIN);
+
+        /* GPIO1 as floating input */
+        gpio.GPIO_Pin   = VL53L0X_GPIO1_PIN;
+        gpio.GPIO_Mode  = GPIO_Mode_IN_FLOATING;
+        GPIO_Init(VL53L0X_GPIO1_PORT, &gpio);
+        Delay_Ms(1);
+        gpio1_float = GPIO_ReadInputDataBit(VL53L0X_GPIO1_PORT, VL53L0X_GPIO1_PIN);
+
+        printf("[IR] VDD probe: XSHUT(float)=%d GPIO1(float)=%d (expect 1,1 if VDD present)\r\n",
+               xshut_float, gpio1_float);
+
+        if (xshut_float == 0 || gpio1_float == 0)
+            printf("[IR] WARNING: VDD may be 0V! Module LDO might be dead. Measure VDD pin with multimeter.\r\n");
+    }
+
+    /* Restore GPIO configuration */
+    VL53L0X_GPIO_Init();
+
+    printf("[IR] Level shifter test done\r\n");
+}
+
 /* VL53L0X initialization sequence — default ranging mode
  * Based on ST VL53L0X API VL53L0X_DataInit() + VL53L0X_StaticInit() +
  * VL53L0X_PerformRefCalibration() + VL53L0X_SetDeviceMode() defaults.
@@ -485,21 +653,15 @@ void VL53L0X_Init(void)
     /* DEBUG: Verify GPIO pins are actually driving */
     VL53L0X_GPIO_Diag();
 
-    /* Hardware reset via XSHUT — monitor GPIO1 to see if sensor is alive */
-    printf("[IR] XSHUT reset with GPIO1 monitor...\r\n");
-    printf("[IR] GPIO1 before reset: %d\r\n",
-           GPIO_ReadInputDataBit(VL53L0X_GPIO1_PORT, VL53L0X_GPIO1_PIN));
+    /* DEBUG: Level shifter / connection test (checks pull-ups and signal path) */
+    VL53L0X_LevelShifterTest();
+
+    /* Hardware reset via XSHUT */
+    printf("[IR] XSHUT reset...\r\n");
     GPIO_ResetBits(VL53L0X_XSHUT_PORT, VL53L0X_XSHUT_PIN);
     Delay_Ms(10);
-    printf("[IR] GPIO1 during reset (XSHUT low): %d\r\n",
-           GPIO_ReadInputDataBit(VL53L0X_GPIO1_PORT, VL53L0X_GPIO1_PIN));
     GPIO_SetBits(VL53L0X_XSHUT_PORT, VL53L0X_XSHUT_PIN);
-    Delay_Ms(5);
-    printf("[IR] GPIO1 5ms after release: %d\r\n",
-           GPIO_ReadInputDataBit(VL53L0X_GPIO1_PORT, VL53L0X_GPIO1_PIN));
-    Delay_Ms(45);
-    printf("[IR] GPIO1 50ms after release: %d\r\n",
-           GPIO_ReadInputDataBit(VL53L0X_GPIO1_PORT, VL53L0X_GPIO1_PIN));
+    Delay_Ms(50);  /* tBOOT = 1.2ms max, wait 50ms to be safe */
 
     /* DEBUG: Bus recovery in case sensor is stuck */
     VL53L0X_I2C_BusRecovery();
@@ -509,221 +671,6 @@ void VL53L0X_Init(void)
 
     /* DEBUG: Scan with SCL/SDA swapped to detect wiring swap */
     VL53L0X_I2C_ScanSwapped();
-
-    /* DEBUG: Ultra-slow I2C scan (10ms per half-cycle) to rule out timing */
-    {
-        uint8_t addr, found = 0;
-        printf("[IR] Ultra-slow I2C scan (10ms/bit)...\r\n");
-        for (addr = 0x20; addr <= 0x30; addr++)
-        {
-            uint8_t byte = addr << 1;
-            uint8_t i, ack_val;
-
-            /* START */
-            SDA_H(); SCL_H(); Delay_Ms(10);
-            SDA_L(); Delay_Ms(10);
-            SCL_L(); Delay_Ms(10);
-
-            /* Send address byte */
-            for (i = 0; i < 8; i++)
-            {
-                if (byte & 0x80) SDA_H(); else SDA_L();
-                byte <<= 1;
-                Delay_Ms(10);
-                SCL_H(); Delay_Ms(10);
-                SCL_L(); Delay_Ms(10);
-            }
-
-            /* ACK */
-            SDA_H(); Delay_Ms(10);
-            SCL_H(); Delay_Ms(10);
-            ack_val = SDA_READ();
-            SCL_L(); Delay_Ms(10);
-
-            if (ack_val == 0)
-            {
-                printf("[IR]   Device at 0x%02X (ultra-slow)\r\n", addr);
-                found++;
-            }
-
-            /* STOP */
-            SDA_L(); Delay_Ms(10);
-            SCL_H(); Delay_Ms(10);
-            SDA_H(); Delay_Ms(10);
-        }
-        if (found == 0)
-            printf("[IR]   No device found (ultra-slow)\r\n");
-    }
-
-    /* DEBUG: Brute-force scan — try every PB pin pair as SCL/SDA
-     * This finds the sensor even if PCB traces go to unexpected pins.
-     * NOTE: floating pins (no pull-up) will read 0 when released → false ACK.
-     * Only trust hits on pins with external pull-ups (PB12-PB15). */
-    {
-        /* GPIOB pin mapping: bit position to GPIO_Pin_x */
-        static const uint16_t pb_pins[] = {
-            GPIO_Pin_0,  GPIO_Pin_1,  GPIO_Pin_2,  GPIO_Pin_3,
-            GPIO_Pin_4,  GPIO_Pin_5,  GPIO_Pin_6,  GPIO_Pin_7,
-            GPIO_Pin_8,  GPIO_Pin_9,  GPIO_Pin_10, GPIO_Pin_11,
-            GPIO_Pin_12, GPIO_Pin_13, GPIO_Pin_14, GPIO_Pin_15
-        };
-        uint8_t scl_idx, sda_idx;
-
-        printf("[IR] Brute-force I2C scan on ALL GPIOB pin pairs...\r\n");
-
-        for (scl_idx = 0; scl_idx < 16; scl_idx++)
-        {
-            for (sda_idx = 0; sda_idx < 16; sda_idx++)
-            {
-                if (scl_idx == sda_idx) continue;
-
-                GPIO_InitTypeDef gpio;
-                uint8_t byte = 0x52; /* VL53L0X write addr */
-                uint8_t i, ack_val;
-
-                /* Configure both pins as open-drain output */
-                gpio.GPIO_Pin   = pb_pins[scl_idx];
-                gpio.GPIO_Speed = GPIO_Speed_50MHz;
-                gpio.GPIO_Mode  = GPIO_Mode_Out_OD;
-                GPIO_Init(GPIOB, &gpio);
-
-                gpio.GPIO_Pin   = pb_pins[sda_idx];
-                GPIO_Init(GPIOB, &gpio);
-
-                /* Both high (idle) */
-                GPIO_SetBits(GPIOB, pb_pins[scl_idx] | pb_pins[sda_idx]);
-                Delay_Ms(1);
-
-                /* START: SDA low while SCL high */
-                GPIO_ResetBits(GPIOB, pb_pins[sda_idx]);
-                Delay_Ms(1);
-                GPIO_ResetBits(GPIOB, pb_pins[scl_idx]);
-                Delay_Ms(1);
-
-                /* Send 0x52 (VL53L0X write address) */
-                for (i = 0; i < 8; i++)
-                {
-                    if (byte & 0x80)
-                        GPIO_SetBits(GPIOB, pb_pins[sda_idx]);
-                    else
-                        GPIO_ResetBits(GPIOB, pb_pins[sda_idx]);
-                    byte <<= 1;
-                    Delay_Ms(1);
-                    GPIO_SetBits(GPIOB, pb_pins[scl_idx]);
-                    Delay_Ms(1);
-                    GPIO_ResetBits(GPIOB, pb_pins[scl_idx]);
-                    Delay_Ms(1);
-                }
-
-                /* ACK: release SDA, clock SCL, read SDA */
-                GPIO_SetBits(GPIOB, pb_pins[sda_idx]);
-                Delay_Ms(1);
-                GPIO_SetBits(GPIOB, pb_pins[scl_idx]);
-                Delay_Ms(1);
-                ack_val = GPIO_ReadInputDataBit(GPIOB, pb_pins[sda_idx]);
-                GPIO_ResetBits(GPIOB, pb_pins[scl_idx]);
-                Delay_Ms(1);
-
-                if (ack_val == 0)
-                {
-                    printf("[IR]   *** FOUND at 0x29: SCL=PB%d SDA=PB%d ***\r\n",
-                           scl_idx, sda_idx);
-                }
-
-                /* STOP */
-                GPIO_ResetBits(GPIOB, pb_pins[sda_idx]);
-                Delay_Ms(1);
-                GPIO_SetBits(GPIOB, pb_pins[scl_idx]);
-                Delay_Ms(1);
-                GPIO_SetBits(GPIOB, pb_pins[sda_idx]);
-                Delay_Ms(1);
-            }
-        }
-        printf("[IR] Brute-force scan done\r\n");
-    }
-
-    /* DEBUG: Also scan GPIOA — sensor might be on PA pins */
-    {
-        static const uint16_t pa_pins[] = {
-            GPIO_Pin_0,  GPIO_Pin_1,  GPIO_Pin_2,  GPIO_Pin_3,
-            GPIO_Pin_4,  GPIO_Pin_5,  GPIO_Pin_6,  GPIO_Pin_7,
-            GPIO_Pin_8,  GPIO_Pin_11, GPIO_Pin_12, GPIO_Pin_15
-            /* Skip PA9/PA10 (UART1), PA13/PA14 (SWD) */
-        };
-        uint8_t scl_idx, sda_idx, num_pins = sizeof(pa_pins)/sizeof(pa_pins[0]);
-
-        printf("[IR] Brute-force I2C scan on GPIOA pin pairs...\r\n");
-
-        RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
-
-        for (scl_idx = 0; scl_idx < num_pins; scl_idx++)
-        {
-            for (sda_idx = 0; sda_idx < num_pins; sda_idx++)
-            {
-                if (scl_idx == sda_idx) continue;
-
-                GPIO_InitTypeDef gpio;
-                uint8_t byte = 0x52;
-                uint8_t i, ack_val;
-
-                gpio.GPIO_Pin   = pa_pins[scl_idx];
-                gpio.GPIO_Speed = GPIO_Speed_50MHz;
-                gpio.GPIO_Mode  = GPIO_Mode_Out_OD;
-                GPIO_Init(GPIOA, &gpio);
-
-                gpio.GPIO_Pin   = pa_pins[sda_idx];
-                GPIO_Init(GPIOA, &gpio);
-
-                GPIO_SetBits(GPIOA, pa_pins[scl_idx] | pa_pins[sda_idx]);
-                Delay_Ms(1);
-
-                GPIO_ResetBits(GPIOA, pa_pins[sda_idx]);
-                Delay_Ms(1);
-                GPIO_ResetBits(GPIOA, pa_pins[scl_idx]);
-                Delay_Ms(1);
-
-                for (i = 0; i < 8; i++)
-                {
-                    if (byte & 0x80) GPIO_SetBits(GPIOA, pa_pins[sda_idx]);
-                    else             GPIO_ResetBits(GPIOA, pa_pins[sda_idx]);
-                    byte <<= 1;
-                    Delay_Ms(1);
-                    GPIO_SetBits(GPIOA, pa_pins[scl_idx]);
-                    Delay_Ms(1);
-                    GPIO_ResetBits(GPIOA, pa_pins[scl_idx]);
-                    Delay_Ms(1);
-                }
-
-                GPIO_SetBits(GPIOA, pa_pins[sda_idx]);
-                Delay_Ms(1);
-                GPIO_SetBits(GPIOA, pa_pins[scl_idx]);
-                Delay_Ms(1);
-                ack_val = GPIO_ReadInputDataBit(GPIOA, pa_pins[sda_idx]);
-                GPIO_ResetBits(GPIOA, pa_pins[scl_idx]);
-                Delay_Ms(1);
-
-                if (ack_val == 0)
-                {
-                    /* Verify: check if SDA pin has a real pull-up (reads 1 when released alone) */
-                    GPIO_SetBits(GPIOA, pa_pins[sda_idx]);
-                    Delay_Ms(1);
-                    if (GPIO_ReadInputDataBit(GPIOA, pa_pins[sda_idx]) == 1)
-                    {
-                        printf("[IR]   *** FOUND at 0x29: SCL=PA%d SDA=PA%d (verified) ***\r\n",
-                               scl_idx, sda_idx);
-                    }
-                }
-
-                GPIO_ResetBits(GPIOA, pa_pins[sda_idx]);
-                Delay_Ms(1);
-                GPIO_SetBits(GPIOA, pa_pins[scl_idx]);
-                Delay_Ms(1);
-                GPIO_SetBits(GPIOA, pa_pins[sda_idx]);
-                Delay_Ms(1);
-            }
-        }
-        printf("[IR] GPIOA scan done\r\n");
-    }
 
     /* DEBUG: Raw I2C transaction trace for address 0x29 */
     VL53L0X_I2C_RawDebug();

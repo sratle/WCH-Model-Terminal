@@ -1,4 +1,5 @@
 #include "nfc.h"
+#include "../Uart/uart_core.h"
 #include <string.h>
 
 nfc_ctx_t nfc_ctx;
@@ -62,92 +63,8 @@ void Nfc_Init(void)
 
 void Nfc_ParseByte(uint8_t byte)
 {
-    switch (nfc_ctx.parse_state)
-    {
-        case NFC_PARSE_WAIT_HEAD:
-        {
-            if (byte == NFC_FRAME_HEAD)
-            {
-                nfc_ctx.frame_buf[0] = byte;
-                nfc_ctx.frame_idx = 1;
-                nfc_ctx.parse_state = NFC_PARSE_WAIT_ROUTE;
-            }
-            break;
-        }
-
-        case NFC_PARSE_WAIT_ROUTE:
-        {
-            if (byte >= NFC_ROUTE_MIN && byte <= NFC_ROUTE_MAX)
-            {
-                nfc_ctx.frame_buf[1] = byte;
-                nfc_ctx.frame_idx = 2;
-                nfc_ctx.parse_state = NFC_PARSE_WAIT_CARD_0;
-            }
-            else
-            {
-                nfc_ctx.parse_state = NFC_PARSE_WAIT_HEAD;
-            }
-            break;
-        }
-
-        case NFC_PARSE_WAIT_CARD_0:
-            nfc_ctx.frame_buf[2] = byte;
-            nfc_ctx.frame_idx = 3;
-            nfc_ctx.parse_state = NFC_PARSE_WAIT_CARD_1;
-            break;
-
-        case NFC_PARSE_WAIT_CARD_1:
-            nfc_ctx.frame_buf[3] = byte;
-            nfc_ctx.frame_idx = 4;
-            nfc_ctx.parse_state = NFC_PARSE_WAIT_CARD_2;
-            break;
-
-        case NFC_PARSE_WAIT_CARD_2:
-            nfc_ctx.frame_buf[4] = byte;
-            nfc_ctx.frame_idx = 5;
-            nfc_ctx.parse_state = NFC_PARSE_WAIT_CARD_3;
-            break;
-
-        case NFC_PARSE_WAIT_CARD_3:
-            nfc_ctx.frame_buf[5] = byte;
-            nfc_ctx.frame_idx = 6;
-            nfc_ctx.parse_state = NFC_PARSE_WAIT_CARD_4;
-            break;
-
-        case NFC_PARSE_WAIT_CARD_4:
-            nfc_ctx.frame_buf[6] = byte;
-            nfc_ctx.frame_idx = 7;
-            nfc_ctx.parse_state = NFC_PARSE_WAIT_PARITY;
-            break;
-
-        case NFC_PARSE_WAIT_PARITY:
-        {
-            uint8_t parity = 0;
-            uint8_t i;
-
-            nfc_ctx.frame_buf[7] = byte;
-
-            /* XOR parity check: parity = frame_buf[0] ^ [1] ^ ... ^ [6] */
-            for (i = 0; i < 7; i++)
-                parity ^= nfc_ctx.frame_buf[i];
-
-            if (parity == byte)
-            {
-                /* Valid frame: extract card_number first, card_id last.
-                 * Main loop uses card_id != 0 as "new data ready" flag,
-                 * so card_number must be written before card_id. */
-                memcpy(nfc_ctx.card_number, &nfc_ctx.frame_buf[2], 5);
-                nfc_ctx.card_id = nfc_ctx.frame_buf[1] - NFC_ROUTE_MIN + 1;
-            }
-
-            nfc_ctx.parse_state = NFC_PARSE_WAIT_HEAD;
-            break;
-        }
-
-        default:
-            nfc_ctx.parse_state = NFC_PARSE_WAIT_HEAD;
-            break;
-    }
+    /* Raw passthrough: forward every byte from UART2 to UART1 */
+    UartCore_SendData(&byte, 1);
 }
 
 /* ---- Debounce & card-absent logic (called from main loop) ---- */

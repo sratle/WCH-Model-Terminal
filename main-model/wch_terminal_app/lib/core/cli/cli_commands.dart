@@ -40,4 +40,8 @@ class CliCommands {
   // ── echo 重定向（文本编辑保存用）──
   static String echoOverwrite(String text, String file) => 'echo "$text" > "$file"';
   static String echoAppend(String text, String file) => 'echo "$text" >> "$file"';
+
+  // ── Images（BMP 浏览器）──
+  static String bmpLs() => 'bmp ls';
+  static String bmpGet(String name) => 'bmp get "$name"';
 }

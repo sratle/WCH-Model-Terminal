@@ -12,6 +12,15 @@ void Hardware_Init(void)
 {
     UartCore_Init();
     Nfc_Init();
+
+    /* Boot debug banner */
+    {
+        const char *msg = "\r\n[SUB3-NFC] boot ok  UART1=230400  UART2=9600  passthrough\r\n";
+        const uint8_t *p = (const uint8_t *)msg;
+        uint16_t i = 0;
+        while (p[i]) i++;
+        UartCore_SendData(p, i);
+    }
 }
 
 static void SendGetTypeResponse(const protocol_frame_t *req)
