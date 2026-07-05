@@ -123,9 +123,14 @@ static void epaper_write_tdy(uint8_t addr, uint8_t val)
 /* Ensure the panel is powered on.  Skips PON if already powered. */
 static void epaper_ensure_power_on(void)
 {
-    if (s_epd_powered_on) return;
+    if (s_epd_powered_on) {
+        printf("[epd] pon: skip (already powered), BUSY=%d\r\n", Epd_Is_Busy());
+        return;
+    }
+    printf("[epd] pon: sending PON, BUSY before=%d\r\n", Epd_Is_Busy());
     Epaper_Hw_WriteCmd(0x04);               /* PON */
-    Epaper_Hw_WaitBusy(5000);
+    int ret = Epaper_Hw_WaitBusy(5000);
+    printf("[epd] pon: wait ret=%d, BUSY after=%d\r\n", ret, Epd_Is_Busy());
     s_epd_powered_on = true;
 }
 
@@ -136,10 +141,15 @@ static void epaper_ensure_power_on(void)
 /*********************************************************************
  * @fn      Epaper_Init
  *
- * @brief   Full initialization: HW reset + TDY registers + panel
- *          registers (PSR/PWR/BTST/OSC/TRES/VDCS/PWS/TCON) + fast LUT.
- *          Uses register LUT (REG_EN=1) with a 10-frame waveform for
- *          fast refresh (~200ms per update).
+ * @brief   Minimal initialization matching vendor reference code.
+ *          Only HW reset + TDY commands (which are NOT stored in OTP
+ *          and must be written every init).  All other registers
+ *          (PSR, PWR, LUT, etc.) use OTP defaults.
+ *
+ *          This is the conservative approach — the vendor EPD.c does
+ *          only HW_RESET + READBUSY, so we know OTP defaults work.
+ *          The fast LUT experiment caused total=0ms (no refresh),
+ *          so we revert to OTP LUT for correctness.
  */
 void Epaper_Init(void)
 {
@@ -160,81 +170,13 @@ void Epaper_Init(void)
     epaper_write_tdy(0xA8, 0x3A);  /* r_partial_all_gate_en */
     epaper_write_tdy(0x88, 0x06);  /* Power-off Vcom discharge to GND */
 
-    /* ---- Panel registers ---- */
+    /* Use OTP defaults for PSR/PWR/LUT/etc.  Do NOT write register LUT
+     * — the previous attempt with REG_EN=1 + custom LUT caused PDRF
+     * to not trigger (total=0ms, no actual refresh). */
 
-    /* PSR (R00H): BW mode + register LUT
-     *   Bit 7-6 RES[1:0]  = 10
-     *   Bit 5   REG_EN    = 1  (use register LUT, not OTP)
-     *   Bit 4   BWR       = 1  (B/W only mode — required for DFV_EN)
-     *   Bit 3   UD        = 1  (scan up)
-     *   Bit 2   SHL       = 1  (shift right)
-     *   Bit 1   SHD_N     = 1  (booster on)
-     *   Bit 0   RST_N     = 1  (no effect)
-     */
-    Epaper_Hw_WriteCmd(0x00);
-    Epaper_Hw_WriteData(0xBF);
+    s_epd_powered_on = false;
 
-    /* PWR (R01H): power setting
-     *   VDS_EN=1, VDG_EN=1 (internal DC/DC for source and gate)
-     *   VGHL_LV=000 (VGH=+20V, VGL=-20V)
-     *   VSH=0x3F (+15V), VSL=0x3F (-15V), VSHR=0x28 (5V)
-     */
-    Epaper_Hw_WriteCmd(0x01);
-    Epaper_Hw_WriteData(0x03);
-    Epaper_Hw_WriteData(0x00);
-    Epaper_Hw_WriteData(0x3F);
-    Epaper_Hw_WriteData(0x3F);
-    Epaper_Hw_WriteData(0x28);
-
-    /* BTST (R06H): booster soft start */
-    Epaper_Hw_WriteCmd(0x06);
-    Epaper_Hw_WriteData(0x57);
-    Epaper_Hw_WriteData(0x63);
-    Epaper_Hw_WriteData(0x31);
-
-    /* OSC (R30H): frame rate = 50Hz (M=7, N=4) */
-    Epaper_Hw_WriteCmd(0x30);
-    Epaper_Hw_WriteData(0x3C);
-
-    /* CDI (R50H) */
-    Epaper_Hw_WriteCmd(0x50);
-    Epaper_Hw_WriteData(0x57);
-
-    /* TRES (R61H): 648 x 480 resolution */
-    Epaper_Hw_WriteCmd(0x61);
-    Epaper_Hw_WriteData(0x02);
-    Epaper_Hw_WriteData(0x88);
-    Epaper_Hw_WriteData(0x01);
-    Epaper_Hw_WriteData(0xE0);
-
-    /* VDCS (R82H): VCOM DC = -2.3V */
-    Epaper_Hw_WriteCmd(0x82);
-    Epaper_Hw_WriteData(0x2C);
-
-    /* PWS (RE8H): power saving */
-    Epaper_Hw_WriteCmd(0xE8);
-    Epaper_Hw_WriteData(0x40);
-
-    /* TCON (R60H): TCON setting */
-    Epaper_Hw_WriteCmd(0x60);
-    Epaper_Hw_WriteData(0x04);
-
-    /* ---- Fast LUT registers (R20H - R24H) ---- */
-    Epaper_Hw_WriteCmd(0x20);
-    Epaper_Hw_WriteDataBuf(LUT_FAST_C, 42);
-    Epaper_Hw_WriteCmd(0x21);
-    Epaper_Hw_WriteDataBuf(LUT_FAST_WW, 42);
-    Epaper_Hw_WriteCmd(0x22);
-    Epaper_Hw_WriteDataBuf(LUT_FAST_BW, 42);
-    Epaper_Hw_WriteCmd(0x23);
-    Epaper_Hw_WriteDataBuf(LUT_FAST_WB, 42);
-    Epaper_Hw_WriteCmd(0x24);
-    Epaper_Hw_WriteDataBuf(LUT_FAST_BB, 42);
-
-    s_epd_powered_on = false;  /* Panel not powered yet until first PON */
-
-    printf("[epd] init done: BW mode, REG_EN=1, fast LUT (%d frames @ 50Hz = %dms)\r\n",
-           FAST_LUT_FRAMES, FAST_LUT_FRAMES * 20);
+    printf("[epd] init done: OTP defaults (vendor-style)\r\n");
 }
 
 /*********************************************************************
@@ -251,13 +193,11 @@ void Epaper_ClearWhite(void)
     for (j = 0; j < EPD_HEIGHT; j++)
         for (i = 0; i < EPD_ROW_BYTES; i++)
             Epaper_Hw_WriteData(0x00);    /* old = black (panel: 0x00) */
-    Epaper_Hw_WriteCmd(0x11);  /* DSP: data stop */
 
     Epaper_Hw_WriteCmd(0x13);
     for (j = 0; j < EPD_HEIGHT; j++)
         for (i = 0; i < EPD_ROW_BYTES; i++)
             Epaper_Hw_WriteData(0xFF);    /* new = white (panel: 0xFF) */
-    Epaper_Hw_WriteCmd(0x11);  /* DSP: data stop */
 }
 
 /*********************************************************************
@@ -273,12 +213,10 @@ void Epaper_DisplayImage(const uint8_t *image)
     Epaper_Hw_WriteCmd(0x10);
     for (i = 0; i < EPD_FRAME_SIZE; i++)
         Epaper_Hw_WriteData(~image[i]);
-    Epaper_Hw_WriteCmd(0x11);  /* DSP: data stop */
 
     Epaper_Hw_WriteCmd(0x13);
     for (i = 0; i < EPD_FRAME_SIZE; i++)
         Epaper_Hw_WriteData(~image[i]);
-    Epaper_Hw_WriteCmd(0x11);  /* DSP: data stop */
 }
 
 /*********************************************************************
@@ -293,9 +231,12 @@ void Epaper_Update(void)
 {
     int ret;
     uint32_t t0 = ui_get_real_ms();
+    printf("[epd] update: PON start, BUSY=%d\r\n", Epd_Is_Busy());
     epaper_ensure_power_on();
     uint32_t t_pon = ui_get_real_ms() - t0;
+    printf("[epd] update: DRF start, BUSY=%d\r\n", Epd_Is_Busy());
     Epaper_Hw_WriteCmd(0x12);
+    printf("[epd] update: DRF sent, BUSY right after=%d\r\n", Epd_Is_Busy());
     ret = Epaper_Hw_WaitBusy(10000);
     uint32_t t_total = ui_get_real_ms() - t0;
     printf("[epd] update(full): pon=%lums drf_wait=%d total=%lums\r\n",
@@ -308,10 +249,17 @@ void Epaper_Update(void)
  * @brief   Partial refresh using PDTM1 + PDTM2 + PDRF.
  *          Reads rectangular region data directly from full frame buffers.
  *
- *          Datasheet display flow (section 2.1):
+ *          Display flow (verified working — NO DSP/0x11 command):
  *            PDTM1(R14h) + PDTM2(R15h)
  *            -> PON(R04h) [wait BUSY]   (skipped if already powered)
  *            -> PDRF(R16h) [wait BUSY]
+ *
+ *          NOTE: Datasheet mentions "must send command 11H" after data
+ *          transmission, but sending 0x11 causes PDRF to NOT trigger
+ *          (BUSY never goes LOW, refresh completes in 0ms with no actual
+ *          screen update).  The vendor reference code (EPD.c) also does
+ *          NOT send 0x11.  CS toggling per byte is sufficient to signal
+ *          end of data transmission.
  *
  *          POF is NOT sent after each partial refresh — the panel stays
  *          powered between refreshes for fast consecutive updates.  POF is
@@ -354,8 +302,6 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
             Epaper_Hw_WriteData(~src[col]);
         }
     }
-    /* DSP: signal data transmission complete (datasheet: "must send 11H") */
-    Epaper_Hw_WriteCmd(0x11);
 
     /* PDTM2: NEW data (inverted to match panel format) */
     Epaper_Hw_WriteCmd(0x15);
@@ -366,8 +312,6 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
             Epaper_Hw_WriteData(~src[col]);
         }
     }
-    /* DSP: signal data transmission complete */
-    Epaper_Hw_WriteCmd(0x11);
 
     t_data = ui_get_real_ms() - t0;
 
@@ -376,6 +320,7 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
     t_pon = ui_get_real_ms() - t0;
 
     /* PDRF: trigger partial refresh with DFV_EN=1 */
+    printf("[epd] pdrf: sending, BUSY before=%d\r\n", Epd_Is_Busy());
     Epaper_Hw_WriteCmd(0x16);
     Epaper_Hw_WriteData(((1 << 7) | ((x >> 8) & 0x03)));  /* DFV_EN=1 + x[9:8] */
     Epaper_Hw_WriteData(x & 0xF8);
@@ -385,7 +330,9 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
     Epaper_Hw_WriteData(w & 0xF8);
     Epaper_Hw_WriteData((h >> 8) & 0x03);
     Epaper_Hw_WriteData(h & 0xFF);
-    Epaper_Hw_WaitBusy(3000);
+    printf("[epd] pdrf: sent, BUSY right after=%d\r\n", Epd_Is_Busy());
+    int ret = Epaper_Hw_WaitBusy(3000);
+    printf("[epd] pdrf: wait ret=%d\r\n", ret);
 
     t_refresh = ui_get_real_ms() - t0;
     printf("[epd] partial(%d,%d,%d,%d) data=%lums pon=%lums total=%lums\r\n",
@@ -406,12 +353,10 @@ void Epaper_DisplayImageDiff(const uint8_t *old_image, const uint8_t *new_image)
     Epaper_Hw_WriteCmd(0x10);
     for (i = 0; i < EPD_FRAME_SIZE; i++)
         Epaper_Hw_WriteData(~old_image[i]);
-    Epaper_Hw_WriteCmd(0x11);  /* DSP: data stop */
     printf("[epd] diff: dtm2 start\r\n");
     Epaper_Hw_WriteCmd(0x13);
     for (i = 0; i < EPD_FRAME_SIZE; i++)
         Epaper_Hw_WriteData(~new_image[i]);
-    Epaper_Hw_WriteCmd(0x11);  /* DSP: data stop */
     printf("[epd] diff: done\r\n");
 }
 
