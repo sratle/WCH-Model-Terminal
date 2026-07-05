@@ -253,6 +253,7 @@ void ui_page_invalidate(const ui_rect_t *rect)
     if (s_dirty_list.count < UI_MAX_DIRTY_REGIONS) {
         s_dirty_list.regions[s_dirty_list.count++] = r;
     } else {
+        printf("[page] dirty list full (%d), falling back to full screen\r\n", UI_MAX_DIRTY_REGIONS);
         s_dirty_list.regions[0].x = 0;
         s_dirty_list.regions[0].y = 0;
         s_dirty_list.regions[0].w = UI_SCREEN_WIDTH;
@@ -263,6 +264,7 @@ void ui_page_invalidate(const ui_rect_t *rect)
 
 void ui_page_invalidate_all(void)
 {
+    printf("[page] invalidate_all (full screen)\r\n");
     s_dirty_list.regions[0].x = 0;
     s_dirty_list.regions[0].y = 0;
     s_dirty_list.regions[0].w = UI_SCREEN_WIDTH;
@@ -320,6 +322,8 @@ static void flush_dirty_region_to_epd(const ui_rect_t *dirty)
     /* Send partial refresh directly from frame buffers.
      * The driver reads the rectangular region using the frame stride
      * (EPD_ROW_BYTES) and inverts data to match the panel pixel format. */
+    printf("[page] partial refresh: (%d,%d,%d,%d) %u bytes\r\n",
+           r.x, r.y, r.w, r.h, (uint32_t)row_bytes * r.h);
     Epaper_PartialRefresh(r.x, r.y, r.w, r.h, frame_old, frame_new);
 
     /* Update old buffer to match new for the refreshed region, so the next

@@ -167,7 +167,12 @@ bool ui_main_handle_event(ui_event_t *e)
         ex = e->mouse.pos.x; ey = e->mouse.pos.y;
     }
 
-    if (e->type == UI_EVENT_CLICK || e->type == UI_EVENT_TOUCH_UP) {
+    /* Only switch pages on a synthesized CLICK (quick tap with minimal
+     * movement), NOT on raw TOUCH_UP.  In touchpad (relative displacement)
+     * mode, every finger lift produces a TOUCH_UP — reacting to it would
+     * trigger a page switch every time the cursor happens to be over the
+     * sidebar when the finger is lifted, even after a long drag. */
+    if (e->type == UI_EVENT_CLICK) {
         if (ex < SIDEBAR_WIDTH) {
             int item_idx = (ey - 80) / SIDEBAR_ITEM_HEIGHT;
             if (item_idx >= 0 && item_idx < SIDEBAR_ITEM_COUNT) {
@@ -183,17 +188,11 @@ bool ui_main_handle_event(ui_event_t *e)
         }
     }
 
-    /* Swipe navigation: cycle pages */
-    if (e->type == UI_EVENT_SWIPE_UP) {
-        menu_item_t next = (menu_item_t)((s_active_menu + 1) % SIDEBAR_ITEM_COUNT);
-        ui_main_set_menu(next);
-        return true;
-    }
-    if (e->type == UI_EVENT_SWIPE_DOWN) {
-        menu_item_t prev = (menu_item_t)((s_active_menu + SIDEBAR_ITEM_COUNT - 1) % SIDEBAR_ITEM_COUNT);
-        ui_main_set_menu(prev);
-        return true;
-    }
+    /* Swipe navigation is intentionally DISABLED in touchpad (relative
+     * displacement) mode.  The touchpad sensitivity (40-60px per grid step)
+     * means a single step can exceed the 60px swipe threshold, causing
+     * accidental page switches on every cursor move.  Page navigation
+     * is done exclusively via sidebar CLICK events. */
 
     return false;
 }
