@@ -98,6 +98,14 @@ void ui_draw_text_in_rect_bg(const ui_rect_t *rect, const char *text, const ui_f
 int16_t ui_text_width(const char *text, const ui_font_t *font);
 
 /*=============================================================================
+ *  Touch Cursor Drawing
+ *=============================================================================*/
+
+/* Draw a small arrow cursor at (x, y) with white outline + black fill.
+ * Cursor size: 8x11 pixels + 1px outline = 10x13 dirty region. */
+void ui_draw_touch_cursor(int16_t x, int16_t y);
+
+/*=============================================================================
  *  E-ink Refresh Operations
  *=============================================================================*/
 

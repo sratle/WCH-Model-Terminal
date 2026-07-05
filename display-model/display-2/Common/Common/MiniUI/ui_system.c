@@ -9,6 +9,7 @@
 ********************************************************************************/
 #include "miniui.h"
 #include "../Eink/epaper.h"
+#include "../Touch/touch_matrix.h"
 #include "debug.h"
 #include "ch32v30x.h"
 
@@ -42,6 +43,10 @@ void ui_system_init(void)
     ui_input_init();
     printf("[ui_system] MiniUI modules initialized\r\n");
 
+    /* 4. Initialize touch matrix (TTP229 dual-chip) */
+    TouchMatrix_Init();
+    printf("[ui_system] touch matrix initialized\r\n");
+
     s_last_tick = ui_get_real_ms();
     s_initialized = true;
 
@@ -64,14 +69,23 @@ void ui_system_tick(void)
     uint32_t dt = now - s_last_tick;
     s_last_tick = now;
 
+    /* Scan touch matrix (feeds events to input system) */
+    TouchMatrix_Scan();
+
     /* Update current page */
     ui_page_t *page = ui_page_current();
     if (page && page->on_update) {
         page->on_update(page, dt);
     }
 
+    /* Invalidate cursor dirty regions before rendering (erase old + draw new) */
+    TouchMatrix_InvalidateCursor();
+
     /* Draw dirty regions (partial refresh to e-paper) */
     ui_page_draw();
+
+    /* Update cursor rendered position after drawing */
+    TouchMatrix_CursorRendered();
 
     /* Process input */
     ui_input_process();

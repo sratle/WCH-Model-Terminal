@@ -239,19 +239,25 @@ static void icon_button_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
         ui_draw_rect(&w->rect, bg, UI_COLOR_BLACK, 1);
     }
 
-    /* Draw icon */
-    if (btn->icon_bitmap) {
-        ui_draw_icon_in_rect(&w->rect, btn->icon_bitmap, btn->icon_w, btn->icon_h, btn->icon_color);
+    /* Split button into icon area (top) and text area (bottom) so they
+     * never overlap. Previously the icon was centered in the full button
+     * rect, which collided with the text drawn below it. */
+    int16_t text_h    = (btn->text && btn->font) ? (btn->font->height + 6) : 0;
+    int16_t icon_area_h = w->rect.h - text_h;
+
+    /* Draw icon centered in the upper area */
+    if (btn->icon_bitmap && icon_area_h > 0) {
+        ui_rect_t icon_rect = { w->rect.x, w->rect.y, w->rect.w, icon_area_h };
+        ui_draw_icon_in_rect(&icon_rect, btn->icon_bitmap,
+                             btn->icon_w, btn->icon_h, btn->icon_color);
     }
 
-    /* Draw text below icon */
-    if (btn->text && btn->font) {
-        ui_rect_t text_rect = w->rect;
-        if (btn->icon_bitmap) {
-            text_rect.y += btn->icon_h + 2;
-            text_rect.h -= btn->icon_h + 2;
-        }
-        ui_draw_text_in_rect_bg(&text_rect, btn->text, btn->font, btn->text_color, bg, 1);
+    /* Draw text centered in the lower area */
+    if (btn->text && btn->font && text_h > 0) {
+        ui_rect_t text_rect = { w->rect.x, w->rect.y + icon_area_h,
+                                w->rect.w, text_h };
+        ui_draw_text_in_rect_bg(&text_rect, btn->text, btn->font,
+                                btn->text_color, bg, 1);
     }
 
     ui_render_pop_target();
@@ -605,7 +611,14 @@ static void card_event_cb(ui_widget_t *w, ui_event_t *e)
 {
     ui_card_t *card = (ui_card_t *)w;
 
-    switch (e->type) {
+    /* Map TOUCH_* events to pointer events for unified handling */
+    ui_event_type_t et = e->type;
+    if (et == UI_EVENT_TOUCH_DOWN) et = UI_EVENT_DOWN;
+    else if (et == UI_EVENT_TOUCH_UP) et = UI_EVENT_UP;
+    else if (et == UI_EVENT_TOUCH_MOVE) et = UI_EVENT_MOVE;
+    else if (et == UI_EVENT_TOUCH_CANCEL) et = UI_EVENT_PRESS_CANCEL;
+
+    switch (et) {
     case UI_EVENT_DOWN: {
         card->active_child = -1;
         for (uint16_t i = 0; i < card->child_count; i++) {

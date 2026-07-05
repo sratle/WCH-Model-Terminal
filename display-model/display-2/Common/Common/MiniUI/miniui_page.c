@@ -13,6 +13,7 @@
 #include "miniui_input.h"
 #include "miniui_render.h"
 #include "../Eink/epaper.h"
+#include "../Touch/touch_matrix.h"
 #include "debug.h"
 #include <string.h>
 
@@ -196,6 +197,11 @@ void ui_page_set_sidebar_width(int16_t width)
     if (width >= 0) s_sidebar_width = width;
 }
 
+int16_t ui_page_get_sidebar_width(void)
+{
+    return s_sidebar_width;
+}
+
 ui_sidebar_event_cb_t ui_page_get_sidebar_event_cb(void)
 {
     return s_sidebar_event;
@@ -277,16 +283,11 @@ void ui_page_clear_dirty(void)
 /*=============================================================================
  *  E-ink Partial Refresh Helper
  *
- *  Extract a rectangular region from a 1bpp frame buffer and send it
- *  to the e-paper driver for partial refresh.
+ *  Send a dirty rectangular region to the e-paper driver for partial refresh.
+ *  Reads directly from the frame buffers — no intermediate extraction buffer
+ *  needed, so there is no size limit on the region (no fallback to full
+ *  refresh). The driver handles data inversion and the PON/PDRF/POF sequence.
  *=============================================================================*/
-
-/* Partial refresh buffer: max region we can refresh at once.
- * With 128K RAM, we can afford a reasonable buffer.
- * Max practical: full width * some rows. Let's use 4KB per buffer. */
-#define PARTIAL_BUF_SIZE  4096
-static uint8_t s_partial_old[PARTIAL_BUF_SIZE];
-static uint8_t s_partial_new[PARTIAL_BUF_SIZE];
 
 static void flush_dirty_region_to_epd(const ui_rect_t *dirty)
 {
@@ -296,50 +297,39 @@ static void flush_dirty_region_to_epd(const ui_rect_t *dirty)
 
     if (r.w <= 0 || r.h <= 0) return;
 
-    uint16_t region_row_bytes = r.w / 8;
-    uint32_t region_data_len = (uint32_t)region_row_bytes * r.h;
-
-    /* If region is too large for our buffer, fall back to full refresh */
-    if (region_data_len > PARTIAL_BUF_SIZE) {
-        printf("[page] dirty region too large (%lu), doing full refresh\r\n", region_data_len);
-        ui_render_flush_to_display();
-        return;
-    }
-
     uint8_t *frame_new = ui_render_get_frame_buf();
     uint8_t *frame_old = ui_render_get_old_buf();
+    uint16_t row_bytes  = r.w / 8;
+    int16_t  start_byte = r.x / 8;
 
-    /* Extract region data from both frame buffers */
+    /* Quick check: skip refresh if old and new data are identical in this
+     * region (avoids unnecessary e-ink updates). */
+    bool has_diff = false;
     for (int16_t row = 0; row < r.h; row++) {
         int16_t y = r.y + row;
         if (y < 0 || y >= UI_SCREEN_HEIGHT) continue;
-
-        uint8_t *src_new = &frame_new[(uint32_t)y * UI_SCREEN_ROW_BYTES];
-        uint8_t *src_old = &frame_old[(uint32_t)y * UI_SCREEN_ROW_BYTES];
-        uint8_t *dst_new = &s_partial_new[(uint32_t)row * region_row_bytes];
-        uint8_t *dst_old = &s_partial_old[(uint32_t)row * region_row_bytes];
-
-        int16_t start_byte = r.x / 8;
-        memcpy(dst_new, &src_new[start_byte], region_row_bytes);
-        memcpy(dst_old, &src_old[start_byte], region_row_bytes);
+        uint8_t *sn = &frame_new[(uint32_t)y * UI_SCREEN_ROW_BYTES + start_byte];
+        uint8_t *so = &frame_old[(uint32_t)y * UI_SCREEN_ROW_BYTES + start_byte];
+        if (memcmp(so, sn, row_bytes) != 0) {
+            has_diff = true;
+            break;
+        }
     }
+    if (!has_diff) return;
 
-    /* Check if old and new data differ */
-    if (memcmp(s_partial_old, s_partial_new, region_data_len) == 0) {
-        return;  /* No change, skip refresh */
-    }
+    /* Send partial refresh directly from frame buffers.
+     * The driver reads the rectangular region using the frame stride
+     * (EPD_ROW_BYTES) and inverts data to match the panel pixel format. */
+    Epaper_PartialRefresh(r.x, r.y, r.w, r.h, frame_old, frame_new);
 
-    /* Send partial refresh command */
-    Epaper_PartialRefresh(r.x, r.y, r.w, r.h, s_partial_old, s_partial_new);
-
-    /* Update old buffer to match new */
+    /* Update old buffer to match new for the refreshed region, so the next
+     * partial refresh has the correct "old" reference data. */
     for (int16_t row = 0; row < r.h; row++) {
         int16_t y = r.y + row;
         if (y < 0 || y >= UI_SCREEN_HEIGHT) continue;
-        uint8_t *dst_old = &frame_old[(uint32_t)y * UI_SCREEN_ROW_BYTES];
-        uint8_t *src_new_row = &s_partial_new[(uint32_t)row * region_row_bytes];
-        int16_t start_byte = r.x / 8;
-        memcpy(&dst_old[start_byte], src_new_row, region_row_bytes);
+        uint8_t *dst_old = &frame_old[(uint32_t)y * UI_SCREEN_ROW_BYTES + start_byte];
+        uint8_t *src_new = &frame_new[(uint32_t)y * UI_SCREEN_ROW_BYTES + start_byte];
+        memcpy(dst_old, src_new, row_bytes);
     }
 }
 
@@ -406,7 +396,18 @@ void ui_page_draw(void)
                 }
             }
 
-            /* 5. Flush batch to frame buffer */
+            /* 5. Draw touch cursor overlay (topmost, if visible and intersects) */
+            if (TouchMatrix_IsCursorVisible()) {
+                int16_t cx = TouchMatrix_GetCursorX();
+                int16_t cy = TouchMatrix_GetCursorY();
+                /* Cursor is 10x13 (8x11 bitmap + 1px outline); check intersection */
+                if (cx + 9 >= batch_target.x && cx - 1 < batch_target.x + batch_target.w &&
+                    cy + 12 >= y && cy - 1 < batch_end) {
+                    ui_draw_touch_cursor(cx, cy);
+                }
+            }
+
+            /* 6. Flush batch to frame buffer */
             ui_render_flush_rows(y, batch_h, dirty->x, dirty->w);
         }
     }

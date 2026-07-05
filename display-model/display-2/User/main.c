@@ -48,6 +48,6 @@ int main(void)
     while (1)
     {
         ui_system_tick();
-        Delay_Ms(50);  /* 20 FPS tick rate for E-ink */
+        Delay_Ms(10);  /* ~100Hz for touch responsiveness; e-ink refresh throttled by dirty list */
     }
 }

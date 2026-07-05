@@ -51,7 +51,7 @@ void ui_home_init(void)
     ui_label_init(&lbl_time, &time_rect, "00:00:00", &font_montserrat_16);
     ui_label_set_color(&lbl_time, UI_COLOR_PRIMARY);
 
-    int16_t card_w = 130;
+    int16_t card_w = 90;
     int16_t card_h = 90;
     int16_t card_gap = 12;
     int16_t card_y = 110;
@@ -60,21 +60,25 @@ void ui_home_init(void)
     ui_card_init(&card_core, &card_rect);
     card_core.base.bg_color = UI_COLOR_BG_CARD;
     card_core.radius = 10;
+    card_core.border_width = 1;
 
     card_rect.x = cx + card_w + card_gap;
     ui_card_init(&card_bt, &card_rect);
     card_bt.base.bg_color = UI_COLOR_BG_CARD;
     card_bt.radius = 10;
+    card_bt.border_width = 1;
 
     card_rect.x = cx + 2 * (card_w + card_gap);
     ui_card_init(&card_wifi, &card_rect);
     card_wifi.base.bg_color = UI_COLOR_BG_CARD;
     card_wifi.radius = 10;
+    card_wifi.border_width = 1;
 
     card_rect.x = cx + 3 * (card_w + card_gap);
     ui_card_init(&card_touch, &card_rect);
     card_touch.base.bg_color = UI_COLOR_BG_CARD;
     card_touch.radius = 10;
+    card_touch.border_width = 1;
 
     ui_rect_t name_rect = {0, 0, card_w - 30, 20};
     name_rect.x = cx + 10;

@@ -68,17 +68,19 @@ void Epaper_WakeUp(void);
 
 /**
  * @brief  Partial refresh: update a rectangular region.
- *         Uses PDTM1 + PDTM2 + PDRF commands.
+ *         Uses PDTM1 + PDTM2 + PDRF commands per datasheet display flow.
+ *         Reads region data directly from full frame buffers (no extraction
+ *         buffer needed), inverts data to match panel pixel format.
  *         X and W must be multiples of 8.
- * @param  x       X origin (must be multiple of 8)
- * @param  y       Y origin
- * @param  w       Width (must be multiple of 8)
- * @param  h       Height
- * @param  old_data  Old image data (1bpp, w/8 * h bytes), UI format
- * @param  new_data  New image data (1bpp, w/8 * h bytes), UI format
+ * @param  x          X origin (must be multiple of 8)
+ * @param  y          Y origin
+ * @param  w          Width (must be multiple of 8)
+ * @param  h          Height
+ * @param  old_frame  Full old frame buffer (EPD_FRAME_SIZE bytes, UI format)
+ * @param  new_frame  Full new frame buffer (EPD_FRAME_SIZE bytes, UI format)
  */
 void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
-                           const uint8_t *old_data, const uint8_t *new_data);
+                           const uint8_t *old_frame, const uint8_t *new_frame);
 
 /**
  * @brief  Full refresh with separate old/new images.

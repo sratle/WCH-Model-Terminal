@@ -652,6 +652,73 @@ int16_t ui_text_width(const char *text, const ui_font_t *font)
 }
 
 /*=============================================================================
+ *  Touch Cursor Drawing
+ *
+ *  Draws a small arrow cursor at (x, y) using pixel-level drawing.
+ *  Cursor shape: 8x11 pixel arrow pointing top-left, transparent background.
+ *  White outline ensures visibility on both light and dark backgrounds.
+ *=============================================================================*/
+
+static const uint8_t s_cursor_bitmap[] = {
+    0x80,  /* row 0:  #....... */
+    0xC0,  /* row 1:  ##...... */
+    0xE0,  /* row 2:  ###..... */
+    0xF0,  /* row 3:  ####.... */
+    0xF8,  /* row 4:  #####... */
+    0xFC,  /* row 5:  ######.. */
+    0xF0,  /* row 6:  ####.... */
+    0xD8,  /* row 7:  ##.##... */
+    0x8C,  /* row 8:  #...##.. */
+    0x06,  /* row 9:  .....##. */
+    0x02,  /* row 10: ......#. */
+};
+
+#define CURSOR_BITMAP_W  8
+#define CURSOR_BITMAP_H  11
+
+void ui_draw_touch_cursor(int16_t x, int16_t y)
+{
+    ui_color_t outline = UI_COLOR_WHITE;
+    ui_color_t fill    = UI_COLOR_BLACK;
+
+    /* Pass 1: white outline — draw each set pixel shifted by ±1 */
+    for (int16_t row = 0; row < CURSOR_BITMAP_H; row++) {
+        uint8_t b = s_cursor_bitmap[row];
+        for (int16_t col = 0; col < CURSOR_BITMAP_W; col++) {
+            if (b & (0x80 >> col)) {
+                for (int16_t dy = -1; dy <= 1; dy++) {
+                    for (int16_t dx = -1; dx <= 1; dx++) {
+                        if (dx == 0 && dy == 0) continue;
+                        int16_t px = x + col + dx;
+                        int16_t py = y + row + dy;
+                        /* Only draw outline if neighbor is NOT part of cursor */
+                        int16_t nr = row + dy;
+                        int16_t nc = col + dx;
+                        bool neighbor_set = (nr >= 0 && nr < CURSOR_BITMAP_H &&
+                                             nc >= 0 && nc < CURSOR_BITMAP_W &&
+                                             (s_cursor_bitmap[nr] & (0x80 >> nc)));
+                        if (!neighbor_set) {
+                            ui_draw_pixel(px, py, outline);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /* Pass 2: black fill */
+    for (int16_t row = 0; row < CURSOR_BITMAP_H; row++) {
+        int16_t py = y + row;
+        uint8_t b = s_cursor_bitmap[row];
+        for (int16_t col = 0; col < CURSOR_BITMAP_W; col++) {
+            if (b & (0x80 >> col)) {
+                ui_draw_pixel(x + col, py, fill);
+            }
+        }
+    }
+}
+
+/*=============================================================================
  *  E-ink Refresh Operations
  *=============================================================================*/
 

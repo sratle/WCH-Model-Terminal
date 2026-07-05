@@ -17,17 +17,18 @@
  *  Internal helpers
  *==========================================================================*/
 
-static void Epaper_SendDataByte(uint8_t data)
+/* Send the 8-byte region header (x, y, w, h) for PDTM1/PDTM2/PDRF commands.
+ * X and W must be multiples of 8 (enforced by mask 0xF8). */
+static void epaper_send_region_header(int16_t x, int16_t y, int16_t w, int16_t h)
 {
-    Epaper_Hw_WriteData(data);
-}
-
-static void Epaper_SendDataBuf(const uint8_t *buf, uint32_t len)
-{
-    uint32_t i;
-    for (i = 0; i < len; i++) {
-        Epaper_Hw_WriteData(buf[i]);
-    }
+    Epaper_Hw_WriteData((x >> 8) & 0x03);
+    Epaper_Hw_WriteData(x & 0xF8);
+    Epaper_Hw_WriteData((y >> 8) & 0x03);
+    Epaper_Hw_WriteData(y & 0xFF);
+    Epaper_Hw_WriteData((w >> 8) & 0x03);
+    Epaper_Hw_WriteData(w & 0xF8);
+    Epaper_Hw_WriteData((h >> 8) & 0x03);
+    Epaper_Hw_WriteData(h & 0xFF);
 }
 
 /*============================================================================
@@ -115,41 +116,62 @@ void Epaper_Update(void)
  * @fn      Epaper_PartialRefresh
  *
  * @brief   Partial refresh using PDTM1 + PDTM2 + PDRF.
- *          X and W must be multiples of 8.
+ *          Reads rectangular region data directly from full frame buffers.
+ *
+ *          Datasheet display flow (section 2.1):
+ *            PDTM1(R14h) + PDTM2(R15h)
+ *            -> PON(R04h) [wait BUSY]
+ *            -> PDRF(R16h) [wait BUSY]
+ *            -> POF(R02h) [wait BUSY]
+ *
+ *          Data is inverted (~) before sending because:
+ *            - Frame buffer: bit=1=black, bit=0=white (UI convention)
+ *            - Panel:        bit=1=white, bit=0=black (panel convention)
+ *
+ *          DFV_EN=1 in PDRF: unchanged pixels (old==new) follow VCOM LUT
+ *          instead of data LUT, preventing ghosting on static areas.
+ *
+ * @param  x          X origin (must be multiple of 8)
+ * @param  y          Y origin
+ * @param  w          Width (must be multiple of 8)
+ * @param  h          Height
+ * @param  old_frame  Full old frame buffer (EPD_FRAME_SIZE bytes, UI format)
+ * @param  new_frame  Full new frame buffer (EPD_FRAME_SIZE bytes, UI format)
  */
 void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
-                           const uint8_t *old_data, const uint8_t *new_data)
+                           const uint8_t *old_frame, const uint8_t *new_frame)
 {
     uint16_t row_bytes = w / 8;
-    uint32_t data_len = (uint32_t)row_bytes * h;
+    int16_t  start_byte = x / 8;
+    int16_t  row, col;
 
-    /* PDTM1: OLD data */
+    /* PDTM1: OLD data (inverted to match panel format) */
     Epaper_Hw_WriteCmd(0x14);
-    Epaper_Hw_WriteData((x >> 8) & 0x03);
-    Epaper_Hw_WriteData(x & 0xF8);
-    Epaper_Hw_WriteData((y >> 8) & 0x03);
-    Epaper_Hw_WriteData(y & 0xFF);
-    Epaper_Hw_WriteData((w >> 8) & 0x03);
-    Epaper_Hw_WriteData(w & 0xF8);
-    Epaper_Hw_WriteData((h >> 8) & 0x03);
-    Epaper_Hw_WriteData(h & 0xFF);
-    Epaper_SendDataBuf(old_data, data_len);
+    epaper_send_region_header(x, y, w, h);
+    for (row = 0; row < h; row++) {
+        const uint8_t *src = &old_frame[(uint32_t)(y + row) * EPD_ROW_BYTES + start_byte];
+        for (col = 0; col < row_bytes; col++) {
+            Epaper_Hw_WriteData(~src[col]);
+        }
+    }
 
-    /* PDTM2: NEW data */
+    /* PDTM2: NEW data (inverted to match panel format) */
     Epaper_Hw_WriteCmd(0x15);
-    Epaper_Hw_WriteData((x >> 8) & 0x03);
-    Epaper_Hw_WriteData(x & 0xF8);
-    Epaper_Hw_WriteData((y >> 8) & 0x03);
-    Epaper_Hw_WriteData(y & 0xFF);
-    Epaper_Hw_WriteData((w >> 8) & 0x03);
-    Epaper_Hw_WriteData(w & 0xF8);
-    Epaper_Hw_WriteData((h >> 8) & 0x03);
-    Epaper_Hw_WriteData(h & 0xFF);
-    Epaper_SendDataBuf(new_data, data_len);
+    epaper_send_region_header(x, y, w, h);
+    for (row = 0; row < h; row++) {
+        const uint8_t *src = &new_frame[(uint32_t)(y + row) * EPD_ROW_BYTES + start_byte];
+        for (col = 0; col < row_bytes; col++) {
+            Epaper_Hw_WriteData(~src[col]);
+        }
+    }
+
+    /* PON: Power ON (required before refresh per datasheet) */
+    Epaper_Hw_WriteCmd(0x04);
+    Epaper_Hw_WaitBusy(5000);
 
     /* PDRF: trigger partial refresh with DFV_EN=1 */
     Epaper_Hw_WriteCmd(0x16);
-    Epaper_Hw_WriteData(((1 << 7) | ((x >> 8) & 0x03)));
+    Epaper_Hw_WriteData(((1 << 7) | ((x >> 8) & 0x03)));  /* DFV_EN=1 + x[9:8] */
     Epaper_Hw_WriteData(x & 0xF8);
     Epaper_Hw_WriteData((y >> 8) & 0x03);
     Epaper_Hw_WriteData(y & 0xFF);
@@ -157,7 +179,10 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
     Epaper_Hw_WriteData(w & 0xF8);
     Epaper_Hw_WriteData((h >> 8) & 0x03);
     Epaper_Hw_WriteData(h & 0xFF);
+    Epaper_Hw_WaitBusy(3000);
 
+    /* POF: Power OFF (required after refresh per datasheet) */
+    Epaper_Hw_WriteCmd(0x02);
     Epaper_Hw_WaitBusy(3000);
 }
 
