@@ -59,64 +59,60 @@ static int epd_wait_busy_counted(uint32_t timeout_ms)
 }
 
 /*============================================================================
- *  Fast LUT for BWR=0 mode (B/W/Red mode with register LUT)
+ *  Fast LUT for BWR=0 mode — ABSOLUTE value LUT (not transition-based)
  *
- *  In BWR=0 mode, LUT registers have DIFFERENT semantics than BWR=1:
+ *  In BWR=0 mode with REG_EN=1, LUT registers are ABSOLUTE (not transition):
  *    R20H = LUTC  (VCOM LUT)
- *    R21H = LUTWW (White-to-White, may not be used in BWR mode)
- *    R22H = LUTR  (Red pixel LUT — absolute, not transition)
- *    R23H = LUTW  (White pixel LUT — absolute)
- *    R24H = LUTB  (Black pixel LUT — absolute)
+ *    R21H = LUTWW (unused in BWR mode)
+ *    R22H = LUTR  (Red pixel LUT — absolute)
+ *    R23H = LUTW  (White pixel LUT — absolute, applies to bit=1)
+ *    R24H = LUTB  (Black pixel LUT — absolute, applies to bit=0)
  *
- *  The LUT drives pixels based on their CURRENT value in SRAM:
- *    - White pixels (bit=1) follow LUTW
- *    - Black pixels (bit=0) follow LUTB
- *    - Red pixels (from DTM2) follow LUTR
+ *  Panel B/W format: bit=1=white, bit=0=black
+ *  MiniUI format:    bit=1=black, bit=0=white → MUST invert with ~
  *
  *  Level encoding:
  *    LUTC:   00=-VCM_DC  01=VSH+VCM_DC  10=VSL+VCM_DC  11=Floating
  *    LUTW*:  00=GND      01=VSH         10=VSL         11=VSHR
  *
- *  Level byte: bits 7-6=L1, 5-4=L2, 3-2=L3, 1-0=L4
- *
- *  Waveform design (10 frames @ 50Hz = 200ms = 5FPS):
+ *  Waveform (15 frames @ 50Hz = 300ms = 3.3FPS):
  *    LUTC:  VCOM = -VCM_DC (hold reference)
- *    LUTR:  GND (no red pixels, no drive)
- *    LUTW:  VSH (drive white pixels positive → reinforce white)
- *    LUTB:  VSL (drive black pixels negative → reinforce black)
+ *    LUTR:  GND (no red pixels)
+ *    LUTW:  VSH (drive white pixels positive → white)  0x55 = all VSH
+ *    LUTB:  VSL (drive black pixels negative → black)  0xAA = all VSL
  *==========================================================================*/
 
-#define FAST_LUT_FRAMES  10
+#define FAST_LUT_FRAMES  15
 
-/* LUTC (R20H) - VCOM: -VCM_DC for all frames (0x00 = all -VCM_DC) */
+/* LUTC (R20H) - VCOM: -VCM_DC (0x00 = all -VCM_DC) */
 static const uint8_t LUT_FAST_C[42] = {
     0x00, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
-/* LUTWW (R21H) - GND (not used in BWR mode, set to safe value) */
+/* LUTWW (R21H) - unused in BWR mode, set to GND */
 static const uint8_t LUT_FAST_WW[42] = {
     0x00, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
-/* LUTR (R22H) - Red: GND for all frames (0x00 = all GND, no red drive) */
+/* LUTR (R22H) - Red: GND (0x00 = all GND, no red drive) */
 static const uint8_t LUT_FAST_R[42] = {
     0x00, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
-/* LUTW (R23H) - White: VSH for all frames (0x55 = 01 01 01 01 = all VSH) */
+/* LUTW (R23H) - White pixels (bit=1): VSH (0x55 = 01 01 01 01 = all VSH) */
 static const uint8_t LUT_FAST_W[42] = {
     0x55, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
-/* LUTB (R24H) - Black: VSL for all frames (0xAA = 10 10 10 10 = all VSL) */
+/* LUTB (R24H) - Black pixels (bit=0): VSL (0xAA = 10 10 10 10 = all VSL) */
 static const uint8_t LUT_FAST_B[42] = {
     0xAA, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
@@ -244,8 +240,8 @@ void Epaper_Init(void)
     Epaper_Hw_WriteCmd(0x60); Epaper_Hw_WriteData(0x04);
 
     /* ---- Fast LUT registers (R20H-R24H) ----
-     *   In BWR=0 mode: R22H=LUTR, R23H=LUTW, R24H=LUTB
-     *   10 frames @ 50Hz = 200ms per refresh
+     *   Absolute LUT: IC drives pixels based on their value in PDTM1
+     *   15 frames @ 50Hz = 300ms per refresh (3.3FPS)
      */
     Epaper_Hw_WriteCmd(0x20); Epaper_Hw_WriteDataBuf(LUT_FAST_C, 42);
     Epaper_Hw_WriteCmd(0x21); Epaper_Hw_WriteDataBuf(LUT_FAST_WW, 42);
@@ -263,9 +259,8 @@ void Epaper_Init(void)
  * @fn      Epaper_ClearWhite
  *
  * @brief   Clear to white.
- *          BWR=0 (OTP default): DTM1=BW channel, DTM2=Red channel.
+ *          BWR=0 + transition LUT: DTM1=BW channel (bit=1=white in panel).
  *          BW=0xFF (all white), Red=0x00 (no red) → white.
- *          (Matches vendor EPD_Display_Clear format)
  */
 void Epaper_ClearWhite(void)
 {
@@ -274,7 +269,7 @@ void Epaper_ClearWhite(void)
     Epaper_Hw_WriteCmd(0x10);  /* DTM1 = BW channel */
     for (j = 0; j < EPD_HEIGHT; j++)
         for (i = 0; i < EPD_ROW_BYTES; i++)
-            Epaper_Hw_WriteData(0xFF);    /* BW = white */
+            Epaper_Hw_WriteData(0xFF);    /* BW = white (bit=1=white) */
 
     Epaper_Hw_WriteCmd(0x13);  /* DTM2 = Red channel */
     for (j = 0; j < EPD_HEIGHT; j++)
@@ -285,20 +280,21 @@ void Epaper_ClearWhite(void)
 /*********************************************************************
  * @fn      Epaper_DisplayImage
  *
- * @brief   Display image data (same data for both DTM1 and DTM2).
- *          Invert frame data to match panel mapping.
+ * @brief   Display image data.
+ *          BWR=0 + transition LUT: DTM1=BW channel, DTM2=Red (none).
+ *          Invert MiniUI data to match panel format (bit=1=white).
  */
 void Epaper_DisplayImage(const uint8_t *image)
 {
     uint32_t i;
 
-    Epaper_Hw_WriteCmd(0x10);
+    Epaper_Hw_WriteCmd(0x10);  /* DTM1 = BW channel */
     for (i = 0; i < EPD_FRAME_SIZE; i++)
         Epaper_Hw_WriteData(~image[i]);
 
-    Epaper_Hw_WriteCmd(0x13);
+    Epaper_Hw_WriteCmd(0x13);  /* DTM2 = Red channel */
     for (i = 0; i < EPD_FRAME_SIZE; i++)
-        Epaper_Hw_WriteData(~image[i]);
+        Epaper_Hw_WriteData(0x00);  /* no red */
 }
 
 /*********************************************************************
@@ -367,11 +363,15 @@ void Epaper_Update(void)
 void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
                            const uint8_t *old_frame, const uint8_t *new_frame)
 {
-    (void)old_frame;  /* BWR=0 mode: no OLD/NEW comparison, only NEW (B/W) data */
+    (void)old_frame;  /* Transition LUT: IC uses internal SRAM as old reference */
 
     uint16_t row_bytes = w / 8;
     int16_t  start_byte = x / 8;
     int16_t  row, col;
+
+    /* Wait for IC to be truly idle before sending new PDRF.
+     * Without this, consecutive PDRFs may be silently dropped (0ms refresh). */
+    while (Epd_Is_Busy()) Delay_Ms(5);
 
     epd_time_reset();
 
@@ -385,7 +385,7 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
         }
     }
 
-    /* PDTM2: Red channel (0x00 = no red) — BWR=0 mode uses PDTM2 for Red */
+    /* PDTM2: Red channel (0x00 = no red) */
     Epaper_Hw_WriteCmd(0x15);
     epaper_send_region_header(x, y, w, h);
     for (row = 0; row < h; row++) {
@@ -399,9 +399,9 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
     epaper_ensure_power_on();
     uint32_t t_after_pon = epd_time_mark();
 
-    /* PDRF: trigger partial refresh (DFV_EN=0, BWR=0 mode) */
+    /* PDRF: trigger partial refresh */
     Epaper_Hw_WriteCmd(0x16);
-    Epaper_Hw_WriteData((x >> 8) & 0x03);   /* no DFV_EN in BWR=0 */
+    Epaper_Hw_WriteData((x >> 8) & 0x03);
     Epaper_Hw_WriteData(x & 0xF8);
     Epaper_Hw_WriteData((y >> 8) & 0x03);
     Epaper_Hw_WriteData(y & 0xFF);
@@ -409,6 +409,8 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
     Epaper_Hw_WriteData(w & 0xF8);
     Epaper_Hw_WriteData((h >> 8) & 0x03);
     Epaper_Hw_WriteData(h & 0xFF);
+
+    /* Wait for BUSY to go LOW (refresh started), then back HIGH (done) */
     int ret = epd_wait_busy_counted(3000);
     uint32_t t_total = epd_time_mark();
 
@@ -423,14 +425,14 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
  * @fn      Epaper_DisplayImageDiff
  *
  * @brief   Full refresh — display new_image.
- *          BWR=0 (OTP): DTM1=BW channel (new data), DTM2=Red channel (none).
- *          Invert BW data to match panel mapping (bit=1=white).
+ *          BWR=0 + transition LUT: DTM1=BW channel, DTM2=Red (none).
+ *          Invert MiniUI data to match panel format (bit=1=white).
  */
 void Epaper_DisplayImageDiff(const uint8_t *old_image, const uint8_t *new_image)
 {
     uint32_t i;
 
-    (void)old_image;  /* In BWR=0 mode, no old/new distinction for full refresh */
+    (void)old_image;
 
     Epaper_Hw_WriteCmd(0x10);  /* DTM1 = BW channel */
     for (i = 0; i < EPD_FRAME_SIZE; i++)

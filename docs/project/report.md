@@ -366,19 +366,13 @@ flowchart TD
 ```mermaid
 flowchart TD
     A[main] --> B[初始化 NVIC/时钟/延时]
-    B --> C[外设初始化<br>TTP229/Button/Fader/UartCore/TIM2]
-    C --> D[Delay_Ms 500ms 上电稳定]
-    D --> E[TTP229_Calibrate]
+    B --> E[外设初始化<br>TTP229/Button/Fader/UartCore/TIM2]
     E --> F[while 1 主循环]
     F --> G[CheckProtocolRx]
     G --> H{g_scan_flag == 1?}
     H -->|否| F
     H -->|是| I[清 g_scan_flag]
-    I --> J[TTP229_Read]
-    J --> K[Button_Scan]
-    K --> L[Fader_Scan]
-    L --> M[Fader_GetValues]
-    M --> N[Button_GetBitmap]
+    I --> N[Scan]
     N --> O{event_reporting == 1?}
     O -->|否| F
     O -->|是| P[HasStateChanged]

@@ -337,34 +337,20 @@ void TouchMatrix_InvalidateCursor(void)
         return;  /* No change, no invalidation needed */
     }
 
-    /* If cursor has never been rendered, only invalidate the current
-     * position.  Otherwise, merge old and new positions into a single
-     * bounding box.  This reduces two partial refreshes to one. */
-    if (s_tm.cursor_rendered_x < 0) {
-        ui_rect_t r = {
-            s_tm.cursor_x - 1, s_tm.cursor_y - 1,
-            TM_CURSOR_W, TM_CURSOR_H
-        };
+    ui_rect_t r;
+    r.w = TM_CURSOR_W;
+    r.h = TM_CURSOR_H;
+
+    /* Invalidate old rendered position (to erase) */
+    if (s_tm.cursor_rendered_x >= 0) {
+        r.x = s_tm.cursor_rendered_x - 1;
+        r.y = s_tm.cursor_rendered_y - 1;
         ui_page_invalidate(&r);
-        return;
     }
 
-    int16_t old_x1 = s_tm.cursor_rendered_x - 1;
-    int16_t old_y1 = s_tm.cursor_rendered_y - 1;
-    int16_t old_x2 = old_x1 + TM_CURSOR_W;
-    int16_t old_y2 = old_y1 + TM_CURSOR_H;
-
-    int16_t new_x1 = s_tm.cursor_x - 1;
-    int16_t new_y1 = s_tm.cursor_y - 1;
-    int16_t new_x2 = new_x1 + TM_CURSOR_W;
-    int16_t new_y2 = new_y1 + TM_CURSOR_H;
-
-    int16_t x1 = old_x1 < new_x1 ? old_x1 : new_x1;
-    int16_t y1 = old_y1 < new_y1 ? old_y1 : new_y1;
-    int16_t x2 = old_x2 > new_x2 ? old_x2 : new_x2;
-    int16_t y2 = old_y2 > new_y2 ? old_y2 : new_y2;
-
-    ui_rect_t r = { x1, y1, x2 - x1, y2 - y1 };
+    /* Invalidate current position (to draw) */
+    r.x = s_tm.cursor_x - 1;
+    r.y = s_tm.cursor_y - 1;
     ui_page_invalidate(&r);
 }
 
