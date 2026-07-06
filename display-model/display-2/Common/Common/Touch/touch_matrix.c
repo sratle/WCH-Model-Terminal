@@ -45,6 +45,10 @@
 #define TM_SCL_DELAY_US    10    /* SCL pulse half-period (Tw >= 10us) */
 #define TM_DV_TIMEOUT      5000  /* DV wait timeout (~100us at 144MHz) */
 
+/* Tap vs swipe threshold: if cursor moves less than this (in pixels) between
+ * touch-down and touch-up, it's a tap (CLICK); otherwise it's a swipe (no event). */
+#define TM_TAP_THRESHOLD   15
+
 /*=============================================================================
  *  TP-to-Grid Mapping
  *
@@ -122,6 +126,10 @@ static struct {
     /* Cursor rendered position (for dirty region tracking) */
     int16_t  cursor_rendered_x;
     int16_t  cursor_rendered_y;
+
+    /* Gesture tracking: cursor position at touch-down (for tap vs swipe) */
+    int16_t  start_cursor_x;
+    int16_t  start_cursor_y;
 
     /* Debug throttle */
     uint32_t last_debug_ms;
@@ -383,19 +391,19 @@ void TouchMatrix_Scan(void)
     switch (s_tm.state) {
     case TM_STATE_IDLE:
         if (touched) {
-            /* First touch — record starting position */
+            /* First touch — record starting position.
+             * DON'T inject TOUCH_DOWN here: this prevents widget capture
+             * on swipe. We only inject on UP if it was a tap. */
             s_tm.last_col_x10 = col_x10;
             s_tm.last_row_x10 = row_x10;
             s_tm.has_last_pos = true;
+            s_tm.start_cursor_x = s_tm.cursor_x;
+            s_tm.start_cursor_y = s_tm.cursor_y;
             s_tm.state = TM_STATE_TRACKING;
 
             printf("[tm] DOWN bits=0x%08lX cursor=(%d,%d) col=%d row=%d\r\n",
                    bits, s_tm.cursor_x, s_tm.cursor_y,
                    col_x10 / 10, row_x10 / 10);
-
-            /* Inject TOUCH_DOWN at current cursor position */
-            ui_input_inject_touch(s_tm.touch_id,
-                                  s_tm.cursor_x, s_tm.cursor_y, 1);
         }
         break;
 
@@ -413,7 +421,11 @@ void TouchMatrix_Scan(void)
             int16_t dy = (int16_t)((int32_t)drow * s_tm.sensitivity_y / 10);
 
             if (dx != 0 || dy != 0) {
-                /* Update cursor with clamping */
+                /* Update cursor with clamping.
+                 * DON'T inject TOUCH_MOVE — the cursor is rendered via
+                 * TouchMatrix_InvalidateCursor() in the main loop.
+                 * This ensures swipe only moves the cursor visually,
+                 * without triggering widget events. */
                 s_tm.cursor_x += dx;
                 s_tm.cursor_y += dy;
 
@@ -421,10 +433,6 @@ void TouchMatrix_Scan(void)
                 if (s_tm.cursor_x >= TM_SCREEN_W) s_tm.cursor_x = TM_SCREEN_W - 1;
                 if (s_tm.cursor_y < 0) s_tm.cursor_y = 0;
                 if (s_tm.cursor_y >= TM_SCREEN_H) s_tm.cursor_y = TM_SCREEN_H - 1;
-
-                /* Inject TOUCH_MOVE */
-                ui_input_inject_touch(s_tm.touch_id,
-                                      s_tm.cursor_x, s_tm.cursor_y, 1);
 
                 /* Throttled debug output (every ~200ms) */
                 s_tm.debug_move_count++;
@@ -436,16 +444,29 @@ void TouchMatrix_Scan(void)
                 }
             }
         } else {
-            /* Touch released */
-            printf("[tm] UP bits=0x%08lX cursor=(%d,%d)\r\n",
-                   bits, s_tm.cursor_x, s_tm.cursor_y);
+            /* Touch released — determine tap vs swipe by total cursor movement */
+            int16_t total_dx = s_tm.cursor_x - s_tm.start_cursor_x;
+            int16_t total_dy = s_tm.cursor_y - s_tm.start_cursor_y;
+            int16_t abs_dx = (total_dx < 0) ? -total_dx : total_dx;
+            int16_t abs_dy = (total_dy < 0) ? -total_dy : total_dy;
+            int16_t max_move = (abs_dx > abs_dy) ? abs_dx : abs_dy;
+
+            printf("[tm] UP bits=0x%08lX cursor=(%d,%d) move=(%d,%d)\r\n",
+                   bits, s_tm.cursor_x, s_tm.cursor_y, total_dx, total_dy);
+
+            if (max_move < TM_TAP_THRESHOLD) {
+                /* Tap: inject TOUCH_DOWN + TOUCH_UP at cursor position.
+                 * The gesture synthesizer will produce a CLICK event
+                 * (dx=0, dy=0 since both use the same position). */
+                ui_input_inject_touch(s_tm.touch_id,
+                                      s_tm.cursor_x, s_tm.cursor_y, 1);
+                ui_input_inject_touch(s_tm.touch_id,
+                                      s_tm.cursor_x, s_tm.cursor_y, 0);
+            }
+            /* else: swipe — cursor already moved visually, no widget event */
 
             s_tm.state = TM_STATE_IDLE;
             s_tm.has_last_pos = false;
-
-            /* Inject TOUCH_UP */
-            ui_input_inject_touch(s_tm.touch_id,
-                                  s_tm.cursor_x, s_tm.cursor_y, 0);
         }
         break;
     }
