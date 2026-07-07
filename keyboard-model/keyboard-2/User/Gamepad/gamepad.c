@@ -7,7 +7,6 @@
  *                      and Core protocol data builder.
  *********************************************************************************/
 #include "gamepad.h"
-#include "debug.h"
 #include "../CH9329/ch9329.h"
 
 /* ====================================================================
@@ -203,9 +202,6 @@ void Gamepad_Init(void)
     ec1_prev_b = GPIO_ReadInputDataBit(EC1_B_PORT, EC1_B_PIN);
     ec2_prev_a = GPIO_ReadInputDataBit(EC2_A_PORT, EC2_A_PIN);
     ec2_prev_b = GPIO_ReadInputDataBit(EC2_B_PORT, EC2_B_PIN);
-
-    printf("[ENC] Init: EC1 A=%d B=%d | EC2 A=%d B=%d\r\n",
-           ec1_prev_a, ec1_prev_b, ec2_prev_a, ec2_prev_b);
 }
 
 void Gamepad_Scan(void)
@@ -336,8 +332,6 @@ void Gamepad_Scan(void)
         {
             g_state.ec1_delta += delta;
             g_changed = 1;
-            printf("[EC1] d=%d  total=%d  A=%d B=%d\r\n",
-                   delta, g_state.ec1_delta, curr_a, curr_b);
         }
 
         /* EC2 */
@@ -348,8 +342,6 @@ void Gamepad_Scan(void)
         {
             g_state.ec2_delta += delta;
             g_changed = 1;
-            printf("[EC2] d=%d  total=%d  A=%d B=%d\r\n",
-                   delta, g_state.ec2_delta, curr_a, curr_b);
         }
     }
 

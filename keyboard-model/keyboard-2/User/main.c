@@ -103,7 +103,6 @@ static void ProcessCoreFrame(const protocol_frame_t *frame)
         case CMD_GET_TYPE:
         {
             SendGetTypeResponse(frame);
-            printf("[PROTO] CMD_GET_TYPE -> ACK (Game)\r\n");
             break;
         }
 
@@ -116,7 +115,6 @@ static void ProcessCoreFrame(const protocol_frame_t *frame)
         case CMD_KBD_SET_BACKLIGHT:
         {
             /* Game keyboard has no backlight; silently accept */
-            printf("[PROTO] SET_BACKLIGHT (ignored, no backlight)\r\n");
             break;
         }
 
@@ -129,7 +127,6 @@ static void ProcessCoreFrame(const protocol_frame_t *frame)
 
         case CMD_KBD_SET_CONFIG:
         {
-            printf("[PROTO] SET_CONFIG (fire-and-forget)\r\n");
             break;
         }
 
@@ -152,7 +149,6 @@ static void ProcessCoreFrame(const protocol_frame_t *frame)
         default:
         {
             SendNACK(frame, PROTO_ERR_UNSUPPORTED_CMD);
-            printf("[PROTO] Unknown CMD: 0x%02X\r\n", frame->cmd);
             break;
         }
     }
@@ -194,30 +190,16 @@ int main(void)
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_1);
     SystemCoreClockUpdate();
     Delay_Init();
-    /* UART1 is shared with Core protocol (230400). Use it for debug too. */
-    USART_Printf_Init(230400);
-
-    printf("\r\n===== Keyboard-2 (Game) Starting =====\r\n");
-    printf("SystemClk: %d\r\n", SystemCoreClock);
-    printf("ChipID: %08x\r\n", DBGMCU_GetCHIPID());
-    printf("Inputs: 6 buttons, 3 switches, 2 joysticks, 2 encoders\r\n");
 
     Gamepad_Init();
     CH9329_Init();
     UartCore_Init();
     Timer2_Init();
 
-    printf("Init complete. Core UART1 @ 230400, CH9329 UART2 @ 115200\r\n");
-    printf("HID mapping: ROC1->WASD, ROC2->Mouse, BUT1/2->L/R, BUT3-6->HJKL\r\n");
-    printf("             SW1->Shift, SW2->Ctrl, SW3->Alt, EC1->MX, EC2->MY\r\n");
-    printf("Waiting for game input...\r\n");
-
     while (1)
     {
         if (g_scan_flag)
         {
-            static uint16_t dbg_cnt = 0;
-
             g_scan_flag = 0;
 
             Gamepad_Scan();
@@ -228,19 +210,6 @@ int main(void)
             {
                 SendGameInputToCore();
                 Gamepad_MarkSent();
-            }
-
-            /* Periodic raw encoder pin state (every 250 ticks = 500ms) */
-            if (++dbg_cnt >= 250)
-            {
-                dbg_cnt = 0;
-                printf("[RAW] EC1 A=%d B=%d D=%d | EC2 A=%d B=%d D=%d\r\n",
-                       GPIO_ReadInputDataBit(EC1_A_PORT, EC1_A_PIN),
-                       GPIO_ReadInputDataBit(EC1_B_PORT, EC1_B_PIN),
-                       GPIO_ReadInputDataBit(EC1_D_PORT, EC1_D_PIN),
-                       GPIO_ReadInputDataBit(EC2_A_PORT, EC2_A_PIN),
-                       GPIO_ReadInputDataBit(EC2_B_PORT, EC2_B_PIN),
-                       GPIO_ReadInputDataBit(EC2_D_PORT, EC2_D_PIN));
             }
         }
         else
