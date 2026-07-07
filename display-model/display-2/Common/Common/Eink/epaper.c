@@ -66,23 +66,29 @@ static int epd_wait_busy_counted(uint32_t timeout_ms)
  *    R20H = LUTC  (VCOM LUT)
  *    R21H = LUTWW (unused in BWR mode)
  *    R22H = LUTR  (Red pixel LUT — absolute)
- *    R23H = LUTW  (applies to bit=1 pixels)
- *    R24H = LUTB  (applies to bit=0 pixels)
+ *    R23H = LUTW  (White LUT — applies to data 00)
+ *    R24H = LUTB  (Black LUT — applies to data 01)
  *
- *  CDI register (R50H=0x57) has DDX=01 (default): bit=0→LUTB, bit=1→LUTW
+ *  CDI register (R50H=0x47) has DDX=00 (no data polarity inversion):
+ *    bit=0 → data 00 → LUTW (White LUT)
+ *    bit=1 → data 01 → LUTB (Black LUT)
  *
- *  Panel B/W format: bit=1=BLACK, bit=0=WHITE (empirically determined,
- *    opposite of datasheet which claims bit=1=white)
- *  MiniUI format:    bit=1=black, bit=0=white (SAME as panel → no inversion)
+ *  MiniUI format: bit=1=black, bit=0=white (matches DDX=00 mapping directly)
  *
  *  Level encoding (from datasheet R23H/R24H description):
  *    00=GND  01=VSH  10=VSL  11=VSHR
  *
+ *  IMPORTANT: For this panel, VSL drives WHITE and VSH drives BLACK.
+ *  This is confirmed by the datasheet's built-in LUT (Group 4, P19):
+ *    LUTW = 0x80 → VSL (White LUT uses VSL to drive white)
+ *    LUTB = 0x10 → VSH (Black LUT uses VSH to drive black)
+ *  This is the OPPOSITE of standard e-paper convention.
+ *
  *  Waveform (15 frames @ 50Hz = 300ms = 3.3FPS):
  *    LUTC:  VCOM = -VCM_DC (hold reference)
  *    LUTR:  GND (no red pixels)
- *    LUTW:  VSL (0xAA = all VSL) → drives bit=1 (black) pixels to VSL → black
- *    LUTB:  VSH (0x55 = all VSH) → drives bit=0 (white) pixels to VSH → white
+ *    LUTW:  VSL (0xAA) → drives bit=0 (white) pixels to VSL → white
+ *    LUTB:  VSH (0x55) → drives bit=1 (black) pixels to VSH → black
  *==========================================================================*/
 
 #define FAST_LUT_FRAMES  15
@@ -108,16 +114,18 @@ static const uint8_t LUT_FAST_R[42] = {
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
-/* LUTW (R23H) - applies to bit=1 (BLACK) pixels: VSL (0xAA = 10 10 10 10 = all VSL)
- * Drives black pixels negative → black */
+/* LUTW (R23H) - White LUT: VSL (0xAA = 10 10 10 10 = all VSL)
+ * DDX=00: data 00 → LUTW → applies to bit=0 (white) pixels → VSL → white
+ * (VSL drives white on this panel, confirmed by datasheet built-in LUT) */
 static const uint8_t LUT_FAST_W[42] = {
     0xAA, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
-/* LUTB (R24H) - applies to bit=0 (WHITE) pixels: VSH (0x55 = 01 01 01 01 = all VSH)
- * Drives white pixels positive → white */
+/* LUTB (R24H) - Black LUT: VSH (0x55 = 01 01 01 01 = all VSH)
+ * DDX=00: data 01 → LUTB → applies to bit=1 (black) pixels → VSH → black
+ * (VSH drives black on this panel, confirmed by datasheet built-in LUT) */
 static const uint8_t LUT_FAST_B[42] = {
     0x55, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
@@ -227,8 +235,12 @@ void Epaper_Init(void)
     /* ---- OSC (R30H): 50Hz ---- */
     Epaper_Hw_WriteCmd(0x30); Epaper_Hw_WriteData(0x3C);
 
-    /* ---- CDI (R50H) ---- */
-    Epaper_Hw_WriteCmd(0x50); Epaper_Hw_WriteData(0x57);
+    /* ---- CDI (R50H): VBD=01, DDX=00, CDI=0111 ----
+     *   DDX=00: no data polarity inversion
+     *   bit=0 → data 00 → LUTW (White LUT → VSL → white)
+     *   bit=1 → data 01 → LUTB (Black LUT → VSH → black)
+     *   This matches MiniUI convention (bit=0=white, bit=1=black) directly. */
+    Epaper_Hw_WriteCmd(0x50); Epaper_Hw_WriteData(0x47);
 
     /* ---- TRES (R61H): 648x480 ---- */
     Epaper_Hw_WriteCmd(0x61);

@@ -705,8 +705,10 @@ static void snk_touch_event(ui_widget_t *w, ui_event_t *e)
 
 static void snk_dpad_event(ui_widget_t *w, ui_event_t *e)
 {
+    /* Handle both pointer events (DOWN/LONG_PRESS for mouse) and touch
+     * events (CLICK for touch matrix tap). */
     if (e->type != UI_EVENT_DOWN && e->type != UI_EVENT_LONG_PRESS &&
-        e->type != UI_EVENT_LONG_PRESS_REPEAT) return;
+        e->type != UI_EVENT_LONG_PRESS_REPEAT && e->type != UI_EVENT_CLICK) return;
     if (s_snk.state == SNK_STATE_IDLE || s_snk.state == SNK_STATE_GAMEOVER) {
         snk_start_game();
         return;

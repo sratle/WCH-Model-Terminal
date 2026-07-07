@@ -35,6 +35,25 @@ void Keyboard_Process(keyboard_t *keyboard);
 void Keyboard_UART_IRQ_Handler(keyboard_t *keyboard);
 
 /* ============================================================================
+ * Game Keyboard (Keyboard-2) Input State
+ * ============================================================================ */
+
+typedef struct {
+    int8_t  roc1_x;       /* Joystick 1 X (-128~127, center=0) */
+    int8_t  roc1_y;       /* Joystick 1 Y (-128~127, center=0) */
+    int8_t  roc2_x;       /* Joystick 2 X (-128~127, center=0) */
+    int8_t  roc2_y;       /* Joystick 2 Y (-128~127, center=0) */
+    uint8_t buttons;      /* bit0~5 = BUT1~BUT6 */
+    uint8_t switches;     /* 2 bits per switch: 00=mid, 01=up, 10=down */
+    int8_t  ec1_delta;    /* Encoder 1 rotation delta */
+    int8_t  ec2_delta;    /* Encoder 2 rotation delta */
+    uint8_t ec_buttons;   /* bit0=EC1_D, bit1=EC2_D */
+} game_input_state_t;
+
+/* Get current game input state (NULL if no game keyboard connected) */
+const game_input_state_t *Keyboard_Game_GetState(void);
+
+/* ============================================================================
  * Music Keyboard (Keyboard-3) Control API
  * ============================================================================ */
 

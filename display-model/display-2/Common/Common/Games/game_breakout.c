@@ -719,8 +719,11 @@ static void brk_touch_event(ui_widget_t *w, ui_event_t *e)
 
 static void brk_ctrl_event(ui_widget_t *w, ui_event_t *e)
 {
+    /* Handle both pointer events (DOWN/LONG_PRESS for mouse) and touch
+     * events (CLICK for touch matrix tap). The touch matrix injects
+     * TOUCH_DOWN+TOUCH_UP on tap, which synthesizes a CLICK event. */
     if (e->type != UI_EVENT_DOWN && e->type != UI_EVENT_LONG_PRESS &&
-        e->type != UI_EVENT_LONG_PRESS_REPEAT) return;
+        e->type != UI_EVENT_LONG_PRESS_REPEAT && e->type != UI_EVENT_CLICK) return;
     if (s_brk.state != BRK_STATE_PLAYING && s_brk.state != BRK_STATE_LAUNCH) return;
 
     int speed = (e->type == UI_EVENT_LONG_PRESS || e->type == UI_EVENT_LONG_PRESS_REPEAT)

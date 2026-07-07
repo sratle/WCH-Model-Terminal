@@ -14,6 +14,10 @@ static uint8_t music_active = 0;           /* 1=音乐键盘已启动事件上�
 static uint8_t prev_key_bitmap[3] = {0};   /* 上一帧琴键位图 */
 static uint8_t current_playing_key = 0;    /* 当前正在播放的琴键 ID (1~24, 0=无) */
 
+/* Game Keyboard state */
+static game_input_state_t game_state = {0};
+static uint8_t game_active = 0;            /* 1=游戏键盘已连接 */
+
 /* 检查 Display 是否在线 */
 static uint8_t Keyboard_IsDisplayOnline(void)
 {
@@ -66,6 +70,9 @@ static void Keyboard_HandleMusicKeys(const protocol_frame_t *req);
 static void Keyboard_HandleMusicButtons(const protocol_frame_t *req);
 static void Keyboard_HandleMusicFaders(const protocol_frame_t *req);
 static void Keyboard_HandleGameInput(const protocol_frame_t *req);
+
+/* Forward game input event to Display (raw frame pass-through) */
+static void Keyboard_ForwardGameEventToDisplay(const protocol_frame_t *req);
 
 /* ============================================================================
  * UART 初始化与数据收发
@@ -218,6 +225,9 @@ void Keyboard_Process(keyboard_t *keyboard)
         {
             Hardware_Hb_MarkOnline(MODULE_ID_KEYBOARD, id.type, id.subtype);
             keyboard->type_id = id.subtype;
+            /* Reset game state if keyboard type is not Game */
+            if (id.subtype != MODULE_SUBTYPE_KEYBOARD_GAME)
+                game_active = 0;
         }
         handled = 1;
     }
@@ -641,8 +651,59 @@ static void Keyboard_HandleMusicFaders(const protocol_frame_t *req)
 
 static void Keyboard_HandleGameInput(const protocol_frame_t *req)
 {
-    (void)req;
-    /* TODO: 解析摇杆 X/Y（int8）和按键状态 bitmask */
+    if (req->len < 10)  /* CMD + 9 bytes DATA */
+    {
+        printf("[GAME] Frame too short: %d\r\n", req->len);
+        return;
+    }
+
+    /* Parse 9-byte game input data */
+    game_state.roc1_x    = (int8_t)req->data[0];
+    game_state.roc1_y    = (int8_t)req->data[1];
+    game_state.roc2_x    = (int8_t)req->data[2];
+    game_state.roc2_y    = (int8_t)req->data[3];
+    game_state.buttons   = req->data[4];
+    game_state.switches  = req->data[5];
+    game_state.ec1_delta = (int8_t)req->data[6];
+    game_state.ec2_delta = (int8_t)req->data[7];
+    game_state.ec_buttons = req->data[8];
+
+    game_active = 1;
+
+    /* Debug output */
+    printf("[GAME] R1(%+4d,%+4d) R2(%+4d,%+4d) Btn:0x%02X SW:0x%02X EC1:%+4d EC2:%+4d ECD:0x%02X\r\n",
+           game_state.roc1_x, game_state.roc1_y,
+           game_state.roc2_x, game_state.roc2_y,
+           game_state.buttons, game_state.switches,
+           game_state.ec1_delta, game_state.ec2_delta,
+           game_state.ec_buttons);
+
+    /* Forward to Display for game UI */
+    Keyboard_ForwardGameEventToDisplay(req);
+}
+
+static void Keyboard_ForwardGameEventToDisplay(const protocol_frame_t *req)
+{
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint16_t len;
+
+    if (!Keyboard_IsDisplayOnline())
+        return;
+
+    len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
+                             req->cmd, req->data, req->len,
+                             buf, sizeof(buf));
+    if (len > 0)
+        Display_Send_Data(&display_g, buf, len);
+}
+
+const game_input_state_t *Keyboard_Game_GetState(void)
+{
+    if (!game_active || keyboard_ptr == NULL)
+        return NULL;
+    if (keyboard_ptr->type_id != MODULE_SUBTYPE_KEYBOARD_GAME)
+        return NULL;
+    return &game_state;
 }
 
 /* ============================================================================
