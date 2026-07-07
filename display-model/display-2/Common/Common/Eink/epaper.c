@@ -13,13 +13,15 @@
 * slow for interactive UI.  The fast register LUT trades contrast for
 * speed: 20 frames gives fuller black drive (avoiding faint blacks).
 *
-* Gradual graying fix: the fast LUT doesn't fully drive pixels to target
-* state, leaving residual charge that accumulates over many partial
-* refreshes and manifests as whole-screen graying.  To fix this, full
+* Gradual graying fix: POF (power-off) is sent after EVERY refresh so VCOM
+* discharges to GND (via TDY 0x88 0x06).  This is the datasheet's intended
+* flow (AUTO 0xE9 + 0xA5 = PON→DRF→POF).  Without POF, VCOM stays at
+* -VCM_DC between refreshes, creating a continuous DC bias on non-refreshed
+* pixels (which during PDRF follow the VCOM LUT only) — this causes the
+* whole-screen graying observed during cursor movement.  Additionally, full
 * refreshes (Epaper_Update) and every 20th partial refresh use the CLEAR
 * LUT — a 2-phase waveform that first drives ALL pixels to white (VSL),
-* clearing residual, then drives to the target state.  This is the
-* standard e-paper clearing technique.
+* clearing any residual, then drives to the target state.
 *
 * Pixel format (panel side): 1bpp, MSB = leftmost pixel, bit=1 = BLACK,
 * bit=0 = WHITE (empirically determined, opposite of datasheet claim).
@@ -228,6 +230,18 @@ static void epaper_ensure_power_on(void)
     s_epd_powered_on = true;
 }
 
+/* Power off the panel — sends POF so VCOM discharges to GND (via TDY 0x88 0x06).
+ * This eliminates the DC bias on non-refreshed pixels between partial
+ * refreshes, which is the root cause of whole-screen gradual graying.
+ * The datasheet's intended refresh flow is PON→DRF/PDRF→POF (see AUTO 0xE9).
+ * Register and SRAM data are preserved across POF. */
+static void epaper_power_off(void)
+{
+    Epaper_Hw_WriteCmd(0x02);               /* POF */
+    epd_wait_busy_counted(1000);
+    s_epd_powered_on = false;
+}
+
 /* Write all 5 LUT registers (R20H-R24H) with the given 42-byte arrays. */
 static void epaper_write_lut(const uint8_t *lut_c,  const uint8_t *lut_ww,
                              const uint8_t *lut_r,  const uint8_t *lut_w,
@@ -382,13 +396,18 @@ void Epaper_DisplayImage(const uint8_t *image)
 /*********************************************************************
  * @fn      Epaper_Update
  *
- * @brief   PON -> DRF (full refresh) with CLEAR LUT, then restore FAST LUT.
+ * @brief   PON -> DRF (full refresh) with CLEAR LUT -> POF.
  *          The CLEAR LUT is a 2-phase waveform: phase 1 drives all pixels
  *          to white (clearing residual charge), phase 2 drives to target.
  *          This eliminates the gradual graying that accumulates from
  *          repeated fast partial refreshes.
- *          Does NOT send POF — panel stays powered for fast consecutive
- *          updates (matches vendor reference code).
+ *
+ *          POF is sent after the refresh so VCOM discharges to GND (via
+ *          TDY 0x88 0x06).  This is the datasheet's intended refresh flow
+ *          (AUTO 0xE9 + 0xA5 = PON→DRF→POF) and eliminates the DC bias
+ *          on non-refreshed pixels that causes whole-screen graying.
+ *          Registers and SRAM are preserved across POF; the next refresh
+ *          re-sends PON (~100-200ms overhead).
  */
 void Epaper_Update(void)
 {
@@ -404,17 +423,23 @@ void Epaper_Update(void)
 
     Epaper_Hw_WriteCmd(0x12);  /* DRF */
     int ret = epd_wait_busy_counted(10000);
-    uint32_t t_total = epd_time_mark();
+    uint32_t t_after_drf = epd_time_mark();
 
     epaper_write_lut(LUT_FAST_C, LUT_FAST_WW, LUT_FAST_R,
                      LUT_FAST_W, LUT_FAST_B);
 
+    /* POF: discharge VCOM to GND to eliminate DC bias between refreshes. */
+    epaper_power_off();
+    uint32_t t_total = epd_time_mark();
+
     /* A clearing full refresh resets the partial counter. */
     s_partial_count = 0;
 
-    printf("[epd] update(full/clear %d+%dF): pon=%lums drf=%lums(total) ret=%d\r\n",
+    printf("[epd] update(full/clear %d+%dF): pon=%lums drf=%lums pof=%lums(total) ret=%d\r\n",
            CLEAR_LUT_PHASE1_FRAMES, CLEAR_LUT_PHASE2_FRAMES,
-           t_after_pon - t_before_pon, t_total - t_after_pon, ret);
+           t_after_pon - t_before_pon,
+           t_after_drf - t_after_pon,
+           t_total - t_after_drf, ret);
 }
 
 /*********************************************************************
@@ -427,6 +452,7 @@ void Epaper_Update(void)
  *            PDTM1(R14h) + PDTM2(R15h)
  *            -> PON(R04h) [wait BUSY]   (skipped if already powered)
  *            -> PDRF(R16h) [wait BUSY]
+ *            -> POF(R02h) [wait BUSY]   (discharge VCOM to GND)
  *
  *          NOTE: Datasheet mentions "must send command 11H" after data
  *          transmission, but sending 0x11 causes PDRF to NOT trigger
@@ -435,16 +461,22 @@ void Epaper_Update(void)
  *          NOT send 0x11.  CS toggling per byte is sufficient to signal
  *          end of data transmission.
  *
- *          POF is NOT sent after each partial refresh — the panel stays
- *          powered between refreshes for fast consecutive updates.  POF is
- *          only sent in Epaper_Sleep(). This matches the vendor reference
- *          code (EPD_Update does PON + DRF only, no POF).
+ *          POF is sent after each partial refresh so VCOM discharges to
+ *          GND (via TDY 0x88 0x06).  This is the datasheet's intended
+ *          refresh flow (AUTO 0xE9 + 0xA5 = PON→DRF→POF).  Without POF,
+ *          VCOM stays at -VCM_DC between refreshes, creating a continuous
+ *          DC bias on non-refreshed pixels (which during PDRF follow the
+ *          VCOM LUT only) — this is the root cause of the whole-screen
+ *          graying observed during cursor movement.  POF eliminates the
+ *          inter-refresh DC bias; registers and SRAM are preserved, so the
+ *          next refresh simply re-sends PON (~100-200ms overhead).
  *
  *          Data is sent directly (no inversion): MiniUI bit=1=black matches
  *          panel bit=1=black (CDI DDX=00, no polarity inversion).
  *
- *          DFV_EN=1 in PDRF: unchanged pixels (old==new) follow VCOM LUT
- *          instead of data LUT, preventing ghosting on static areas.
+ *          DFV_EN=0 in PDRF: unchanged pixels within the region follow the
+ *          data LUT (same as changed pixels), which is correct for BWR=0
+ *          absolute LUT mode.
  *
  *          With the 20-frame fast LUT, each partial refresh takes ~400ms
  *          (2.5 FPS) regardless of region size.
@@ -493,15 +525,21 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
 
         Epaper_Hw_WriteCmd(0x12);  /* DRF — full refresh */
         int ret = epd_wait_busy_counted(10000);
-        uint32_t t_total = epd_time_mark();
+        uint32_t t_after_drf = epd_time_mark();
 
         /* Restore FAST LUT for subsequent partial refreshes */
         epaper_write_lut(LUT_FAST_C, LUT_FAST_WW, LUT_FAST_R,
                          LUT_FAST_W, LUT_FAST_B);
 
-        printf("[epd] partial->full(clear after %d): (%d,%d,%d,%d) pon=%lums drf=%lums ret=%d\r\n",
+        /* POF: discharge VCOM to GND to eliminate DC bias between refreshes. */
+        epaper_power_off();
+        uint32_t t_total = epd_time_mark();
+
+        printf("[epd] partial->full(clear after %d): (%d,%d,%d,%d) pon=%lums drf=%lums pof=%lums ret=%d\r\n",
                PARTIAL_REFRESH_CLEAR_INTERVAL, x, y, w, h,
-               t_after_pon - t_before_pon, t_total - t_after_pon, ret);
+               t_after_pon - t_before_pon,
+               t_after_drf - t_after_pon,
+               t_total - t_after_drf, ret);
         return;
     }
 
@@ -554,12 +592,20 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
 
     /* Wait for BUSY to go LOW (refresh started), then back HIGH (done) */
     int ret = epd_wait_busy_counted(3000);
+    uint32_t t_after_pdrf = epd_time_mark();
+
+    /* POF: discharge VCOM to GND to eliminate DC bias between refreshes.
+     * This is the key fix for the whole-screen graying observed during
+     * cursor movement — without POF, VCOM stays at -VCM_DC and continuously
+     * biases non-refreshed pixels (which follow VCOM LUT only during PDRF). */
+    epaper_power_off();
     uint32_t t_total = epd_time_mark();
 
-    printf("[epd] partial(%d,%d,%d,%d): pon=%lums pdrf=%lums ret=%d\r\n",
+    printf("[epd] partial(%d,%d,%d,%d): pon=%lums pdrf=%lums pof=%lums ret=%d\r\n",
            x, y, w, h,
            t_after_pon - t_before_pon,
-           t_total - t_after_pon,
+           t_after_pdrf - t_after_pon,
+           t_total - t_after_pdrf,
            ret);
 }
 

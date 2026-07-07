@@ -4,7 +4,7 @@
  *
  * Simplified driver based on vendor reference code:
  *   - Init: HW reset + wait BUSY
- *   - Update: PON + DRF (no POF)
+ *   - Update: PON + DRF + POF (POF discharges VCOM to GND to prevent graying)
  *   - Panel uses power-on default configuration
  *
  * Pixel format (panel): 1bpp, bit=1 -> white, bit=0 -> black.

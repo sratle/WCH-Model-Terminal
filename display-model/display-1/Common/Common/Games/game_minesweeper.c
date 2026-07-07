@@ -11,7 +11,10 @@
 ********************************************************************************/
 #include "game_minesweeper.h"
 #include "../UI/ui_app_common.h"
+#include "../UART/uart_module.h"
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /*=============================================================================
  *  Layout Configuration
@@ -68,11 +71,15 @@
 #define MINE_MODE_LABEL_Y      (MINE_TIME_BOX_Y + MINE_INFO_BOX_H + MINE_INFO_GAP)
 #define MINE_MODE_BOX_Y        (MINE_MODE_LABEL_Y + MINE_INFO_LABEL_H)
 
+/* Best time section */
+#define MINE_BEST_LABEL_Y      (MINE_MODE_BOX_Y + MINE_INFO_BOX_H + MINE_INFO_GAP)
+#define MINE_BEST_BOX_Y        (MINE_BEST_LABEL_Y + MINE_INFO_LABEL_H)
+
 /* Mode buttons */
 #define MINE_MODE_BTN_W        130
 #define MINE_MODE_BTN_H        40
 #define MINE_MODE_GAP          10
-#define MINE_MODE_TOP          (MINE_MODE_BOX_Y + MINE_INFO_BOX_H + 16)
+#define MINE_MODE_TOP          (MINE_BEST_BOX_Y + MINE_INFO_BOX_H + 16)
 
 /* Restart button */
 #define MINE_RESTART_W         (2 * MINE_MODE_BTN_W + MINE_MODE_GAP)
@@ -142,8 +149,10 @@ typedef struct {
     bool first_click;       /* True until first reveal */
     int frame_count;        /* Frame counter for timer (25 FPS) */
     int elapsed_sec;        /* Elapsed seconds */
+    int best_time;          /* Best completion time (seconds), 0=none */
     char buf_mines[16];
     char buf_time[16];
+    char buf_best[16];
 } mine_game_t;
 
 /*=============================================================================
@@ -195,6 +204,40 @@ static void mine_update_texts(void)
     int mines_left = s_mine.total_mines - s_mine.flag_count;
     mine_itoa(mines_left, s_mine.buf_mines);
     mine_itoa((int)s_mine.elapsed_sec, s_mine.buf_time);
+    if (s_mine.best_time > 0) {
+        mine_itoa(s_mine.best_time, s_mine.buf_best);
+    } else {
+        s_mine.buf_best[0] = '-'; s_mine.buf_best[1] = '\0';
+    }
+}
+
+/*=============================================================================
+ *  Best Time Persistence (via CLI passthrough to Core appcfg)
+ *=============================================================================*/
+
+static void mine_on_cli_complete(const char *buf, uint16_t len, const char *tag)
+{
+    if (!tag || strcmp(tag, "appcfg") != 0) return;
+    s_mine.best_time = atoi(buf);
+    mine_update_texts();
+    ui_page_invalidate_all();
+}
+
+static const uart_cli_cb_t s_mine_cli_cb = {
+    .on_cli_complete = mine_on_cli_complete,
+};
+
+static void mine_load_best(void)
+{
+    UART_SetCLICallbacks(&s_mine_cli_cb);
+    UART_SendCLI("appcfg get game_minesweeper besttime");
+}
+
+static void mine_save_best(void)
+{
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "appcfg set game_minesweeper besttime %d", s_mine.best_time);
+    UART_SendCLI(cmd);
 }
 
 /*=============================================================================
@@ -372,6 +415,11 @@ static bool mine_reveal_cell(int row, int col)
     int total_safe = s_mine.rows * s_mine.cols - s_mine.total_mines;
     if (s_mine.revealed_count >= total_safe) {
         s_mine.state = MINE_STATE_WIN;
+        /* Save best time if this is a new record */
+        if (s_mine.best_time == 0 || s_mine.elapsed_sec < s_mine.best_time) {
+            s_mine.best_time = (int)s_mine.elapsed_sec;
+            mine_save_best();
+        }
         /* Auto-flag remaining mines */
         for (int r = 0; r < s_mine.rows; r++) {
             for (int c = 0; c < s_mine.cols; c++) {
@@ -582,6 +630,13 @@ static void mine_draw_panel(void)
     const char *mode_str = (s_mine.mode == MINE_MODE_EASY) ? "9x9" : "16x16";
     ui_draw_text_in_rect(&mob, mode_str, &font_montserrat_16, UI_COLOR_WHITE, 1);
 
+    /* Best time */
+    ui_rect_t bl = {MINE_PANEL_X, MINE_BEST_LABEL_Y, MINE_PANEL_W, MINE_INFO_LABEL_H};
+    ui_draw_text_in_rect(&bl, "BEST", &font_montserrat_12, UI_COLOR_TEXT_SECONDARY, 1);
+    ui_rect_t bb = {MINE_PANEL_X, MINE_BEST_BOX_Y, MINE_PANEL_W, MINE_INFO_BOX_H};
+    ui_draw_fill_round_rect(&bb, MINE_INFO_BOX_R, UI_HEX(0x3C3C3C));
+    ui_draw_text_in_rect(&bb, s_mine.buf_best, &font_montserrat_16, UI_COLOR_WHITE, 1);
+
     /* Mode buttons */
     mine_draw_mode_btns();
 
@@ -780,6 +835,7 @@ static void mine_game_enter(ui_page_t *page)
     s_mine.total_mines = MINE_MODE_EASY_MINES;
     s_mine.state = MINE_STATE_IDLE;
     mine_update_texts();
+    mine_load_best();
     ui_page_invalidate_all();
 }
 

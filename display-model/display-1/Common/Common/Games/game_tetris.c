@@ -10,7 +10,10 @@
 ********************************************************************************/
 #include "game_tetris.h"
 #include "../UI/ui_app_common.h"
+#include "../UART/uart_module.h"
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /*=============================================================================
  *  Board & Piece Configuration
@@ -52,8 +55,12 @@
 #define TET_LINES_LABEL_Y   (TET_LEVEL_BOX_Y + TET_INFO_BOX_H + TET_INFO_GAP)  /* 146 */
 #define TET_LINES_BOX_Y     (TET_LINES_LABEL_Y + TET_INFO_LABEL_H)       /* 160 */
 
+/* Best section */
+#define TET_BEST_LABEL_Y    (TET_LINES_BOX_Y + TET_INFO_BOX_H + TET_INFO_GAP)  /* 194 */
+#define TET_BEST_BOX_Y      (TET_BEST_LABEL_Y + TET_INFO_LABEL_H)       /* 208 */
+
 /* Next piece preview */
-#define TET_NEXT_LABEL_Y    (TET_LINES_BOX_Y + TET_INFO_BOX_H + 12)      /* 200 */
+#define TET_NEXT_LABEL_Y    (TET_BEST_BOX_Y + TET_INFO_BOX_H + 12)      /* 248 */
 #define TET_PREVIEW_X       TET_PANEL_X
 #define TET_PREVIEW_Y       (TET_NEXT_LABEL_Y + TET_INFO_LABEL_H)        /* 214 */
 #define TET_PREVIEW_W       TET_PANEL_W
@@ -159,11 +166,13 @@ typedef struct {
     int score;
     int level;
     int lines;
+    int best;
     tet_state_t state;
     uint32_t last_drop_ms;
     char buf_score[16];
     char buf_level[16];
     char buf_lines[16];
+    char buf_best[16];
 } tet_game_t;
 
 /*=============================================================================
@@ -259,6 +268,36 @@ static void tet_update_texts(void)
     tet_itoa(s_tet.score, s_tet.buf_score);
     tet_itoa(s_tet.level, s_tet.buf_level);
     tet_itoa(s_tet.lines, s_tet.buf_lines);
+    tet_itoa(s_tet.best, s_tet.buf_best);
+}
+
+/*=============================================================================
+ *  Best Score Persistence (via CLI passthrough to Core appcfg)
+ *=============================================================================*/
+
+static void tet_on_cli_complete(const char *buf, uint16_t len, const char *tag)
+{
+    if (!tag || strcmp(tag, "appcfg") != 0) return;
+    s_tet.best = atoi(buf);
+    tet_update_texts();
+    ui_page_invalidate_all();
+}
+
+static const uart_cli_cb_t s_tet_cli_cb = {
+    .on_cli_complete = tet_on_cli_complete,
+};
+
+static void tet_load_best(void)
+{
+    UART_SetCLICallbacks(&s_tet_cli_cb);
+    UART_SendCLI("appcfg get game_tetris highscore");
+}
+
+static void tet_save_best(void)
+{
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "appcfg set game_tetris highscore %d", s_tet.best);
+    UART_SendCLI(cmd);
 }
 
 /* Drop speed in ms based on level */
@@ -280,6 +319,10 @@ static void tet_spawn_piece(void)
     /* Check game over */
     if (tet_collides(s_tet.cur_piece, s_tet.cur_rot, s_tet.cur_row, s_tet.cur_col)) {
         s_tet.state = TET_STATE_GAMEOVER;
+        if (s_tet.score > s_tet.best) {
+            s_tet.best = s_tet.score;
+            tet_save_best();
+        }
         ui_page_invalidate_all();
     }
 }
@@ -635,6 +678,12 @@ static void tet_draw_panel(void)
     ui_draw_fill_round_rect(&lines_bg, TET_INFO_BOX_R, UI_HEX(0x3C3C3C));
     ui_draw_text_in_rect(&lines_bg, s_tet.buf_lines, &font_montserrat_16, UI_COLOR_WHITE, 1);
 
+    /* Best */
+    ui_draw_text(TET_PANEL_X, TET_BEST_LABEL_Y, "BEST", &font_montserrat_12, UI_HEX(0xAAAAAA));
+    ui_rect_t best_bg = {TET_PANEL_X, TET_BEST_BOX_Y, TET_PANEL_W, TET_INFO_BOX_H};
+    ui_draw_fill_round_rect(&best_bg, TET_INFO_BOX_R, UI_HEX(0x3C3C3C));
+    ui_draw_text_in_rect(&best_bg, s_tet.buf_best, &font_montserrat_16, UI_COLOR_WHITE, 1);
+
     /* Next label */
     ui_draw_text(TET_PANEL_X, TET_NEXT_LABEL_Y, "NEXT", &font_montserrat_12, UI_HEX(0xAAAAAA));
     tet_draw_preview();
@@ -940,6 +989,7 @@ static void tet_game_enter(ui_page_t *page)
     memset(&s_tet, 0, sizeof(s_tet));
     s_tet.state = TET_STATE_IDLE;
     tet_update_texts();
+    tet_load_best();
     ui_page_invalidate_all();
 }
 

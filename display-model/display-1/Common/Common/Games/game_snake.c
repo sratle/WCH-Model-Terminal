@@ -9,7 +9,10 @@
 ********************************************************************************/
 #include "game_snake.h"
 #include "../UI/ui_app_common.h"
+#include "../UART/uart_module.h"
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /*=============================================================================
  *  Layout Configuration
@@ -183,6 +186,35 @@ static void snk_update_texts(void)
 }
 
 /*=============================================================================
+ *  Best Score Persistence (via CLI passthrough to Core appcfg)
+ *=============================================================================*/
+
+static void snk_on_cli_complete(const char *buf, uint16_t len, const char *tag)
+{
+    if (!tag || strcmp(tag, "appcfg") != 0) return;
+    s_snk.best = atoi(buf);
+    snk_update_texts();
+    ui_page_invalidate_all();
+}
+
+static const uart_cli_cb_t s_snk_cli_cb = {
+    .on_cli_complete = snk_on_cli_complete,
+};
+
+static void snk_load_best(void)
+{
+    UART_SetCLICallbacks(&s_snk_cli_cb);
+    UART_SendCLI("appcfg get game_snake highscore");
+}
+
+static void snk_save_best(void)
+{
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "appcfg set game_snake highscore %d", s_snk.best);
+    UART_SendCLI(cmd);
+}
+
+/*=============================================================================
  *  Grid Pixel Helpers
  *=============================================================================*/
 
@@ -336,7 +368,10 @@ static void snk_game_tick(void)
     if (new_head.col < 0 || new_head.col >= SNK_COLS ||
         new_head.row < 0 || new_head.row >= SNK_ROWS) {
         s_snk.state = SNK_STATE_GAMEOVER;
-        if (s_snk.score > s_snk.best) s_snk.best = s_snk.score;
+        if (s_snk.score > s_snk.best) {
+            s_snk.best = s_snk.score;
+            snk_save_best();
+        }
         snk_update_texts();
         ui_page_invalidate_all();
         return;
@@ -348,7 +383,10 @@ static void snk_game_tick(void)
     for (int i = 0; i < check_len; i++) {
         if (s_snk.body[i].col == new_head.col && s_snk.body[i].row == new_head.row) {
             s_snk.state = SNK_STATE_GAMEOVER;
-            if (s_snk.score > s_snk.best) s_snk.best = s_snk.score;
+            if (s_snk.score > s_snk.best) {
+                s_snk.best = s_snk.score;
+                snk_save_best();
+            }
             snk_update_texts();
             ui_page_invalidate_all();
             return;
@@ -726,6 +764,7 @@ static void snk_game_enter(ui_page_t *page)
     memset(&s_snk, 0, sizeof(s_snk));
     s_snk.state = SNK_STATE_IDLE;
     snk_update_texts();
+    snk_load_best();
     ui_page_invalidate_all();
 }
 

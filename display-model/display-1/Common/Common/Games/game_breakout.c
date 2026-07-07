@@ -9,8 +9,10 @@
 ********************************************************************************/
 #include "game_breakout.h"
 #include "../UI/ui_app_common.h"
+#include "../UART/uart_module.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 /*=============================================================================
  *  Layout Configuration
@@ -77,11 +79,15 @@
 #define BRK_LEVEL_LABEL_Y   (BRK_LIVES_BOX_Y + BRK_INFO_BOX_H + BRK_INFO_GAP)
 #define BRK_LEVEL_BOX_Y     (BRK_LEVEL_LABEL_Y + BRK_INFO_LABEL_H)
 
+/* Best section */
+#define BRK_BEST_LABEL_Y    (BRK_LEVEL_BOX_Y + BRK_INFO_BOX_H + BRK_INFO_GAP)
+#define BRK_BEST_BOX_Y      (BRK_BEST_LABEL_Y + BRK_INFO_LABEL_H)
+
 /* Control buttons (L/R at bottom of panel) */
 #define BRK_CTRL_BTN_W      70
 #define BRK_CTRL_BTN_H      54
 #define BRK_CTRL_GAP        8
-#define BRK_CTRL_TOP        (BRK_LEVEL_BOX_Y + BRK_INFO_BOX_H + 20)
+#define BRK_CTRL_TOP        (BRK_BEST_BOX_Y + BRK_INFO_BOX_H + 20)
 #define BRK_CTRL_LEFT_X     BRK_PANEL_X
 #define BRK_CTRL_LEFT_Y     BRK_CTRL_TOP
 #define BRK_CTRL_RIGHT_X    (BRK_PANEL_X + BRK_CTRL_BTN_W + BRK_CTRL_GAP)
@@ -149,12 +155,14 @@ typedef struct {
     int score;
     int lives;
     int level;
+    int best;
     brk_state_t state;
     uint32_t last_tick_ms;
 
     char buf_score[16];
     char buf_lives[16];
     char buf_level[16];
+    char buf_best[16];
 } brk_game_t;
 
 /*=============================================================================
@@ -205,6 +213,36 @@ static void brk_update_texts(void)
     brk_itoa(s_brk.score, s_brk.buf_score);
     brk_itoa(s_brk.lives, s_brk.buf_lives);
     brk_itoa(s_brk.level, s_brk.buf_level);
+    brk_itoa(s_brk.best, s_brk.buf_best);
+}
+
+/*=============================================================================
+ *  Best Score Persistence (via CLI passthrough to Core appcfg)
+ *=============================================================================*/
+
+static void brk_on_cli_complete(const char *buf, uint16_t len, const char *tag)
+{
+    if (!tag || strcmp(tag, "appcfg") != 0) return;
+    s_brk.best = atoi(buf);
+    brk_update_texts();
+    ui_page_invalidate_all();
+}
+
+static const uart_cli_cb_t s_brk_cli_cb = {
+    .on_cli_complete = brk_on_cli_complete,
+};
+
+static void brk_load_best(void)
+{
+    UART_SetCLICallbacks(&s_brk_cli_cb);
+    UART_SendCLI("appcfg get game_breakout highscore");
+}
+
+static void brk_save_best(void)
+{
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "appcfg set game_breakout highscore %d", s_brk.best);
+    UART_SendCLI(cmd);
 }
 
 /*=============================================================================
@@ -478,6 +516,10 @@ static void brk_game_tick(void)
 
         if (s_brk.lives <= 0) {
             s_brk.state = BRK_STATE_GAMEOVER;
+            if (s_brk.score > s_brk.best) {
+                s_brk.best = s_brk.score;
+                brk_save_best();
+            }
             ui_page_invalidate_all();
         } else {
             brk_reset_ball();
@@ -611,6 +653,12 @@ static void brk_draw_panel(void)
     ui_rect_t level_bg = {BRK_PANEL_X, BRK_LEVEL_BOX_Y, BRK_PANEL_W, BRK_INFO_BOX_H};
     ui_draw_fill_round_rect(&level_bg, BRK_INFO_BOX_R, UI_HEX(0x3C3C3C));
     ui_draw_text_in_rect(&level_bg, s_brk.buf_level, &font_montserrat_16, UI_COLOR_WHITE, 1);
+
+    /* Best */
+    ui_draw_text(BRK_PANEL_X, BRK_BEST_LABEL_Y, "BEST", &font_montserrat_12, UI_HEX(0xAAAAAA));
+    ui_rect_t best_bg = {BRK_PANEL_X, BRK_BEST_BOX_Y, BRK_PANEL_W, BRK_INFO_BOX_H};
+    ui_draw_fill_round_rect(&best_bg, BRK_INFO_BOX_R, UI_HEX(0x3C3C3C));
+    ui_draw_text_in_rect(&best_bg, s_brk.buf_best, &font_montserrat_16, UI_COLOR_WHITE, 1);
 
     /* Control buttons */
     brk_draw_ctrl_btns();
@@ -781,6 +829,7 @@ static void brk_game_enter(ui_page_t *page)
     s_brk.state = BRK_STATE_IDLE;
     brk_update_texts();
     s_brk.paddle_x = BRK_PLAY_X + BRK_PLAY_W / 2;
+    brk_load_best();
     ui_page_invalidate_all();
 }
 
