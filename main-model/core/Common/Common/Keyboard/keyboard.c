@@ -657,11 +657,11 @@ static void Keyboard_HandleGameInput(const protocol_frame_t *req)
         return;
     }
 
-    /* Parse 9-byte game input data */
-    game_state.roc1_x    = (int8_t)req->data[0];
-    game_state.roc1_y    = (int8_t)req->data[1];
-    game_state.roc2_x    = (int8_t)req->data[2];
-    game_state.roc2_y    = (int8_t)req->data[3];
+    /* Parse 9-byte game input data (joystick: uint8 0~255, center=128) */
+    game_state.roc1_x    = req->data[0];
+    game_state.roc1_y    = req->data[1];
+    game_state.roc2_x    = req->data[2];
+    game_state.roc2_y    = req->data[3];
     game_state.buttons   = req->data[4];
     game_state.switches  = req->data[5];
     game_state.ec1_delta = (int8_t)req->data[6];
@@ -671,7 +671,7 @@ static void Keyboard_HandleGameInput(const protocol_frame_t *req)
     game_active = 1;
 
     /* Debug output */
-    printf("[GAME] R1(%+4d,%+4d) R2(%+4d,%+4d) Btn:0x%02X SW:0x%02X EC1:%+4d EC2:%+4d ECD:0x%02X\r\n",
+    printf("[GAME] R1(%3u,%3u) R2(%3u,%3u) Btn:0x%02X SW:0x%02X EC1:%+4d EC2:%+4d ECD:0x%02X\r\n",
            game_state.roc1_x, game_state.roc1_y,
            game_state.roc2_x, game_state.roc2_y,
            game_state.buttons, game_state.switches,

@@ -194,7 +194,8 @@ int main(void)
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_1);
     SystemCoreClockUpdate();
     Delay_Init();
-    USART_Printf_Init(115200);
+    /* UART1 is shared with Core protocol (230400). Use it for debug too. */
+    USART_Printf_Init(230400);
 
     printf("\r\n===== Keyboard-2 (Game) Starting =====\r\n");
     printf("SystemClk: %d\r\n", SystemCoreClock);
@@ -215,6 +216,8 @@ int main(void)
     {
         if (g_scan_flag)
         {
+            static uint16_t dbg_cnt = 0;
+
             g_scan_flag = 0;
 
             Gamepad_Scan();
@@ -226,59 +229,23 @@ int main(void)
                 SendGameInputToCore();
                 Gamepad_MarkSent();
             }
+
+            /* Periodic raw encoder pin state (every 250 ticks = 500ms) */
+            if (++dbg_cnt >= 250)
+            {
+                dbg_cnt = 0;
+                printf("[RAW] EC1 A=%d B=%d D=%d | EC2 A=%d B=%d D=%d\r\n",
+                       GPIO_ReadInputDataBit(EC1_A_PORT, EC1_A_PIN),
+                       GPIO_ReadInputDataBit(EC1_B_PORT, EC1_B_PIN),
+                       GPIO_ReadInputDataBit(EC1_D_PORT, EC1_D_PIN),
+                       GPIO_ReadInputDataBit(EC2_A_PORT, EC2_A_PIN),
+                       GPIO_ReadInputDataBit(EC2_B_PORT, EC2_B_PIN),
+                       GPIO_ReadInputDataBit(EC2_D_PORT, EC2_D_PIN));
+            }
         }
         else
         {
             CheckProtocolRx();
         }
-    }
-}
-/********************************** (C) COPYRIGHT *******************************
- * File Name          : main.c
- * Author             : WCH
- * Version            : V1.0.0
- * Date               : 2024/01/05
- * Description        : Main program body.
- *********************************************************************************
- * Copyright (c) 2021 Nanjing Qinheng Microelectronics Co., Ltd.
- * Attention: This software (modified or not) and binary are used for 
- * microcontroller manufactured by Nanjing Qinheng Microelectronics.
- *******************************************************************************/
-
-/*
- *@Note
- *USART Print debugging routine:
- *USART1_Tx(PA9).
- *This example demonstrates using USART1(PA9) as a print debug port output.
- *
- */
-
-#include "debug.h"
-
-/* Global typedef */
-
-/* Global define */
-
-/* Global Variable */
-
-/*********************************************************************
- * @fn      main
- *
- * @brief   Main program.
- *
- * @return  none
- */
-int main(void)
-{
-    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_1);
-    SystemCoreClockUpdate();
-    Delay_Init();
-    USART_Printf_Init(115200);
-    printf("SystemClk:%d\r\n", SystemCoreClock);
-    printf( "ChipID:%08x\r\n", DBGMCU_GetCHIPID() );
-    printf("This is printf example\r\n");
-
-    while(1)
-    {
     }
 }

@@ -80,8 +80,9 @@
 
 #define ADC_RESOLUTION          4096    /* 12-bit */
 #define ADC_CENTER              2048
-#define JOY_DEADZONE            200     /* ~5% of full range */
-#define JOY_THRESHOLD           300     /* threshold for WASD key mapping */
+#define JOY_DEADZONE            200     /* ~5% of full range (ADC counts) */
+#define JOY_CENTER_U8           128     /* uint8 center value */
+#define JOY_THRESHOLD_U8        20      /* threshold for WASD key mapping (uint8) */
 
 #define DEBOUNCE_COUNT          3       /* debounce iterations (scan_period * count) */
 
@@ -98,11 +99,11 @@
  * ==================================================================== */
 
 typedef struct {
-    /* Joystick values (int8, -128~127, center=0) */
-    int8_t  roc1_x;
-    int8_t  roc1_y;
-    int8_t  roc2_x;
-    int8_t  roc2_y;
+    /* Joystick values (uint8, 0~255, center=128) */
+    uint8_t roc1_x;
+    uint8_t roc1_y;
+    uint8_t roc2_x;
+    uint8_t roc2_y;
 
     /* Button states (1=pressed, 0=released) */
     uint8_t button_pressed[BUT_COUNT];

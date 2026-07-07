@@ -7,6 +7,7 @@
  *                      and Core protocol data builder.
  *********************************************************************************/
 #include "gamepad.h"
+#include "debug.h"
 #include "../CH9329/ch9329.h"
 
 /* ====================================================================
@@ -19,23 +20,57 @@ static gamepad_state_t g_prev_sent;
 /* Debounce counters for buttons */
 static uint8_t btn_dbc[BUT_COUNT];
 
-/* Encoder previous state (2-bit: A<<1 | B) */
-static uint8_t ec1_prev;
-static uint8_t ec2_prev;
+/* Encoder previous raw pin levels (0=LOW, 1=HIGH) for edge detection */
+static uint8_t ec1_prev_a, ec1_prev_b;
+static uint8_t ec2_prev_a, ec2_prev_b;
 
 /* Change flag */
 static uint8_t g_changed = 0;
 
 /* ====================================================================
- * Quadrature decoder lookup table
- *   transition_map[prev_state][curr_state] = +1 (CW), -1 (CCW), 0 (no change)
+ * Rotary encoder edge-detection decoder
+ *
+ * Standard incremental encoder has two quadrature channels A & B.
+ * Only one channel changes at any given time (Gray code).
+ *
+ * CW  (A leads B): 11 -> 01 -> 00 -> 10 -> 11  (raw pin levels)
+ * CCW (B leads A): 11 -> 10 -> 00 -> 01 -> 11
+ *
+ * Edge rules (using raw GPIO readings, HIGH=1/LOW=0):
+ *   On A edge: A != B  -> CW  (+1)
+ *             A == B  -> CCW (-1)
+ *   On B edge: A == B  -> CW  (+1)
+ *             A != B  -> CCW (-1)
  * ==================================================================== */
-static const int8_t quad_table[4][4] = {
-    /* prev 00 */  { 0, +1, -1,  0 },
-    /* prev 01 */  { -1,  0,  0, +1 },
-    /* prev 10 */  { +1,  0,  0, -1 },
-    /* prev 11 */  {  0, -1, +1,  0 },
-};
+
+/* Process one encoder, returns delta (-1, 0, or +1) */
+static int8_t Encoder_Decode(uint8_t curr_a, uint8_t curr_b,
+                             uint8_t *prev_a, uint8_t *prev_b)
+{
+    int8_t delta = 0;
+
+    /* A channel edge */
+    if (curr_a != *prev_a)
+    {
+        if (curr_a != curr_b)
+            delta++;   /* CW */
+        else
+            delta--;   /* CCW */
+    }
+
+    /* B channel edge (independent, gives full 4x resolution) */
+    if (curr_b != *prev_b)
+    {
+        if (curr_a == curr_b)
+            delta++;   /* CW */
+        else
+            delta--;   /* CCW */
+    }
+
+    *prev_a = curr_a;
+    *prev_b = curr_b;
+    return delta;
+}
 
 /* ====================================================================
  * GPIO initialization
@@ -73,21 +108,22 @@ static void Gamepad_GPIO_Init(void)
     GPIO_Init(GPIOB, &gpio);
 
     /* --- Encoder 1: PB6(A), PB7(B), PA11(D) --- */
+    /* Encoder C pin is VCC, so A/B/D are pull-down, active HIGH */
     gpio.GPIO_Pin  = EC1_A_PIN | EC1_B_PIN;
-    gpio.GPIO_Mode = GPIO_Mode_IPU;
+    gpio.GPIO_Mode = GPIO_Mode_IPD;
     GPIO_Init(GPIOB, &gpio);
 
     gpio.GPIO_Pin  = EC1_D_PIN;
-    gpio.GPIO_Mode = GPIO_Mode_IPU;
+    gpio.GPIO_Mode = GPIO_Mode_IPD;
     GPIO_Init(GPIOA, &gpio);
 
     /* --- Encoder 2: PB8(A), PB9(B), PA12(D) --- */
     gpio.GPIO_Pin  = EC2_A_PIN | EC2_B_PIN;
-    gpio.GPIO_Mode = GPIO_Mode_IPU;
+    gpio.GPIO_Mode = GPIO_Mode_IPD;
     GPIO_Init(GPIOB, &gpio);
 
     gpio.GPIO_Pin  = EC2_D_PIN;
-    gpio.GPIO_Mode = GPIO_Mode_IPU;
+    gpio.GPIO_Mode = GPIO_Mode_IPD;
     GPIO_Init(GPIOA, &gpio);
 
     /* --- Joystick ADC pins: PA4~PA7, analog input --- */
@@ -134,7 +170,7 @@ static void Gamepad_ADC_Init(void)
 
 static uint16_t Gamepad_ADC_Read(uint8_t channel)
 {
-    ADC_RegularChannelConfig(ROC_ADC, channel, 1, ADC_SampleTime_55Cycles);
+    ADC_RegularChannelConfig(ROC_ADC, channel, 1, ADC_SampleTime_55Cycles5);
     ADC_SoftwareStartConvCmd(ROC_ADC, ENABLE);
     while (!ADC_GetFlagStatus(ROC_ADC, ADC_FLAG_EOC));
     return ADC_GetConversionValue(ROC_ADC);
@@ -162,11 +198,14 @@ void Gamepad_Init(void)
     Gamepad_GPIO_Init();
     Gamepad_ADC_Init();
 
-    /* Initialize encoder previous states */
-    ec1_prev = (GPIO_IsActive(EC1_A_PORT, EC1_A_PIN) << 1) |
-               GPIO_IsActive(EC1_B_PORT, EC1_B_PIN);
-    ec2_prev = (GPIO_IsActive(EC2_A_PORT, EC2_A_PIN) << 1) |
-               GPIO_IsActive(EC2_B_PORT, EC2_B_PIN);
+    /* Initialize encoder previous raw pin levels */
+    ec1_prev_a = GPIO_ReadInputDataBit(EC1_A_PORT, EC1_A_PIN);
+    ec1_prev_b = GPIO_ReadInputDataBit(EC1_B_PORT, EC1_B_PIN);
+    ec2_prev_a = GPIO_ReadInputDataBit(EC2_A_PORT, EC2_A_PIN);
+    ec2_prev_b = GPIO_ReadInputDataBit(EC2_B_PORT, EC2_B_PIN);
+
+    printf("[ENC] Init: EC1 A=%d B=%d | EC2 A=%d B=%d\r\n",
+           ec1_prev_a, ec1_prev_b, ec2_prev_a, ec2_prev_b);
 }
 
 void Gamepad_Scan(void)
@@ -259,73 +298,69 @@ void Gamepad_Scan(void)
         }
     }
 
-    /* --- Joystick ADC scan --- */
+    /* --- Joystick ADC scan (uint8: 0-255, center=128) --- */
     adc_val = (int16_t)Gamepad_ADC_Read(ROC1_X_ADC_CHANNEL);
-    centered = adc_val - ADC_CENTER;
-    if (centered > -JOY_DEADZONE && centered < JOY_DEADZONE) centered = 0;
-    centered = centered * 127 / ADC_CENTER;
-    if (centered > 127)  centered = 127;
-    if (centered < -128) centered = -128;
-    if (centered != g_state.roc1_x) { g_state.roc1_x = (int8_t)centered; g_changed = 1; }
+    if (adc_val > ADC_CENTER - JOY_DEADZONE && adc_val < ADC_CENTER + JOY_DEADZONE)
+        adc_val = ADC_CENTER;
+    { uint8_t v = (uint8_t)(adc_val >> 4);
+      if (v != g_state.roc1_x) { g_state.roc1_x = v; g_changed = 1; } }
 
     adc_val = (int16_t)Gamepad_ADC_Read(ROC1_Y_ADC_CHANNEL);
-    centered = adc_val - ADC_CENTER;
-    if (centered > -JOY_DEADZONE && centered < JOY_DEADZONE) centered = 0;
-    centered = centered * 127 / ADC_CENTER;
-    if (centered > 127)  centered = 127;
-    if (centered < -128) centered = -128;
-    if (centered != g_state.roc1_y) { g_state.roc1_y = (int8_t)centered; g_changed = 1; }
+    if (adc_val > ADC_CENTER - JOY_DEADZONE && adc_val < ADC_CENTER + JOY_DEADZONE)
+        adc_val = ADC_CENTER;
+    { uint8_t v = (uint8_t)(adc_val >> 4);
+      if (v != g_state.roc1_y) { g_state.roc1_y = v; g_changed = 1; } }
 
     adc_val = (int16_t)Gamepad_ADC_Read(ROC2_X_ADC_CHANNEL);
-    centered = adc_val - ADC_CENTER;
-    if (centered > -JOY_DEADZONE && centered < JOY_DEADZONE) centered = 0;
-    centered = centered * 127 / ADC_CENTER;
-    if (centered > 127)  centered = 127;
-    if (centered < -128) centered = -128;
-    if (centered != g_state.roc2_x) { g_state.roc2_x = (int8_t)centered; g_changed = 1; }
+    if (adc_val > ADC_CENTER - JOY_DEADZONE && adc_val < ADC_CENTER + JOY_DEADZONE)
+        adc_val = ADC_CENTER;
+    { uint8_t v = (uint8_t)(adc_val >> 4);
+      if (v != g_state.roc2_x) { g_state.roc2_x = v; g_changed = 1; } }
 
     adc_val = (int16_t)Gamepad_ADC_Read(ROC2_Y_ADC_CHANNEL);
-    centered = adc_val - ADC_CENTER;
-    if (centered > -JOY_DEADZONE && centered < JOY_DEADZONE) centered = 0;
-    centered = centered * 127 / ADC_CENTER;
-    if (centered > 127)  centered = 127;
-    if (centered < -128) centered = -128;
-    if (centered != g_state.roc2_y) { g_state.roc2_y = (int8_t)centered; g_changed = 1; }
+    if (adc_val > ADC_CENTER - JOY_DEADZONE && adc_val < ADC_CENTER + JOY_DEADZONE)
+        adc_val = ADC_CENTER;
+    { uint8_t v = (uint8_t)(adc_val >> 4);
+      if (v != g_state.roc2_y) { g_state.roc2_y = v; g_changed = 1; } }
 
-    /* --- Encoder quadrature decode --- */
+    /* --- Encoder edge-detection decode --- */
     {
-        uint8_t ec1_curr, ec2_curr;
+        uint8_t curr_a, curr_b;
         int8_t  delta;
 
-        ec1_curr = (GPIO_IsActive(EC1_A_PORT, EC1_A_PIN) << 1) |
-                    GPIO_IsActive(EC1_B_PORT, EC1_B_PIN);
-        delta = quad_table[ec1_prev][ec1_curr];
+        /* EC1 */
+        curr_a = GPIO_ReadInputDataBit(EC1_A_PORT, EC1_A_PIN);
+        curr_b = GPIO_ReadInputDataBit(EC1_B_PORT, EC1_B_PIN);
+        delta  = Encoder_Decode(curr_a, curr_b, &ec1_prev_a, &ec1_prev_b);
         if (delta != 0)
         {
             g_state.ec1_delta += delta;
             g_changed = 1;
+            printf("[EC1] d=%d  total=%d  A=%d B=%d\r\n",
+                   delta, g_state.ec1_delta, curr_a, curr_b);
         }
-        ec1_prev = ec1_curr;
 
-        ec2_curr = (GPIO_IsActive(EC2_A_PORT, EC2_A_PIN) << 1) |
-                    GPIO_IsActive(EC2_B_PORT, EC2_B_PIN);
-        delta = quad_table[ec2_prev][ec2_curr];
+        /* EC2 */
+        curr_a = GPIO_ReadInputDataBit(EC2_A_PORT, EC2_A_PIN);
+        curr_b = GPIO_ReadInputDataBit(EC2_B_PORT, EC2_B_PIN);
+        delta  = Encoder_Decode(curr_a, curr_b, &ec2_prev_a, &ec2_prev_b);
         if (delta != 0)
         {
             g_state.ec2_delta += delta;
             g_changed = 1;
+            printf("[EC2] d=%d  total=%d  A=%d B=%d\r\n",
+                   delta, g_state.ec2_delta, curr_a, curr_b);
         }
-        ec2_prev = ec2_curr;
     }
 
-    /* --- Encoder button scan --- */
-    raw = GPIO_IsActive(EC1_D_PORT, EC1_D_PIN);
+    /* --- Encoder button scan (active HIGH, pull-down) --- */
+    raw = GPIO_ReadInputDataBit(EC1_D_PORT, EC1_D_PIN);  /* 1=pressed, 0=released */
     if (raw != g_state.ec_pressed[0])
     {
         g_state.ec_pressed[0] = raw;
         g_changed = 1;
     }
-    raw = GPIO_IsActive(EC2_D_PORT, EC2_D_PIN);
+    raw = GPIO_ReadInputDataBit(EC2_D_PORT, EC2_D_PIN);
     if (raw != g_state.ec_pressed[1])
     {
         g_state.ec_pressed[1] = raw;
@@ -351,11 +386,11 @@ uint8_t Gamepad_BuildKeyboardReport(uint8_t *report)
     if (g_state.switch_state[1] == SW_STATE_UP) report[0] |= HID_MOD_LCTRL;
     if (g_state.switch_state[2] == SW_STATE_UP) report[0] |= HID_MOD_LALT;
 
-    /* --- ROC1 → WASD --- */
-    if (g_state.roc1_x > JOY_THRESHOLD)        report[slot++] = HID_KEY_D;  /* Right */
-    else if (g_state.roc1_x < -JOY_THRESHOLD)  report[slot++] = HID_KEY_A;  /* Left */
-    if (g_state.roc1_y > JOY_THRESHOLD)        report[slot++] = HID_KEY_S;  /* Down */
-    else if (g_state.roc1_y < -JOY_THRESHOLD)  report[slot++] = HID_KEY_W;  /* Up */
+    /* --- ROC1 → WASD (uint8: center=128, threshold=± 20) --- */
+    if (g_state.roc1_x > JOY_CENTER_U8 + JOY_THRESHOLD_U8)       report[slot++] = HID_KEY_D;  /* Right */
+    else if (g_state.roc1_x < JOY_CENTER_U8 - JOY_THRESHOLD_U8)  report[slot++] = HID_KEY_A;  /* Left */
+    if (g_state.roc1_y > JOY_CENTER_U8 + JOY_THRESHOLD_U8)       report[slot++] = HID_KEY_S;  /* Down */
+    else if (g_state.roc1_y < JOY_CENTER_U8 - JOY_THRESHOLD_U8)  report[slot++] = HID_KEY_W;  /* Up */
 
     /* --- BUT3~6 → HJKL --- */
     if (g_state.button_pressed[2] && slot < CH9329_KB_DATA_LEN)
@@ -381,15 +416,17 @@ void Gamepad_BuildMouseReport(uint8_t *mouse)
     if (g_state.button_pressed[1]) mouse[0] |= HID_MS_BTN_RIGHT;
     if (g_state.ec_pressed[0])     mouse[0] |= HID_MS_BTN_MIDDLE;
 
-    /* --- X: ROC2_X (scaled) + EC1 delta --- */
-    mx = (int16_t)(g_state.roc2_x / 8);
+    /* --- X: ROC2_X (centered + scaled) + EC1 delta --- */
+    mx = (int16_t)g_state.roc2_x - JOY_CENTER_U8;
+    mx = mx / 8;
     mx += (int16_t)g_state.ec1_delta * EC_MOUSE_STEP;
     if (mx > 127)  mx = 127;
     if (mx < -128) mx = -128;
     mouse[1] = (uint8_t)(int8_t)mx;
 
-    /* --- Y: ROC2_Y (scaled) + EC2 delta --- */
-    my = (int16_t)(g_state.roc2_y / 8);
+    /* --- Y: ROC2_Y (centered + scaled) + EC2 delta --- */
+    my = (int16_t)g_state.roc2_y - JOY_CENTER_U8;
+    my = my / 8;
     my += (int16_t)g_state.ec2_delta * EC_MOUSE_STEP;
     if (my > 127)  my = 127;
     if (my < -128) my = -128;

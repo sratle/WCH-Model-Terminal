@@ -6,12 +6,15 @@
 * Init sequence writes full register set + custom fast LUT:
 *   - PSR:  BWR=0 mode (B/W + Red register), REG_EN=1 (use register LUT)
 *   - PWR:  internal DC/DC, VGH=20V, VGL=-20V, VSH=15V, VSL=-15V
-*   - LUT:  15-frame fast waveform (~300ms @ 50Hz = 3.3FPS)
+*   - LUT:  20-frame drive + 5-frame data-release (~500ms @ 50Hz = 2FPS)
 *
 * The default OTP LUT has ~188 frames (~3.76s @ 50Hz) which is far too
 * slow for interactive UI.  The custom register LUT trades contrast for
-* speed: 15 frames is enough for a legible B/W transition while keeping
-* refresh time under 500ms (>= 2 FPS).
+* speed: 20 frames gives fuller black drive (avoiding faint blacks).
+* A 5-frame data-release phase (VCOM stays at -VCM_DC, data lines to GND)
+* reduces post-refresh pixel bias from ±15V to +VCM_DC, slowing the gradual
+* graying caused by DC charge accumulation (since POF is not sent, the
+* panel stays powered on between refreshes).
 *
 * Pixel format (panel side): 1bpp, MSB = leftmost pixel, bit=1 = BLACK,
 * bit=0 = WHITE (empirically determined, opposite of datasheet claim).
@@ -84,52 +87,78 @@ static int epd_wait_busy_counted(uint32_t timeout_ms)
  *    LUTB = 0x10 → VSH (Black LUT uses VSH to drive black)
  *  This is the OPPOSITE of standard e-paper convention.
  *
- *  Waveform (15 frames @ 50Hz = 300ms = 3.3FPS):
- *    LUTC:  VCOM = -VCM_DC (hold reference)
- *    LUTR:  GND (no red pixels)
- *    LUTW:  VSL (0xAA) → drives bit=0 (white) pixels to VSL → white
- *    LUTB:  VSH (0x55) → drives bit=1 (black) pixels to VSH → black
+ *  Waveform (20 drive + 5 discharge = 25 frames @ 50Hz = 500ms = 2FPS):
+ *    Group 1 (drive, 20 frames):
+ *      LUTC:  VCOM = -VCM_DC (hold reference)
+ *      LUTR:  GND (no red pixels)
+ *      LUTW:  VSL (0xAA) → drives bit=0 (white) pixels to VSL → white
+ *      LUTB:  VSH (0x55) → drives bit=1 (black) pixels to VSH → black
+ *    Group 2 (data release, 5 frames):
+ *      LUTC:  -VCM_DC (0x00) → VCOM stays controlled (NOT Floating)
+ *      LUTR/W/B: GND (0x00) → pixel electrodes to 0V
+ *      (Releases data-line drive; VCOM must NOT float or its voltage
+ *       drifts uncontrolled and drives all pixels to one state)
  *==========================================================================*/
 
-#define FAST_LUT_FRAMES  15
+#define FAST_LUT_FRAMES          20
+#define FAST_LUT_DISCHARGE_FRAMES 5
 
-/* LUTC (R20H) - VCOM: -VCM_DC (0x00 = all -VCM_DC) */
+/* LUTC (R20H) - VCOM LUT
+ *   LUTC level encoding (datasheet R20H):
+ *     00 = -VCM_DC, 01 = VSH+VCM_DC, 10 = VSL+VCM_DC, 11 = Floating (Hi-Z)
+ *   Group 1: -VCM_DC for FAST_LUT_FRAMES (drive phase)
+ *   Group 2: -VCM_DC (0x00) for FAST_LUT_DISCHARGE_FRAMES (data release)
+ *            VCOM stays controlled at -VCM_DC.  DO NOT use Floating (0xFF):
+ *            Hi-Z VCOM drifts uncontrolled and drives all pixels to one
+ *            state (instant all-black/all-white).  The data lines going to
+ *            GND in group 2 of LUTR/W/B reduces the post-refresh pixel bias
+ *            from ±15V (VSL/VSH) down to +VCM_DC (~1.5V), slowing the
+ *            gradual graying that would otherwise accumulate. */
 static const uint8_t LUT_FAST_C[42] = {
-    0x00, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0x00, FAST_LUT_FRAMES,          0x00, 0x00, 0x00, 0x01,
+    0x00, FAST_LUT_DISCHARGE_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
-    0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
+    0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
-/* LUTWW (R21H) - unused in BWR mode, set to GND */
+/* LUTWW (R21H) - unused in BWR mode, set to GND + GND discharge */
 static const uint8_t LUT_FAST_WW[42] = {
-    0x00, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0x00, FAST_LUT_FRAMES,          0x00, 0x00, 0x00, 0x01,
+    0x00, FAST_LUT_DISCHARGE_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
-    0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
+    0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
-/* LUTR (R22H) - Red: GND (0x00 = all GND, no red drive) */
+/* LUTR (R22H) - Red: GND (no red drive) + GND discharge */
 static const uint8_t LUT_FAST_R[42] = {
-    0x00, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0x00, FAST_LUT_FRAMES,          0x00, 0x00, 0x00, 0x01,
+    0x00, FAST_LUT_DISCHARGE_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
-    0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
+    0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
 /* LUTW (R23H) - White LUT: VSL (0xAA = 10 10 10 10 = all VSL)
- * DDX=00: data 00 → LUTW → applies to bit=0 (white) pixels → VSL → white
- * (VSL drives white on this panel, confirmed by datasheet built-in LUT) */
+ *   Group 1: VSL drive for FAST_LUT_FRAMES
+ *   Group 2: GND (0x00) discharge for FAST_LUT_DISCHARGE_FRAMES
+ *   DDX=00: data 00 → LUTW → applies to bit=0 (white) pixels → VSL → white
+ *   (VSL drives white on this panel, confirmed by datasheet built-in LUT) */
 static const uint8_t LUT_FAST_W[42] = {
-    0xAA, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0xAA, FAST_LUT_FRAMES,          0x00, 0x00, 0x00, 0x01,
+    0x00, FAST_LUT_DISCHARGE_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
-    0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
+    0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
 /* LUTB (R24H) - Black LUT: VSH (0x55 = 01 01 01 01 = all VSH)
- * DDX=00: data 01 → LUTB → applies to bit=1 (black) pixels → VSH → black
- * (VSH drives black on this panel, confirmed by datasheet built-in LUT) */
+ *   Group 1: VSH drive for FAST_LUT_FRAMES
+ *   Group 2: GND (0x00) discharge for FAST_LUT_DISCHARGE_FRAMES
+ *   DDX=00: data 01 → LUTB → applies to bit=1 (black) pixels → VSH → black
+ *   (VSH drives black on this panel, confirmed by datasheet built-in LUT) */
 static const uint8_t LUT_FAST_B[42] = {
-    0x55, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0x55, FAST_LUT_FRAMES,          0x00, 0x00, 0x00, 0x01,
+    0x00, FAST_LUT_DISCHARGE_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
-    0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
+    0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
 /*============================================================================
@@ -258,8 +287,8 @@ void Epaper_Init(void)
 
     /* ---- Fast LUT registers (R20H-R24H) ----
      *   Absolute LUT: IC drives pixels based on their value in PDTM1
-     *   15 frames @ 50Hz = 300ms per refresh (3.3FPS)
-     */
+     *   Group 1 drives (20 frames) + Group 2 data-release (5 frames)
+     *   = 25 frames @ 50Hz = 500ms per refresh (2 FPS) */
     Epaper_Hw_WriteCmd(0x20); Epaper_Hw_WriteDataBuf(LUT_FAST_C, 42);
     Epaper_Hw_WriteCmd(0x21); Epaper_Hw_WriteDataBuf(LUT_FAST_WW, 42);
     Epaper_Hw_WriteCmd(0x22); Epaper_Hw_WriteDataBuf(LUT_FAST_R, 42);
@@ -268,8 +297,9 @@ void Epaper_Init(void)
 
     s_epd_powered_on = false;
 
-    printf("[epd] init done: BWR=0, REG_EN=1, fast LUT (%d frames @ 50Hz = %dms)\r\n",
-           FAST_LUT_FRAMES, FAST_LUT_FRAMES * 20);
+    printf("[epd] init done: BWR=0, REG_EN=1, fast LUT (%d+%d frames @ 50Hz = %dms)\r\n",
+           FAST_LUT_FRAMES, FAST_LUT_DISCHARGE_FRAMES,
+           (FAST_LUT_FRAMES + FAST_LUT_DISCHARGE_FRAMES) * 20);
 }
 
 /*********************************************************************

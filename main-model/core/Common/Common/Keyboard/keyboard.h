@@ -39,10 +39,10 @@ void Keyboard_UART_IRQ_Handler(keyboard_t *keyboard);
  * ============================================================================ */
 
 typedef struct {
-    int8_t  roc1_x;       /* Joystick 1 X (-128~127, center=0) */
-    int8_t  roc1_y;       /* Joystick 1 Y (-128~127, center=0) */
-    int8_t  roc2_x;       /* Joystick 2 X (-128~127, center=0) */
-    int8_t  roc2_y;       /* Joystick 2 Y (-128~127, center=0) */
+    uint8_t roc1_x;       /* Joystick 1 X (0~255, center=128) */
+    uint8_t roc1_y;       /* Joystick 1 Y (0~255, center=128) */
+    uint8_t roc2_x;       /* Joystick 2 X (0~255, center=128) */
+    uint8_t roc2_y;       /* Joystick 2 Y (0~255, center=128) */
     uint8_t buttons;      /* bit0~5 = BUT1~BUT6 */
     uint8_t switches;     /* 2 bits per switch: 00=mid, 01=up, 10=down */
     int8_t  ec1_delta;    /* Encoder 1 rotation delta */

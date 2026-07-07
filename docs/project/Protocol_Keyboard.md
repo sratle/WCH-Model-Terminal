@@ -73,7 +73,7 @@ Keyboard 模块专用操作码范围为 `0x21 ~ 0x2F`，按模块 ID 高 4 位 `
 | `0x26` | `CMD_KBD_MUSIC_KEYS` | Keyboard -> Core | 音乐键盘琴键位图（Keyboard-3） | `[位图:3]` |
 | `0x27` | `CMD_KBD_MUSIC_BUTTONS` | Keyboard -> Core | 音乐键盘按钮位图（Keyboard-3） | `[位图:2]` |
 | `0x28` | `CMD_KBD_MUSIC_FADERS` | Keyboard -> Core | 音乐键盘推子值（Keyboard-3） | `[推子1:2][推子2:2][推子3:2]` |
-| `0x29` | `CMD_KBD_GAME_INPUT` | Keyboard -> Core | 游戏键盘输入事件 | `[ROC1_X:int8][ROC1_Y:int8][ROC2_X:int8][ROC2_Y:int8][按钮:1][开关:1][EC1增量:int8][EC2增量:int8][编码器按下:1]` |
+| `0x29` | `CMD_KBD_GAME_INPUT` | Keyboard -> Core | 游戏键盘输入事件 | `[ROC1_X:uint8][ROC1_Y:uint8][ROC2_X:uint8][ROC2_Y:uint8][按钮:1][开关:1][EC1增量:int8][EC2增量:int8][编码器按下:1]` |
 | `0x2A` | `CMD_KBD_MUSIC_EVENT_CTRL` | Core -> Keyboard | 开始/停止音乐键盘事件定时上报 | `[状态:1]` |
 | `0x2B~0x2F` | — | — | 预留 | — |
 
@@ -295,10 +295,10 @@ Keyboard-2（游戏键盘）上报 2 个摇杆、6 个按钮、3 个钮子开关
 **Core 协议数据格式**：
 
 ```
-DATA[0]: ROC1_X 轴（int8，-128~127，正值向右，中心=0）
-DATA[1]: ROC1_Y 轴（int8，-128~127，正值向下，中心=0）
-DATA[2]: ROC2_X 轴（int8，-128~127，正值向右，中心=0）
-DATA[3]: ROC2_Y 轴（int8，-128~127，正值向下，中心=0）
+DATA[0]: ROC1_X 轴（uint8，0~255，中心=128）
+DATA[1]: ROC1_Y 轴（uint8，0~255，中心=128）
+DATA[2]: ROC2_X 轴（uint8，0~255，中心=128）
+DATA[3]: ROC2_Y 轴（uint8，0~255，中心=128）
 DATA[4]: 按钮位图（bitmask）
   - bit0: BUT1    - bit1: BUT2
   - bit2: BUT3    - bit3: BUT4
@@ -317,7 +317,7 @@ DATA[8]: 编码器按下位图（bitmask）
   - bit2~7: 预留
 ```
 
-> 摇杆中心位置为 (0, 0)，经过死区处理后上报。
+> 摇杆中心位置为 (128, 128)，经过死区处理后上报。
 > 按钮按下对应 bit 置 1，释放置 0。
 > 编码器增量为累积值，Core 读取后 Keyboard 侧清零。
 > LEN = 10（CMD + 9 字节 DATA）。

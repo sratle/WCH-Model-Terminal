@@ -98,10 +98,14 @@ static void ui_input_deliver_event(uint8_t id, ui_event_t *e)
         return;
     }
 
-    /* 2. Sidebar gets priority for events in its area */
+    /* 2. Sidebar gets priority for events in its area (skipped on
+     *    fullscreen pages, where the sidebar is not drawn and the
+     *    whole screen is owned by the page — e.g. game pages whose
+     *    Back/LAUNCH buttons live at x < SIDEBAR_WIDTH). */
+    bool is_fullscreen = (page->flags & UI_PAGE_FLAG_FULLSCREEN) != 0;
     int16_t sb_w = ui_page_get_sidebar_width();
     ui_sidebar_event_cb_t sidebar_cb = ui_page_get_sidebar_event_cb();
-    if (sidebar_cb && sb_w > 0 && x < sb_w) {
+    if (!is_fullscreen && sidebar_cb && sb_w > 0 && x < sb_w) {
         if (sidebar_cb(e)) return;
     }
 
@@ -229,9 +233,12 @@ void ui_input_inject_touch(uint8_t id, int16_t x, int16_t y, uint8_t pressed)
     } else if (e.type == UI_EVENT_TOUCH_DOWN) {
         /* Set capture to the widget that received DOWN (if any) */
         /* Capture is set inside ui_input_deliver_event via hit testing */
-        /* We need to re-check which widget was hit */
+        /* We need to re-check which widget was hit.
+         * On fullscreen pages the sidebar is inactive, so we always
+         * allow widget capture regardless of x position. */
         int16_t sb_w = ui_page_get_sidebar_width();
-        if (x >= sb_w || sb_w == 0) {
+        bool is_fullscreen = (page->flags & UI_PAGE_FLAG_FULLSCREEN) != 0;
+        if (is_fullscreen || x >= sb_w || sb_w == 0) {
             for (int16_t i = (int16_t)page->widget_count - 1; i >= 0; i--) {
                 ui_widget_t *w = page->widgets[i];
                 if (w && (w->flags & UI_WIDGET_FLAG_VISIBLE) && (w->flags & UI_WIDGET_FLAG_ENABLED)) {

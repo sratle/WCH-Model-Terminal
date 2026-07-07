@@ -639,3 +639,12 @@ flowchart TD
 **关键函数输入输出变量**
 
 关键函数 `CliEngine.execute()`（`main-model/wch_terminal_app/lib/core/cli/cli_engine.dart`）的输入输出变量如下：输入变量包括 `command`（`String`，待发送的 CLI 命令字符串）和 `timeout`（`Duration?`，命令超时时间，默认 5 秒）；输出变量为返回值（`Future<CliResponse>`，异步返回命令执行结果）；`completer`、`pending`、`frames` 和 `effectiveTimeout` 为函数内部使用的局部变量。
+
+## 可扩展之处
+
+1. 本作品使用CH585F作为蓝牙芯片，但是在利用上不够完善，只将其连接了手机APP作为无线控制，可以尝试开发无线键盘、无线鼠标等扩展外设。
+2. 本作品使用的Eink屏幕，触摸功能比较羸弱，刷新率也较低，LUT优化不到位，未来可能需要考虑LUT优化和触摸板的研制。
+3. 配件模块的设计不够精巧，适配性和实用性较差，应该尝试设计更高质量的配件模块来取得更实用的功能。
+
+## 心得体会
+
