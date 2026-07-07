@@ -162,9 +162,13 @@ int Config_SetFileInt(const char *filename, const char *key, int value);
 
 /**
  * @brief  从指定 JSON 文件中读取一个字符串配置项
+ * @param  filename  数据文件名（如 "rgb.json"）
+ * @param  key       点分路径键名（如 "player.name"）
+ * @param  out_buf   输出缓冲区（调用者分配）
+ * @param  buf_size  输出缓冲区大小
  * @return 0=成功，-1=文件不存在，-2=键不存在
  */
-int Config_GetFileString(const char *filename, const char *key, const char **out_val);
+int Config_GetFileString(const char *filename, const char *key, char *out_buf, uint16_t buf_size);
 
 /**
  * @brief  向指定 JSON 文件中写入一个字符串配置项

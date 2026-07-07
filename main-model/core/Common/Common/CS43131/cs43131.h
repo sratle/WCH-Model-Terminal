@@ -51,7 +51,7 @@
 /* ======================================================================== */
 
 #define AUDIO_MAX_CHANNELS  2
-#define AUDIO_CH_RB_SIZE    (32 * 1024)     /* 32KB ring buffer per channel (~186ms @ 44.1kHz/16bit/stereo) */
+#define AUDIO_CH_RB_SIZE    (64 * 1024)     /* 64KB ring buffer per channel (~370ms @ 44.1kHz/16bit/stereo) */
 #define AUDIO_RB_SIZE       (32 * 1024)     /* 32KB main mix ring buffer (legacy) */
 #define AUDIO_CH_READ_BLOCK (8 * 1024)      /* 8KB per CH378 read burst (~46ms of audio, reduces open/close overhead) */
 
@@ -292,6 +292,14 @@ void Audio_CH378_Unlock(void);
 
 /** Query if any channel is actively streaming (needs CH378 reads) */
 uint8_t Audio_IsStreaming(void);
+
+/**
+ * Pre-fill all active audio channel ring buffers to high watermark.
+ * Call before Audio_CH378_Lock() to maximize buffer headroom
+ * during CH378 file operations (CLI/Config/etc.).
+ * Reads from CH378, so must be called BEFORE Lock.
+ */
+void Audio_PreFill(void);
 
 /* ======================================================================== */
 /*  Audio Engine: Effects Control                                            */

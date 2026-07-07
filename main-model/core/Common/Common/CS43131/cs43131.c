@@ -784,6 +784,54 @@ static uint8_t channel_file_open(audio_channel_t *ch)
     return ERR_SUCCESS;
 }
 
+/* Pre-fill all active channels to high watermark before locking CH378.
+ * Uses the same channel_file_open/channel_file_close helpers as Audio_Process.
+ * Must be called BEFORE Audio_CH378_Lock(). */
+void Audio_PreFill(void)
+{
+    uint8_t ch_idx;
+    uint8_t temp_buf[AUDIO_CH_READ_BLOCK];
+    uint16_t real_len;
+    uint8_t status;
+
+    for (ch_idx = 0; ch_idx < AUDIO_MAX_CHANNELS; ch_idx++) {
+        audio_channel_t *ch = &CS43131_g.channels[ch_idx];
+        if (!ch->active || ch->eof) continue;
+
+        /* Close other channels' files (CH378 single-handle) */
+        {
+            uint8_t j;
+            for (j = 0; j < AUDIO_MAX_CHANNELS; j++) {
+                if (j != ch_idx)
+                    channel_file_close(&CS43131_g.channels[j]);
+            }
+        }
+
+        /* Open file and seek to current read offset */
+        status = channel_file_open(ch);
+        if (status != ERR_SUCCESS) {
+            ch->eof = 1;
+            continue;
+        }
+
+        /* Fill until high watermark or EOF */
+        while (ch_rb_used(ch) < AUDIO_CH_HIGH_WATERMARK) {
+            status = CH378ByteRead(temp_buf, AUDIO_CH_READ_BLOCK, &real_len);
+            if (status != ERR_SUCCESS || real_len == 0) {
+                ch->eof = 1;
+                break;
+            }
+            ch_rb_write(ch, temp_buf, real_len);
+            ch->read_offset += real_len;
+            if (real_len < AUDIO_CH_READ_BLOCK) {
+                ch->eof = 1;
+                break;
+            }
+        }
+        channel_file_close(ch);
+    }
+}
+
 void Audio_Process(void)
 {
     audio_channel_t *ch;

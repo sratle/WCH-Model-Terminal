@@ -494,6 +494,7 @@ uint8_t Config_Save(void)
     char *json_str;
     uint8_t status;
     uint32_t json_len;
+    int needs_ch378_lock = 0;
 
     /* 当前设备不匹配，不允许保存 */
     if (!Config_IsDeviceMatch()) {
@@ -501,9 +502,6 @@ uint8_t Config_Save(void)
                Config_GetTargetDeviceName());
         return 0xFE;  /* CONFIG_ERR_DEVICE_MISMATCH */
     }
-
-    /* NOTE: WAV 流式播放期间 CH378 文件句柄与播放互斥，
-     * 文件访问优先级更高，会打断播放，此处不再限制 */
 
     if (!config_root) return ERR_SUCCESS;
 
@@ -529,8 +527,38 @@ uint8_t Config_Save(void)
         return 0xFF;
     }
 
+    /* 音频并发协调：写盘前预填充音频缓冲区并锁定 CH378 */
+    if (Audio_IsStreaming()) {
+        Audio_PreFill();
+        needs_ch378_lock = 1;
+    }
+    if (needs_ch378_lock) {
+        Audio_CH378_Lock();
+    }
+
+    /* 构建 config.json 完整路径 */
     Config_MakePath(CONFIG_MAIN_FILE, path, sizeof(path));
+
+    /* 原子写入：先备份当前 config.json 到 config.bak，再覆写
+     * 注意：不调用 Config_Backup() 以避免递归（Config_Backup 内部会调用 Config_Save） */
+    {
+        char bak_path[CH378_MAX_PATH_LEN];
+        uint8_t *bak_buf = (uint8_t*)malloc(CONFIG_MAX_FILE_SIZE);
+        if (bak_buf) {
+            uint32_t bak_len = Config_ReadFileToBuf(path, bak_buf, CONFIG_MAX_FILE_SIZE);
+            if (bak_len > 0) {
+                Config_MakePath(CONFIG_BAK_FILE, bak_path, sizeof(bak_path));
+                Config_WriteBufToFile(bak_path, bak_buf, bak_len);
+            }
+            free(bak_buf);
+        }
+    }
+
     status = Config_WriteBufToFile(path, (const uint8_t*)json_str, json_len);
+
+    if (needs_ch378_lock) {
+        Audio_CH378_Unlock();
+    }
 
     if (status == ERR_SUCCESS) {
         config_dirty = 0;
@@ -830,10 +858,12 @@ int Config_SetFileInt(const char *filename, const char *key, int value)
     return (ret == ERR_SUCCESS) ? 0 : -1;
 }
 
-int Config_GetFileString(const char *filename, const char *key, const char **out_val)
+int Config_GetFileString(const char *filename, const char *key, char *out_buf, uint16_t buf_size)
 {
     cJSON *json;
     cJSON *item;
+
+    if (!out_buf || buf_size == 0) return -2;
 
     json = (cJSON*)Config_LoadFile(filename);
     if (!json) return -1;
@@ -844,11 +874,10 @@ int Config_GetFileString(const char *filename, const char *key, const char **out
         return -2;
     }
 
-    /* 注意：返回的指针指向 cJSON 内部，调用者应立即复制 */
-    *out_val = item->valuestring;
+    /* Copy string to caller-provided buffer before cJSON_Delete frees it */
+    strncpy(out_buf, item->valuestring, buf_size - 1);
+    out_buf[buf_size - 1] = '\0';
     cJSON_Delete(json);
-    /* 由于 cJSON_Delete 后 valuestring 失效，这里返回成功但调用者需注意 */
-    /* 实际使用中建议调用者自行 Config_LoadFile + 查找 + 复制 + cJSON_Delete */
     return 0;
 }
 

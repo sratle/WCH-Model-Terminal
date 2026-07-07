@@ -3,18 +3,23 @@
 * Author             : E-ink Model Team
 * Description        : JD79686AB 648x480 B/W e-paper driver.
 *
-* Init sequence writes full register set + custom fast LUT:
+* Init sequence writes full register set + two LUT sets:
 *   - PSR:  BWR=0 mode (B/W + Red register), REG_EN=1 (use register LUT)
 *   - PWR:  internal DC/DC, VGH=20V, VGL=-20V, VSH=15V, VSL=-15V
-*   - LUT:  20-frame drive + 5-frame data-release (~500ms @ 50Hz = 2FPS)
+*   - FAST LUT: 20-frame single-phase drive (~400ms @ 50Hz = 2.5FPS)
+*   - CLEAR LUT: 15-frame all-white clear + 20-frame drive (~700ms)
 *
 * The default OTP LUT has ~188 frames (~3.76s @ 50Hz) which is far too
-* slow for interactive UI.  The custom register LUT trades contrast for
+* slow for interactive UI.  The fast register LUT trades contrast for
 * speed: 20 frames gives fuller black drive (avoiding faint blacks).
-* A 5-frame data-release phase (VCOM stays at -VCM_DC, data lines to GND)
-* reduces post-refresh pixel bias from ±15V to +VCM_DC, slowing the gradual
-* graying caused by DC charge accumulation (since POF is not sent, the
-* panel stays powered on between refreshes).
+*
+* Gradual graying fix: the fast LUT doesn't fully drive pixels to target
+* state, leaving residual charge that accumulates over many partial
+* refreshes and manifests as whole-screen graying.  To fix this, full
+* refreshes (Epaper_Update) and every 20th partial refresh use the CLEAR
+* LUT — a 2-phase waveform that first drives ALL pixels to white (VSL),
+* clearing residual, then drives to the target state.  This is the
+* standard e-paper clearing technique.
 *
 * Pixel format (panel side): 1bpp, MSB = leftmost pixel, bit=1 = BLACK,
 * bit=0 = WHITE (empirically determined, opposite of datasheet claim).
@@ -63,7 +68,7 @@ static int epd_wait_busy_counted(uint32_t timeout_ms)
 }
 
 /*============================================================================
- *  Fast LUT for BWR=0 mode — ABSOLUTE value LUT (not transition-based)
+ *  LUT registers for BWR=0 mode — ABSOLUTE value LUT (not transition-based)
  *
  *  In BWR=0 mode with REG_EN=1, LUT registers are ABSOLUTE (not transition):
  *    R20H = LUTC  (VCOM LUT)
@@ -78,8 +83,9 @@ static int epd_wait_busy_counted(uint32_t timeout_ms)
  *
  *  MiniUI format: bit=1=black, bit=0=white (matches DDX=00 mapping directly)
  *
- *  Level encoding (from datasheet R23H/R24H description):
- *    00=GND  01=VSH  10=VSL  11=VSHR
+ *  Level encoding (from datasheet):
+ *    LUTC  (R20H): 00=-VCM_DC, 01=VSH+VCM_DC, 10=VSL+VCM_DC, 11=Floating(Hi-Z)
+ *    LUTR/W/B (R22H-R24H): 00=GND, 01=VSH, 10=VSL, 11=VSHR
  *
  *  IMPORTANT: For this panel, VSL drives WHITE and VSH drives BLACK.
  *  This is confirmed by the datasheet's built-in LUT (Group 4, P19):
@@ -87,76 +93,83 @@ static int epd_wait_busy_counted(uint32_t timeout_ms)
  *    LUTB = 0x10 → VSH (Black LUT uses VSH to drive black)
  *  This is the OPPOSITE of standard e-paper convention.
  *
- *  Waveform (20 drive + 5 discharge = 25 frames @ 50Hz = 500ms = 2FPS):
- *    Group 1 (drive, 20 frames):
- *      LUTC:  VCOM = -VCM_DC (hold reference)
- *      LUTR:  GND (no red pixels)
- *      LUTW:  VSL (0xAA) → drives bit=0 (white) pixels to VSL → white
- *      LUTB:  VSH (0x55) → drives bit=1 (black) pixels to VSH → black
- *    Group 2 (data release, 5 frames):
- *      LUTC:  -VCM_DC (0x00) → VCOM stays controlled (NOT Floating)
- *      LUTR/W/B: GND (0x00) → pixel electrodes to 0V
- *      (Releases data-line drive; VCOM must NOT float or its voltage
- *       drifts uncontrolled and drives all pixels to one state)
+ *  NEVER use LUTC=Floating(0xFF): Hi-Z VCOM drifts uncontrolled and drives
+ *  all pixels to one state (instant all-black/all-white).
  *==========================================================================*/
 
-#define FAST_LUT_FRAMES          20
-#define FAST_LUT_DISCHARGE_FRAMES 5
+#define FAST_LUT_FRAMES           20   /* drive phase (~400ms @ 50Hz) */
+#define CLEAR_LUT_PHASE1_FRAMES   15   /* all-white clear (~300ms)    */
+#define CLEAR_LUT_PHASE2_FRAMES   20   /* normal drive  (~400ms)      */
 
-/* LUTC (R20H) - VCOM LUT
- *   LUTC level encoding (datasheet R20H):
- *     00 = -VCM_DC, 01 = VSH+VCM_DC, 10 = VSL+VCM_DC, 11 = Floating (Hi-Z)
- *   Group 1: -VCM_DC for FAST_LUT_FRAMES (drive phase)
- *   Group 2: -VCM_DC (0x00) for FAST_LUT_DISCHARGE_FRAMES (data release)
- *            VCOM stays controlled at -VCM_DC.  DO NOT use Floating (0xFF):
- *            Hi-Z VCOM drifts uncontrolled and drives all pixels to one
- *            state (instant all-black/all-white).  The data lines going to
- *            GND in group 2 of LUTR/W/B reduces the post-refresh pixel bias
- *            from ±15V (VSL/VSH) down to +VCM_DC (~1.5V), slowing the
- *            gradual graying that would otherwise accumulate. */
+/* ---- FAST LUT: single-group 20-frame drive (for partial refreshes) ----
+ *   LUTC:  -VCM_DC (0x00) — VCOM reference, must stay controlled
+ *   LUTR:  GND (0x00) — no red drive
+ *   LUTW:  VSL (0xAA) — white pixels → VSL → white
+ *   LUTB:  VSH (0x55) — black pixels → VSH → black
+ *   LUTWW: GND (0x00) — unused */
 static const uint8_t LUT_FAST_C[42] = {
-    0x00, FAST_LUT_FRAMES,          0x00, 0x00, 0x00, 0x01,
-    0x00, FAST_LUT_DISCHARGE_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0x00, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
     0,0,0,0,0,0,  0,0,0,0,0,0,
 };
-
-/* LUTWW (R21H) - unused in BWR mode, set to GND + GND discharge */
 static const uint8_t LUT_FAST_WW[42] = {
-    0x00, FAST_LUT_FRAMES,          0x00, 0x00, 0x00, 0x01,
-    0x00, FAST_LUT_DISCHARGE_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0x00, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
     0,0,0,0,0,0,  0,0,0,0,0,0,
 };
-
-/* LUTR (R22H) - Red: GND (no red drive) + GND discharge */
 static const uint8_t LUT_FAST_R[42] = {
-    0x00, FAST_LUT_FRAMES,          0x00, 0x00, 0x00, 0x01,
-    0x00, FAST_LUT_DISCHARGE_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0x00, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
     0,0,0,0,0,0,  0,0,0,0,0,0,
 };
-
-/* LUTW (R23H) - White LUT: VSL (0xAA = 10 10 10 10 = all VSL)
- *   Group 1: VSL drive for FAST_LUT_FRAMES
- *   Group 2: GND (0x00) discharge for FAST_LUT_DISCHARGE_FRAMES
- *   DDX=00: data 00 → LUTW → applies to bit=0 (white) pixels → VSL → white
- *   (VSL drives white on this panel, confirmed by datasheet built-in LUT) */
 static const uint8_t LUT_FAST_W[42] = {
-    0xAA, FAST_LUT_FRAMES,          0x00, 0x00, 0x00, 0x01,
-    0x00, FAST_LUT_DISCHARGE_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0xAA, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
+    0,0,0,0,0,0,  0,0,0,0,0,0,
+};
+static const uint8_t LUT_FAST_B[42] = {
+    0x55, FAST_LUT_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
     0,0,0,0,0,0,  0,0,0,0,0,0,
 };
 
-/* LUTB (R24H) - Black LUT: VSH (0x55 = 01 01 01 01 = all VSH)
- *   Group 1: VSH drive for FAST_LUT_FRAMES
- *   Group 2: GND (0x00) discharge for FAST_LUT_DISCHARGE_FRAMES
- *   DDX=00: data 01 → LUTB → applies to bit=1 (black) pixels → VSH → black
- *   (VSH drives black on this panel, confirmed by datasheet built-in LUT) */
-static const uint8_t LUT_FAST_B[42] = {
-    0x55, FAST_LUT_FRAMES,          0x00, 0x00, 0x00, 0x01,
-    0x00, FAST_LUT_DISCHARGE_FRAMES, 0x00, 0x00, 0x00, 0x01,
+/* ---- CLEAR LUT: 2-phase waveform for full refreshes ----
+ *   Phase 1 (15 frames): Drive ALL pixels to white to clear residual charge
+ *     LUTW: VSL (0xAA) — white pixels stay white
+ *     LUTB: VSL (0xAA) — black pixels driven to white (clears residual)
+ *   Phase 2 (20 frames): Normal drive to target state
+ *     LUTW: VSL (0xAA) — white pixels stay white
+ *     LUTB: VSH (0x55) — black pixels driven to black
+ *   LUTC: -VCM_DC (0x00) both phases; LUTR/LUTWW: GND both phases
+ *   Total: 35 frames @ 50Hz = 700ms (brief white flash, then content) */
+static const uint8_t LUT_CLEAR_C[42] = {
+    0x00, CLEAR_LUT_PHASE1_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0x00, CLEAR_LUT_PHASE2_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
+    0,0,0,0,0,0,  0,0,0,0,0,0,
+};
+static const uint8_t LUT_CLEAR_WW[42] = {
+    0x00, CLEAR_LUT_PHASE1_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0x00, CLEAR_LUT_PHASE2_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
+    0,0,0,0,0,0,  0,0,0,0,0,0,
+};
+static const uint8_t LUT_CLEAR_R[42] = {
+    0x00, CLEAR_LUT_PHASE1_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0x00, CLEAR_LUT_PHASE2_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
+    0,0,0,0,0,0,  0,0,0,0,0,0,
+};
+static const uint8_t LUT_CLEAR_W[42] = {
+    0xAA, CLEAR_LUT_PHASE1_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0xAA, CLEAR_LUT_PHASE2_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
+    0,0,0,0,0,0,  0,0,0,0,0,0,
+};
+/* LUTB: VSL(0xAA) in phase 1 (clear to white), VSH(0x55) in phase 2 (drive black) */
+static const uint8_t LUT_CLEAR_B[42] = {
+    0xAA, CLEAR_LUT_PHASE1_FRAMES, 0x00, 0x00, 0x00, 0x01,
+    0x55, CLEAR_LUT_PHASE2_FRAMES, 0x00, 0x00, 0x00, 0x01,
     0,0,0,0,0,0,  0,0,0,0,0,0,  0,0,0,0,0,0,
     0,0,0,0,0,0,  0,0,0,0,0,0,
 };
@@ -168,6 +181,15 @@ static const uint8_t LUT_FAST_B[42] = {
  *==========================================================================*/
 
 static bool s_epd_powered_on = false;
+
+/*============================================================================
+ *  Partial refresh counter — forces a clearing full refresh after
+ *  PARTIAL_REFRESH_CLEAR_INTERVAL partials to eliminate the residual
+ *  charge that accumulates as whole-screen graying.
+ *==========================================================================*/
+
+#define PARTIAL_REFRESH_CLEAR_INTERVAL  20
+static uint16_t s_partial_count = 0;
 
 /*============================================================================
  *  Internal helpers
@@ -206,6 +228,18 @@ static void epaper_ensure_power_on(void)
     s_epd_powered_on = true;
 }
 
+/* Write all 5 LUT registers (R20H-R24H) with the given 42-byte arrays. */
+static void epaper_write_lut(const uint8_t *lut_c,  const uint8_t *lut_ww,
+                             const uint8_t *lut_r,  const uint8_t *lut_w,
+                             const uint8_t *lut_b)
+{
+    Epaper_Hw_WriteCmd(0x20); Epaper_Hw_WriteDataBuf(lut_c,  42);
+    Epaper_Hw_WriteCmd(0x21); Epaper_Hw_WriteDataBuf(lut_ww, 42);
+    Epaper_Hw_WriteCmd(0x22); Epaper_Hw_WriteDataBuf(lut_r,  42);
+    Epaper_Hw_WriteCmd(0x23); Epaper_Hw_WriteDataBuf(lut_w,  42);
+    Epaper_Hw_WriteCmd(0x24); Epaper_Hw_WriteDataBuf(lut_b,  42);
+}
+
 /*============================================================================
  *  Public API
  *==========================================================================*/
@@ -216,12 +250,14 @@ static void epaper_ensure_power_on(void)
  * @brief   Initialization with BWR=0 + register LUT for fast refresh.
  *
  *          BWR=0 (B/W/Red mode) + REG_EN=1 (register LUT).
- *          Custom 10-frame LUT gives ~200ms per refresh (5FPS).
+ *          Custom 20-frame FAST LUT gives ~400ms per partial refresh.
+ *          CLEAR LUT (15+20 frames) used for full refreshes to clear
+ *          residual charge and prevent gradual graying.
  *
  *          In BWR=0 mode:
- *          - DTM1/PDTM1 = B/W channel (bit=1=white)
+ *          - DTM1/PDTM1 = B/W channel (bit=1=black, matches MiniUI)
  *          - DTM2/PDTM2 = Red channel (0x00 = no red)
- *          - LUTR/LUTW/LUTB drive pixels based on current value
+ *          - LUTR/LUTW/LUTB drive pixels based on absolute pixel value
  *          - DFV_EN in PDRF has no effect (BWR=0)
  */
 void Epaper_Init(void)
@@ -286,20 +322,19 @@ void Epaper_Init(void)
     Epaper_Hw_WriteCmd(0x60); Epaper_Hw_WriteData(0x04);
 
     /* ---- Fast LUT registers (R20H-R24H) ----
-     *   Absolute LUT: IC drives pixels based on their value in PDTM1
-     *   Group 1 drives (20 frames) + Group 2 data-release (5 frames)
-     *   = 25 frames @ 50Hz = 500ms per refresh (2 FPS) */
-    Epaper_Hw_WriteCmd(0x20); Epaper_Hw_WriteDataBuf(LUT_FAST_C, 42);
-    Epaper_Hw_WriteCmd(0x21); Epaper_Hw_WriteDataBuf(LUT_FAST_WW, 42);
-    Epaper_Hw_WriteCmd(0x22); Epaper_Hw_WriteDataBuf(LUT_FAST_R, 42);
-    Epaper_Hw_WriteCmd(0x23); Epaper_Hw_WriteDataBuf(LUT_FAST_W, 42);
-    Epaper_Hw_WriteCmd(0x24); Epaper_Hw_WriteDataBuf(LUT_FAST_B, 42);
+     *   Absolute LUT: IC drives pixels based on its value in PDTM1.
+     *   Init loads FAST LUT (20 frames @ 50Hz = 400ms per partial refresh).
+     *   Epaper_Update() and periodic full refreshes swap in CLEAR LUT
+     *   temporarily, then restore FAST LUT here. */
+    epaper_write_lut(LUT_FAST_C, LUT_FAST_WW, LUT_FAST_R,
+                     LUT_FAST_W, LUT_FAST_B);
 
     s_epd_powered_on = false;
+    s_partial_count = 0;
 
-    printf("[epd] init done: BWR=0, REG_EN=1, fast LUT (%d+%d frames @ 50Hz = %dms)\r\n",
-           FAST_LUT_FRAMES, FAST_LUT_DISCHARGE_FRAMES,
-           (FAST_LUT_FRAMES + FAST_LUT_DISCHARGE_FRAMES) * 20);
+    printf("[epd] init done: BWR=0, REG_EN=1, fast LUT (%d frames @ 50Hz = %dms), clear every %d partials\r\n",
+           FAST_LUT_FRAMES, FAST_LUT_FRAMES * 20,
+           PARTIAL_REFRESH_CLEAR_INTERVAL);
 }
 
 /*********************************************************************
@@ -347,8 +382,11 @@ void Epaper_DisplayImage(const uint8_t *image)
 /*********************************************************************
  * @fn      Epaper_Update
  *
- * @brief   PON -> WaitBusy -> DRF -> WaitBusy.
- *          Uses the fast register LUT (10 frames ~ 200ms).
+ * @brief   PON -> DRF (full refresh) with CLEAR LUT, then restore FAST LUT.
+ *          The CLEAR LUT is a 2-phase waveform: phase 1 drives all pixels
+ *          to white (clearing residual charge), phase 2 drives to target.
+ *          This eliminates the gradual graying that accumulates from
+ *          repeated fast partial refreshes.
  *          Does NOT send POF — panel stays powered for fast consecutive
  *          updates (matches vendor reference code).
  */
@@ -359,11 +397,23 @@ void Epaper_Update(void)
     epaper_ensure_power_on();
     uint32_t t_after_pon = epd_time_mark();
 
+    /* Swap in CLEAR LUT for this full refresh (clears residual), then
+     * restore FAST LUT so subsequent partial refreshes stay fast. */
+    epaper_write_lut(LUT_CLEAR_C, LUT_CLEAR_WW, LUT_CLEAR_R,
+                     LUT_CLEAR_W, LUT_CLEAR_B);
+
     Epaper_Hw_WriteCmd(0x12);  /* DRF */
     int ret = epd_wait_busy_counted(10000);
     uint32_t t_total = epd_time_mark();
 
-    printf("[epd] update(full): pon=%lums drf=%lums(total) ret=%d\r\n",
+    epaper_write_lut(LUT_FAST_C, LUT_FAST_WW, LUT_FAST_R,
+                     LUT_FAST_W, LUT_FAST_B);
+
+    /* A clearing full refresh resets the partial counter. */
+    s_partial_count = 0;
+
+    printf("[epd] update(full/clear %d+%dF): pon=%lums drf=%lums(total) ret=%d\r\n",
+           CLEAR_LUT_PHASE1_FRAMES, CLEAR_LUT_PHASE2_FRAMES,
            t_after_pon - t_before_pon, t_total - t_after_pon, ret);
 }
 
@@ -390,15 +440,20 @@ void Epaper_Update(void)
  *          only sent in Epaper_Sleep(). This matches the vendor reference
  *          code (EPD_Update does PON + DRF only, no POF).
  *
- *          Data is inverted (~) before sending because:
- *            - Frame buffer: bit=1=black, bit=0=white (UI convention)
- *            - Panel:        bit=1=white, bit=0=black (panel convention)
+ *          Data is sent directly (no inversion): MiniUI bit=1=black matches
+ *          panel bit=1=black (CDI DDX=00, no polarity inversion).
  *
  *          DFV_EN=1 in PDRF: unchanged pixels (old==new) follow VCOM LUT
  *          instead of data LUT, preventing ghosting on static areas.
  *
- *          With the 10-frame fast LUT, each partial refresh takes ~200ms
- *          (5 FPS) regardless of region size.
+ *          With the 20-frame fast LUT, each partial refresh takes ~400ms
+ *          (2.5 FPS) regardless of region size.
+ *
+ *          GRAYING FIX: Every PARTIAL_REFRESH_CLEAR_INTERVAL partials, we
+ *          force a full clearing refresh (DRF + CLEAR LUT) using the full
+ *          new_frame to eliminate residual charge accumulation.  The caller
+ *          then updates its old buffer for the dirty region only, which is
+ *          safe because non-dirty regions already match between old/new.
  *
  * @param  x          X origin (must be multiple of 8)
  * @param  y          Y origin
@@ -410,7 +465,47 @@ void Epaper_Update(void)
 void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
                            const uint8_t *old_frame, const uint8_t *new_frame)
 {
-    (void)old_frame;  /* Transition LUT: IC uses internal SRAM as old reference */
+    (void)old_frame;  /* Absolute LUT: IC uses PDTM1 data directly */
+
+    /* ---- Periodic clearing full refresh ----
+     * After PARTIAL_REFRESH_CLEAR_INTERVAL partials, the fast LUT's
+     * incomplete drive has accumulated enough residual to cause visible
+     * graying.  Force a full refresh with the CLEAR LUT (2-phase: all-white
+     * clear + normal drive) using the full new_frame buffer.  This resets
+     * the panel state and the partial counter. */
+    if (s_partial_count >= PARTIAL_REFRESH_CLEAR_INTERVAL) {
+        s_partial_count = 0;
+
+        /* Wait for IC idle before switching to full-refresh path */
+        while (Epd_Is_Busy()) Delay_Ms(5);
+
+        epd_time_reset();
+        uint32_t t_before_pon = epd_time_mark();
+        epaper_ensure_power_on();
+        uint32_t t_after_pon = epd_time_mark();
+
+        /* Write full new frame to DTM1/DTM2 (full-frame display refresh) */
+        Epaper_DisplayImageDiff(old_frame, new_frame);
+
+        /* CLEAR LUT: phase 1 clears all to white, phase 2 drives to target */
+        epaper_write_lut(LUT_CLEAR_C, LUT_CLEAR_WW, LUT_CLEAR_R,
+                         LUT_CLEAR_W, LUT_CLEAR_B);
+
+        Epaper_Hw_WriteCmd(0x12);  /* DRF — full refresh */
+        int ret = epd_wait_busy_counted(10000);
+        uint32_t t_total = epd_time_mark();
+
+        /* Restore FAST LUT for subsequent partial refreshes */
+        epaper_write_lut(LUT_FAST_C, LUT_FAST_WW, LUT_FAST_R,
+                         LUT_FAST_W, LUT_FAST_B);
+
+        printf("[epd] partial->full(clear after %d): (%d,%d,%d,%d) pon=%lums drf=%lums ret=%d\r\n",
+               PARTIAL_REFRESH_CLEAR_INTERVAL, x, y, w, h,
+               t_after_pon - t_before_pon, t_total - t_after_pon, ret);
+        return;
+    }
+
+    s_partial_count++;
 
     uint16_t row_bytes = w / 8;
     int16_t  start_byte = x / 8;

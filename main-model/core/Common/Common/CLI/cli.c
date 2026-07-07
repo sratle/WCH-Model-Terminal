@@ -9,6 +9,7 @@
 #include "Display/display.h"
 #include "Protocol/protocol.h"
 #include "Config/config.h"
+#include "Config/config_app.h"
 #include "CJSON/cJSON.h"
 #include "hardware.h"
 #include "Submodels/submodels.h"
@@ -3187,6 +3188,50 @@ static void CLI_Cmd_Rgb(uint8_t argc, char **argv)
     }
 }
 
+/* ------------------------------------------------------------------------ */
+/* CLI 命令: appcfg — GAME/APP 配置持久化                                   */
+/* ------------------------------------------------------------------------ */
+
+static void CLI_Cmd_AppCfg(uint8_t argc, char **argv)
+{
+    if (argc < 3) {
+        printf("Usage: appcfg <get|set|list> <app> [key] [value]\r\n");
+        printf("  appcfg get <app> <key>          Read int config\r\n");
+        printf("  appcfg set <app> <key> <value>  Write int config\r\n");
+        printf("  appcfg list <app>               List all keys\r\n");
+        return;
+    }
+
+    if (strcmp(argv[1], "get") == 0) {
+        if (argc < 4) {
+            printf("Usage: appcfg get <app> <key>\r\n");
+            return;
+        }
+        int val = Config_AppGetInt(argv[2], argv[3], 0);
+        printf("%d\r\n", val);
+    } else if (strcmp(argv[1], "set") == 0) {
+        if (argc < 5) {
+            printf("Usage: appcfg set <app> <key> <value>\r\n");
+            return;
+        }
+        if (!Config_IsDeviceMatch()) {
+            printf("Error: current device != config target (%s)\r\n",
+                   Config_GetTargetDeviceName());
+            return;
+        }
+        int value = atoi(argv[4]);
+        int ret = Config_AppSetInt(argv[2], argv[3], value);
+        if (ret == 0) printf("OK\r\n");
+        else printf("Error: failed to set\r\n");
+    } else if (strcmp(argv[1], "list") == 0) {
+        if (Config_AppListKeys(argv[2]) != 0)
+            printf("Error: app data not found\r\n");
+    } else {
+        printf("Unknown subcommand: %s\r\n", argv[1]);
+    }
+}
+
+/* ------------------------------------------------------------------------ */
 /* CLI 主入口 */
 /* ------------------------------------------------------------------------ */
 
@@ -3197,13 +3242,16 @@ void CLI_Init(void)
 
 /* NOTE: 音频引擎使用顺序读取（保持文件打开），CLI 命令执行前需要
  * 通过 Audio_CH378_Lock 关闭音频文件句柄，执行后音频引擎会自动
- * reopen + seek 恢复播放。 */
+ * reopen + seek 恢复播放。
+ * 优化：不需要CH378文件操作的命令跳过Lock/PreFill，避免不必要地中断音频。
+ * 需要CH378的命令在Lock前先PreFill音频缓冲区到高水位，最大化缓冲时间。 */
 void CLI_Process(uint8_t *cmd, uint8_t len)
 {
     char buf[CLI_BUF_SIZE];
     char raw_buf[CLI_BUF_SIZE];  /* pristine copy for commands that need unmodified data */
     char *argv[CLI_MAX_ARGC];
     uint8_t argc;
+    int needs_ch378 = 1;
 
     if (len == 0 || cmd == NULL) return;
     if (len >= sizeof(buf)) len = sizeof(buf) - 1;
@@ -3216,8 +3264,26 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
     argc = CLI_ParseArgs(buf, argv, CLI_MAX_ARGC);
     if (argc == 0) return;
 
-    /* Lock CH378: close audio streaming files before CLI uses CH378 */
-    Audio_CH378_Lock();
+    /* Commands that don't touch CH378 file system — skip Lock/PreFill */
+    if (strcmp(argv[0], "vol") == 0 || strcmp(argv[0], "pause") == 0 ||
+        strcmp(argv[0], "resume") == 0 || strcmp(argv[0], "stop") == 0 ||
+        strcmp(argv[0], "playst") == 0 || strcmp(argv[0], "speaker") == 0 ||
+        strcmp(argv[0], "light") == 0 || strcmp(argv[0], "note") == 0 ||
+        strcmp(argv[0], "mouse") == 0 || strcmp(argv[0], "roll") == 0 ||
+        strcmp(argv[0], "keyboard") == 0 || strcmp(argv[0], "music") == 0 ||
+        strcmp(argv[0], "clear") == 0 || strcmp(argv[0], "ver") == 0 ||
+        strcmp(argv[0], "help") == 0 || strcmp(argv[0], "lsstatus") == 0 ||
+        strcmp(argv[0], "lsdev") == 0) {
+        needs_ch378 = 0;
+    }
+
+    /* Pre-fill audio buffers before locking CH378 to maximize headroom */
+    if (needs_ch378) {
+        if (Audio_IsStreaming()) {
+            Audio_PreFill();
+        }
+        Audio_CH378_Lock();
+    }
 
     if (strcmp(argv[0], "ls") == 0) {
         CLI_Cmd_Ls();
@@ -3313,10 +3379,14 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Nfc(argc, argv);
     } else if (strcmp(argv[0], "ir") == 0) {
         CLI_Cmd_Ir(argc, argv);
+    } else if (strcmp(argv[0], "appcfg") == 0) {
+        CLI_Cmd_AppCfg(argc, argv);
     } else {
         printf("Unknown command: %s\r\n", argv[0]);
     }
 
     /* Unlock CH378: audio engine will reopen files and resume streaming */
-    Audio_CH378_Unlock();
+    if (needs_ch378) {
+        Audio_CH378_Unlock();
+    }
 }

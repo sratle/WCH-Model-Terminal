@@ -177,14 +177,18 @@ __attribute__((used)) int _write(int fd, char *buf, int size)
 
     for (i = 0; i < size; i++)
     {
-        while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET)
-            ;
-        USART_SendData(USART2, *buf);
-
-        /* 若处于 CLI 捕获模式，同时写入 BT 回传缓冲区 */
-        if (cli_capture_flag && cli_capture_len < CH585F_BT_CLI_CAPTURE_SIZE)
+        /* CLI 捕获模式：仅写入捕获缓冲区，跳过 USART2 TX 阻塞发送
+         * （节省约 11ms/KB @ 921600baud，显著减少主循环阻塞时间） */
+        if (cli_capture_flag)
         {
-            cli_capture_buf[cli_capture_len++] = *buf;
+            if (cli_capture_len < CH585F_BT_CLI_CAPTURE_SIZE)
+                cli_capture_buf[cli_capture_len++] = *buf;
+        }
+        else
+        {
+            while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET)
+                ;
+            USART_SendData(USART2, *buf);
         }
 
         buf++;
