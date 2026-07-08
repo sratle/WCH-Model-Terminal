@@ -263,7 +263,9 @@ static void tb_save_best(void)
 
 static void tb_reset(void)
 {
+    int saved_best = s_tb.best;
     memset(&s_tb, 0, sizeof(s_tb));
+    s_tb.best = saved_best;
     s_tb.state = TB_STATE_IDLE;
     s_tb.hp = TB_INIT_HP;
     s_tb.spawn_timer = TB_SPAWN_INTERVAL;

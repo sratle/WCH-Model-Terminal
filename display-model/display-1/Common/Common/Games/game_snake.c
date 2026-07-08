@@ -312,7 +312,9 @@ static uint32_t snk_move_interval(void)
 
 static void snk_start_game(void)
 {
+    int saved_best = s_snk.best;
     memset(&s_snk, 0, sizeof(s_snk));
+    s_snk.best = saved_best;
     s_snk.state = SNK_STATE_PLAYING;
 
     /* Start snake in the center, length 3, moving right */

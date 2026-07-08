@@ -483,7 +483,9 @@ static void ct_spawn_enemies(void)
 
 static void ct_start_game(void)
 {
+    int saved_best = s_ct.best;
     memset(&s_ct, 0, sizeof(s_ct));
+    s_ct.best = saved_best;
     s_ct.state = CT_STATE_PLAYING;
     s_ct.lives = CT_LIVES;
     s_ct.px = 50;

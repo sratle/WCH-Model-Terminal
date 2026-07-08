@@ -473,7 +473,9 @@ static bool mine_pixel_to_cell(int16_t px, int16_t py, int *row, int *col)
 
 static void mine_start_game(mine_mode_t mode)
 {
+    int saved_best = s_mine.best_time;
     memset(&s_mine, 0, sizeof(s_mine));
+    s_mine.best_time = saved_best;
     s_mine.mode = mode;
     s_mine.state = MINE_STATE_PLAYING;
     s_mine.first_click = true;

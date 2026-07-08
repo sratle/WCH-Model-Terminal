@@ -265,12 +265,13 @@ static uint8_t Config_WriteBufToFile(const char *path, const uint8_t *buf, uint3
         /* 文件存在：截断后覆盖写入 */
         CH378SetFileSize(0);
         CH378ByteLocate(0);
-    } else if (status == ERR_MISS_FILE) {
-        /* 文件不存在：创建新文件 */
+    } else if (status == ERR_OPEN_DIR) {
+        /* 路径是目录，不能写入 */
+        return status;
+    } else {
+        /* 文件不存在（ERR_MISS_FILE 或 LFN 打开返回的其他错误码）：创建新文件 */
         status = Config_LFN_Create(path);
         if (status != ERR_SUCCESS) return status;
-    } else {
-        return status;
     }
 
     while (written < len) {

@@ -373,14 +373,18 @@ static void g4_undo(void)
 
 static void g4_reset(void)
 {
+    int saved_best = s_g4.best;
     memset(&s_g4, 0, sizeof(s_g4));
+    s_g4.best = saved_best;
     s_g4.state = G4_STATE_IDLE;
     g4_update_texts();
 }
 
 static void g4_start_game(void)
 {
+    int saved_best = s_g4.best;
     memset(&s_g4, 0, sizeof(s_g4));
+    s_g4.best = saved_best;
     s_g4.state = G4_STATE_PLAYING;
     g4_spawn_tile();
     g4_spawn_tile();

@@ -47,9 +47,19 @@ int Config_AppSetInt(const char *app_name, const char *key, int value)
 
     /* Try to set existing key */
     ret = Config_SetFileInt(filename, key, value);
+    printf("[appcfg] SetFileInt('%s','%s')=%d\r\n", filename, key, ret);
     if (ret == -2) {
-        /* Key doesn't exist — add it */
+        /* Key doesn't exist in file — add it */
         ret = Config_AddFileKeyInt(filename, key, value);
+        printf("[appcfg] AddFileKeyInt=%d\r\n", ret);
+    } else if (ret == -1) {
+        /* File doesn't exist — create it then add key */
+        int nr = Config_NewFile(filename);
+        printf("[appcfg] NewFile('%s')=%d\r\n", filename, nr);
+        if (nr == 0) {
+            ret = Config_AddFileKeyInt(filename, key, value);
+            printf("[appcfg] AddFileKeyInt=%d\r\n", ret);
+        }
     }
     return (ret == 0) ? 0 : -1;
 }

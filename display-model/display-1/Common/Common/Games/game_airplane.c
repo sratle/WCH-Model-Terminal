@@ -330,7 +330,9 @@ static void ap_save_best(void)
 
 static void ap_reset(void)
 {
+    int saved_best = s_ap.best;
     memset(&s_ap, 0, sizeof(s_ap));
+    s_ap.best = saved_best;
     s_ap.state = AP_STATE_IDLE;
     s_ap.hp = AP_PLAYER_HP;
     s_ap.player_x = AP_AREA_W / 2;

@@ -99,7 +99,7 @@ static int epd_wait_busy_counted(uint32_t timeout_ms)
  *  all pixels to one state (instant all-black/all-white).
  *==========================================================================*/
 
-#define FAST_LUT_FRAMES           20   /* drive phase (~400ms @ 50Hz) */
+#define FAST_LUT_FRAMES           15   /* drive phase (~300ms @ 50Hz) */
 #define CLEAR_LUT_PHASE1_FRAMES   15   /* all-white clear (~300ms)    */
 #define CLEAR_LUT_PHASE2_FRAMES   20   /* normal drive  (~400ms)      */
 

@@ -323,7 +323,9 @@ static void brk_init_level(void)
 
 static void brk_start_game(void)
 {
+    int saved_best = s_brk.best;
     memset(&s_brk, 0, sizeof(s_brk));
+    s_brk.best = saved_best;
     s_brk.lives = 3;
     s_brk.level = 0;
     s_brk.score = 0;

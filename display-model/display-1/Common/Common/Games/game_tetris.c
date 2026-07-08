@@ -431,7 +431,9 @@ static void tet_hard_drop(void)
 
 static void tet_start_game(void)
 {
+    int saved_best = s_tet.best;
     memset(&s_tet, 0, sizeof(s_tet));
+    s_tet.best = saved_best;
     s_tet.state = TET_STATE_PLAYING;
     s_tet.next_piece = tet_random_piece();
     tet_spawn_piece();
