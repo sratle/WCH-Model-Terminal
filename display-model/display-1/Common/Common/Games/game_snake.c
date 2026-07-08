@@ -192,6 +192,7 @@ static void snk_update_texts(void)
 static void snk_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
     if (!tag || strcmp(tag, "appcfg") != 0) return;
+    if (buf[0] < '0' || buf[0] > '9') return;
     s_snk.best = atoi(buf);
     snk_update_texts();
     ui_page_invalidate_all();

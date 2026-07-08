@@ -171,7 +171,8 @@ static void g4_update_texts(void)
 static void g4_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
     if (!tag || strcmp(tag, "appcfg") != 0) return;
-    /* Response is a plain number string */
+    /* Only parse numeric responses (from "get"), skip "OK" (from "set") */
+    if (buf[0] < '0' || buf[0] > '9') return;
     s_g4.best = atoi(buf);
     g4_update_texts();
     ui_page_invalidate_all();

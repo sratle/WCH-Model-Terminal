@@ -278,6 +278,7 @@ static void tet_update_texts(void)
 static void tet_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
     if (!tag || strcmp(tag, "appcfg") != 0) return;
+    if (buf[0] < '0' || buf[0] > '9') return;
     s_tet.best = atoi(buf);
     tet_update_texts();
     ui_page_invalidate_all();

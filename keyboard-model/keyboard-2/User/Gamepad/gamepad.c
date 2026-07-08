@@ -294,29 +294,31 @@ void Gamepad_Scan(void)
         }
     }
 
-    /* --- Joystick ADC scan (uint8: 0-255, center=128) --- */
+    /* --- Joystick ADC scan (uint8: 0-255, center=128, 8-bit deadzone) ---
+     * Deadzone applied AFTER >>4 conversion (not on 12-bit ADC value)
+     * to avoid discontinuity at the deadzone boundary. */
     adc_val = (int16_t)Gamepad_ADC_Read(ROC1_X_ADC_CHANNEL);
-    if (adc_val > ADC_CENTER - JOY_DEADZONE && adc_val < ADC_CENTER + JOY_DEADZONE)
-        adc_val = ADC_CENTER;
     { uint8_t v = (uint8_t)(adc_val >> 4);
+      if (v > JOY_CENTER_U8 - JOY_DEADZONE_U8 && v < JOY_CENTER_U8 + JOY_DEADZONE_U8)
+          v = JOY_CENTER_U8;
       if (v != g_state.roc1_x) { g_state.roc1_x = v; g_changed = 1; } }
 
     adc_val = (int16_t)Gamepad_ADC_Read(ROC1_Y_ADC_CHANNEL);
-    if (adc_val > ADC_CENTER - JOY_DEADZONE && adc_val < ADC_CENTER + JOY_DEADZONE)
-        adc_val = ADC_CENTER;
     { uint8_t v = (uint8_t)(adc_val >> 4);
+      if (v > JOY_CENTER_U8 - JOY_DEADZONE_U8 && v < JOY_CENTER_U8 + JOY_DEADZONE_U8)
+          v = JOY_CENTER_U8;
       if (v != g_state.roc1_y) { g_state.roc1_y = v; g_changed = 1; } }
 
     adc_val = (int16_t)Gamepad_ADC_Read(ROC2_X_ADC_CHANNEL);
-    if (adc_val > ADC_CENTER - JOY_DEADZONE && adc_val < ADC_CENTER + JOY_DEADZONE)
-        adc_val = ADC_CENTER;
     { uint8_t v = (uint8_t)(adc_val >> 4);
+      if (v > JOY_CENTER_U8 - JOY_DEADZONE_U8 && v < JOY_CENTER_U8 + JOY_DEADZONE_U8)
+          v = JOY_CENTER_U8;
       if (v != g_state.roc2_x) { g_state.roc2_x = v; g_changed = 1; } }
 
     adc_val = (int16_t)Gamepad_ADC_Read(ROC2_Y_ADC_CHANNEL);
-    if (adc_val > ADC_CENTER - JOY_DEADZONE && adc_val < ADC_CENTER + JOY_DEADZONE)
-        adc_val = ADC_CENTER;
     { uint8_t v = (uint8_t)(adc_val >> 4);
+      if (v > JOY_CENTER_U8 - JOY_DEADZONE_U8 && v < JOY_CENTER_U8 + JOY_DEADZONE_U8)
+          v = JOY_CENTER_U8;
       if (v != g_state.roc2_y) { g_state.roc2_y = v; g_changed = 1; } }
 
     /* --- Encoder edge-detection decode --- */

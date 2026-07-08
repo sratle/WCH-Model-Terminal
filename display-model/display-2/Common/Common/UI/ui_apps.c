@@ -22,7 +22,7 @@
 #define APPS_GRID_COLS       4
 #define APPS_GRID_ROWS       4
 #define APPS_PER_PAGE        (APPS_GRID_COLS * APPS_GRID_ROWS)
-#define APP_BTN_W            128
+#define APP_BTN_W            88
 #define APP_BTN_H            90
 #define APP_BTN_GAP_X        14
 #define APP_BTN_GAP_Y        12

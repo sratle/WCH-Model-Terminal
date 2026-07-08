@@ -11,6 +11,7 @@
 #include "../Common/Common/MiniUI/font/font_montserrat_12.h"
 #include "../Common/Common/MiniUI/font/font_montserrat_16.h"
 #include "../Common/Common/Games/games.h"
+#include "../Common/Common/UART/uart_module.h"
 
 /* ui_system functions */
 void ui_system_init(void);
@@ -34,6 +35,9 @@ int main(void)
 
     printf("\r\n=== Display-2 MiniUI Demo ===\r\n");
 
+    /* Initialize UART1 module for Core communication (USART1 PA9-TX/PA10-RX) */
+    UART_Module_Init();
+
     /* Initialize MiniUI system (includes e-paper init) */
     ui_system_init();
 
@@ -47,6 +51,7 @@ int main(void)
 
     while (1)
     {
+        UART_Module_Poll();   /* Process received UART frames from Core */
         ui_system_tick();
         Delay_Ms(10);  /* ~100Hz for touch responsiveness; e-ink refresh throttled by dirty list */
     }

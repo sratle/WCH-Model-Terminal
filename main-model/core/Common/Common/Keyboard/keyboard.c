@@ -135,7 +135,14 @@ void Keyboard_UART_IRQ_Handler(keyboard_t *keyboard)
 
 void Keyboard_Get_Type(keyboard_t *keyboard)
 {
-    (void)keyboard;
+    uint8_t buf[PROTO_MAX_FRAME_LEN];
+    uint16_t len;
+
+    len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_KEYBOARD,
+                             CMD_GET_TYPE, NULL, 0,
+                             buf, sizeof(buf));
+    if (len > 0)
+        Keyboard_Send_Data(keyboard, buf, len);
 }
 
 void Keyboard_Send_Data(keyboard_t *keyboard, uint8_t *data, uint16_t length)

@@ -218,6 +218,7 @@ static void mine_update_texts(void)
 static void mine_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
     if (!tag || strcmp(tag, "appcfg") != 0) return;
+    if (buf[0] < '0' || buf[0] > '9') return;
     s_mine.best_time = atoi(buf);
     mine_update_texts();
     ui_page_invalidate_all();

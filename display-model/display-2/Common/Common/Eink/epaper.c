@@ -555,6 +555,13 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
 
     epd_time_reset();
 
+    /* PON: Power ON before writing PDTM1/PDTM2 data.
+     * After the previous refresh's POF, VDD_18V is disabled and SRAM
+     * cannot accept new data.  PON must be sent first to re-enable it. */
+    uint32_t t_before_pon = epd_time_mark();
+    epaper_ensure_power_on();
+    uint32_t t_after_pon = epd_time_mark();
+
     /* PDTM1: B/W channel (MiniUI bit=1=black matches panel bit=1=black, no inversion) */
     Epaper_Hw_WriteCmd(0x14);
     epaper_send_region_header(x, y, w, h);
@@ -573,11 +580,6 @@ void Epaper_PartialRefresh(int16_t x, int16_t y, int16_t w, int16_t h,
             Epaper_Hw_WriteData(0x00);
         }
     }
-
-    /* PON: Power ON (only if not already powered) */
-    uint32_t t_before_pon = epd_time_mark();
-    epaper_ensure_power_on();
-    uint32_t t_after_pon = epd_time_mark();
 
     /* PDRF: trigger partial refresh */
     Epaper_Hw_WriteCmd(0x16);

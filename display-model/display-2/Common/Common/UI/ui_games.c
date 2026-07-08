@@ -20,9 +20,9 @@
 
 #define GAME_GRID_COLS       3
 #define GAME_GRID_ROWS       4
-#define GAME_BTN_W           150
+#define GAME_BTN_W           128
 #define GAME_BTN_H           90
-#define GAME_BTN_GAP_X       20
+#define GAME_BTN_GAP_X       16
 #define GAME_BTN_GAP_Y       16
 #define GAME_GRID_TOP        70
 #define GAME_TOTAL           8

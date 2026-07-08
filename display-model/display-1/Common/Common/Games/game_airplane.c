@@ -303,6 +303,7 @@ static void ap_update_gameover_text(void)
 static void ap_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
     if (!tag || strcmp(tag, "appcfg") != 0) return;
+    if (buf[0] < '0' || buf[0] > '9') return;
     s_ap.best = atoi(buf);
     ui_page_invalidate_all();
 }
