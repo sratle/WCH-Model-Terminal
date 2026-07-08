@@ -127,7 +127,7 @@ void UART_ClearEMusicCallbacks(void)
  *  USART1 Configuration
  *=============================================================================*/
 
-#define USART1_BAUDRATE     921600
+#define USART1_BAUDRATE     230400
 #define USART1_TX_PIN       GPIO_Pin_9
 #define USART1_TX_PORT      GPIOA
 #define USART1_RX_PIN       GPIO_Pin_10
@@ -247,7 +247,7 @@ void UART_Module_Init(void)
     s_ring_head  = 0;
     s_ring_tail  = 0;
 
-    printf("[UART_Module_Init] done (921600 8-N-1)\r\n");
+    printf("[UART_Module_Init] done (230400 8-N-1)\r\n");
 }
 
 /*=============================================================================
@@ -1084,6 +1084,9 @@ static void cli_resp_dispatch(void)
     if (strcmp(s_cli_cmd_tag, "cd") == 0 && s_pending_ls_after_cd) {
         s_pending_ls_after_cd = false;
         printf("[CLI] cd done, sending ls\r\n");
+        /* CH378 状态稳定延时：cd 改变了 CH378 目录状态，
+         * 需要等待 CH378 内部状态稳定后再发 ls */
+        Delay_Ms(20);
         UART_SendCLI("ls");
         return;
     }

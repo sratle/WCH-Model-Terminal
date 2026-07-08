@@ -121,7 +121,7 @@ void UART_ClearEMusicCallbacks(void)
  *  USART1 Configuration (CH32V307)
  *=============================================================================*/
 
-#define USART1_BAUDRATE     921600
+#define USART1_BAUDRATE     230400
 #define USART1_TX_PIN       GPIO_Pin_9
 #define USART1_TX_PORT      GPIOA
 #define USART1_RX_PIN       GPIO_Pin_10
@@ -233,7 +233,7 @@ void UART_Module_Init(void)
     s_ring_head  = 0;
     s_ring_tail  = 0;
 
-    printf("[UART_Module_Init] done (921600 8-N-1)\r\n");
+    printf("[UART_Module_Init] done (230400 8-N-1)\r\n");
 }
 
 /*=============================================================================

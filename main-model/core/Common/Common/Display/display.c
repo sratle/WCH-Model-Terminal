@@ -679,6 +679,10 @@ static uint8_t Display_HandleCLI(const protocol_frame_t *req,
     /* 停止捕获 */
     cli_capture_flag = 0;
 
+    /* CH378 状态稳定延时：CLI 命令执行后文件句柄需要时间释放，
+     * 特别是 cd→ls 连续执行时，CH378 FAT32 目录状态需要稳定 */
+    Delay_Ms(20);
+
     /* 将捕获到的输出发回 Display，使用 SOF/EOF 标记多帧传输 */
     if (cli_capture_len > 0) {
         /* 分帧发送，每帧最大 239 字节 payload (1 ext_code + 1 flags + payload ≤ 250) */
