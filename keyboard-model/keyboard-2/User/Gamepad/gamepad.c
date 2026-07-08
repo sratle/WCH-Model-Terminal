@@ -169,10 +169,16 @@ static void Gamepad_ADC_Init(void)
 
 static uint16_t Gamepad_ADC_Read(uint8_t channel)
 {
+    uint16_t sum = 0;
+    uint8_t  i;
     ADC_RegularChannelConfig(ROC_ADC, channel, 1, ADC_SampleTime_55Cycles5);
-    ADC_SoftwareStartConvCmd(ROC_ADC, ENABLE);
-    while (!ADC_GetFlagStatus(ROC_ADC, ADC_FLAG_EOC));
-    return ADC_GetConversionValue(ROC_ADC);
+    for (i = 0; i < 4; i++)
+    {
+        ADC_SoftwareStartConvCmd(ROC_ADC, ENABLE);
+        while (!ADC_GetFlagStatus(ROC_ADC, ADC_FLAG_EOC));
+        sum += ADC_GetConversionValue(ROC_ADC);
+    }
+    return sum >> 2;  /* average of 4 samples */
 }
 
 /* ====================================================================
@@ -182,6 +188,17 @@ static uint16_t Gamepad_ADC_Read(uint8_t channel)
 static uint8_t GPIO_IsActive(GPIO_TypeDef *port, uint16_t pin)
 {
     return (GPIO_ReadInputDataBit(port, pin) == Bit_RESET) ? 1 : 0;
+}
+
+/* Check if joystick value change is significant enough to report.
+ * Returns 1 if |new - old| >= JOY_CHANGE_THRESHOLD.
+ * This creates hysteresis: small ADC jitter (1-2 units) is filtered out. */
+static uint8_t joy_value_changed(uint8_t new_v, uint8_t old_v)
+{
+    if (new_v == old_v)
+        return 0;
+    uint8_t diff = (new_v > old_v) ? (new_v - old_v) : (old_v - new_v);
+    return (diff >= JOY_CHANGE_THRESHOLD);
 }
 
 /* ====================================================================
@@ -301,25 +318,25 @@ void Gamepad_Scan(void)
     { uint8_t v = (uint8_t)(adc_val >> 4);
       if (v > JOY_CENTER_U8 - JOY_DEADZONE_U8 && v < JOY_CENTER_U8 + JOY_DEADZONE_U8)
           v = JOY_CENTER_U8;
-      if (v != g_state.roc1_x) { g_state.roc1_x = v; g_changed = 1; } }
+      if (joy_value_changed(v, g_state.roc1_x)) { g_state.roc1_x = v; g_changed = 1; } }
 
     adc_val = (int16_t)Gamepad_ADC_Read(ROC1_Y_ADC_CHANNEL);
     { uint8_t v = (uint8_t)(adc_val >> 4);
       if (v > JOY_CENTER_U8 - JOY_DEADZONE_U8 && v < JOY_CENTER_U8 + JOY_DEADZONE_U8)
           v = JOY_CENTER_U8;
-      if (v != g_state.roc1_y) { g_state.roc1_y = v; g_changed = 1; } }
+      if (joy_value_changed(v, g_state.roc1_y)) { g_state.roc1_y = v; g_changed = 1; } }
 
     adc_val = (int16_t)Gamepad_ADC_Read(ROC2_X_ADC_CHANNEL);
     { uint8_t v = (uint8_t)(adc_val >> 4);
       if (v > JOY_CENTER_U8 - JOY_DEADZONE_U8 && v < JOY_CENTER_U8 + JOY_DEADZONE_U8)
           v = JOY_CENTER_U8;
-      if (v != g_state.roc2_x) { g_state.roc2_x = v; g_changed = 1; } }
+      if (joy_value_changed(v, g_state.roc2_x)) { g_state.roc2_x = v; g_changed = 1; } }
 
     adc_val = (int16_t)Gamepad_ADC_Read(ROC2_Y_ADC_CHANNEL);
     { uint8_t v = (uint8_t)(adc_val >> 4);
       if (v > JOY_CENTER_U8 - JOY_DEADZONE_U8 && v < JOY_CENTER_U8 + JOY_DEADZONE_U8)
           v = JOY_CENTER_U8;
-      if (v != g_state.roc2_y) { g_state.roc2_y = v; g_changed = 1; } }
+      if (joy_value_changed(v, g_state.roc2_y)) { g_state.roc2_y = v; g_changed = 1; } }
 
     /* --- Encoder edge-detection decode --- */
     {

@@ -390,6 +390,11 @@ void ui_input_feed_touch(uint8_t touch_id, bool pressed, int16_t x, int16_t y)
 void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
 {
     ui_pointer_state_t *mp = &s_state.mouse;
+    /* Auto-enable mouse cursor when any mouse data is received
+     * (from CH9350 external mouse, gamepad ROC2, or BLE) */
+    if (!s_ext_mouse_connected) {
+        s_ext_mouse_connected = true;
+    }
     s_state.mouse_present = true;
     mp->last_feed_time = ui_get_real_ms();
 

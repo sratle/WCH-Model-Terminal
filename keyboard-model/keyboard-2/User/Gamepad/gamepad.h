@@ -84,6 +84,7 @@
 #define JOY_CENTER_U8           128     /* uint8 center value */
 #define JOY_DEADZONE_U8         20      /* 8-bit deadzone (±20 around center, applied after >>4) */
 #define JOY_THRESHOLD_U8        20      /* threshold for WASD key mapping (uint8) */
+#define JOY_CHANGE_THRESHOLD    10      /* min uint8 change to trigger report (prevents ADC jitter) */
 
 #define DEBOUNCE_COUNT          3       /* debounce iterations (scan_period * count) */
 

@@ -633,7 +633,7 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
 
-    /* Keyboard events */
+    /* Keyboard arrow events */
     if (e->type == UI_EVENT_KEY_LEFT_ARROW || e->type == UI_EVENT_KEY_RIGHT_ARROW ||
         e->type == UI_EVENT_KEY_UP_ARROW || e->type == UI_EVENT_KEY_DOWN_ARROW) {
         if (s_g4.state == G4_STATE_IDLE || s_g4.state == G4_STATE_GAMEOVER || s_g4.state == G4_STATE_WIN) {
@@ -654,6 +654,30 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
             }
         }
         return;
+    } else if (e->type == UI_EVENT_KEY_DOWN) {
+        /* WASD key support */
+        char c = e->char_code;
+        if (c >= 'A' && c <= 'Z') c += 32;
+        if (c == 'w' || c == 'a' || c == 's' || c == 'd') {
+            if (s_g4.state == G4_STATE_IDLE || s_g4.state == G4_STATE_GAMEOVER || s_g4.state == G4_STATE_WIN) {
+                g4_start_game();
+                return;
+            }
+            if (s_g4.state == G4_STATE_PLAYING) {
+                g4_dir_t dir;
+                if (c == 'w')      dir = G4_DIR_UP;
+                else if (c == 's') dir = G4_DIR_DOWN;
+                else if (c == 'a') dir = G4_DIR_LEFT;
+                else               dir = G4_DIR_RIGHT;
+                if (g4_do_move(dir)) {
+                    g4_inv_changed_tiles();
+                    g4_inv_score();
+                    g4_inv_moves();
+                    g4_inv_undo();
+                }
+            }
+            return;
+        }
     } else if (e->type == UI_EVENT_KEY_OK) {
         if (s_g4.state == G4_STATE_IDLE || s_g4.state == G4_STATE_GAMEOVER || s_g4.state == G4_STATE_WIN)
             g4_start_game();

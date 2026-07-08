@@ -739,6 +739,21 @@ static void brk_touch_event(ui_widget_t *w, ui_event_t *e)
             brk_launch_ball();
         }
         return;
+    } else if (e->type == UI_EVENT_KEY_DOWN) {
+        /* WASD: A/D for paddle movement */
+        char c = e->char_code;
+        if (c >= 'A' && c <= 'Z') c += 32;
+        if (c == 'a') {
+            if (s_brk.state == BRK_STATE_PLAYING || s_brk.state == BRK_STATE_LAUNCH) {
+                brk_move_paddle_to(s_brk.paddle_x - BRK_PADDLE_HOLD_SPEED);
+            } else { brk_start_game(); }
+            return;
+        } else if (c == 'd') {
+            if (s_brk.state == BRK_STATE_PLAYING || s_brk.state == BRK_STATE_LAUNCH) {
+                brk_move_paddle_to(s_brk.paddle_x + BRK_PADDLE_HOLD_SPEED);
+            } else { brk_start_game(); }
+            return;
+        }
     }
 
     /* Touch events */

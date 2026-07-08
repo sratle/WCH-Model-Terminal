@@ -71,8 +71,8 @@ static void Keyboard_HandleMusicButtons(const protocol_frame_t *req);
 static void Keyboard_HandleMusicFaders(const protocol_frame_t *req);
 static void Keyboard_HandleGameInput(const protocol_frame_t *req);
 
-/* Forward game input event to Display (raw frame pass-through) */
-static void Keyboard_ForwardGameEventToDisplay(const protocol_frame_t *req);
+/* Convert gamepad state to HID events and send to Display */
+static void Keyboard_SendGameInputAsHID(void);
 
 /* ============================================================================
  * UART 初始化与数据收发
@@ -151,12 +151,16 @@ void Keyboard_Send_Data(keyboard_t *keyboard, uint8_t *data, uint16_t length)
 
     (void)keyboard;
 
+    if (length == 0) return;
+
     for (i = 0; i < length; i++)
     {
-        while (USART_GetFlagStatus(KEYBOARD_UART, USART_FLAG_TC) == RESET)
+        while (USART_GetFlagStatus(KEYBOARD_UART, USART_FLAG_TXE) == RESET)
             ;
         USART_SendData(KEYBOARD_UART, *data++);
     }
+    while (USART_GetFlagStatus(KEYBOARD_UART, USART_FLAG_TC) == RESET)
+        ;
 }
 
 /* ============================================================================
@@ -658,6 +662,13 @@ static void Keyboard_HandleMusicFaders(const protocol_frame_t *req)
 
 static void Keyboard_HandleGameInput(const protocol_frame_t *req)
 {
+    static uint8_t prev_buttons = 0;
+    static uint8_t prev_switches = 0;
+    static uint8_t prev_ec_buttons = 0;
+    static int8_t prev_ec1_delta = 0;
+    static int8_t prev_ec2_delta = 0;
+    static uint8_t prev_dir_keys = 0;  /* bitmask of currently active direction keys */
+
     if (req->len < 10)  /* CMD + 9 bytes DATA */
     {
         printf("[GAME] Frame too short: %d\r\n", req->len);
@@ -677,31 +688,105 @@ static void Keyboard_HandleGameInput(const protocol_frame_t *req)
 
     game_active = 1;
 
-    /* Debug output */
-    printf("[GAME] R1(%3u,%3u) R2(%3u,%3u) Btn:0x%02X SW:0x%02X EC1:%+4d EC2:%+4d ECD:0x%02X\r\n",
-           game_state.roc1_x, game_state.roc1_y,
-           game_state.roc2_x, game_state.roc2_y,
-           game_state.buttons, game_state.switches,
-           game_state.ec1_delta, game_state.ec2_delta,
-           game_state.ec_buttons);
+    /* ROC1 direction detection with edge-trigger logging */
+    uint8_t cur_dir_keys = 0;
+    if (game_state.roc1_y > 200)  cur_dir_keys |= 0x01; /* S (down) */
+    if (game_state.roc1_y < 50)   cur_dir_keys |= 0x02; /* W (up) */
+    if (game_state.roc1_x < 50)   cur_dir_keys |= 0x04; /* A (left) */
+    if (game_state.roc1_x > 200)  cur_dir_keys |= 0x08; /* D (right) */
 
-    /* Forward to Display for game UI */
-    Keyboard_ForwardGameEventToDisplay(req);
+    /* Log only when direction key state changes (edge detection) */
+    uint8_t dir_changed = cur_dir_keys ^ prev_dir_keys;
+    if (dir_changed) {
+        if (dir_changed & 0x01) printf("[GAME] %s\r\n", (cur_dir_keys & 0x01) ? "S(DOWN) press" : "S(DOWN) release");
+        if (dir_changed & 0x02) printf("[GAME] %s\r\n", (cur_dir_keys & 0x02) ? "W(UP) press" : "W(UP) release");
+        if (dir_changed & 0x04) printf("[GAME] %s\r\n", (cur_dir_keys & 0x04) ? "A(LEFT) press" : "A(LEFT) release");
+        if (dir_changed & 0x08) printf("[GAME] %s\r\n", (cur_dir_keys & 0x08) ? "D(RIGHT) press" : "D(RIGHT) release");
+        prev_dir_keys = cur_dir_keys;
+    }
+
+    /* Log ROC2 mouse movement (only when non-zero) */
+    int16_t mx = (int16_t)game_state.roc2_x - 128;
+    int16_t my = (int16_t)game_state.roc2_y - 128;
+    if (mx != 0 || my != 0 || game_state.ec1_delta != 0 || game_state.ec2_delta != 0) {
+        printf("[GAME] Mouse: ROC2(%+4d,%+4d) EC1:%+4d EC2:%+4d\r\n",
+               mx, my, game_state.ec1_delta, game_state.ec2_delta);
+    }
+
+    /* Log non-joystick data changes only (buttons, switches, encoders) */
+    if (game_state.buttons != prev_buttons ||
+        game_state.switches != prev_switches ||
+        game_state.ec_buttons != prev_ec_buttons ||
+        game_state.ec1_delta != prev_ec1_delta ||
+        game_state.ec2_delta != prev_ec2_delta) {
+        printf("[GAME] Btn:0x%02X SW:0x%02X EC1:%+4d EC2:%+4d ECD:0x%02X\r\n",
+               game_state.buttons, game_state.switches,
+               game_state.ec1_delta, game_state.ec2_delta,
+               game_state.ec_buttons);
+        prev_buttons = game_state.buttons;
+        prev_switches = game_state.switches;
+        prev_ec_buttons = game_state.ec_buttons;
+        prev_ec1_delta = game_state.ec1_delta;
+        prev_ec2_delta = game_state.ec2_delta;
+    }
+
+    /* Forward to Display as standard HID keyboard + mouse events */
+    Keyboard_SendGameInputAsHID();
 }
 
-static void Keyboard_ForwardGameEventToDisplay(const protocol_frame_t *req)
+/* Convert gamepad state to standard HID keyboard + mouse reports and send to Display.
+ * ROC1 is mapped to HID arrow keys (not WASD) so that Display's ui_input_feed_keyboard()
+ * automatically generates UI_EVENT_KEY_*_ARROW events — no game changes needed for direction.
+ * BUT3-6 are mapped to HJKL letter keys for game-specific actions. */
+static void Keyboard_SendGameInputAsHID(void)
 {
-    uint8_t buf[PROTO_MAX_FRAME_LEN];
-    uint16_t len;
+    uint8_t kb_report[8] = {0};
+    uint8_t ms_report[4] = {0};
+    uint8_t slot = 2;  /* key slots start at index 2 in HID report */
 
     if (!Keyboard_IsDisplayOnline())
         return;
 
-    len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
-                             req->cmd, req->data, req->len,
-                             buf, sizeof(buf));
-    if (len > 0)
-        Display_Send_Data(&display_g, buf, len);
+    /* --- Keyboard report --- */
+    /* Modifiers from switches (2 bits each: 00=mid, 01=up, 10=down) */
+    if ((game_state.switches & 0x03) == 0x01)       kb_report[0] |= 0x02; /* SW1 → L-Shift */
+    if (((game_state.switches >> 2) & 0x03) == 0x01) kb_report[0] |= 0x01; /* SW2 → L-Ctrl */
+    if (((game_state.switches >> 4) & 0x03) == 0x01) kb_report[0] |= 0x04; /* SW3 → L-Alt */
+
+    /* ROC1 → HID arrow keys (center=128, thresholds: <50 or >200) */
+    if (game_state.roc1_y < 50)  kb_report[slot++] = 0x52; /* Up arrow (W) */
+    if (game_state.roc1_y > 200) kb_report[slot++] = 0x51; /* Down arrow (S) */
+    if (game_state.roc1_x < 50)  kb_report[slot++] = 0x50; /* Left arrow (A) */
+    if (game_state.roc1_x > 200) kb_report[slot++] = 0x4F; /* Right arrow (D) */
+
+    /* BUT3-6 → HJKL letter keys */
+    if ((game_state.buttons & (1 << 2)) && slot < 8) kb_report[slot++] = 0x0B; /* H */
+    if ((game_state.buttons & (1 << 3)) && slot < 8) kb_report[slot++] = 0x0D; /* J */
+    if ((game_state.buttons & (1 << 4)) && slot < 8) kb_report[slot++] = 0x0E; /* K */
+    if ((game_state.buttons & (1 << 5)) && slot < 8) kb_report[slot++] = 0x0F; /* L */
+
+    /* --- Mouse report --- */
+    /* Buttons: BUT1=left, BUT2=right, EC1_D=middle */
+    if (game_state.buttons & (1 << 0)) ms_report[0] |= 0x01;
+    if (game_state.buttons & (1 << 1)) ms_report[0] |= 0x02;
+    if (game_state.ec_buttons & (1 << 0)) ms_report[0] |= 0x04;
+
+    /* Movement: ROC2 (centered + scaled) + encoder deltas */
+    int16_t mx = (int16_t)game_state.roc2_x - 128;
+    mx = mx / 8;
+    mx += (int16_t)game_state.ec1_delta * 3;
+    if (mx > 127) mx = 127; if (mx < -128) mx = -128;
+    ms_report[1] = (uint8_t)(int8_t)mx;
+
+    int16_t my = (int16_t)game_state.roc2_y - 128;
+    my = my / 8;
+    my += (int16_t)game_state.ec2_delta * 3;
+    if (my > 127) my = 127; if (my < -128) my = -128;
+    ms_report[2] = (uint8_t)(int8_t)my;
+
+    /* Send to Display */
+    Display_SendInputEvent(&display_g, INPUT_DEV_KEYBOARD, kb_report, 8);
+    Display_SendInputEvent(&display_g, INPUT_DEV_MOUSE, ms_report, 4);
 }
 
 const game_input_state_t *Keyboard_Game_GetState(void)

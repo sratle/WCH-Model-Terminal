@@ -185,28 +185,33 @@ void Submodels_Send_Data(submodels_t *submodel, uint8_t *data, uint16_t length)
 {
     int i = 0;
 
+    if (length == 0) return;
+
     switch (submodel->submodels_id)
     {
         case 1:
             for (i = 0; i < length; i++)
             {
-                while (USART_GetFlagStatus(USART6, USART_FLAG_TC) == RESET);
+                while (USART_GetFlagStatus(USART6, USART_FLAG_TXE) == RESET);
                 USART_SendData(SUBMODELS1_UART, *data++);
             }
+            while (USART_GetFlagStatus(USART6, USART_FLAG_TC) == RESET);
             break;
         case 2:
             for (i = 0; i < length; i++)
             {
-                while (USART_GetFlagStatus(USART7, USART_FLAG_TC) == RESET);
+                while (USART_GetFlagStatus(USART7, USART_FLAG_TXE) == RESET);
                 USART_SendData(SUBMODELS2_UART, *data++);
             }
+            while (USART_GetFlagStatus(USART7, USART_FLAG_TC) == RESET);
             break;
         case 3:
             for (i = 0; i < length; i++)
             {
-                while (USART_GetFlagStatus(USART8, USART_FLAG_TC) == RESET);
+                while (USART_GetFlagStatus(USART8, USART_FLAG_TXE) == RESET);
                 USART_SendData(SUBMODELS3_UART, *data++);
             }
+            while (USART_GetFlagStatus(USART8, USART_FLAG_TC) == RESET);
             break;
 
         default:

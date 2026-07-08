@@ -33,10 +33,6 @@ static uart_cli_cb_t s_cli_cb;
 static bool s_cli_cb_valid = false;
 volatile pending_req_t g_pending_req = PENDING_NONE;
 
-/* CLI pending request timeout tracking */
-static uint32_t s_pending_start_ms = 0;
-#define CLI_PENDING_TIMEOUT_MS  3000
-
 /* EMusic app callbacks for Keyboard-3 music events */
 static uart_emusic_callbacks_t s_emusic_cb;
 static bool s_emusic_cb_valid = false;
@@ -176,7 +172,6 @@ static volatile uint16_t s_stream_idx;
 static volatile uint8_t s_ring[UART_RX_BUF_SIZE];
 static volatile uint16_t s_ring_head = 0;
 static volatile uint16_t s_ring_tail = 0;
-static volatile uint8_t s_ring_overflow = 0;  /* set when ring buffer overflow occurs */
 
 /* Helper: push a completed frame into the ring buffer */
 static void ring_push_frame(uint8_t src, uint8_t dst, uint8_t cmd,
@@ -185,10 +180,7 @@ static void ring_push_frame(uint8_t src, uint8_t dst, uint8_t cmd,
     uint16_t total = 4 + dlen;
     /* Overflow check: if not enough space, drop the frame.
      * Use subtraction to avoid uint16_t overflow in addition. */
-    if ((uint16_t)(s_ring_head - s_ring_tail) + total > UART_RX_BUF_SIZE) {
-        s_ring_overflow = 1;
-        return;
-    }
+    if ((uint16_t)(s_ring_head - s_ring_tail) + total > UART_RX_BUF_SIZE) return;
 
     uint16_t h = s_ring_head;
     s_ring[h++ % UART_RX_BUF_SIZE] = src;
@@ -946,9 +938,8 @@ void UART_Module_Poll(void)
         uint8_t dlen = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
 
         if (s_ring_head - s_ring_tail < dlen) {
-            /* Rewind 4 bytes with wrap-around safety */
-            if (s_ring_tail >= 4) s_ring_tail -= 4;
-            else s_ring_tail = UART_RX_BUF_SIZE - (4 - s_ring_tail);
+            /* Rewind 4 bytes: uint16_t subtraction wraps naturally */
+            s_ring_tail -= 4;
             break;
         }
 
@@ -957,29 +948,6 @@ void UART_Module_Poll(void)
         }
 
         process_frame(src, dst, cmd, s_poll_data, dlen);
-    }
-
-    /* Ring buffer overflow recovery: if ISR dropped frames, reset pending state */
-    if (s_ring_overflow) {
-        s_ring_overflow = 0;
-        printf("[UART] ring overflow detected\r\n");
-        if (g_pending_req != PENDING_NONE) {
-            g_pending_req = PENDING_NONE;
-            s_cli_resp_accumulating = false;
-            if (s_cli_cb_valid && s_cli_cb.on_cli_complete)
-                s_cli_cb.on_cli_complete("ERROR: OVERFLOW", 15, s_cli_cmd_tag);
-        }
-    }
-
-    /* CLI pending request timeout: prevent permanent lockup on lost frames */
-    if (g_pending_req != PENDING_NONE) {
-        if (ui_get_real_ms() - s_pending_start_ms > CLI_PENDING_TIMEOUT_MS) {
-            printf("[UART] pending timeout, resetting\r\n");
-            g_pending_req = PENDING_NONE;
-            s_cli_resp_accumulating = false;
-            if (s_cli_cb_valid && s_cli_cb.on_cli_complete)
-                s_cli_cb.on_cli_complete("ERROR: TIMEOUT", 14, s_cli_cmd_tag);
-        }
     }
 
     /* Auto screen-off check */
@@ -1169,7 +1137,6 @@ void UART_SendCLI(const char *cmd)
 
     cli_resp_reset();
     g_pending_req = PENDING_CLI;
-    s_pending_start_ms = ui_get_real_ms();
 
     uint8_t buf[PROTO_MAX_DATA_LEN];
     buf[0] = DISP_EXT_CLI;

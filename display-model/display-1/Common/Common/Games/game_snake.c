@@ -735,6 +735,14 @@ static void snk_touch_event(ui_widget_t *w, ui_event_t *e)
         snk_set_direction(SNK_DIR_LEFT);
     } else if (e->type == UI_EVENT_KEY_RIGHT_ARROW) {
         snk_set_direction(SNK_DIR_RIGHT);
+    } else if (e->type == UI_EVENT_KEY_DOWN) {
+        /* WASD key support */
+        char c = e->char_code;
+        if (c >= 'A' && c <= 'Z') c += 32;
+        if (c == 'w') snk_set_direction(SNK_DIR_UP);
+        else if (c == 's') snk_set_direction(SNK_DIR_DOWN);
+        else if (c == 'a') snk_set_direction(SNK_DIR_LEFT);
+        else if (c == 'd') snk_set_direction(SNK_DIR_RIGHT);
     } else if (e->type == UI_EVENT_KEY_OK) {
         if (s_snk.state == SNK_STATE_IDLE || s_snk.state == SNK_STATE_GAMEOVER) {
             snk_start_game();

@@ -155,21 +155,12 @@ void Display_Send_Data(display_t *display, const uint8_t *data, uint16_t length)
     uint16_t i;
     (void)display;
 
-    if (length == 0) return;
-
-    /* Use TXE (TX Empty) for inner loop for faster pipeline throughput.
-     * TXE means the data register is ready for the next byte while the
-     * shift register is still transmitting the current one.
-     * Only wait for TC (Transmission Complete) at the very end. */
     for (i = 0; i < length; i++)
     {
-        while (USART_GetFlagStatus(DISPLAY_UART, USART_FLAG_TXE) == RESET)
+        while (USART_GetFlagStatus(DISPLAY_UART, USART_FLAG_TC) == RESET)
             ;
         USART_SendData(DISPLAY_UART, *data++);
     }
-    /* Wait for the last byte to fully leave the shift register */
-    while (USART_GetFlagStatus(DISPLAY_UART, USART_FLAG_TC) == RESET)
-        ;
 }
 
 /* ============================================================================

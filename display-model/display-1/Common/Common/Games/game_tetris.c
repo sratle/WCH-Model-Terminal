@@ -915,6 +915,27 @@ static void tet_touch_event(ui_widget_t *w, ui_event_t *e)
         else
             tet_do_hard_drop();
         return;
+    } else if (e->type == UI_EVENT_KEY_DOWN) {
+        /* WASD key support */
+        char c = e->char_code;
+        if (c >= 'A' && c <= 'Z') c += 32;
+        if (c == 'w') {
+            if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER) tet_start_game();
+            else tet_do_rotate();
+            return;
+        } else if (c == 's') {
+            if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER) tet_start_game();
+            else tet_do_move_action(0, 1);
+            return;
+        } else if (c == 'a') {
+            if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER) tet_start_game();
+            else tet_do_move_action(-1, 0);
+            return;
+        } else if (c == 'd') {
+            if (s_tet.state == TET_STATE_IDLE || s_tet.state == TET_STATE_GAMEOVER) tet_start_game();
+            else tet_do_move_action(1, 0);
+            return;
+        }
     }
 
     /* Touch / swipe events */

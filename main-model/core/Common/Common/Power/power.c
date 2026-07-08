@@ -109,12 +109,16 @@ void Power_Send_Data(power_t *power, uint8_t *data, uint16_t length)
 
     (void)power;
 
+    if (length == 0) return;
+
     for (i = 0; i < length; i++)
     {
-        while (USART_GetFlagStatus(POWER_UART, USART_FLAG_TC) == RESET)
+        while (USART_GetFlagStatus(POWER_UART, USART_FLAG_TXE) == RESET)
             ;
         USART_SendData(POWER_UART, *data++);
     }
+    while (USART_GetFlagStatus(POWER_UART, USART_FLAG_TC) == RESET)
+        ;
 }
 
 /* ============================================================================

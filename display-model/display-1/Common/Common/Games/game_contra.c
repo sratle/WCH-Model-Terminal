@@ -1532,6 +1532,22 @@ static void ct_touch_event(ui_widget_t *w, ui_event_t *e)
         s_ct.input_left = true;
     } else if (e->type == UI_EVENT_KEY_RIGHT_ARROW) {
         s_ct.input_right = true;
+    } else if (e->type == UI_EVENT_KEY_DOWN) {
+        /* WASD key support */
+        char c = e->char_code;
+        if (c >= 'A' && c <= 'Z') c += 32;
+        if (c == 'w') s_ct.input_up = true;
+        else if (c == 's') s_ct.input_down = true;
+        else if (c == 'a') s_ct.input_left = true;
+        else if (c == 'd') s_ct.input_right = true;
+    } else if (e->type == UI_EVENT_KEY_UP) {
+        /* Release WASD direction keys */
+        char c = e->char_code;
+        if (c >= 'A' && c <= 'Z') c += 32;
+        if (c == 'w') s_ct.input_up = false;
+        else if (c == 's') s_ct.input_down = false;
+        else if (c == 'a') s_ct.input_left = false;
+        else if (c == 'd') s_ct.input_right = false;
     } else if (e->type == UI_EVENT_KEY_OK) {
         s_ct.input_jump = true;
         s_ct.input_shoot = true;
