@@ -8,10 +8,7 @@
 ********************************************************************************/
 #include "game_touchball.h"
 #include "../UI/ui_app_common.h"
-#include "../UART/uart_module.h"
 #include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 /*=============================================================================
  *  Game Configuration
@@ -82,8 +79,6 @@ typedef struct {
     char buf_hp[8];
     char buf_fps[12];
     char buf_gameover[24];
-    char buf_best[24];
-    int best;
 } tb_state_t;
 
 /*=============================================================================
@@ -223,39 +218,6 @@ static void tb_update_gameover_text(void)
     char num[8];
     tb_itoa(s_tb.score, num);
     tb_strcat(s_tb.buf_gameover, num);
-    /* Update best text buffer */
-    tb_strcpy(s_tb.buf_best, "Best: ");
-    tb_itoa(s_tb.best, num);
-    tb_strcat(s_tb.buf_best, num);
-}
-
-/*=============================================================================
- *  Best Score Persistence (via CLI passthrough to Core appcfg)
- *=============================================================================*/
-
-static void tb_on_cli_complete(const char *buf, uint16_t len, const char *tag)
-{
-    if (!tag || strcmp(tag, "appcfg") != 0) return;
-    if (buf[0] < '0' || buf[0] > '9') return;
-    s_tb.best = atoi(buf);
-    ui_page_invalidate_all();
-}
-
-static const uart_cli_cb_t s_tb_cli_cb = {
-    .on_cli_complete = tb_on_cli_complete,
-};
-
-static void tb_load_best(void)
-{
-    UART_SetCLICallbacks(&s_tb_cli_cb);
-    UART_SendCLI("appcfg get game_touchball highscore");
-}
-
-static void tb_save_best(void)
-{
-    char cmd[64];
-    snprintf(cmd, sizeof(cmd), "appcfg set game_touchball highscore %d", s_tb.best);
-    UART_SendCLI(cmd);
 }
 
 /*=============================================================================
@@ -264,9 +226,7 @@ static void tb_save_best(void)
 
 static void tb_reset(void)
 {
-    int saved_best = s_tb.best;
     memset(&s_tb, 0, sizeof(s_tb));
-    s_tb.best = saved_best;
     s_tb.state = TB_STATE_IDLE;
     s_tb.hp = TB_INIT_HP;
     s_tb.spawn_timer = TB_SPAWN_INTERVAL;
@@ -410,10 +370,6 @@ static void tb_update(void)
             if (s_tb.hp <= 0) {
                 s_tb.hp = 0;
                 s_tb.state = TB_STATE_GAMEOVER;
-                if (s_tb.score > s_tb.best) {
-                    s_tb.best = s_tb.score;
-                    tb_save_best();
-                }
                 tb_update_gameover_text();
                 ui_page_invalidate_all();
             }
@@ -553,11 +509,6 @@ static void tb_draw_gameover(void)
     ui_draw_text_in_rect(&score_rect, s_tb.buf_gameover, &font_montserrat_12,
                          UI_COLOR_WHITE, 1);
 
-    /* Best */
-    ui_rect_t best_rect = {TB_AREA_X, TB_AREA_Y + TB_AREA_H / 2 + 4, TB_AREA_W, 24};
-    ui_draw_text_in_rect(&best_rect, s_tb.buf_best, &font_montserrat_12,
-                         UI_HEX(0xF1C40F), 1);
-
     /* Hint */
     ui_rect_t hint_rect = {TB_AREA_X, TB_AREA_Y + TB_AREA_H / 2 + 20, TB_AREA_W, 24};
     ui_draw_text_in_rect(&hint_rect, "Tap to restart", &font_montserrat_12,
@@ -607,7 +558,6 @@ static void tb_game_enter(ui_page_t *page)
 {
     (void)page;
     tb_reset();
-    tb_load_best();
     ui_page_invalidate_all();
 }
 

@@ -6,7 +6,7 @@
 #include "debug.h"
 #include "../Protocol/protocol.h"
 
-#define DISPLAY_UART_BAUDRATE 230400
+#define DISPLAY_UART_BAUDRATE 921600
 #define DISPLAY_UART USART4
 #define DISPLAY_UART_IRQn USART4_IRQn
 

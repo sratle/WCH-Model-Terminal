@@ -9,10 +9,7 @@
 ********************************************************************************/
 #include "game_contra.h"
 #include "../UI/ui_app_common.h"
-#include "../UART/uart_module.h"
 #include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 /*=============================================================================
  *  Game Configuration
@@ -193,11 +190,9 @@ typedef struct {
 
     /* Score & HUD */
     int score;
-    int best;
     bool hud_dirty;
     char buf_lives[16];
     char buf_score[16];
-    char buf_best[16];
 } ct_game_t;
 
 /*=============================================================================
@@ -258,37 +253,6 @@ static void ct_update_hud_texts(void)
 {
     ct_itoa(s_ct.lives, s_ct.buf_lives);
     ct_itoa(s_ct.score, s_ct.buf_score);
-    ct_itoa(s_ct.best, s_ct.buf_best);
-}
-
-/*=============================================================================
- *  Best Score Persistence (via CLI passthrough to Core appcfg)
- *=============================================================================*/
-
-static void ct_on_cli_complete(const char *buf, uint16_t len, const char *tag)
-{
-    if (!tag || strcmp(tag, "appcfg") != 0) return;
-    if (buf[0] < '0' || buf[0] > '9') return;
-    s_ct.best = atoi(buf);
-    ct_update_hud_texts();
-    ui_page_invalidate_all();
-}
-
-static const uart_cli_cb_t s_ct_cli_cb = {
-    .on_cli_complete = ct_on_cli_complete,
-};
-
-static void ct_load_best(void)
-{
-    UART_SetCLICallbacks(&s_ct_cli_cb);
-    UART_SendCLI("appcfg get game_contra highscore");
-}
-
-static void ct_save_best(void)
-{
-    char cmd[64];
-    snprintf(cmd, sizeof(cmd), "appcfg set game_contra highscore %d", s_ct.best);
-    UART_SendCLI(cmd);
 }
 
 /*=============================================================================
@@ -484,9 +448,7 @@ static void ct_spawn_enemies(void)
 
 static void ct_start_game(void)
 {
-    int saved_best = s_ct.best;
     memset(&s_ct, 0, sizeof(s_ct));
-    s_ct.best = saved_best;
     s_ct.state = CT_STATE_PLAYING;
     s_ct.lives = CT_LIVES;
     s_ct.px = 50;
@@ -518,10 +480,6 @@ static void ct_player_die(void)
 
     if (s_ct.lives <= 0) {
         s_ct.state = CT_STATE_GAMEOVER;
-        if (s_ct.score > s_ct.best) {
-            s_ct.best = s_ct.score;
-            ct_save_best();
-        }
         ui_page_invalidate_all();
         return;
     }
@@ -889,10 +847,6 @@ static void ct_update(void)
                         /* Boss death = win */
                         if (e->type == CT_ENEMY_BOSS) {
                             s_ct.state = CT_STATE_WIN;
-                            if (s_ct.score > s_ct.best) {
-                                s_ct.best = s_ct.score;
-                                ct_save_best();
-                            }
                             ui_page_invalidate_all();
                             return;
                         }
@@ -1366,19 +1320,7 @@ static void ct_draw_gameover_overlay(void)
     ui_rect_t sr = {0, CT_AREA_Y + CT_AREA_H / 2, CT_AREA_W, 24};
     ui_draw_text_in_rect(&sr, buf, &font_montserrat_12, UI_COLOR_WHITE, 1);
 
-    /* Best score */
-    char best_buf[32];
-    int bi2 = 0;
-    const char *bp = "Best: ";
-    while (*bp && bi2 < 25) best_buf[bi2++] = *bp++;
-    const char *bv = s_ct.buf_best;
-    while (*bv && bi2 < 31) best_buf[bi2++] = *bv++;
-    best_buf[bi2] = '\0';
-    ui_rect_t br = {0, CT_AREA_Y + CT_AREA_H / 2 + 15, CT_AREA_W, 24};
-    ui_draw_text_in_rect(&br, best_buf, &font_montserrat_12,
-                         UI_HEX(0xF1C40F), 1);
-
-    ui_rect_t hr = {0, CT_AREA_Y + CT_AREA_H / 2 + 40, CT_AREA_W, 24};
+    ui_rect_t hr = {0, CT_AREA_Y + CT_AREA_H / 2 + 30, CT_AREA_W, 24};
     ui_draw_text_in_rect(&hr, "Tap to restart", &font_montserrat_12,
                          UI_HEX(0xAAAAAA), 1);
 }
@@ -1404,19 +1346,7 @@ static void ct_draw_win_overlay(void)
     ui_rect_t sr = {0, CT_AREA_Y + CT_AREA_H / 2, CT_AREA_W, 24};
     ui_draw_text_in_rect(&sr, buf, &font_montserrat_12, UI_COLOR_WHITE, 1);
 
-    /* Best score */
-    char best_buf[32];
-    int bi2 = 0;
-    const char *bp = "Best: ";
-    while (*bp && bi2 < 25) best_buf[bi2++] = *bp++;
-    const char *bv = s_ct.buf_best;
-    while (*bv && bi2 < 31) best_buf[bi2++] = *bv++;
-    best_buf[bi2] = '\0';
-    ui_rect_t br = {0, CT_AREA_Y + CT_AREA_H / 2 + 15, CT_AREA_W, 24};
-    ui_draw_text_in_rect(&br, best_buf, &font_montserrat_12,
-                         UI_HEX(0xF1C40F), 1);
-
-    ui_rect_t hr = {0, CT_AREA_Y + CT_AREA_H / 2 + 40, CT_AREA_W, 24};
+    ui_rect_t hr = {0, CT_AREA_Y + CT_AREA_H / 2 + 30, CT_AREA_W, 24};
     ui_draw_text_in_rect(&hr, "Tap to restart", &font_montserrat_12,
                          UI_HEX(0xAAAAAA), 1);
 }
@@ -1532,22 +1462,6 @@ static void ct_touch_event(ui_widget_t *w, ui_event_t *e)
         s_ct.input_left = true;
     } else if (e->type == UI_EVENT_KEY_RIGHT_ARROW) {
         s_ct.input_right = true;
-    } else if (e->type == UI_EVENT_KEY_DOWN) {
-        /* WASD key support */
-        char c = e->char_code;
-        if (c >= 'A' && c <= 'Z') c += 32;
-        if (c == 'w') s_ct.input_up = true;
-        else if (c == 's') s_ct.input_down = true;
-        else if (c == 'a') s_ct.input_left = true;
-        else if (c == 'd') s_ct.input_right = true;
-    } else if (e->type == UI_EVENT_KEY_UP) {
-        /* Release WASD direction keys */
-        char c = e->char_code;
-        if (c >= 'A' && c <= 'Z') c += 32;
-        if (c == 'w') s_ct.input_up = false;
-        else if (c == 's') s_ct.input_down = false;
-        else if (c == 'a') s_ct.input_left = false;
-        else if (c == 'd') s_ct.input_right = false;
     } else if (e->type == UI_EVENT_KEY_OK) {
         s_ct.input_jump = true;
         s_ct.input_shoot = true;
@@ -1614,7 +1528,6 @@ static void ct_game_enter(ui_page_t *page)
     s_ct.lives = CT_LIVES;
     ui_page_invalidate_all();
     ct_update_hud_texts();
-    ct_load_best();
 }
 
 /* Per-frame game logic update */

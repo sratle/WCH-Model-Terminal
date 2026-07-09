@@ -9,10 +9,7 @@
 ********************************************************************************/
 #include "game_snake.h"
 #include "../UI/ui_app_common.h"
-#include "../UART/uart_module.h"
 #include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 /*=============================================================================
  *  Layout Configuration
@@ -186,36 +183,6 @@ static void snk_update_texts(void)
 }
 
 /*=============================================================================
- *  Best Score Persistence (via CLI passthrough to Core appcfg)
- *=============================================================================*/
-
-static void snk_on_cli_complete(const char *buf, uint16_t len, const char *tag)
-{
-    if (!tag || strcmp(tag, "appcfg") != 0) return;
-    if (buf[0] < '0' || buf[0] > '9') return;
-    s_snk.best = atoi(buf);
-    snk_update_texts();
-    ui_page_invalidate_all();
-}
-
-static const uart_cli_cb_t s_snk_cli_cb = {
-    .on_cli_complete = snk_on_cli_complete,
-};
-
-static void snk_load_best(void)
-{
-    UART_SetCLICallbacks(&s_snk_cli_cb);
-    UART_SendCLI("appcfg get game_snake highscore");
-}
-
-static void snk_save_best(void)
-{
-    char cmd[64];
-    snprintf(cmd, sizeof(cmd), "appcfg set game_snake highscore %d", s_snk.best);
-    UART_SendCLI(cmd);
-}
-
-/*=============================================================================
  *  Grid Pixel Helpers
  *=============================================================================*/
 
@@ -313,9 +280,7 @@ static uint32_t snk_move_interval(void)
 
 static void snk_start_game(void)
 {
-    int saved_best = s_snk.best;
     memset(&s_snk, 0, sizeof(s_snk));
-    s_snk.best = saved_best;
     s_snk.state = SNK_STATE_PLAYING;
 
     /* Start snake in the center, length 3, moving right */
@@ -371,10 +336,7 @@ static void snk_game_tick(void)
     if (new_head.col < 0 || new_head.col >= SNK_COLS ||
         new_head.row < 0 || new_head.row >= SNK_ROWS) {
         s_snk.state = SNK_STATE_GAMEOVER;
-        if (s_snk.score > s_snk.best) {
-            s_snk.best = s_snk.score;
-            snk_save_best();
-        }
+        if (s_snk.score > s_snk.best) s_snk.best = s_snk.score;
         snk_update_texts();
         ui_page_invalidate_all();
         return;
@@ -386,10 +348,7 @@ static void snk_game_tick(void)
     for (int i = 0; i < check_len; i++) {
         if (s_snk.body[i].col == new_head.col && s_snk.body[i].row == new_head.row) {
             s_snk.state = SNK_STATE_GAMEOVER;
-            if (s_snk.score > s_snk.best) {
-                s_snk.best = s_snk.score;
-                snk_save_best();
-            }
+            if (s_snk.score > s_snk.best) s_snk.best = s_snk.score;
             snk_update_texts();
             ui_page_invalidate_all();
             return;
@@ -735,14 +694,6 @@ static void snk_touch_event(ui_widget_t *w, ui_event_t *e)
         snk_set_direction(SNK_DIR_LEFT);
     } else if (e->type == UI_EVENT_KEY_RIGHT_ARROW) {
         snk_set_direction(SNK_DIR_RIGHT);
-    } else if (e->type == UI_EVENT_KEY_DOWN) {
-        /* WASD key support */
-        char c = e->char_code;
-        if (c >= 'A' && c <= 'Z') c += 32;
-        if (c == 'w') snk_set_direction(SNK_DIR_UP);
-        else if (c == 's') snk_set_direction(SNK_DIR_DOWN);
-        else if (c == 'a') snk_set_direction(SNK_DIR_LEFT);
-        else if (c == 'd') snk_set_direction(SNK_DIR_RIGHT);
     } else if (e->type == UI_EVENT_KEY_OK) {
         if (s_snk.state == SNK_STATE_IDLE || s_snk.state == SNK_STATE_GAMEOVER) {
             snk_start_game();
@@ -775,7 +726,6 @@ static void snk_game_enter(ui_page_t *page)
     memset(&s_snk, 0, sizeof(s_snk));
     s_snk.state = SNK_STATE_IDLE;
     snk_update_texts();
-    snk_load_best();
     ui_page_invalidate_all();
 }
 

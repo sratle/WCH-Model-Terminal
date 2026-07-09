@@ -9,10 +9,7 @@
 ********************************************************************************/
 #include "game_airplane.h"
 #include "../UI/ui_app_common.h"
-#include "../UART/uart_module.h"
 #include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 /*=============================================================================
  *  Game Configuration
@@ -117,8 +114,6 @@ typedef struct {
     char buf_hp[12];
     char buf_score[16];
     char buf_gameover[32];
-    char buf_best[16];
-    int best;
 } ap_game_t;
 
 /*=============================================================================
@@ -290,39 +285,6 @@ static void ap_update_gameover_text(void)
     char num[8];
     ap_itoa(s_ap.score, num);
     ap_strcat(s_ap.buf_gameover, num);
-    /* Update best text buffer */
-    ap_strcpy(s_ap.buf_best, "Best: ");
-    ap_itoa(s_ap.best, num);
-    ap_strcat(s_ap.buf_best, num);
-}
-
-/*=============================================================================
- *  Best Score Persistence (via CLI passthrough to Core appcfg)
- *=============================================================================*/
-
-static void ap_on_cli_complete(const char *buf, uint16_t len, const char *tag)
-{
-    if (!tag || strcmp(tag, "appcfg") != 0) return;
-    if (buf[0] < '0' || buf[0] > '9') return;
-    s_ap.best = atoi(buf);
-    ui_page_invalidate_all();
-}
-
-static const uart_cli_cb_t s_ap_cli_cb = {
-    .on_cli_complete = ap_on_cli_complete,
-};
-
-static void ap_load_best(void)
-{
-    UART_SetCLICallbacks(&s_ap_cli_cb);
-    UART_SendCLI("appcfg get game_airplane highscore");
-}
-
-static void ap_save_best(void)
-{
-    char cmd[64];
-    snprintf(cmd, sizeof(cmd), "appcfg set game_airplane highscore %d", s_ap.best);
-    UART_SendCLI(cmd);
 }
 
 /*=============================================================================
@@ -331,9 +293,7 @@ static void ap_save_best(void)
 
 static void ap_reset(void)
 {
-    int saved_best = s_ap.best;
     memset(&s_ap, 0, sizeof(s_ap));
-    s_ap.best = saved_best;
     s_ap.state = AP_STATE_IDLE;
     s_ap.hp = AP_PLAYER_HP;
     s_ap.player_x = AP_AREA_W / 2;
@@ -491,10 +451,6 @@ static void ap_fire_enemy(ap_enemy_t *e)
 static void ap_end_game(void)
 {
     s_ap.state = AP_STATE_GAMEOVER;
-    if (s_ap.score > s_ap.best) {
-        s_ap.best = s_ap.score;
-        ap_save_best();
-    }
     ap_update_gameover_text();
     ui_page_invalidate_all();
 }
@@ -784,11 +740,6 @@ static void ap_draw_gameover(void)
     ui_draw_text_in_rect(&score_rect, s_ap.buf_gameover, &font_montserrat_12,
                          UI_COLOR_WHITE, 1);
 
-    /* Show best score */
-    ui_rect_t best_rect = {AP_AREA_X, AP_AREA_Y + AP_AREA_H / 2 - 4, AP_AREA_W, 24};
-    ui_draw_text_in_rect(&best_rect, s_ap.buf_best, &font_montserrat_12,
-                         UI_HEX(0xF1C40F), 1);
-
     /* Show remaining HP and time */
     char buf_info[32];
     ap_strcpy(buf_info, "HP: ");
@@ -938,7 +889,6 @@ static void ap_game_enter(ui_page_t *page)
     (void)page;
     s_ap_touch_active = false;
     ap_reset();
-    ap_load_best();
     ui_page_invalidate_all();
 }
 
