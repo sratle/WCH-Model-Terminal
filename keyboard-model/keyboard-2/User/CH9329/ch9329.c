@@ -33,13 +33,13 @@ static void CH9329_UART2_Init(void)
     gpio.GPIO_Mode = GPIO_Mode_IPU;
     GPIO_Init(CH9329_RX_PORT, &gpio);
 
-    /* USART2 configuration: 115200 8N1 */
-    usart.USART_BaudRate            = 115200;
+    /* USART2 configuration: 9600 8N1 */
+    usart.USART_BaudRate            = 9600;
     usart.USART_WordLength          = USART_WordLength_8b;
     usart.USART_StopBits            = USART_StopBits_1;
     usart.USART_Parity              = USART_Parity_No;
     usart.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
-    usart.USART_Mode                = USART_Mode_Tx;
+    usart.USART_Mode                = USART_Mode_Tx | USART_Mode_Rx;
     USART_Init(CH9329_UART, &usart);
 
     USART_Cmd(CH9329_UART, ENABLE);
@@ -107,6 +107,28 @@ static void CH9329_SendFrame(uint8_t cmd, uint8_t len, const uint8_t *data)
     }
     /* Checksum */
     CH9329_SendByte(sum);
+
+    /* Wait for and consume CH9329 response (7 bytes: HEAD0 HEAD1 ADDR CMD|0x80 LEN STATUS SUM)
+     * This prevents UART RX buffer overflow on CH9329 side. */
+    {
+        uint8_t resp[16];
+        uint8_t resp_idx = 0;
+        uint32_t timeout = 10000;
+
+        /* Read up to 16 bytes or timeout */
+        while (resp_idx < 16 && timeout > 0)
+        {
+            if (USART_GetFlagStatus(CH9329_UART, USART_FLAG_RXNE) != RESET)
+            {
+                resp[resp_idx++] = (uint8_t)USART_ReceiveData(CH9329_UART);
+            }
+            else
+            {
+                timeout--;
+            }
+        }
+        (void)resp; /* suppress unused warning if not using response data */
+    }
 }
 
 /* ====================================================================

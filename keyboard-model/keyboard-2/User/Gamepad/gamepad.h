@@ -86,6 +86,20 @@
 #define JOY_THRESHOLD_U8        20      /* threshold for WASD key mapping (uint8) */
 #define JOY_CHANGE_THRESHOLD    10      /* min uint8 change to trigger report (prevents ADC jitter) */
 
+/* Hysteresis thresholds for ROC1 direction detection (same as Core side)
+ * Press: <100 or >200 (asymmetric due to Y-axis offset)
+ * Release: <120 or >180 */
+#define ROC_PRESS_LOW       100
+#define ROC_PRESS_HIGH      200
+#define ROC_RELEASE_LOW     120
+#define ROC_RELEASE_HIGH    180
+
+/* HID Usage IDs for arrow keys (same as Core side) */
+#define HID_KEY_UP_ARROW    0x52
+#define HID_KEY_DOWN_ARROW  0x51
+#define HID_KEY_LEFT_ARROW  0x50
+#define HID_KEY_RIGHT_ARROW 0x4F
+
 #define DEBOUNCE_COUNT          3       /* debounce iterations (scan_period * count) */
 
 /* Encoder step delta for mouse movement */

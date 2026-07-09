@@ -30,7 +30,7 @@ static uint8_t last_mouse_report[CH9329_MS_DATA_LEN];
 /* Core protocol data buffer */
 static uint8_t core_data[GAME_INPUT_DATA_LEN];
 
-/* CH9329 send rate limiting (115200 baud → 8ms minimum interval) */
+/* CH9329 send rate limiting (9600 baud → ~20ms minimum interval for kb+mouse) */
 static uint8_t ticks_since_send = 0xFF;
 
 /* --- Send gamepad state to CH9329 (keyboard + mouse) --- */
@@ -38,7 +38,7 @@ static void SendHIDIfNeeded(void)
 {
     uint8_t need_send = 0;
 
-    if (ticks_since_send < 4)
+    if (ticks_since_send < 10)
     {
         ticks_since_send++;
         return;

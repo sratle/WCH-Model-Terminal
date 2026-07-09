@@ -26,6 +26,10 @@ static uint8_t ec2_prev_a, ec2_prev_b;
 /* Change flag */
 static uint8_t g_changed = 0;
 
+/* ROC1 direction key hysteresis state (same as Core side)
+ * Bitmask: 0x01=S(down), 0x02=W(up), 0x04=A(left), 0x08=D(right) */
+static uint8_t prev_dir_keys = 0;
+
 /* ====================================================================
  * Rotary encoder edge-detection decoder
  *
@@ -387,6 +391,8 @@ const gamepad_state_t *Gamepad_GetState(void)
 uint8_t Gamepad_BuildKeyboardReport(uint8_t *report)
 {
     uint8_t slot = 2;  /* start at key slot 0 (index 2 in report) */
+    uint8_t raw_dir_keys = 0;
+    uint8_t cur_dir_keys;
 
     /* Clear report */
     memset(report, 0, CH9329_KB_DATA_LEN);
@@ -397,11 +403,37 @@ uint8_t Gamepad_BuildKeyboardReport(uint8_t *report)
     if (g_state.switch_state[1] == SW_STATE_UP) report[0] |= HID_MOD_LCTRL;
     if (g_state.switch_state[2] == SW_STATE_UP) report[0] |= HID_MOD_LALT;
 
-    /* --- ROC1 → WASD (uint8: center=128, threshold=± 20) --- */
-    if (g_state.roc1_x > JOY_CENTER_U8 + JOY_THRESHOLD_U8)       report[slot++] = HID_KEY_D;  /* Right */
-    else if (g_state.roc1_x < JOY_CENTER_U8 - JOY_THRESHOLD_U8)  report[slot++] = HID_KEY_A;  /* Left */
-    if (g_state.roc1_y > JOY_CENTER_U8 + JOY_THRESHOLD_U8)       report[slot++] = HID_KEY_S;  /* Down */
-    else if (g_state.roc1_y < JOY_CENTER_U8 - JOY_THRESHOLD_U8)  report[slot++] = HID_KEY_W;  /* Up */
+    /* --- ROC1 → HID arrow keys with hysteresis (same as Core side)
+     * NOTE: X/Y axes are swapped on hardware; roc1_x is actually Y (up/down),
+     * roc1_y is actually X (left/right).
+     * Press threshold: <100 or >200
+     * Release threshold: <120 or >180 (wider deadzone prevents jitter) --- */
+    if (g_state.roc1_x > ROC_PRESS_HIGH)  raw_dir_keys |= 0x01; /* S (down) */
+    if (g_state.roc1_x < ROC_PRESS_LOW)   raw_dir_keys |= 0x02; /* W (up) */
+    if (g_state.roc1_y < ROC_PRESS_LOW)   raw_dir_keys |= 0x04; /* A (left) */
+    if (g_state.roc1_y > ROC_PRESS_HIGH)  raw_dir_keys |= 0x08; /* D (right) */
+
+    /* Hysteresis: use separate release thresholds */
+    cur_dir_keys = prev_dir_keys;
+    /* Press: if raw has the bit and prev doesn't, set it */
+    cur_dir_keys |= raw_dir_keys;
+    /* Release: only clear if value is within release zone */
+    if (g_state.roc1_x < ROC_RELEASE_HIGH && g_state.roc1_x > ROC_RELEASE_LOW)
+        cur_dir_keys &= ~0x01; /* S release */
+    if (g_state.roc1_x < ROC_RELEASE_HIGH && g_state.roc1_x > ROC_RELEASE_LOW)
+        cur_dir_keys &= ~0x02; /* W release */
+    if (g_state.roc1_y < ROC_RELEASE_HIGH && g_state.roc1_y > ROC_RELEASE_LOW)
+        cur_dir_keys &= ~0x04; /* A release */
+    if (g_state.roc1_y < ROC_RELEASE_HIGH && g_state.roc1_y > ROC_RELEASE_LOW)
+        cur_dir_keys &= ~0x08; /* D release */
+
+    prev_dir_keys = cur_dir_keys;
+
+    /* Map debounced direction keys to HID arrow keys */
+    if (cur_dir_keys & 0x02) report[slot++] = HID_KEY_UP_ARROW;    /* W → Up */
+    if (cur_dir_keys & 0x01) report[slot++] = HID_KEY_DOWN_ARROW;  /* S → Down */
+    if (cur_dir_keys & 0x04) report[slot++] = HID_KEY_LEFT_ARROW;  /* A → Left */
+    if (cur_dir_keys & 0x08) report[slot++] = HID_KEY_RIGHT_ARROW; /* D → Right */
 
     /* --- BUT3~6 → HJKL --- */
     if (g_state.button_pressed[2] && slot < CH9329_KB_DATA_LEN)
@@ -420,31 +452,43 @@ void Gamepad_BuildMouseReport(uint8_t *mouse)
 {
     int16_t mx, my;
 
+    /* CH9329 CMD_SEND_MS_REL_DATA requires 5 bytes:
+     * [0] = 0x01 (fixed prefix)
+     * [1] = buttons (bit0=left, bit1=right, bit2=middle)
+     * [2] = X delta (left/right)
+     * [3] = Y delta (up/down)
+     * [4] = wheel */
+
+    /* --- Fixed prefix --- */
+    mouse[0] = 0x01;
+
     /* --- Buttons --- */
     /* BUT1 → left, BUT2 → right, EC1_D → middle */
-    mouse[0] = 0;
-    if (g_state.button_pressed[0]) mouse[0] |= HID_MS_BTN_LEFT;
-    if (g_state.button_pressed[1]) mouse[0] |= HID_MS_BTN_RIGHT;
-    if (g_state.ec_pressed[0])     mouse[0] |= HID_MS_BTN_MIDDLE;
+    mouse[1] = 0;
+    if (g_state.button_pressed[0]) mouse[1] |= HID_MS_BTN_LEFT;
+    if (g_state.button_pressed[1]) mouse[1] |= HID_MS_BTN_RIGHT;
+    if (g_state.ec_pressed[0])     mouse[1] |= HID_MS_BTN_MIDDLE;
 
-    /* --- X: ROC2_X (centered + scaled) + EC1 delta --- */
-    mx = (int16_t)g_state.roc2_x - JOY_CENTER_U8;
+    /* --- X/Y: ROC2 axes (centered + scaled) + encoder deltas ---
+     * NOTE: X/Y axes are swapped on hardware; roc2_x is actually Y (up/down),
+     * roc2_y is actually X (left/right). mouse[2]=X, mouse[3]=Y.
+     * Scaling same as Core side: /8 for ROC2, *3 for EC delta. */
+    mx = (int16_t)g_state.roc2_y - JOY_CENTER_U8;  /* was roc2_x */
     mx = mx / 8;
-    mx += (int16_t)g_state.ec1_delta * EC_MOUSE_STEP;
+    mx += (int16_t)g_state.ec2_delta * 3;  /* was ec1_delta, same as Core */
     if (mx > 127)  mx = 127;
     if (mx < -128) mx = -128;
-    mouse[1] = (uint8_t)(int8_t)mx;
+    mouse[2] = (uint8_t)(int8_t)mx;
 
-    /* --- Y: ROC2_Y (centered + scaled) + EC2 delta --- */
-    my = (int16_t)g_state.roc2_y - JOY_CENTER_U8;
+    my = (int16_t)g_state.roc2_x - JOY_CENTER_U8;  /* was roc2_y */
     my = my / 8;
-    my += (int16_t)g_state.ec2_delta * EC_MOUSE_STEP;
+    my += (int16_t)g_state.ec1_delta * 3;  /* was ec2_delta, same as Core */
     if (my > 127)  my = 127;
     if (my < -128) my = -128;
-    mouse[2] = (uint8_t)(int8_t)my;
+    mouse[3] = (uint8_t)(int8_t)my;
 
     /* --- Wheel: unused --- */
-    mouse[3] = 0;
+    mouse[4] = 0;
 }
 
 void Gamepad_BuildCoreData(uint8_t *data)

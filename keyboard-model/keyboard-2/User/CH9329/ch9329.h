@@ -3,7 +3,7 @@
  * Description        : CH9329 UART-to-USB HID chip driver header.
  *                      Supports keyboard HID reports (CMD 0x02) and
  *                      relative mouse HID reports (CMD 0x05).
- *                      USART2 (PA2-TX, PA3-RX) @ 115200 baud.
+ *                      USART2 (PA2-TX, PA3-RX) @ 9600 baud.
  *********************************************************************************/
 #ifndef __CH9329_H
 #define __CH9329_H
@@ -56,7 +56,7 @@
 #define CH9329_KB_DATA_LEN      8   /* modifier + reserved + 6 key slots */
 #define CH9329_KB_MAX_KEYS      6   /* Max simultaneous regular keys */
 
-#define CH9329_MS_DATA_LEN      4   /* buttons + X + Y + wheel */
+#define CH9329_MS_DATA_LEN      5   /* 0x01 + buttons + X + Y + wheel */
 
 /* HID keyboard modifier bits */
 #define HID_MOD_LCTRL           0x01
