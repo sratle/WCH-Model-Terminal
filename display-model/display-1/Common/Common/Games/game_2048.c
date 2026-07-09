@@ -9,7 +9,10 @@
 ********************************************************************************/
 #include "game_2048.h"
 #include "../UI/ui_app_common.h"
+#include "../UART/uart_module.h"
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /*=============================================================================
  *  Layout Configuration
@@ -38,7 +41,7 @@
 #define G4_DPAD_BTN         44      /* D-pad button size */
 #define G4_DPAD_GAP         4       /* Gap between buttons */
 #define G4_DPAD_CX          (G4_PANEL_X + G4_PANEL_W / 2)
-#define G4_DPAD_CY          (G4_PANEL_Y + 18 + 36 + 50 + 18 + 36 + 30 + G4_DPAD_BTN / 2)
+#define G4_DPAD_CY          (G4_PANEL_Y + 18 + 50 + 18 + 50 + 18 + 50 + 30 + G4_DPAD_BTN / 2)
 #define G4_DPAD_UP_X        (G4_DPAD_CX - G4_DPAD_BTN / 2)
 #define G4_DPAD_UP_Y        (G4_DPAD_CY - G4_DPAD_BTN - G4_DPAD_GAP - G4_DPAD_BTN / 2)
 #define G4_DPAD_DOWN_X      (G4_DPAD_CX - G4_DPAD_BTN / 2)
@@ -65,6 +68,7 @@ typedef struct {
     int score;
     int prev_score;
     int moves;
+    int best;
     bool undo_available;
     g4_state_t state;
     char buf_score[16];
@@ -157,6 +161,38 @@ static void g4_update_texts(void)
 {
     g4_itoa(s_g4.score, s_g4.buf_score);
     g4_itoa(s_g4.moves, s_g4.buf_moves);
+    g4_itoa(s_g4.best, s_g4.buf_best);
+}
+
+/*=============================================================================
+ *  Best Score Persistence (via CLI passthrough to Core appcfg)
+ *=============================================================================*/
+
+static void g4_on_cli_complete(const char *buf, uint16_t len, const char *tag)
+{
+    if (!tag || strcmp(tag, "appcfg") != 0) return;
+    /* Only parse numeric responses (from "get"), skip "OK" (from "set") */
+    if (buf[0] < '0' || buf[0] > '9') return;
+    s_g4.best = atoi(buf);
+    g4_update_texts();
+    ui_page_invalidate_all();
+}
+
+static const uart_cli_cb_t s_g4_cli_cb = {
+    .on_cli_complete = g4_on_cli_complete,
+};
+
+static void g4_load_best(void)
+{
+    UART_SetCLICallbacks(&s_g4_cli_cb);
+    UART_SendCLI("appcfg get game_2048 highscore");
+}
+
+static void g4_save_best(void)
+{
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "appcfg set game_2048 highscore %d", s_g4.best);
+    UART_SendCLI(cmd);
 }
 
 static int g4_count_empty(void)
@@ -308,9 +344,17 @@ static bool g4_do_move(g4_dir_t dir)
     /* Check win/lose */
     if (g4_has_16384()) {
         s_g4.state = G4_STATE_WIN;
+        if (s_g4.score > s_g4.best) {
+            s_g4.best = s_g4.score;
+            g4_save_best();
+        }
         ui_page_invalidate_all();
     } else if (!g4_can_move()) {
         s_g4.state = G4_STATE_GAMEOVER;
+        if (s_g4.score > s_g4.best) {
+            s_g4.best = s_g4.score;
+            g4_save_best();
+        }
         ui_page_invalidate_all();
     }
 
@@ -330,14 +374,18 @@ static void g4_undo(void)
 
 static void g4_reset(void)
 {
+    int saved_best = s_g4.best;
     memset(&s_g4, 0, sizeof(s_g4));
+    s_g4.best = saved_best;
     s_g4.state = G4_STATE_IDLE;
     g4_update_texts();
 }
 
 static void g4_start_game(void)
 {
+    int saved_best = s_g4.best;
     memset(&s_g4, 0, sizeof(s_g4));
+    s_g4.best = saved_best;
     s_g4.state = G4_STATE_PLAYING;
     g4_spawn_tile();
     g4_spawn_tile();
@@ -398,6 +446,14 @@ static void g4_draw_panel(void)
     ui_rect_t moves_bg = {G4_PANEL_X, y, G4_PANEL_W, 36};
     ui_draw_fill_round_rect(&moves_bg, 6, UI_HEX(0xBBADA0));
     ui_draw_text_in_rect(&moves_bg, s_g4.buf_moves, &font_montserrat_16, UI_COLOR_WHITE, 1);
+    y += 50;
+
+    /* Best */
+    ui_draw_text(G4_PANEL_X, y, "BEST", &font_montserrat_12, UI_HEX(0x776E65));
+    y += 18;
+    ui_rect_t best_bg = {G4_PANEL_X, y, G4_PANEL_W, 36};
+    ui_draw_fill_round_rect(&best_bg, 6, UI_HEX(0xBBADA0));
+    ui_draw_text_in_rect(&best_bg, s_g4.buf_best, &font_montserrat_16, UI_COLOR_WHITE, 1);
     y += 50;
 
     /* Undo button */
@@ -569,6 +625,7 @@ static void g4_game_enter(ui_page_t *page)
 {
     (void)page;
     g4_reset();
+    g4_load_best();
     ui_page_invalidate_all();
 }
 
@@ -576,7 +633,7 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
 
-    /* Keyboard events */
+    /* Keyboard arrow events */
     if (e->type == UI_EVENT_KEY_LEFT_ARROW || e->type == UI_EVENT_KEY_RIGHT_ARROW ||
         e->type == UI_EVENT_KEY_UP_ARROW || e->type == UI_EVENT_KEY_DOWN_ARROW) {
         if (s_g4.state == G4_STATE_IDLE || s_g4.state == G4_STATE_GAMEOVER || s_g4.state == G4_STATE_WIN) {
@@ -597,6 +654,30 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
             }
         }
         return;
+    } else if (e->type == UI_EVENT_KEY_DOWN) {
+        /* WASD key support */
+        char c = e->char_code;
+        if (c >= 'A' && c <= 'Z') c += 32;
+        if (c == 'w' || c == 'a' || c == 's' || c == 'd') {
+            if (s_g4.state == G4_STATE_IDLE || s_g4.state == G4_STATE_GAMEOVER || s_g4.state == G4_STATE_WIN) {
+                g4_start_game();
+                return;
+            }
+            if (s_g4.state == G4_STATE_PLAYING) {
+                g4_dir_t dir;
+                if (c == 'w')      dir = G4_DIR_UP;
+                else if (c == 's') dir = G4_DIR_DOWN;
+                else if (c == 'a') dir = G4_DIR_LEFT;
+                else               dir = G4_DIR_RIGHT;
+                if (g4_do_move(dir)) {
+                    g4_inv_changed_tiles();
+                    g4_inv_score();
+                    g4_inv_moves();
+                    g4_inv_undo();
+                }
+            }
+            return;
+        }
     } else if (e->type == UI_EVENT_KEY_OK) {
         if (s_g4.state == G4_STATE_IDLE || s_g4.state == G4_STATE_GAMEOVER || s_g4.state == G4_STATE_WIN)
             g4_start_game();
