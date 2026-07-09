@@ -10,6 +10,7 @@
 #include "game_airplane.h"
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
+#include "../utils/utils.h"
 #include <string.h>
 
 /*=============================================================================
@@ -311,7 +312,7 @@ static void ap_on_cli_complete(const char *buf, uint16_t len, const char *tag)
     (void)len;
     if (!tag || strcmp(tag, "appcfg") != 0) return;
     if (buf[0] < '0' || buf[0] > '9') return;
-    s_ap.best = atoi(buf);
+    s_ap.best = utils_atoi(buf);
     ap_update_best_text();
     ui_page_invalidate_all();
 }
@@ -329,7 +330,7 @@ static void ap_load_best(void)
 static void ap_save_best(void)
 {
     char cmd[64];
-    snprintf(cmd, sizeof(cmd), "appcfg set game_airplane highscore %d", s_ap.best);
+    utils_snprintf(cmd, sizeof(cmd), "appcfg set game_airplane highscore %d", s_ap.best);
     UART_SendCLI(cmd);
 }
 
@@ -946,6 +947,27 @@ static void ap_touch_event(ui_widget_t *w, ui_event_t *e)
             ui_page_invalidate_all();
         }
         return;
+    } else if (e->type == UI_EVENT_KEY_DOWN) {
+        /* WASD: move plane */
+        char c = e->char_code;
+        if (c >= 'A' && c <= 'Z') c += 32;
+        if (c == 'a') {
+            s_ap.target_x -= 20;
+            if (s_ap.target_x < 0) s_ap.target_x = 0;
+            return;
+        } else if (c == 'd') {
+            s_ap.target_x += 20;
+            if (s_ap.target_x > AP_AREA_W) s_ap.target_x = AP_AREA_W;
+            return;
+        } else if (c == 'w') {
+            s_ap.target_y -= 20;
+            if (s_ap.target_y < 0) s_ap.target_y = 0;
+            return;
+        } else if (c == 's') {
+            s_ap.target_y += 20;
+            if (s_ap.target_y > AP_AREA_H) s_ap.target_y = AP_AREA_H;
+            return;
+        }
     }
 }
 
