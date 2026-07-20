@@ -11,7 +11,9 @@
 #include "../Common/Common/MiniUI/font/font_montserrat_12.h"
 #include "../Common/Common/MiniUI/font/font_montserrat_16.h"
 #include "../Common/Common/Games/games.h"
+#include "../Common/Common/Apps/apps.h"
 #include "../Common/Common/UART/uart_module.h"
+#include "../Common/Common/debug_cli.h"
 
 /* ui_system functions */
 void ui_system_init(void);
@@ -35,6 +37,9 @@ int main(void)
 
     printf("\r\n=== Display-2 MiniUI Demo ===\r\n");
 
+    /* Enable UART2 debug CLI (waveform tuning over the debug console) */
+    Debug_CLI_Init();
+
     /* Initialize UART1 module for Core communication (USART1 PA9-TX/PA10-RX) */
     UART_Module_Init();
 
@@ -44,6 +49,9 @@ int main(void)
     /* Initialize UI pages (home, settings, models, games, etc.) */
     ui_main_init();
 
+    /* Initialize all app modules (music, files, editor, images, ebook, stubs) */
+    apps_init_all();
+
     /* Initialize all game modules */
     games_init_all();
 
@@ -52,6 +60,7 @@ int main(void)
     while (1)
     {
         UART_Module_Poll();   /* Process received UART frames from Core */
+        Debug_CLI_Poll();     /* Process debug console input (waveform tuning) */
         ui_system_tick();
         Delay_Ms(10);  /* ~100Hz for touch responsiveness; e-ink refresh throttled by dirty list */
     }

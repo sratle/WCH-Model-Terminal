@@ -24,6 +24,7 @@
 #include "touch_matrix.h"
 #include "../MiniUI/miniui_input.h"
 #include "../MiniUI/miniui_page.h"
+#include "../UART/uart_module.h"
 #include "ch32v30x.h"
 #include "debug.h"
 #include <string.h>
@@ -345,20 +346,26 @@ void TouchMatrix_InvalidateCursor(void)
         return;  /* No change, no invalidation needed */
     }
 
-    ui_rect_t r;
-    r.w = TM_CURSOR_W;
-    r.h = TM_CURSOR_H;
+    /* Invalidate ONE bounding box covering the old (erase) and new (draw)
+     * cursor positions.  Two separate regions would cost two full
+     * PON->PDRF->POF cycles on the e-paper; one merged region costs one. */
+    int16_t x1 = s_tm.cursor_x - 1;
+    int16_t y1 = s_tm.cursor_y - 1;
+    int16_t x2 = s_tm.cursor_x + TM_CURSOR_W;
+    int16_t y2 = s_tm.cursor_y + TM_CURSOR_H;
 
-    /* Invalidate old rendered position (to erase) */
     if (s_tm.cursor_rendered_x >= 0) {
-        r.x = s_tm.cursor_rendered_x - 1;
-        r.y = s_tm.cursor_rendered_y - 1;
-        ui_page_invalidate(&r);
+        int16_t ox1 = s_tm.cursor_rendered_x - 1;
+        int16_t oy1 = s_tm.cursor_rendered_y - 1;
+        int16_t ox2 = s_tm.cursor_rendered_x + TM_CURSOR_W;
+        int16_t oy2 = s_tm.cursor_rendered_y + TM_CURSOR_H;
+        if (ox1 < x1) x1 = ox1;
+        if (oy1 < y1) y1 = oy1;
+        if (ox2 > x2) x2 = ox2;
+        if (oy2 > y2) y2 = oy2;
     }
 
-    /* Invalidate current position (to draw) */
-    r.x = s_tm.cursor_x - 1;
-    r.y = s_tm.cursor_y - 1;
+    ui_rect_t r = { x1, y1, x2 - x1, y2 - y1 };
     ui_page_invalidate(&r);
 }
 
@@ -366,6 +373,36 @@ void TouchMatrix_CursorRendered(void)
 {
     s_tm.cursor_rendered_x = s_tm.cursor_x;
     s_tm.cursor_rendered_y = s_tm.cursor_y;
+}
+
+/* Bounding box (old + new cursor, incl. 1px outline), clamped to screen */
+void TouchMatrix_GetCursorBBox(ui_rect_t *r)
+{
+    int16_t x1 = s_tm.cursor_x - 1;
+    int16_t y1 = s_tm.cursor_y - 1;
+    int16_t x2 = s_tm.cursor_x + TM_CURSOR_W;
+    int16_t y2 = s_tm.cursor_y + TM_CURSOR_H;
+
+    if (s_tm.cursor_rendered_x >= 0) {
+        int16_t ox1 = s_tm.cursor_rendered_x - 1;
+        int16_t oy1 = s_tm.cursor_rendered_y - 1;
+        int16_t ox2 = s_tm.cursor_rendered_x + TM_CURSOR_W;
+        int16_t oy2 = s_tm.cursor_rendered_y + TM_CURSOR_H;
+        if (ox1 < x1) x1 = ox1;
+        if (oy1 < y1) y1 = oy1;
+        if (ox2 > x2) x2 = ox2;
+        if (oy2 > y2) y2 = oy2;
+    }
+
+    if (x1 < 0) x1 = 0;
+    if (y1 < 0) y1 = 0;
+    if (x2 > TM_SCREEN_W) x2 = TM_SCREEN_W;
+    if (y2 > TM_SCREEN_H) y2 = TM_SCREEN_H;
+
+    r->x = x1;
+    r->y = y1;
+    r->w = x2 - x1;
+    r->h = y2 - y1;
 }
 
 /*=============================================================================
@@ -391,6 +428,10 @@ void TouchMatrix_Scan(void)
     switch (s_tm.state) {
     case TM_STATE_IDLE:
         if (touched) {
+            /* Any touch counts as user activity (wakes the e-paper panel
+             * from DSLP when the screen was auto-switched off). */
+            UART_NotifyActivity();
+
             /* First touch — record starting position.
              * DON'T inject TOUCH_DOWN here: this prevents widget capture
              * on swipe. We only inject on UP if it was a tap. */

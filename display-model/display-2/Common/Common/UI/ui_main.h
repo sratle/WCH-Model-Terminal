@@ -55,7 +55,6 @@ extern ui_page_t page_apps;
 extern ui_page_t page_games;
 extern ui_page_t page_models;
 extern ui_page_t page_settings;
-extern ui_page_t page_splash;
 
 #ifdef __cplusplus
 }

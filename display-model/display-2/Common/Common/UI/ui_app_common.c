@@ -29,8 +29,12 @@ static void app_back_click(ui_widget_t *w)
 static bool app_page_event(ui_page_t *page, ui_event_t *e)
 {
     (void)page;
+    /* ESC key (either event form) → go back */
+    if (e->type == UI_EVENT_KEY_BACK) {
+        ui_page_pop();
+        return true;
+    }
     if (e->type == UI_EVENT_KEY_CLICK && e->key.code == UI_KEY_BACK) {
-        /* ESC key → go back */
         ui_page_pop();
         return true;
     }

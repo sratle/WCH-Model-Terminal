@@ -1,17 +1,18 @@
 /**
  * @file    epaper_hw.h
- * @brief   JD79686AB e-paper hardware abstraction – software SPI + GPIO.
+ * @brief   JD79686AB e-paper hardware abstraction.
  *
  * Pin assignment (CH32V307RCT6):
- *   PA4  – CS#   (chip select)
- *   PA5  – SCK   (SPI clock)
- *   PA7  – MOSI  (SPI data out)
+ *   PA4  – CS#   (chip select, GPIO)
+ *   PA5  – SCK   (SPI1 clock, AF)
+ *   PA7  – MOSI  (SPI1 data out, AF)
  *   PB3  – RES#  (hardware reset)
  *   PB4  – D/C#  (data/command)
  *   PB5  – BUSY_N (busy indicator, input)
  *
- * Uses direct register manipulation (BSHR/BCR/OUTDR) for maximum speed,
- * following the soft_8080 approach. No SPI peripheral needed.
+ * Transport is selected with EPD_USE_HW_SPI below:
+ *   1 = hardware SPI1 @ 9 MHz + DMA1 Ch3 (default, fast block transfers)
+ *   0 = legacy GPIO bit-bang (reference timing, kept as fallback)
  */
 #ifndef __EPAPER_HW_H
 #define __EPAPER_HW_H
@@ -22,6 +23,11 @@ extern "C" {
 
 #include "ch32v30x.h"
 #include "debug.h"
+
+/*=============================================================================
+ *  Transport selection
+ *===========================================================================*/
+#define EPD_USE_HW_SPI      1
 
 /*=============================================================================
  *  Pin bit masks
@@ -104,6 +110,12 @@ void Epaper_Hw_WriteData(uint8_t data);
  * @brief  Send a data buffer (DC=high, CS held low for entire transfer).
  */
 void Epaper_Hw_WriteDataBuf(const uint8_t *buf, uint32_t len);
+
+/**
+ * @brief  Send the same byte N times (DC=high, CS held low).
+ *         Hardware mode uses DMA with a fixed source address.
+ */
+void Epaper_Hw_WriteDataFill(uint8_t data, uint32_t len);
 
 /**
  * @brief  Read N bytes from a register (DC=high after cmd, CS held low).

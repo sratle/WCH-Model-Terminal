@@ -1,16 +1,16 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : ui_apps.c
 * Author             : E-ink Model Team
-* Version            : V4.0.0
-* Date               : 2026/06/12
+* Version            : V5.0.0
+* Date               : 2026/07/19
 * Description        : Apps page implementation.
 *                      16 apps in a single 4x4 grid (no pagination needed).
-*                      Adapted from Display-1 for E-ink display.
-*                      App icons shown; actual app pages are stubs until
-*                      individual apps are ported.
+*                      Music/Files/Editor/Images/EBook are fully ported;
+*                      the remaining icons open stub pages.
 ********************************************************************************/
 #include "ui_apps.h"
 #include "ui_main.h"
+#include "../Apps/apps.h"
 #include "../MiniUI/font/font_montserrat_12.h"
 #include "../MiniUI/font/font_montserrat_16.h"
 #include "../MiniUI/font/ui_icons_16.h"
@@ -39,25 +39,26 @@ typedef struct {
     const uint8_t *icon;
     int16_t icon_w;
     int16_t icon_h;
+    ui_page_t *(*get_page)(void);
 } app_entry_t;
 
 static const app_entry_t s_apps[APPS_TOTAL] = {
-    {"Music",       icon_audio_16_bitmap,       ICON_AUDIO_16_WIDTH,       ICON_AUDIO_16_HEIGHT      },
-    {"Files",       icon_directory_16_bitmap,    ICON_DIRECTORY_16_WIDTH,   ICON_DIRECTORY_16_HEIGHT  },
-    {"Editor",      icon_edit_16_bitmap,        ICON_EDIT_16_WIDTH,        ICON_EDIT_16_HEIGHT       },
-    {"Images",      icon_image_16_bitmap,       ICON_IMAGE_16_WIDTH,       ICON_IMAGE_16_HEIGHT      },
-    {"USB",         icon_usb_16_bitmap,         ICON_USB_16_WIDTH,         ICON_USB_16_HEIGHT        },
-    {"Power",       icon_power_16_bitmap,       ICON_POWER_16_WIDTH,       ICON_POWER_16_HEIGHT      },
-    {"BT",          icon_bluetooth_16_bitmap,   ICON_BLUETOOTH_16_WIDTH,   ICON_BLUETOOTH_16_HEIGHT  },
-    {"NFC",         icon_wifi_16_bitmap,        ICON_WIFI_16_WIDTH,        ICON_WIFI_16_HEIGHT       },
-    {"Finger",      icon_uf15b_16_bitmap,       ICON_UF15B_16_WIDTH,       ICON_UF15B_16_HEIGHT      },
-    {"Health",      icon_charge_16_bitmap,      ICON_CHARGE_16_WIDTH,      ICON_CHARGE_16_HEIGHT     },
-    {"SubDisp",     icon_bars_16_bitmap,        ICON_BARS_16_WIDTH,        ICON_BARS_16_HEIGHT       },
-    {"RGB",         icon_tint_16_bitmap,        ICON_TINT_16_WIDTH,        ICON_TINT_16_HEIGHT       },
-    {"IRRange",     icon_gps_16_bitmap,         ICON_GPS_16_WIDTH,         ICON_GPS_16_HEIGHT        },
-    {"EBook",       icon_list_16_bitmap,        ICON_LIST_16_WIDTH,        ICON_LIST_16_HEIGHT       },
-    {"EMusic",      icon_volume_max_16_bitmap,  ICON_VOLUME_MAX_16_WIDTH,  ICON_VOLUME_MAX_16_HEIGHT },
-    {"Terminal",    icon_keyboard_16_bitmap,    ICON_KEYBOARD_16_WIDTH,    ICON_KEYBOARD_16_HEIGHT   },
+    {"Music",       icon_audio_16_bitmap,       ICON_AUDIO_16_WIDTH,       ICON_AUDIO_16_HEIGHT,       app_music_get_page       },
+    {"Files",       icon_directory_16_bitmap,    ICON_DIRECTORY_16_WIDTH,   ICON_DIRECTORY_16_HEIGHT,   app_file_get_page        },
+    {"Editor",      icon_edit_16_bitmap,        ICON_EDIT_16_WIDTH,        ICON_EDIT_16_HEIGHT,        app_editor_get_page      },
+    {"Images",      icon_image_16_bitmap,       ICON_IMAGE_16_WIDTH,       ICON_IMAGE_16_HEIGHT,       app_images_get_page      },
+    {"USB",         icon_usb_16_bitmap,         ICON_USB_16_WIDTH,         ICON_USB_16_HEIGHT,         app_usb_get_page         },
+    {"Power",       icon_power_16_bitmap,       ICON_POWER_16_WIDTH,       ICON_POWER_16_HEIGHT,       app_power_get_page       },
+    {"BT",          icon_bluetooth_16_bitmap,   ICON_BLUETOOTH_16_WIDTH,   ICON_BLUETOOTH_16_HEIGHT,   app_bt_get_page          },
+    {"NFC",         icon_wifi_16_bitmap,        ICON_WIFI_16_WIDTH,        ICON_WIFI_16_HEIGHT,        app_nfc_get_page         },
+    {"Finger",      icon_uf15b_16_bitmap,       ICON_UF15B_16_WIDTH,       ICON_UF15B_16_HEIGHT,       app_fingerprint_get_page },
+    {"Health",      icon_charge_16_bitmap,      ICON_CHARGE_16_WIDTH,      ICON_CHARGE_16_HEIGHT,      app_health_get_page      },
+    {"SubDisp",     icon_bars_16_bitmap,        ICON_BARS_16_WIDTH,        ICON_BARS_16_HEIGHT,        app_subdisplay_get_page  },
+    {"RGB",         icon_tint_16_bitmap,        ICON_TINT_16_WIDTH,        ICON_TINT_16_HEIGHT,        app_rgb_get_page         },
+    {"IRRange",     icon_gps_16_bitmap,         ICON_GPS_16_WIDTH,         ICON_GPS_16_HEIGHT,         app_irrange_get_page     },
+    {"EBook",       icon_list_16_bitmap,        ICON_LIST_16_WIDTH,        ICON_LIST_16_HEIGHT,        app_ebook_get_page       },
+    {"EMusic",      icon_volume_max_16_bitmap,  ICON_VOLUME_MAX_16_WIDTH,  ICON_VOLUME_MAX_16_HEIGHT,  app_emusic_get_page      },
+    {"Terminal",    icon_keyboard_16_bitmap,    ICON_KEYBOARD_16_WIDTH,    ICON_KEYBOARD_16_HEIGHT,    app_terminal_get_page    },
 };
 
 /*=============================================================================
@@ -143,13 +144,19 @@ static void next_page_click(ui_widget_t *w)
 }
 
 /*=============================================================================
- *  App Button Callback — stub (apps not yet ported)
+ *  App Button Callback — launch the app's page
  *=============================================================================*/
 
 static void app_button_click(ui_widget_t *w)
 {
-    (void)w;
-    /* TODO: launch individual app pages when ported */
+    int idx = (int)(intptr_t)w->user_data;
+    if (idx < 0 || idx >= APPS_TOTAL) return;
+    if (!s_apps[idx].get_page) return;
+
+    ui_page_t *app_page = s_apps[idx].get_page();
+    if (app_page) {
+        ui_page_push(app_page);
+    }
 }
 
 /*=============================================================================
@@ -165,7 +172,7 @@ void ui_apps_init(void)
     ui_label_set_color(&lbl_title, UI_COLOR_TEXT_PRIMARY);
 
     ui_rect_t page_rect = {cx + 400, 24, 60, 20};
-    ui_label_init(&lbl_page, &page_rect, "1/2", &font_montserrat_12);
+    ui_label_init(&lbl_page, &page_rect, "1/1", &font_montserrat_12);
     ui_label_set_color(&lbl_page, UI_COLOR_TEXT_SECONDARY);
 
     ui_rect_t prev_rect = {cx + 350, 20, 40, 28};

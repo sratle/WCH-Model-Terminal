@@ -17,6 +17,10 @@ extern "C" {
 void ui_models_init(void);
 void ui_models_enter(ui_page_t *page);
 
+/* Called by the UART module when a module insert/remove event arrives;
+ * re-fetches lsdev if the Models page is currently visible. */
+void ui_models_notify_module_change(void);
+
 #ifdef __cplusplus
 }
 #endif

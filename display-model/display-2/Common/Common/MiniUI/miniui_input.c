@@ -14,16 +14,20 @@
 #include <string.h>
 
 /*=============================================================================
- *  Platform Timing — CH32V307 SysTick
+ *  Platform Timing — TIM2 free-running 1 kHz tick
+ *
+ *  NOTE: SysTick->CNT cannot be used here: the WCH Delay_Us/Delay_Ms
+ *  helpers reprogram the SysTick counter on every call, so a CNT-derived
+ *  millisecond value is meaningless (always ~0).  Platform_Time runs on
+ *  TIM2 and is immune to that.
  *=============================================================================*/
 
 #include "ch32v30x.h"
+#include "../platform_time.h"
 
 uint32_t ui_get_real_ms(void)
 {
-    /* CH32V30x: SysTick is 24-bit downcounter at HCLK frequency.
-     * We use the millisecond counter maintained by the system. */
-    return (uint32_t)(SysTick->CNT / (SystemCoreClock / 1000));
+    return Platform_Millis();
 }
 
 /*=============================================================================
@@ -65,6 +69,7 @@ void ui_input_init(void)
 {
     memset(s_touch, 0, sizeof(s_touch));
     memset(s_capture, 0, sizeof(s_capture));
+    Platform_Time_Init();   /* start the free-running 1 kHz tick */
 }
 
 void ui_input_set_capture(ui_widget_t *w, uint8_t touch_id)
@@ -127,10 +132,17 @@ static void ui_input_deliver_event(uint8_t id, ui_event_t *e)
 }
 
 /*---------------------------------------------------------------------------
- *  Internal: synthesize CLICK / SWIPE / LONG_PRESS from touch sequence
+ *  Internal: synthesize CLICK / DOUBLE_CLICK / SWIPE / LONG_PRESS
  *---------------------------------------------------------------------------*/
+#define GESTURE_DOUBLE_CLICK_TIME_MS 300
+#define GESTURE_DOUBLE_CLICK_DIST_PX 20
+
 static void ui_input_synthesize_gesture(uint8_t id, ui_touch_state_t *t)
 {
+    static uint32_t s_last_click_time = 0;
+    static int16_t  s_last_click_x = -1000;
+    static int16_t  s_last_click_y = -1000;
+
     uint32_t now = ui_get_real_ms();
     uint32_t duration = now - t->start_time;
     int16_t dx = t->x - t->start_x;
@@ -151,7 +163,22 @@ static void ui_input_synthesize_gesture(uint8_t id, ui_touch_state_t *t)
         if (duration >= GESTURE_LONG_PRESS_TIME_MS) {
             e.type = UI_EVENT_LONG_PRESS;
         } else {
-            e.type = UI_EVENT_CLICK;
+            /* Click — check for double click (time + distance window) */
+            int16_t cdx = t->x - s_last_click_x;
+            int16_t cdy = t->y - s_last_click_y;
+            if (cdx < 0) cdx = -cdx;
+            if (cdy < 0) cdy = -cdy;
+            if ((now - s_last_click_time) < GESTURE_DOUBLE_CLICK_TIME_MS &&
+                cdx < GESTURE_DOUBLE_CLICK_DIST_PX &&
+                cdy < GESTURE_DOUBLE_CLICK_DIST_PX) {
+                e.type = UI_EVENT_DOUBLE_CLICK;
+                s_last_click_time = 0;      /* require 3rd tap for next DC */
+            } else {
+                e.type = UI_EVENT_CLICK;
+                s_last_click_time = now;
+                s_last_click_x = t->x;
+                s_last_click_y = t->y;
+            }
         }
     } else if (max_move >= GESTURE_SWIPE_THRESHOLD) {
         /* Large movement — determine swipe direction */
@@ -296,31 +323,132 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
 
 void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6])
 {
-    /* E-ink display: keyboard input mapped to core key events.
-     * Enter → core key 2 (confirm), Escape → back, arrows → core keys 0/1 */
-    (void)modifiers;
+    /* Full HID keyboard support: navigation keys become UI key events,
+     * printable keys carry their ASCII in char_code (shift-aware) so
+     * text-editing apps (Editor, input dialogs) work over UART HID. */
     if (!key_codes) return;
+
+    /* HID usage -> (unshifted, shifted) ASCII for punctuation */
+    static const char s_punct_map[][2] = {
+        {0x2D, 0x5F},   /* 0x2D: - _ */
+        {0x3D, 0x2B},   /* 0x2E: = + */
+        {0x5B, 0x7B},   /* 0x2F: [ { */
+        {0x5D, 0x7D},   /* 0x30: ] } */
+        {0x5C, 0x7C},   /* 0x31: \ | */
+        {0x3B, 0x3A},   /* 0x33: ; : */
+        {0x27, 0x22},   /* 0x34: ' " */
+        {0x60, 0x7E},   /* 0x35: ` ~ */
+        {0x2C, 0x3C},   /* 0x36: , < */
+        {0x2E, 0x3E},   /* 0x37: . > */
+        {0x2F, 0x3F},   /* 0x38: / ? */
+    };
+    static const char s_digit_shift[] = ")!@#$%^&*(";
+
+    bool shift = (modifiers & (UI_MOD_LSHIFT | UI_MOD_RSHIFT)) != 0;
 
     for (uint8_t i = 0; i < 6; i++) {
         uint8_t kc = key_codes[i];
         if (kc == 0) continue;
 
+        ui_event_t e;
+        memset(&e, 0, sizeof(e));
+        e.source = UI_INPUT_KEYBOARD;
+        e.key.modifiers = modifiers;
+
         switch (kc) {
+        /* --- Navigation / control keys -> dedicated events --- */
         case 0x28:  /* Enter */
-            ui_input_feed_core_key(2, 0x01);
+            e.type = UI_EVENT_KEY_OK;
+            e.key.code = UI_KEY_OK;
+            e.char_code = '\n';
             break;
         case 0x29:  /* Escape */
-            ui_page_pop();
+            e.type = UI_EVENT_KEY_BACK;
+            e.key.code = UI_KEY_BACK;
             break;
-        case 0x52:  /* Up */
-            ui_input_feed_core_key(0, 0x01);
+        case 0x2A:  /* Backspace */
+            e.type = UI_EVENT_KEY_DOWN;
+            e.char_code = 0x08;
             break;
-        case 0x51:  /* Down */
-            ui_input_feed_core_key(1, 0x01);
+        case 0x2B:  /* Tab */
+            e.type = UI_EVENT_KEY_DOWN;
+            e.key.code = UI_KEY_TAB;
+            e.char_code = 0x09;
+            break;
+        case 0x2C:  /* Space */
+            e.type = UI_EVENT_KEY_DOWN;
+            e.char_code = ' ';
+            break;
+        case 0x4C:  /* Delete (forward) */
+            e.type = UI_EVENT_KEY_DOWN;
+            e.char_code = 0x7F;
+            break;
+        case 0x4A:  /* Home */
+            e.type = UI_EVENT_KEY_DOWN;
+            e.key.code = UI_KEY_HOME;
+            break;
+        case 0x4D:  /* End */
+            e.type = UI_EVENT_KEY_DOWN;
+            e.key.code = UI_KEY_END;
+            break;
+        case 0x4B:  /* PageUp -> swipe up (page back) */
+            e.type = UI_EVENT_SWIPE_UP;
+            break;
+        case 0x4E:  /* PageDown -> swipe down (page forward) */
+            e.type = UI_EVENT_SWIPE_DOWN;
+            break;
+        case 0x4F:  /* Right arrow */
+            e.type = UI_EVENT_KEY_RIGHT_ARROW;
+            e.key.code = UI_KEY_RIGHT;
+            break;
+        case 0x50:  /* Down arrow */
+            e.type = UI_EVENT_KEY_DOWN_ARROW;
+            e.key.code = UI_KEY_DOWN;
+            break;
+        case 0x51:  /* Left arrow */
+            e.type = UI_EVENT_KEY_LEFT_ARROW;
+            e.key.code = UI_KEY_LEFT;
+            break;
+        case 0x52:  /* Up arrow */
+            e.type = UI_EVENT_KEY_UP_ARROW;
+            e.key.code = UI_KEY_UP;
             break;
         default:
+            /* --- Printable characters --- */
+            if (kc >= 0x04 && kc <= 0x1D) {         /* a-z */
+                char c = (char)('a' + (kc - 0x04));
+                if (shift) c = (char)(c - 'a' + 'A');
+                e.type = UI_EVENT_KEY_DOWN;
+                e.char_code = (uint8_t)c;
+            } else if (kc >= 0x1E && kc <= 0x26) {  /* 1-9 */
+                char c = shift ? s_digit_shift[kc - 0x1E + 1]
+                               : (char)('1' + (kc - 0x1E));
+                e.type = UI_EVENT_KEY_DOWN;
+                e.char_code = (uint8_t)c;
+            } else if (kc == 0x27) {                /* 0 */
+                e.type = UI_EVENT_KEY_DOWN;
+                e.char_code = (uint8_t)(shift ? ')' : '0');
+            } else if (kc >= 0x2D && kc <= 0x31) {  /* - = [ ] \ */
+                e.type = UI_EVENT_KEY_DOWN;
+                e.char_code = (uint8_t)s_punct_map[kc - 0x2D][shift ? 1 : 0];
+            } else if (kc >= 0x33 && kc <= 0x38) {  /* ; ' ` , . / */
+                e.type = UI_EVENT_KEY_DOWN;
+                e.char_code = (uint8_t)s_punct_map[5 + (kc - 0x33)][shift ? 1 : 0];
+            }
             break;
         }
+
+        if (e.type == UI_EVENT_NONE) continue;
+
+        /* Deliver: page handler first, then widgets (same as touch path) */
+        ui_page_t *page = ui_page_current();
+        if (!page) return;
+        if (page->on_page_event) {
+            if (page->on_page_event(page, &e)) continue;
+        }
+        /* Unconsumed control events reach the core-key fallback for
+         * global shortcuts (swipe page turns etc.) */
+        (void)e;
     }
 }
 

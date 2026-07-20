@@ -17,6 +17,7 @@ extern "C" {
 
 void ui_home_init(void);
 void ui_home_enter(ui_page_t *page);
+void ui_home_update(ui_page_t *page, uint32_t dt_ms);
 
 #ifdef __cplusplus
 }

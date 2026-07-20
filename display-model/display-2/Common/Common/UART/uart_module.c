@@ -14,6 +14,9 @@
 ********************************************************************************/
 #include "uart_module.h"
 #include "../MiniUI/miniui.h"
+#include "../Eink/epaper.h"
+#include "../UI/ui_main.h"
+#include "../UI/ui_models.h"
 #include "../settings.h"
 #include "ch32v30x.h"
 #include "debug.h"
@@ -24,6 +27,27 @@
  *=============================================================================*/
 
 uart_disp_state_t g_disp_state;
+
+/* Panel sleep state (e-paper DSLP).  The e-ink panel keeps its image while
+ * asleep; the MCU keeps running and wakes the panel on any activity. */
+static bool s_panel_asleep = false;
+
+static void panel_sleep(void)
+{
+    if (s_panel_asleep) return;
+    s_panel_asleep = true;
+    Epaper_Sleep();
+    printf("[panel] sleep (DSLP)\r\n");
+}
+
+static void panel_wake(void)
+{
+    if (!s_panel_asleep) return;
+    s_panel_asleep = false;
+    Epaper_WakeUp();            /* full re-init (HW reset + LUT) */
+    ui_page_invalidate_all();   /* repaint via a full refresh */
+    printf("[panel] wake\r\n");
+}
 
 /*=============================================================================
  *  App-Layer Callback Storage
@@ -45,7 +69,14 @@ static bool s_submodel_cb_valid = false;
  *  CLI Response Assembly Engine (V3.1 — unified, single global buffer)
  *=============================================================================*/
 
-#define CLI_RESP_BUF_SIZE   4096
+/*=============================================================================
+ *  CLI Response Assembly Engine (V3.1 — unified, single global buffer)
+ *
+ *  8 KB so that `cat` of a small book/document/image fits in one response;
+ *  the EBook/Editor/Images apps parse directly from this buffer (zero-copy).
+ *===========================================================================*/
+
+#define CLI_RESP_BUF_SIZE   8192
 static char s_cli_resp_buf[CLI_RESP_BUF_SIZE];
 static uint16_t s_cli_resp_len = 0;
 static bool s_cli_resp_accumulating = false;
@@ -451,7 +482,11 @@ static void handle_get_brightness(uint8_t src)
 static void handle_show_page(const uint8_t *data, uint8_t len)
 {
     if (len < 1) return;
-    (void)data[0];
+    /* Page numbering mirrors the sidebar menu order:
+     * 0=Home, 1=Apps, 2=Games, 3=Models, 4=Settings */
+    if (data[0] < SIDEBAR_ITEM_COUNT) {
+        ui_main_set_menu((menu_item_t)data[0]);
+    }
 }
 
 static void handle_update_status(const uint8_t *data, uint8_t len)
@@ -505,11 +540,11 @@ static void handle_screen_control(const uint8_t *data, uint8_t len, uint8_t src)
     switch (data[0]) {
     case SCREEN_CTRL_OFF:
         g_disp_state.screen_on = false;
-        /* E-ink: no backlight to turn off, just mark state */
+        panel_sleep();      /* e-ink: panel deep sleep, image retained */
         break;
     case SCREEN_CTRL_ON:
         g_disp_state.screen_on = true;
-        /* E-ink: no backlight to turn on, just mark state */
+        panel_wake();
         break;
     case SCREEN_CTRL_SET_AUTO_OFF:
         if (len >= 2) {
@@ -602,13 +637,21 @@ static void handle_factory_reset(const uint8_t *data, uint8_t len)
 static void handle_ext_module_status(const uint8_t *data, uint8_t len)
 {
     if (len < 5) return;
-    /* TODO: update UI module status display */
+    /* DATA[1]=event (0x00 insert / 0x01 remove / 0x02 full list),
+     * DATA[2]=module ID, DATA[3]=type, DATA[4]=subtype.
+     * Refresh the Models page if it is currently visible. */
+    printf("[UART] module status: evt=%d id=0x%02X type=%d sub=%d\r\n",
+           data[1], data[2], data[3], data[4]);
+    ui_models_notify_module_change();
 }
 
 static void handle_ext_bt_event(const uint8_t *data, uint8_t len)
 {
     if (len < 2) return;
-    /* TODO: update UI BT device list */
+    /* BT events carry the wireless module's event id in DATA[1];
+     * connection-state changes are mirrored into the status cache so
+     * the Home card updates.  Full BT list UI is not ported. */
+    printf("[UART] bt event: %d len=%d\r\n", data[1], len);
 }
 
 static void handle_ext_submodel_event(const uint8_t *data, uint8_t len)
@@ -629,7 +672,13 @@ static void handle_ext_submodel_event(const uint8_t *data, uint8_t len)
 static void handle_ext_power_event(const uint8_t *data, uint8_t len)
 {
     if (len < 2) return;
-    /* TODO: implement power status UI */
+    /* Event 0x00 (status change): DATA[2]=status bitmap
+     * (bit0 charging, bit1 full, bit2 powerbank output), DATA[3]=battery % */
+    if (data[1] == 0x00 && len >= 4) {
+        g_disp_state.charge_state = data[2];
+        g_disp_state.battery_pct  = data[3];
+        g_disp_state.status_valid |= STATUS_BIT_CHARGING | STATUS_BIT_BATTERY;
+    }
 }
 
 static void handle_ext_config_result(const uint8_t *data, uint8_t len)
@@ -755,6 +804,10 @@ static void process_frame(uint8_t src, uint8_t dst, uint8_t cmd,
     if (dst != MODULE_ID_DISPLAY && dst != 0xFF) return;
 
     switch (cmd) {
+    case CMD_NOP:
+        /* Heartbeat / keepalive: acknowledge without side effects */
+        UART_SendACK(src, NULL, 0);
+        break;
     case CMD_DISP_SET_BRIGHTNESS:
         handle_set_brightness(data, data_len, src);
         break;
@@ -884,12 +937,16 @@ void UART_Module_Poll(void)
         process_frame(src, dst, cmd, s_poll_data, dlen);
     }
 
-    /* Auto screen-off check (E-ink: just mark state, no backlight) */
-    if (g_disp_state.auto_off_sec > 0 && g_disp_state.screen_on) {
+    /* Auto screen-off check (e-ink: panel DSLP, image retained).
+     * Skipped while a CLI transfer is pending so long file reads are
+     * not interrupted by the panel power cycle. */
+    if (g_disp_state.auto_off_sec > 0 && g_disp_state.screen_on &&
+        g_pending_req == PENDING_NONE) {
         uint32_t now = ui_get_real_ms();
         if (now - g_disp_state.last_activity_ms >
             (uint32_t)g_disp_state.auto_off_sec * 1000) {
             g_disp_state.screen_on = false;
+            panel_sleep();
         }
     }
 }
@@ -1036,8 +1093,8 @@ void UART_NotifyActivity(void)
     g_disp_state.last_activity_ms = ui_get_real_ms();
     if (!g_disp_state.screen_on) {
         g_disp_state.screen_on = true;
-        /* E-ink: no backlight to restore */
     }
+    panel_wake();
 }
 
 const char *UART_GetLastCLITag(void)

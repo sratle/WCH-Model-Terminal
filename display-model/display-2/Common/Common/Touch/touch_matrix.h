@@ -22,6 +22,8 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "../MiniUI/miniui_types.h"
+
 /*=============================================================================
  *  Pin Assignments
  *===========================================================================*/
@@ -67,6 +69,9 @@ uint32_t TouchMatrix_GetRawState(void);
 /* Cursor dirty region management (called by ui_system around page draw) */
 void     TouchMatrix_InvalidateCursor(void);
 void     TouchMatrix_CursorRendered(void);
+
+/* Bounding box of old+new cursor positions (for flush coalescing) */
+void     TouchMatrix_GetCursorBBox(ui_rect_t *r);
 
 #ifdef __cplusplus
 }

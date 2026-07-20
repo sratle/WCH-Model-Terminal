@@ -318,6 +318,16 @@ void ui_models_init(void)
     s_lsdev_pending = false;
 }
 
+void ui_models_notify_module_change(void)
+{
+    /* Re-fetch only when the Models page is visible and no fetch is running */
+    if (ui_page_current() != &page_models) return;
+    if (s_lsdev_pending) return;
+    s_lsdev_pending = true;
+    UART_SetCLICallbacks(&s_models_cb);
+    UART_SendCLI("lsdev");
+}
+
 void ui_models_enter(ui_page_t *page)
 {
     (void)page;

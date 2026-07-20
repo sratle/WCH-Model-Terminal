@@ -34,6 +34,10 @@ static ui_dirty_list_t s_dirty_list;
 static ui_sidebar_draw_cb_t s_sidebar_draw = NULL;
 static ui_sidebar_event_cb_t s_sidebar_event = NULL;
 
+/* E-paper flush throttling for cursor-only updates */
+#define CURSOR_FLUSH_INTERVAL_MS  350
+static uint32_t s_last_epd_flush_ms = 0;
+
 /*=============================================================================
  *  Helper Functions
  *=============================================================================*/
@@ -319,6 +323,17 @@ static void flush_dirty_region_to_epd(const ui_rect_t *dirty)
     }
     if (!has_diff) return;
 
+    /* Large region (page switch / fullscreen redraw): sending it through
+     * the FAST partial waveform leaves the background washed-out gray.
+     * Use the full CLEAR refresh instead so whites come out crisp, then
+     * adopt the whole new frame as the old reference. */
+    if ((int32_t)r.w * r.h >= (int32_t)(UI_SCREEN_WIDTH * UI_SCREEN_HEIGHT * 3) / 4) {
+        printf("[page] large dirty -> full CLEAR refresh\r\n");
+        Epaper_UpdateFull(frame_old, frame_new);
+        memcpy(frame_old, frame_new, EPD_FRAME_SIZE);
+        return;
+    }
+
     /* Send partial refresh directly from frame buffers.
      * The driver reads the rectangular region using the frame stride
      * (EPD_ROW_BYTES) and inverts data to match the panel pixel format. */
@@ -356,12 +371,19 @@ static inline bool widget_intersects_batch(const ui_widget_t *w,
     return (y_end > w->rect.y && y_start < w->rect.y + w->rect.h);
 }
 
-void ui_page_draw(void)
+static inline bool rect_within(const ui_rect_t *inner, const ui_rect_t *outer)
 {
-    if (s_dirty_list.count == 0) return;
+    return (inner->x >= outer->x && inner->y >= outer->y &&
+            inner->x + inner->w <= outer->x + outer->w &&
+            inner->y + inner->h <= outer->y + outer->h);
+}
+
+bool ui_page_draw(void)
+{
+    if (s_dirty_list.count == 0) return false;
 
     ui_page_t *page = ui_page_current();
-    if (!page) return;
+    if (!page) return false;
 
     bool is_fullscreen = (page->flags & UI_PAGE_FLAG_FULLSCREEN) != 0;
 
@@ -416,12 +438,40 @@ void ui_page_draw(void)
         }
     }
 
-    /* 6. Flush dirty regions to e-paper display via partial refresh */
+    /* 6. Decide whether the e-paper flush can be deferred.
+     * While the finger is dragging the touch cursor, every move would
+     * otherwise trigger a ~300-500 ms partial refresh and the screen
+     * would constantly lag behind.  Cursor-only updates are coalesced:
+     * flush at most once per CURSOR_FLUSH_INTERVAL_MS while the finger
+     * is down; the final position flushes immediately on release.
+     * Any non-cursor dirty region (real UI change) flushes at once. */
+    if (TouchMatrix_IsTouched() && TouchMatrix_IsCursorVisible()) {
+        uint32_t now = ui_get_real_ms();
+        if ((uint32_t)(now - s_last_epd_flush_ms) < CURSOR_FLUSH_INTERVAL_MS) {
+            ui_rect_t cursor_bbox;
+            TouchMatrix_GetCursorBBox(&cursor_bbox);
+
+            bool cursor_only = true;
+            for (uint16_t i = 0; i < s_dirty_list.count; i++) {
+                if (!rect_within(&s_dirty_list.regions[i], &cursor_bbox)) {
+                    cursor_only = false;
+                    break;
+                }
+            }
+            if (cursor_only) {
+                return false;   /* keep dirty list; retry next tick */
+            }
+        }
+    }
+
+    /* 7. Flush dirty regions to e-paper display via partial refresh */
     for (uint16_t i = 0; i < s_dirty_list.count; i++) {
         flush_dirty_region_to_epd(&s_dirty_list.regions[i]);
     }
 
     s_dirty_list.count = 0;
+    s_last_epd_flush_ms = ui_get_real_ms();
+    return true;
 }
 
 /*=============================================================================

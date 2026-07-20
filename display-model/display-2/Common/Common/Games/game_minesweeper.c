@@ -5,7 +5,7 @@
 * Date               : 2025/05/20
 * Description        : Classic Minesweeper game.
 *                      9x9 (10 mines) and 16x16 (30 mines) modes.
-*                      Long press = flag, double-click = reveal.
+*                      Tap = act with current tool (DIG/FLAG toggle button).
 *                      First click never hits a mine.
 *                      Optimized dirty-rect partial refresh.
 ********************************************************************************/
@@ -18,14 +18,15 @@
 /*=============================================================================
  *  Layout Configuration
  *
- *  Screen: 800x480, Title bar: 40px
- *  Game area: 800x440 (y: 40~480)
+ *  Screen: 648x480, Title bar: 40px
+ *  Game area: 648x440 (y: 40~480)
  *
  *  Classic Minesweeper layout:
  *    [Grid area]           [Panel: MINES / TIME / MODE]
  *                          [Panel continued]
  *                          [Mode buttons]
  *                          [Restart button]
+ *                          [Tool (dig/flag) toggle]
  *=============================================================================*/
 
 /* Mode definitions */
@@ -81,6 +82,14 @@
 #define MINE_RESTART_H         44
 #define MINE_RESTART_TOP       (MINE_MODE_TOP + MINE_MODE_BTN_H + 16)
 
+/* Tool (dig/flag) toggle — placed below restart; replaces the
+ * double-click/long-press gestures that the touchpad cannot produce */
+#define MINE_TOOL_LABEL_Y      (MINE_RESTART_TOP + MINE_RESTART_H + 14)
+#define MINE_TOOL_BOX_Y        (MINE_TOOL_LABEL_Y + MINE_INFO_LABEL_H)
+#define MINE_TOOL_TOP          (MINE_TOOL_BOX_Y + MINE_INFO_BOX_H + 10)
+#define MINE_TOOL_W            MINE_RESTART_W
+#define MINE_TOOL_H            44
+
 /*=============================================================================
  *  Cell States & Colors
  *=============================================================================*/
@@ -89,6 +98,10 @@
 #define CELL_REVEALED   0x01
 #define CELL_FLAGGED    0x02
 #define CELL_MINE       0x04
+
+/* Tool modes */
+#define TOOL_DIG        0
+#define TOOL_FLAG       1
 
 /* Colors - adapted for 1bpp e-ink */
 #define MINE_BG_COLOR           UI_COLOR_WHITE
@@ -141,6 +154,7 @@ typedef struct {
     int revealed_count;
     mine_mode_t mode;
     mine_state_t state;
+    int tool;               /* TOOL_DIG or TOOL_FLAG (tap action on grid) */
     bool first_click;       /* True until first reveal */
     int frame_count;        /* Frame counter for timer (25 FPS) */
     int elapsed_sec;        /* Elapsed seconds */
@@ -157,7 +171,8 @@ static ui_app_page_t s_game_mine;
 static ui_widget_t s_touch_area;
 static ui_widget_t s_btn_easy, s_btn_hard;
 static ui_widget_t s_btn_restart;
-static ui_widget_t *s_mine_widgets[6];
+static ui_widget_t s_btn_tool;
+static ui_widget_t *s_mine_widgets[7];
 static mine_game_t s_mine;
 
 /*=============================================================================
@@ -166,6 +181,7 @@ static mine_game_t s_mine;
 
 static void mine_draw_mode_btns(void);
 static void mine_draw_restart_btn(void);
+static void mine_draw_tool_btn(void);
 
 /*=============================================================================
  *  Helpers
@@ -589,26 +605,28 @@ static void mine_draw_panel(void)
 
     /* Restart button */
     mine_draw_restart_btn();
+
+    /* Tool (dig/flag) toggle */
+    mine_draw_tool_btn();
 }
 
-/* Draw mode selection buttons */
+/* Draw mode selection buttons: active = solid black, inactive = bordered white */
 static void mine_draw_mode_btns(void)
 {
-    ui_color_t easy_bg = (s_mine.mode == MINE_MODE_EASY) ? UI_COLOR_BLACK : UI_COLOR_BLACK;
-    ui_color_t hard_bg = (s_mine.mode == MINE_MODE_HARD) ? UI_COLOR_BLACK : UI_COLOR_BLACK;
-    ui_color_t easy_text = (s_mine.mode == MINE_MODE_EASY) ? UI_COLOR_WHITE : UI_COLOR_TEXT_SECONDARY;
-    ui_color_t hard_text = (s_mine.mode == MINE_MODE_HARD) ? UI_COLOR_WHITE : UI_COLOR_TEXT_SECONDARY;
+    bool easy_act = (s_mine.mode == MINE_MODE_EASY);
 
-    /* Easy button */
     ui_rect_t er = {MINE_PANEL_X, MINE_MODE_TOP, MINE_MODE_BTN_W, MINE_MODE_BTN_H};
-    ui_draw_fill_round_rect(&er, 6, easy_bg);
-    ui_draw_text_in_rect(&er, "9x9 Easy", &font_montserrat_12, easy_text, 1);
+    if (easy_act) ui_draw_fill_round_rect(&er, 6, UI_COLOR_BLACK);
+    else          ui_draw_round_rect(&er, 6, UI_COLOR_WHITE, UI_COLOR_BLACK, 1);
+    ui_draw_text_in_rect(&er, "9x9 Easy", &font_montserrat_12,
+                         easy_act ? UI_COLOR_WHITE : UI_COLOR_BLACK, 1);
 
-    /* Hard button */
     ui_rect_t hr = {MINE_PANEL_X + MINE_MODE_BTN_W + MINE_MODE_GAP, MINE_MODE_TOP,
                     MINE_MODE_BTN_W, MINE_MODE_BTN_H};
-    ui_draw_fill_round_rect(&hr, 6, hard_bg);
-    ui_draw_text_in_rect(&hr, "16x16 Hard", &font_montserrat_12, hard_text, 1);
+    if (!easy_act) ui_draw_fill_round_rect(&hr, 6, UI_COLOR_BLACK);
+    else           ui_draw_round_rect(&hr, 6, UI_COLOR_WHITE, UI_COLOR_BLACK, 1);
+    ui_draw_text_in_rect(&hr, "16x16 Hard", &font_montserrat_12,
+                         !easy_act ? UI_COLOR_WHITE : UI_COLOR_BLACK, 1);
 }
 
 /* Draw restart button */
@@ -617,7 +635,29 @@ static void mine_draw_restart_btn(void)
     ui_rect_t r = {MINE_PANEL_X, MINE_RESTART_TOP, MINE_RESTART_W, MINE_RESTART_H};
     ui_draw_fill_round_rect(&r, 6, UI_COLOR_BLACK);
     ui_draw_text_in_rect(&r, "RESTART", &font_montserrat_16,
-                         UI_COLOR_BLACK, 1);
+                         UI_COLOR_WHITE, 1);
+}
+
+/* Draw tool (dig/flag) section: state box + toggle button */
+static void mine_draw_tool_btn(void)
+{
+    ui_rect_t tl = {MINE_PANEL_X, MINE_TOOL_LABEL_Y, MINE_PANEL_W, MINE_INFO_LABEL_H};
+    ui_draw_text_in_rect(&tl, "TOOL", &font_montserrat_12, UI_COLOR_TEXT_SECONDARY, 1);
+
+    ui_rect_t tb = {MINE_PANEL_X, MINE_TOOL_BOX_Y, MINE_PANEL_W, MINE_INFO_BOX_H};
+    ui_draw_fill_round_rect(&tb, MINE_INFO_BOX_R, UI_COLOR_BLACK);
+    ui_draw_text_in_rect(&tb, (s_mine.tool == TOOL_DIG) ? "DIG" : "FLAG",
+                         &font_montserrat_16, UI_COLOR_WHITE, 1);
+
+    /* Toggle button: solid when FLAG armed, bordered when DIG */
+    ui_rect_t r = {MINE_PANEL_X, MINE_TOOL_TOP, MINE_TOOL_W, MINE_TOOL_H};
+    if (s_mine.tool == TOOL_FLAG) {
+        ui_draw_fill_round_rect(&r, 6, UI_COLOR_BLACK);
+        ui_draw_text_in_rect(&r, "FLAG MODE", &font_montserrat_16, UI_COLOR_WHITE, 1);
+    } else {
+        ui_draw_round_rect(&r, 6, UI_COLOR_WHITE, UI_COLOR_BLACK, 1);
+        ui_draw_text_in_rect(&r, "DIG MODE", &font_montserrat_16, UI_COLOR_BLACK, 1);
+    }
 }
 
 /* Draw idle screen overlay */
@@ -700,6 +740,14 @@ static void mine_draw_lose_overlay(void)
 
 /*=============================================================================
  *  Input Handling
+ *
+ *  The 4x8 touchpad cannot produce double-click / long-press reliably,
+ *  so the primary interaction is tool-based:
+ *    - tap a cell with TOOL_DIG  -> reveal
+ *    - tap a cell with TOOL_FLAG -> toggle flag
+ *    - tap the tool button to switch modes
+ *  Double-click (reveal) and long-press (flag) are kept as fallbacks for
+ *  pointer devices that can generate them.
  *=============================================================================*/
 
 static bool s_hold_active = false;       /* True after first LONG_PRESS, cleared on UP */
@@ -709,7 +757,7 @@ static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
     (void)w;
 
     if (e->type == UI_EVENT_LONG_PRESS) {
-        /* Long press = flag */
+        /* Long press = flag (fallback for mouse / absolute touch) */
         if (!s_hold_active) {
             s_hold_active = true;
 
@@ -722,17 +770,26 @@ static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
         }
     } else if (e->type == UI_EVENT_UP) {
         s_hold_active = false;
-        /* Do NOT reveal on UP. Reveal only happens on DOUBLE_CLICK. */
+    } else if (e->type == UI_EVENT_CLICK) {
+        /* Primary path: tap acts with the currently selected tool */
+        int row, col;
+        if (mine_pixel_to_cell(e->touch.x, e->touch.y, &row, &col)) {
+            if (s_mine.state == MINE_STATE_PLAYING) {
+                if (s_mine.tool == TOOL_FLAG) {
+                    mine_toggle_flag(row, col);
+                } else {
+                    mine_reveal_cell(row, col);
+                }
+            }
+        }
     } else if (e->type == UI_EVENT_DOUBLE_CLICK) {
-        /* Double click = reveal */
+        /* Double click = always reveal (fallback) */
         int row, col;
         if (mine_pixel_to_cell(e->touch.x, e->touch.y, &row, &col)) {
             if (s_mine.state == MINE_STATE_PLAYING) {
                 mine_reveal_cell(row, col);
             }
         }
-    } else if (e->type == UI_EVENT_CLICK) {
-        /* Single click does NOT reveal; only double-click reveals. */
     } else if (e->type == UI_EVENT_SWIPE_UP ||
                e->type == UI_EVENT_SWIPE_DOWN ||
                e->type == UI_EVENT_SWIPE_LEFT ||
@@ -744,6 +801,18 @@ static void mine_touch_event(ui_widget_t *w, ui_event_t *e)
             mine_start_game(MINE_MODE_EASY);
         }
     }
+}
+
+static void mine_tool_event(ui_widget_t *w, ui_event_t *e)
+{
+    (void)w;
+    if (e->type != UI_EVENT_CLICK) return;
+    s_mine.tool = (s_mine.tool == TOOL_DIG) ? TOOL_FLAG : TOOL_DIG;
+
+    /* Redraw the tool section */
+    ui_rect_t r = {MINE_PANEL_X, MINE_TOOL_LABEL_Y, MINE_PANEL_W,
+                   MINE_TOOL_TOP + MINE_TOOL_H - MINE_TOOL_LABEL_Y};
+    ui_page_invalidate(&r);
 }
 
 static void mine_easy_event(ui_widget_t *w, ui_event_t *e)
@@ -781,6 +850,7 @@ static void mine_game_enter(ui_page_t *page)
     s_mine.rows = MINE_MODE_EASY_ROWS;
     s_mine.total_mines = MINE_MODE_EASY_MINES;
     s_mine.state = MINE_STATE_IDLE;
+    s_mine.tool = TOOL_DIG;
     mine_update_texts();
     ui_page_invalidate_all();
 }
@@ -868,15 +938,22 @@ void game_minesweeper_init(void)
     s_btn_restart.bg_color = UI_COLOR_TRANSPARENT;
     s_btn_restart.event_cb = mine_restart_event;
 
+    /* Tool (dig/flag) toggle button */
+    ui_rect_t tool_r = {MINE_PANEL_X, MINE_TOOL_TOP, MINE_TOOL_W, MINE_TOOL_H};
+    ui_widget_init(&s_btn_tool, &tool_r);
+    s_btn_tool.bg_color = UI_COLOR_TRANSPARENT;
+    s_btn_tool.event_cb = mine_tool_event;
+
     /* Widget order: high index = high priority for events */
     s_mine_widgets[0] = &s_touch_area;
     s_mine_widgets[1] = &s_btn_easy;
     s_mine_widgets[2] = &s_btn_hard;
     s_mine_widgets[3] = &s_btn_restart;
-    s_mine_widgets[4] = (ui_widget_t *)&s_game_mine.lbl_title;
-    s_mine_widgets[5] = (ui_widget_t *)&s_game_mine.btn_back;
+    s_mine_widgets[4] = &s_btn_tool;
+    s_mine_widgets[5] = (ui_widget_t *)&s_game_mine.lbl_title;
+    s_mine_widgets[6] = (ui_widget_t *)&s_game_mine.btn_back;
 
-    ui_page_set_widgets(&s_game_mine.page, s_mine_widgets, 6);
+    ui_page_set_widgets(&s_game_mine.page, s_mine_widgets, 7);
     ui_page_set_callbacks(&s_game_mine.page, mine_game_enter, NULL,
                           mine_game_draw, NULL);
     ui_page_set_update_cb(&s_game_mine.page, mine_game_update);

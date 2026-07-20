@@ -32,8 +32,12 @@ void ui_system_init(void)
     Epaper_Init();
     printf("[ui_system] e-paper initialized\r\n");
 
-    /* 2. Clear screen to white */
+    /* 2. Clear screen to white.
+     * Run the CLEAR full refresh twice: a single clear pass does not
+     * fully erase ghosting left by previous power cycles (the panel may
+     * have been holding an image with DC bias while unpowered). */
     Epaper_ClearWhite();
+    Epaper_Update();
     Epaper_Update();
     printf("[ui_system] screen cleared\r\n");
 
@@ -81,11 +85,12 @@ void ui_system_tick(void)
     /* Invalidate cursor dirty regions before rendering (erase old + draw new) */
     TouchMatrix_InvalidateCursor();
 
-    /* Draw dirty regions (partial refresh to e-paper) */
-    ui_page_draw();
-
-    /* Update cursor rendered position after drawing */
-    TouchMatrix_CursorRendered();
+    /* Draw dirty regions (partial refresh to e-paper, throttled while
+     * the cursor is being dragged); update rendered cursor position
+     * only when the frame was actually sent to the panel */
+    if (ui_page_draw()) {
+        TouchMatrix_CursorRendered();
+    }
 
     /* Process input */
     ui_input_process();
