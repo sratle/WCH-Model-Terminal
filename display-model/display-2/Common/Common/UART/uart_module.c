@@ -67,10 +67,6 @@ static bool s_submodel_cb_valid = false;
 
 /*=============================================================================
  *  CLI Response Assembly Engine (V3.1 — unified, single global buffer)
- *=============================================================================*/
-
-/*=============================================================================
- *  CLI Response Assembly Engine (V3.1 — unified, single global buffer)
  *
  *  8 KB so that `cat` of a small book/document/image fits in one response;
  *  the EBook/Editor/Images apps parse directly from this buffer (zero-copy).
@@ -89,9 +85,26 @@ static bool s_pending_ls_after_cd = false;
 static file_entry_t s_parsed_entries[FILE_LIST_MAX_ENTRIES];
 static uint8_t s_poll_data[PROTO_MAX_DATA_LEN];
 
+/*=============================================================================
+ *  Incremental ls parser
+ *
+ *  The whole-response buffer above truncates at CLI_RESP_BUF_SIZE, which
+ *  made big directory listings (>8KB of ls text) unusable.  The ls parser
+ *  therefore works LINE BY LINE as CLI chunks arrive (before any
+ *  truncation), so a directory is only limited by the Core-side capture
+ *  buffer (32KB ≈ several hundred entries).  Entries land in the shared
+ *  s_parsed_entries table and are delivered via on_file_list at EOF.
+ *===========================================================================*/
+
+#define LS_LINE_BUF_SIZE    128
+static char    s_ls_line[LS_LINE_BUF_SIZE];
+static uint8_t s_ls_line_len = 0;
+static uint8_t s_ls_count = 0;
+
 static void cli_resp_append(const char *data, uint16_t len);
 static void cli_resp_dispatch(void);
-static void cli_parse_ls_output(void);
+static void cli_ls_feed(const char *data, uint16_t len);
+static void cli_ls_reset(void);
 
 void UART_SetCLICallbacks(const uart_cli_cb_t *cb)
 {
@@ -189,11 +202,94 @@ static volatile uint8_t s_rx_remaining;
 static volatile uint8_t s_stream_buf[STREAM_BUF_SIZE];
 static volatile uint16_t s_stream_idx;
 
+/* Set in the RX ISR when a CLI response is complete and ready to dispatch;
+ * consumed by UART_Module_Poll in the main loop. */
+static volatile uint8_t s_cli_dispatch_pending = 0;
+
 /* Ring buffer for ISR → poll communication */
 #define RING_ENTRY_MAX  (4 + PROTO_MAX_DATA_LEN)
 static volatile uint8_t s_ring[UART_RX_BUF_SIZE];
 static volatile uint16_t s_ring_head = 0;
 static volatile uint16_t s_ring_tail = 0;
+
+/*=============================================================================
+ *  CLI Chunk Handling in ISR context
+ *
+ *  CLI responses (especially multi-KB `ls` / `cat` / `read` transfers of
+ *  14+ frames back-to-back) overflow the 2KB main-loop ring when the loop
+ *  is blocked by an e-paper refresh — dropped frames lose EOF and the
+ *  transfer hangs forever.  CLI chunk frames are therefore consumed
+ *  DIRECTLY in the RX ISR (append + incremental ls parse + stream cb);
+ *  only the final dispatch is deferred to the main loop via a flag.
+ *  Note: on_cli_stream handlers must tolerate ISR context (they only
+ *  touch app-side RAM buffers and are gated by their is_loading flags).
+ *===========================================================================*/
+
+static void cli_resp_append(const char *data, uint16_t len);
+static void cli_resp_dispatch(void);
+static void cli_ls_feed(const char *data, uint16_t len);
+static void cli_ls_reset(void);
+
+static void cli_chunk_isr(const uint8_t *data, uint8_t len)
+{
+    if (len >= 3) {
+        uint8_t flags = data[1];
+        bool has_sof = (flags & 0x01) != 0;
+        bool has_eof = (flags & 0x02) != 0;
+
+        if (has_sof) {
+            s_cli_resp_len = 0;
+            s_cli_resp_accumulating = true;
+        }
+
+        if (s_cli_resp_accumulating || has_sof) {
+            const char *frame_text = (const char *)&data[2];
+            uint16_t frame_len = len - 2;
+
+            if (s_cli_cb_valid && s_cli_cb.on_cli_stream) {
+                s_cli_cb.on_cli_stream(frame_text, frame_len, has_eof);
+            }
+
+            cli_resp_append(frame_text, frame_len);
+
+            /* Incremental ls parse (immune to response-buffer truncation) */
+            if (strcmp(s_cli_cmd_tag, "ls") == 0) {
+                cli_ls_feed(frame_text, frame_len);
+            }
+
+            if (has_eof) {
+                s_cli_resp_accumulating = false;
+                s_cli_dispatch_pending = 1;
+            }
+        } else {
+            /* Legacy frame without flags */
+            const char *frame_text = (const char *)&data[1];
+            uint16_t frame_len = len - 1;
+
+            if (s_cli_cb_valid && s_cli_cb.on_cli_stream) {
+                s_cli_cb.on_cli_stream(frame_text, frame_len, true);
+            }
+            cli_resp_append(frame_text, frame_len);
+            if (strcmp(s_cli_cmd_tag, "ls") == 0) {
+                cli_ls_feed(frame_text, frame_len);
+            }
+            s_cli_dispatch_pending = 1;
+        }
+    } else if (len >= 2) {
+        const char *frame_text = (const char *)&data[1];
+        uint16_t frame_len = len - 1;
+
+        if (s_cli_cb_valid && s_cli_cb.on_cli_stream) {
+            s_cli_cb.on_cli_stream(frame_text, frame_len, true);
+        }
+        cli_resp_append(frame_text, frame_len);
+        if (strcmp(s_cli_cmd_tag, "ls") == 0) {
+            cli_ls_feed(frame_text, frame_len);
+        }
+        s_cli_dispatch_pending = 1;
+    }
+    g_pending_req = PENDING_NONE;
+}
 
 static void ring_push_frame(uint8_t src, uint8_t dst, uint8_t cmd,
                              const volatile uint8_t *data, uint8_t dlen)
@@ -324,7 +420,14 @@ void USART1_IRQHandler(void)
     case RX_TAIL3:
         if (b == PROTO_FRAME_TAIL3) {
             uint8_t dlen = (s_rx_idx < PROTO_MAX_DATA_LEN) ? s_rx_idx : 0;
-            ring_push_frame(s_rx_src, s_rx_dst, s_rx_cmd, s_rx_data, dlen);
+            /* CLI chunk frames bypass the ring: they are consumed inline so
+             * multi-KB transfers cannot overflow the 2KB main-loop ring
+             * while the loop is blocked by an e-paper refresh. */
+            if (s_rx_cmd == CMD_DISP_EXT && dlen >= 1 && s_rx_data[0] == DISP_EXT_CLI) {
+                cli_chunk_isr(s_rx_data, dlen);
+            } else {
+                ring_push_frame(s_rx_src, s_rx_dst, s_rx_cmd, s_rx_data, dlen);
+            }
         }
         s_rx_state = RX_WAIT_HEAD;
         break;
@@ -363,7 +466,12 @@ void USART1_IRQHandler(void)
                                 (uint8_t)(s_stream_idx - 1) : PROTO_MAX_DATA_LEN;
                 for (uint8_t i = 0; i < dlen; i++)
                     s_rx_data[i] = s_stream_buf[1 + i];
-                ring_push_frame(s_rx_src, s_rx_dst, s_rx_cmd, s_rx_data, dlen);
+                /* CLI chunk frames bypass the ring (see RX_TAIL3 note) */
+                if (s_rx_cmd == CMD_DISP_EXT && dlen >= 1 && s_rx_data[0] == DISP_EXT_CLI) {
+                    cli_chunk_isr(s_rx_data, dlen);
+                } else {
+                    ring_push_frame(s_rx_src, s_rx_dst, s_rx_cmd, s_rx_data, dlen);
+                }
             }
             s_rx_state = RX_WAIT_HEAD;
         } else {
@@ -752,6 +860,11 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
 
                 cli_resp_append(frame_text, frame_len);
 
+                /* Incremental ls parse (immune to response-buffer truncation) */
+                if (strcmp(s_cli_cmd_tag, "ls") == 0) {
+                    cli_ls_feed(frame_text, frame_len);
+                }
+
                 if (has_eof) {
                     s_cli_resp_accumulating = false;
                     cli_resp_dispatch();
@@ -764,6 +877,9 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
                     s_cli_cb.on_cli_stream(frame_text, frame_len, true);
                 }
                 cli_resp_append(frame_text, frame_len);
+                if (strcmp(s_cli_cmd_tag, "ls") == 0) {
+                    cli_ls_feed(frame_text, frame_len);
+                }
                 cli_resp_dispatch();
             }
         } else if (len >= 2) {
@@ -774,6 +890,9 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
                 s_cli_cb.on_cli_stream(frame_text, frame_len, true);
             }
             cli_resp_append(frame_text, frame_len);
+            if (strcmp(s_cli_cmd_tag, "ls") == 0) {
+                cli_ls_feed(frame_text, frame_len);
+            }
             cli_resp_dispatch();
         }
         g_pending_req = PENDING_NONE;
@@ -915,6 +1034,12 @@ static void process_frame(uint8_t src, uint8_t dst, uint8_t cmd,
 
 void UART_Module_Poll(void)
 {
+    /* Deferred CLI dispatch (the chunks themselves are consumed in the ISR) */
+    if (s_cli_dispatch_pending) {
+        s_cli_dispatch_pending = 0;
+        cli_resp_dispatch();
+    }
+
     while (s_ring_tail != s_ring_head) {
         uint16_t available = s_ring_head - s_ring_tail;
         if (available < 4) break;
@@ -971,14 +1096,22 @@ static void cli_resp_append(const char *data, uint16_t len)
     }
 }
 
-static void cli_parse_ls_output(void)
-{
-    uint8_t count = 0;
-    const char *p = s_cli_resp_buf;
+/*=============================================================================
+ *  Incremental ls parser — implementation
+ *===========================================================================*/
 
-    const char *hdr_start = strstr(p, "--- ");
-    if (hdr_start) {
-        const char *path_start = hdr_start + 4;
+static void cli_ls_reset(void)
+{
+    s_ls_line_len = 0;
+    s_ls_count = 0;
+}
+
+/* Parse one complete ls output line into the entry table / cwd notify */
+static void cli_ls_parse_line(const char *line, uint8_t len)
+{
+    /* Path header: "--- <path> ---" */
+    if (len >= 8 && line[0] == '-' && line[1] == '-' && line[2] == '-' && line[3] == ' ') {
+        const char *path_start = line + 4;
         const char *path_end = strstr(path_start, " ---");
         if (path_end) {
             uint8_t path_len = (uint8_t)(path_end - path_start);
@@ -989,70 +1122,87 @@ static void cli_parse_ls_output(void)
             if (s_cli_cb_valid && s_cli_cb.on_cwd_notify)
                 s_cli_cb.on_cwd_notify(ls_path);
         }
+        return;
     }
 
-    while (*p && count < FILE_LIST_MAX_ENTRIES) {
-        const char *dir_tag = strstr(p, "[DIR]");
-        const char *file_tag = strstr(p, "[FILE]");
+    if (s_ls_count >= FILE_LIST_MAX_ENTRIES) return;
 
-        const char *tag = NULL;
-        uint8_t is_dir = 0;
-        if (dir_tag && (!file_tag || dir_tag < file_tag)) {
-            tag = dir_tag; is_dir = 1;
-        } else if (file_tag) {
-            tag = file_tag; is_dir = 0;
-        }
-        if (!tag) break;
+    const char *dir_tag = strstr(line, "[DIR]");
+    const char *file_tag = strstr(line, "[FILE]");
+    const char *tag = NULL;
+    uint8_t is_dir = 0;
+    if (dir_tag && (!file_tag || dir_tag < file_tag)) {
+        tag = dir_tag; is_dir = 1;
+    } else if (file_tag) {
+        tag = file_tag; is_dir = 0;
+    }
+    if (!tag) return;
 
-        p = tag + (is_dir ? 5 : 6);
-        while (*p == ' ' || *p == '\t') p++;
+    const char *p = tag + (is_dir ? 5 : 6);
+    while (*p == ' ' || *p == '\t') p++;
 
-        uint8_t nlen = 0;
-        while (*p && *p != '\r' && *p != '\n' && nlen < FILE_NAME_MAX_LEN) {
-            s_parsed_entries[count].name[nlen++] = *p++;
-        }
-        s_parsed_entries[count].name[nlen] = '\0';
+    file_entry_t *e = &s_parsed_entries[s_ls_count];
+    uint8_t nlen = 0;
+    while (*p && *p != '\r' && *p != '\n' && nlen < FILE_NAME_MAX_LEN) {
+        e->name[nlen++] = *p++;
+    }
+    e->name[nlen] = '\0';
+    while (nlen > 0 && (e->name[nlen-1] == ' ' || e->name[nlen-1] == '\t')) {
+        e->name[--nlen] = '\0';
+    }
+    if (nlen == 0) return;
 
-        while (nlen > 0 && (s_parsed_entries[count].name[nlen-1] == ' ' ||
-                             s_parsed_entries[count].name[nlen-1] == '\t')) {
-            s_parsed_entries[count].name[--nlen] = '\0';
-        }
-        if (nlen == 0) continue;
+    e->attr = is_dir ? FILE_ATTR_IS_DIR : 0;
+    e->size = 0;
 
-        s_parsed_entries[count].attr = is_dir ? FILE_ATTR_IS_DIR : 0;
-        s_parsed_entries[count].size = 0;
-
-        if (!is_dir) {
-            const char *size_start = NULL;
-            uint8_t nlen2 = (uint8_t)strlen(s_parsed_entries[count].name);
-            for (int8_t k = (int8_t)nlen2 - 1; k >= 0; k--) {
-                if (s_parsed_entries[count].name[k] == '(') {
-                    size_start = &s_parsed_entries[count].name[k];
-                    break;
-                }
-            }
-            if (size_start) {
-                uint8_t trim_pos = (uint8_t)(size_start - s_parsed_entries[count].name);
-                s_parsed_entries[count].name[trim_pos] = '\0';
+    if (!is_dir) {
+        /* Trailing "(<size>)" suffix */
+        uint8_t nlen2 = (uint8_t)strlen(e->name);
+        for (int8_t k = (int8_t)nlen2 - 1; k >= 0; k--) {
+            if (e->name[k] == '(') {
+                e->name[k] = '\0';
                 uint32_t val = 0;
-                const char *sp = size_start + 1;
+                const char *sp = &e->name[k] + 1;
                 while (*sp >= '0' && *sp <= '9') {
                     val = val * 10 + (uint32_t)(*sp - '0');
                     sp++;
                 }
-                s_parsed_entries[count].size = val;
-            }
-            nlen2 = (uint8_t)strlen(s_parsed_entries[count].name);
-            while (nlen2 > 0 && (s_parsed_entries[count].name[nlen2-1] == ' ' ||
-                                  s_parsed_entries[count].name[nlen2-1] == '\t')) {
-                s_parsed_entries[count].name[--nlen2] = '\0';
+                e->size = val;
+                nlen2 = (uint8_t)strlen(e->name);
+                while (nlen2 > 0 && (e->name[nlen2-1] == ' ' || e->name[nlen2-1] == '\t')) {
+                    e->name[--nlen2] = '\0';
+                }
+                break;
             }
         }
-        count++;
     }
+    s_ls_count++;
+}
 
-    if (s_cli_cb_valid && s_cli_cb.on_file_list) {
-        s_cli_cb.on_file_list(0x00, s_parsed_entries, count);
+/* Feed one CLI text chunk into the incremental parser (line assembly) */
+static void cli_ls_feed(const char *data, uint16_t len)
+{
+    for (uint16_t i = 0; i < len; i++) {
+        char c = data[i];
+        if (c == '\n') {
+            s_ls_line[s_ls_line_len] = '\0';
+            cli_ls_parse_line(s_ls_line, s_ls_line_len);
+            s_ls_line_len = 0;
+        } else if (c != '\r') {
+            if (s_ls_line_len < LS_LINE_BUF_SIZE - 1) {
+                s_ls_line[s_ls_line_len++] = c;
+            }
+        }
+    }
+}
+
+/* Flush a trailing partial line (no newline before EOF) */
+static void cli_ls_flush(void)
+{
+    if (s_ls_line_len > 0) {
+        s_ls_line[s_ls_line_len] = '\0';
+        cli_ls_parse_line(s_ls_line, s_ls_line_len);
+        s_ls_line_len = 0;
     }
 }
 
@@ -1067,14 +1217,17 @@ static void cli_resp_dispatch(void)
     if (strcmp(s_cli_cmd_tag, "cd") == 0 && s_pending_ls_after_cd) {
         s_pending_ls_after_cd = false;
         printf("[CLI] cd done, sending ls\r\n");
+        /* CH378 状态稳定延时：cd 改变了 CH378 目录状态，
+         * 需要等待 CH378 内部状态稳定后再发 ls（与 display-1 一致） */
+        Delay_Ms(20);
         UART_SendCLI("ls");
         return;
     }
 
     if (s_cli_cb.on_file_list && strcmp(s_cli_cmd_tag, "ls") == 0) {
-        printf("[CLI] parsing ls output\r\n");
-        cli_parse_ls_output();
-        printf("[CLI] ls parse done\r\n");
+        printf("[CLI] ls done: %d entries\r\n", s_ls_count);
+        cli_ls_flush();   /* last line may lack a trailing newline */
+        s_cli_cb.on_file_list(0x00, s_parsed_entries, s_ls_count);
         return;
     }
 
@@ -1111,6 +1264,11 @@ void UART_SendCLI(const char *cmd)
             i++;
         }
         s_cli_cmd_tag[i] = '\0';
+    }
+
+    /* New ls listing: reset the incremental parser state */
+    if (strcmp(s_cli_cmd_tag, "ls") == 0) {
+        cli_ls_reset();
     }
 
     cli_resp_reset();

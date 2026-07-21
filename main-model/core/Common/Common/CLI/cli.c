@@ -1323,6 +1323,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  mkdir <dir>     Create directory (supports LFN)\r\n");
         printf("  touch <file>    Create empty file (supports LFN)\r\n");
         printf("  cat <file>      Display file contents (supports LFN)\r\n");
+        printf("  read <file> <off> [len]  Read byte range [off,off+len) (max 8192, no trailer)\r\n");
         printf("  echo [text]     Print text or write to file (use > or >>)\r\n");
         printf("  write \"path\" <data>  Write data to file (supports multi-frame)\r\n");
         printf("  rm <file>       Remove file (supports LFN)\r\n");
@@ -1394,7 +1395,8 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         /* Brief command list */
         printf("Commands:\r\n");
         printf("  ls, cd <dir>, pwd, mkdir <dir>, touch <file>, cat <file>\r\n");
-        printf("  echo [text], write \"path\" <data>, rm <file>, rm -rf <dir>\r\n");
+        printf("  read <file> <off> [len], echo [text], write \"path\" <data>\r\n");
+        printf("  rm <file>, rm -rf <dir>\r\n");
         printf("  cp <src> <dst>, mv <old> <new>, hexdump <file>\r\n");
         printf("  head <file> [n], tail <file> [n], tree [dir], du <dir>\r\n");
         printf("  find <pattern>, df, free, device [usb|sd]\r\n");
@@ -1691,6 +1693,85 @@ static void CLI_Cmd_Tail(uint8_t argc, char **argv)
         n -= real_len;
     }
     printf("\r\n");
+    CH378FileClose(0);
+}
+
+/*********************************************************************
+ * @fn      CLI_Cmd_Read
+ *
+ * @brief   Read a file by byte range: read <file> <offset> <maxlen>
+ *
+ *          Prints EXACTLY the file bytes [offset, offset+maxlen) — no
+ *          header, no trailing newline, so the caller can count bytes
+ *          precisely (paged e-book readers on the displays/app).
+ *          - offset beyond EOF      -> empty response
+ *          - fewer bytes than maxlen -> end of file reached
+ *          maxlen is clamped to 8192 bytes.
+ */
+static void CLI_Cmd_Read(uint8_t argc, char **argv)
+{
+    char full_path[CH378_MAX_PATH_LEN];
+    uint8_t status;
+    uint8_t buf[256];
+    uint16_t real_len;
+    uint16_t once_read;
+    uint16_t i;
+    uint32_t offset = 0;
+    uint32_t maxlen = 2048;
+    uint32_t file_size;
+    uint32_t remain;
+
+    if (argc < 3) {
+        printf("Usage: read <file> <offset> [maxlen]\r\n");
+        return;
+    }
+
+    offset = (uint32_t)strtoul(argv[2], NULL, 10);
+    if (argc >= 4) {
+        maxlen = (uint32_t)strtoul(argv[3], NULL, 10);
+        if (maxlen == 0) maxlen = 2048;
+    }
+    if (maxlen > 8192) maxlen = 8192;
+
+    CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
+
+    if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
+        status = CH378FileOpen((uint8_t*)full_path);
+    } else {
+        status = CLI_LFN_Operation(full_path, 0);
+    }
+    if (status != ERR_SUCCESS) {
+        printf("read: %s: No such file\r\n", argv[1]);
+        return;
+    }
+
+    file_size = CH378GetFileSize();
+    if (offset >= file_size) {
+        /* Beyond EOF: empty response, caller treats it as end of book */
+        CH378FileClose(0);
+        return;
+    }
+
+    if (offset + maxlen > file_size) maxlen = file_size - offset;
+
+    status = CH378ByteLocate(offset);
+    if (status != ERR_SUCCESS) {
+        printf("read: seek failed\r\n");
+        CH378FileClose(0);
+        return;
+    }
+
+    remain = maxlen;
+    while (remain > 0) {
+        once_read = (remain > sizeof(buf)) ? sizeof(buf) : (uint16_t)remain;
+        status = CH378ByteRead(buf, once_read, &real_len);
+        if (status != ERR_SUCCESS || real_len == 0) break;
+
+        for (i = 0; i < real_len; i++) {
+            printf("%c", buf[i]);
+        }
+        remain -= real_len;
+    }
     CH378FileClose(0);
 }
 
@@ -3319,6 +3400,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Head(argc, argv);
     } else if (strcmp(argv[0], "tail") == 0) {
         CLI_Cmd_Tail(argc, argv);
+    } else if (strcmp(argv[0], "read") == 0) {
+        CLI_Cmd_Read(argc, argv);
     } else if (strcmp(argv[0], "cp") == 0) {
         CLI_Cmd_Cp(argc, argv);
     } else if (strcmp(argv[0], "tree") == 0) {

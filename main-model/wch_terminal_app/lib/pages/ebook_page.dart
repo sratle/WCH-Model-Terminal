@@ -173,7 +173,7 @@ class _EBookPageState extends ConsumerState<EBookPage> {
 
   Widget _buildReader(
       EBookState state, Color bgColor, Color textColor, Color accent) {
-    if (state.content.isEmpty) {
+    if (state.chunk.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -267,17 +267,19 @@ class _EBookPageState extends ConsumerState<EBookPage> {
           // Page navigation
           IconButton(
             icon: const Icon(Icons.chevron_left),
-            onPressed: state.currentPage > 0 ? () => notifier.prevPage() : null,
+            onPressed: state.currentPage > 0 && !state.isLoading
+                ? () => notifier.prevPage()
+                : null,
           ),
           Text(
-            state.totalPages > 0
-                ? '${state.currentPage + 1} / ${state.totalPages}'
+            state.selectedIndex >= 0
+                ? '${state.currentPage + 1} / ${state.pageCount}${state.hasNextPage ? "+" : ""}'
                 : '--',
             style: TextStyle(color: textColor, fontSize: 13),
           ),
           IconButton(
             icon: const Icon(Icons.chevron_right),
-            onPressed: state.currentPage < state.totalPages - 1
+            onPressed: state.hasNextPage && !state.isLoading
                 ? () => notifier.nextPage()
                 : null,
           ),

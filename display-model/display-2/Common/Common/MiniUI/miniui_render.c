@@ -604,6 +604,11 @@ void ui_draw_text_bg(int16_t x, int16_t y, const char *text, const ui_font_t *fo
 {
     if (!text || !font) return;
     int16_t cursor_x = x;
+    /* The y argument is the TOP of the text line; glyphs hang from the
+     * baseline (font->baseline), and each glyph's y_offset is negative
+     * (distance from baseline up to the glyph top).  Forgetting the
+     * baseline here shifts ALL text up by `baseline` pixels. */
+    int16_t base_y = y + font->baseline;
     while (*text) {
         uint8_t ch = (uint8_t)*text++;
         const ui_glyph_t *glyph = find_glyph(font, ch);
@@ -611,7 +616,7 @@ void ui_draw_text_bg(int16_t x, int16_t y, const char *text, const ui_font_t *fo
             cursor_x += font->height / 2;
             continue;
         }
-        draw_glyph(cursor_x, y, glyph, font, color, bg);
+        draw_glyph(cursor_x, base_y, glyph, font, color, bg);
         cursor_x += glyph->advance;
     }
 }

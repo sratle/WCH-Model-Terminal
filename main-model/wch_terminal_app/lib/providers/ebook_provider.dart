@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/cli/cli_engine.dart';
 import '../core/cli/cli_commands.dart';
@@ -16,7 +15,6 @@ class EBookNotifier extends StateNotifier<EBookState> {
   Future<void> loadBookList() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      // Navigate to BOOK directory
       final cdResp = await _cli.execute(CliCommands.cd('BOOK'));
       if (!cdResp.isSuccess || cdResp.output.contains('failed')) {
         state = state.copyWith(
@@ -26,7 +24,6 @@ class EBookNotifier extends StateNotifier<EBookState> {
         return;
       }
 
-      // List files
       final lsResp =
           await _cli.execute(CliCommands.ls(), timeout: const Duration(seconds: 15));
       final books = BookItem.parseLsOutput(lsResp.output);
@@ -35,32 +32,44 @@ class EBookNotifier extends StateNotifier<EBookState> {
         books: books,
         isLoading: false,
         selectedIndex: -1,
-        content: '',
+        chunk: '',
+        pageStarts: const [0],
         currentPage: 0,
-        totalPages: 0,
       );
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
 
-  /// Open a book by name: execute "cat" and paginate.
+  /// Open a book by index: reset pagination and fetch the first chunk.
   Future<void> openBook(int index) async {
     if (index < 0 || index >= state.books.length) return;
-    final book = state.books[index];
 
     state = state.copyWith(
       isLoading: true,
       selectedIndex: index,
       error: null,
-      content: '',
+      chunk: '',
+      chunkOff: 0,
+      chunkEof: false,
+      pageStarts: const [0],
       currentPage: 0,
-      totalPages: 0,
     );
 
+    await _requestChunk(0);
+  }
+
+  /// Request the chunk at byte offset [off] from Core via `read`.
+  Future<void> _requestChunk(int off) async {
+    if (state.selectedIndex < 0 || state.selectedIndex >= state.books.length) {
+      return;
+    }
+    final book = state.books[state.selectedIndex];
+
+    state = state.copyWith(isLoading: true);
     try {
       final resp = await _cli.execute(
-        CliCommands.cat(book.name),
+        CliCommands.read(book.name, off, EBookState.chunkSize),
         timeout: const Duration(seconds: 15),
       );
 
@@ -69,29 +78,57 @@ class EBookNotifier extends StateNotifier<EBookState> {
         return;
       }
 
-      final content = resp.output;
-      final totalPages = max(1, (content.length / EBookState.charsPerPage).ceil());
-
+      final text = resp.output;
       state = state.copyWith(
-        content: content,
-        currentPage: 0,
-        totalPages: totalPages,
+        chunk: text,
+        chunkOff: off,
+        chunkEof: text.length < EBookState.chunkSize,
         isLoading: false,
       );
+      _registerNextPage();
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
 
+  /// After a page is displayable, record where the NEXT page begins.
+  /// With the per-page fetch model, [next] may lie beyond the loaded
+  /// chunk — it will simply be re-fetched when the user turns to it.
+  void _registerNextPage() {
+    final start = state.pageStarts[state.currentPage];
+    final chunkEnd = state.chunkOff + state.chunk.length;
+    final next = start + EBookState.charsPerPage;
+
+    // The book continues unless the file ended inside this chunk and the
+    // next page start would fall at/after its end.
+    final continues = !state.chunkEof || next < chunkEnd;
+    if (continues && state.currentPage + 1 >= state.pageCount) {
+      state = state.copyWith(
+        pageStarts: [...state.pageStarts, next],
+      );
+    }
+  }
+
+  /// Per-page fetch model: every page turn fetches [pageStart, pageStart +
+  /// chunkSize) — one page plus a boundary margin, never the whole file.
+  Future<void> _ensureChunk() async {
+    final ps = state.pageStarts[state.currentPage];
+    if (ps != state.chunkOff) {
+      await _requestChunk(ps);
+    }
+  }
+
   void nextPage() {
-    if (state.currentPage < state.totalPages - 1) {
+    if (state.currentPage + 1 < state.pageCount && !state.isLoading) {
       state = state.copyWith(currentPage: state.currentPage + 1);
+      _ensureChunk();
     }
   }
 
   void prevPage() {
-    if (state.currentPage > 0) {
+    if (state.currentPage > 0 && !state.isLoading) {
       state = state.copyWith(currentPage: state.currentPage - 1);
+      _ensureChunk();
     }
   }
 

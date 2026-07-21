@@ -428,7 +428,7 @@ void UART_ClearEMusicCallbacks(void);
  *  UART Configuration
  *=============================================================================*/
 
-#define UART_RX_BUF_SIZE    2048
+#define UART_RX_BUF_SIZE    8192
 
 /*=============================================================================
  *  API

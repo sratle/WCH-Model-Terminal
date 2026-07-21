@@ -1,6 +1,7 @@
-// EBook reader state model.
-// Browses BOOK directory for .txt/.md/.json files, reads via "cat",
-// supports pagination.
+// EBook reader state model — PAGED BYTE-STREAM.
+// Browses BOOK directory for .txt/.md/.json files, reads via the Core CLI
+// `read <file> <off> <len>` command in fixed-size chunks, and keeps a
+// page-offset stack so books of any size use flat memory.
 
 class BookItem {
   final String name;
@@ -47,9 +48,17 @@ enum EbookTheme { dark, sepia, light }
 class EBookState {
   final List<BookItem> books;
   final int selectedIndex;
-  final String content;
+
+  /// Loaded chunk (text of [chunkOff, chunkOff + chunk.length) in the file)
+  final String chunk;
+  final int chunkOff;
+  final bool chunkEof;
+
+  /// Byte offset of each discovered page start (pageStarts[0] == 0).
+  /// Grows lazily as the user reads forward.
+  final List<int> pageStarts;
   final int currentPage;
-  final int totalPages;
+
   final bool isLoading;
   final String? error;
   final EbookTheme theme;
@@ -58,9 +67,11 @@ class EBookState {
   const EBookState({
     this.books = const [],
     this.selectedIndex = -1,
-    this.content = '',
+    this.chunk = '',
+    this.chunkOff = 0,
+    this.chunkEof = false,
+    this.pageStarts = const [0],
     this.currentPage = 0,
-    this.totalPages = 0,
     this.isLoading = false,
     this.error,
     this.theme = EbookTheme.sepia,
@@ -70,12 +81,26 @@ class EBookState {
   /// Characters per page (approximate, tuned for mobile screen).
   static const int charsPerPage = 800;
 
+  /// Bytes per Core `read` request: one page (800 chars) plus a margin
+  /// covering the boundary word/line.  Per-page fetch — never the whole file.
+  static const int chunkSize = 1024;
+
+  /// Number of pages discovered so far.
+  int get pageCount => pageStarts.length;
+
+  bool get hasBook => selectedIndex >= 0;
+
+  /// More content may exist beyond the known pages.
+  bool get hasNextPage => currentPage + 1 < pageCount || !chunkEof;
+
   EBookState copyWith({
     List<BookItem>? books,
     int? selectedIndex,
-    String? content,
+    String? chunk,
+    int? chunkOff,
+    bool? chunkEof,
+    List<int>? pageStarts,
     int? currentPage,
-    int? totalPages,
     bool? isLoading,
     String? error,
     EbookTheme? theme,
@@ -84,9 +109,11 @@ class EBookState {
     return EBookState(
       books: books ?? this.books,
       selectedIndex: selectedIndex ?? this.selectedIndex,
-      content: content ?? this.content,
+      chunk: chunk ?? this.chunk,
+      chunkOff: chunkOff ?? this.chunkOff,
+      chunkEof: chunkEof ?? this.chunkEof,
+      pageStarts: pageStarts ?? this.pageStarts,
       currentPage: currentPage ?? this.currentPage,
-      totalPages: totalPages ?? this.totalPages,
       isLoading: isLoading ?? this.isLoading,
       error: error,
       theme: theme ?? this.theme,
@@ -94,14 +121,14 @@ class EBookState {
     );
   }
 
-  /// Get the text for the current page.
+  /// Get the text for the current page (from the loaded chunk).
   String get pageText {
-    if (content.isEmpty || totalPages == 0) return '';
-    final start = currentPage * charsPerPage;
-    if (start >= content.length) return '';
-    final end = (start + charsPerPage > content.length)
-        ? content.length
+    if (chunk.isEmpty || pageStarts.isEmpty) return '';
+    final start = pageStarts[currentPage] - chunkOff;
+    if (start < 0 || start >= chunk.length) return '';
+    final end = (start + charsPerPage > chunk.length)
+        ? chunk.length
         : start + charsPerPage;
-    return content.substring(start, end);
+    return chunk.substring(start, end);
   }
 }

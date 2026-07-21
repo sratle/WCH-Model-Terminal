@@ -224,10 +224,10 @@ PON（若已 POF）→ PDTM1(0x14) 写区域 OLD → PDTM2(0x15) 写区域 NEW
 | 应用 | 状态 | 说明 |
 |------|------|------|
 | Music | ✅ 完整移植 | 播放/暂停/上下曲/播放列表/音量/扬声器开关，`playst` 同步 |
-| Files | ✅ 完整移植 | 目录浏览/面包屑/上下文菜单(Menu 键)/新建/删除/属性/设备切换 |
+| Files | ✅ 完整移植 | 目录浏览/面包屑/上下文菜单(Menu 键)/新建/删除/属性/设备切换；ls 增量逐行解析，大目录不受 8KB 缓冲限制（上限为 Core 侧 32KB 捕获） |
 | Editor | ✅ 完整移植 | 4KB 编辑缓冲、32 级 undo、行号、光标、`write -s/-a/-e` 分帧保存 |
 | Images | ✅ 完整移植 | \BMP 列表、1/8/24bpp BMP 解码（零拷贝解析 CLI 缓冲）、缩放+平移 |
-| EBook | ✅ 完整移植 | \BOOK 列表、txt/md/json 渲染、明/暗主题、3 档字号、分页 |
+| EBook | ✅ 分页字节流 | \BOOK 列表、`read <file> <off> <len>` 按块（4KB）流式阅读，页偏移栈记录每页起始字节，RAM 占用与书长无关；txt/md/json 渲染、明/暗主题、3 档字号 |
 | USB/Power/BT/NFC/Finger/Health/SubDisp/RGB/IRRange/EMusic/Terminal | ⏳ Stub | 标题栏 + 提示页，保留入口 |
 
 RAM 纪律：CLI 应答缓冲 8KB（EBook/Images 零拷贝解析源）；Editor 4KB 编辑缓冲；Music 播放列表 32×64B；Files 条目 32 项；无应用持有 >10KB 私有缓冲。
@@ -300,7 +300,7 @@ display_2/
 | 键盘字符输入 | ✅ 已完成 | HID 全字符映射（编辑/对话框可用） |
 | 应用 | 🟡 5/16 | Music/Files/Editor/Images/EBook 完成，其余 stub |
 | 游戏 | ✅ 已完成 | 2048 + Minesweeper（挖/旗模式） |
-| CJK 字库 | ❌ 未实现 | 仅 ASCII（Montserrat 12/16 + 图标） |
+| 中文字库 | 🚫 明确不做 | 项目仅支持 ASCII 文本（Montserrat 12/16 + 图标），中文书籍/界面不在范围内 |
 | 刷新异步化 | ❌ 未实现 | 刷新期主循环阻塞（后续可做状态机） |
 
 ## 后续开发计划
@@ -309,8 +309,9 @@ display_2/
 2. **刷新异步化**：PON/PDRF/POF 状态机，刷新期间继续扫描触摸
 3. **局刷延迟再优化**：评估过渡 LUT 下取消每刷 POF（需硬件验证）
 4. **低温波形精调**：<10°C 实际模组参数（帧数/电压）硬件标定
-5. **CJK 阅读**：压缩子集字库 + UTF-8 解码（EBook 中文书籍）
-6. **MCU 低功耗**：空闲期降频/WFI（当前已做面板 DSLP）
+5. **MCU 低功耗**：空闲期降频/WFI（当前已做面板 DSLP）
+
+> 明确排除：中文字库与中文阅读（项目仅支持 ASCII 文本）。
 
 ## 开发要点
 

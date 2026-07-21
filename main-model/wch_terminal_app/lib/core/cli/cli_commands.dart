@@ -1,24 +1,35 @@
 /// 基于实际 cli.c 实现的 CLI 命令封装
 class CliCommands {
+  /// Sanitize a path/name for embedding in a command line: ls parsing can
+  /// leave a stray CR/LF inside a file name, and Core parses commands
+  /// line-by-line — an embedded newline would truncate the command.
+  static String _p(String path) => path.trim().replaceAll(RegExp(r'[\r\n]'), '');
+
   // ── 文件操作 ──
   static String ls() => 'ls';
-  static String cd(String path) => 'cd "$path"';
+  static String cd(String path) => 'cd "${_p(path)}"';
   static String pwd() => 'pwd';
-  static String tree([String? path]) => path != null ? 'tree "$path"' : 'tree';
-  static String cat(String path) => 'cat "$path"';
-  static String mkdir(String dir) => 'mkdir "$dir"';
-  static String touch(String file) => 'touch "$file"';
-  static String rm(String path) => 'rm "$path"';
-  static String rmRf(String dir) => 'rm -rf "$dir"';
-  static String cp(String src, String dst) => 'cp "$src" "$dst"';
-  static String mv(String oldName, String newName) => 'mv "$oldName" "$newName"';
-  static String hexdump(String file) => 'hexdump "$file"';
-  static String head(String file, [int? n]) => n != null ? 'head "$file" $n' : 'head "$file"';
-  static String tail(String file, [int? n]) => n != null ? 'tail "$file" $n' : 'tail "$file"';
-  static String du([String? dir]) => dir != null ? 'du "$dir"' : 'du';
-  static String find(String pattern) => 'find "$pattern"';
-  static String stat(String file) => 'stat "$file"';
-  static String chmod(String file, String attr) => 'chmod "$file" $attr';
+  static String tree([String? path]) => path != null ? 'tree "${_p(path)}"' : 'tree';
+  static String cat(String path) => 'cat "${_p(path)}"';
+  static String mkdir(String dir) => 'mkdir "${_p(dir)}"';
+  static String touch(String file) => 'touch "${_p(file)}"';
+  static String rm(String path) => 'rm "${_p(path)}"';
+  static String rmRf(String dir) => 'rm -rf "${_p(dir)}"';
+  static String cp(String src, String dst) => 'cp "${_p(src)}" "${_p(dst)}"';
+  static String mv(String oldName, String newName) => 'mv "${_p(oldName)}" "${_p(newName)}"';
+  static String hexdump(String file) => 'hexdump "${_p(file)}"';
+  static String head(String file, [int? n]) => n != null ? 'head "${_p(file)}" $n' : 'head "${_p(file)}"';
+  static String tail(String file, [int? n]) => n != null ? 'tail "${_p(file)}" $n' : 'tail "${_p(file)}"';
+
+  /// Read a file by byte range: read <file> <offset> [maxLen]
+  /// Returns exactly the file bytes [offset, offset+maxLen) — used by the
+  /// paged e-book readers to stream long books in chunks.
+  static String read(String file, int offset, [int? maxLen]) =>
+      maxLen != null ? 'read "${_p(file)}" $offset $maxLen' : 'read "${_p(file)}" $offset';
+  static String du([String? dir]) => dir != null ? 'du "${_p(dir)}"' : 'du';
+  static String find(String pattern) => 'find "${_p(pattern)}"';
+  static String stat(String file) => 'stat "${_p(file)}"';
+  static String chmod(String file, String attr) => 'chmod "${_p(file)}" $attr';
 
   // ── 音频控制 ──
   static String playst() => 'playst';

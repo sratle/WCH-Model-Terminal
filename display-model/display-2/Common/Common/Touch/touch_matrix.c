@@ -50,6 +50,21 @@
  * touch-down and touch-up, it's a tap (CLICK); otherwise it's a swipe (no event). */
 #define TM_TAP_THRESHOLD   15
 
+/* Time-assisted tap: a press shorter than TM_TAP_TIME_MS counts as a tap
+ * as long as the cursor moved less than TM_TAP_MOVE_MAX pixels (the coarse
+ * 4x8 grid jitters when the finger is lifted). */
+#define TM_TAP_TIME_MS     300
+#define TM_TAP_MOVE_MAX    25
+
+/* Movement hysteresis: cursor moves only when the centroid travelled at
+ * least this far from the anchor, in *10 grid units (4 = 0.4 grid).
+ * Kills the back-and-forth jitter when a finger bridges two pads. */
+#define TM_MOVE_THRESH     4
+
+/* Acceleration: deltas beyond 1.0 grid are boosted, capped at 3x */
+#define TM_ACCEL_START     10
+#define TM_ACCEL_MAX_X100  300
+
 /*=============================================================================
  *  TP-to-Grid Mapping
  *
@@ -108,6 +123,16 @@ static struct {
     int16_t last_col_x10;
     int16_t last_row_x10;
     bool    has_last_pos;
+
+    /* Anchor centroid for hysteresis (grid coordinates, fixed-point: *10).
+     * The cursor only moves when the raw centroid has travelled at least
+     * TM_MOVE_THRESH from the anchor; the anchor then re-centres.  This
+     * suppresses pad-bridging jitter WITHOUT the lag of EMA smoothing. */
+    int16_t anchor_col_x10;
+    int16_t anchor_row_x10;
+
+    /* Press timestamp (ms) for the time-assisted tap detection */
+    uint32_t press_ms;
 
     /* Touch state */
     tm_state_t state;
@@ -438,8 +463,12 @@ void TouchMatrix_Scan(void)
             s_tm.last_col_x10 = col_x10;
             s_tm.last_row_x10 = row_x10;
             s_tm.has_last_pos = true;
+            /* Anchor at the touch-down centroid */
+            s_tm.anchor_col_x10 = col_x10;
+            s_tm.anchor_row_x10 = row_x10;
             s_tm.start_cursor_x = s_tm.cursor_x;
             s_tm.start_cursor_y = s_tm.cursor_y;
+            s_tm.press_ms = now;
             s_tm.state = TM_STATE_TRACKING;
 
             printf("[tm] DOWN bits=0x%08lX cursor=(%d,%d) col=%d row=%d\r\n",
@@ -450,38 +479,56 @@ void TouchMatrix_Scan(void)
 
     case TM_STATE_TRACKING:
         if (touched) {
-            /* Compute delta from last sample */
-            int16_t dcol = col_x10 - s_tm.last_col_x10;
-            int16_t drow = row_x10 - s_tm.last_row_x10;
+            /* Anchor-based hysteresis for the coarse 4x8 matrix:
+             * the cursor only moves when the centroid has travelled at
+             * least TM_MOVE_THRESH (0.4 grid) from the anchor, then the
+             * FULL delta is applied and the anchor re-centres.
+             * No smoothing, no lag — jitter within one pad gap is
+             * swallowed entirely, real moves stay 1:1 responsive. */
+            int16_t dcol = col_x10 - s_tm.anchor_col_x10;
+            int16_t drow = row_x10 - s_tm.anchor_row_x10;
+            int16_t adc = (dcol < 0) ? -dcol : dcol;
+            int16_t adr = (drow < 0) ? -drow : drow;
+            int16_t amax = (adc > adr) ? adc : adr;
 
-            s_tm.last_col_x10 = col_x10;
-            s_tm.last_row_x10 = row_x10;
+            if (amax >= TM_MOVE_THRESH) {
+                /* Acceleration for big jumps (>1 grid), capped at 3x */
+                int32_t gain = 100;
+                if (amax > TM_ACCEL_START) {
+                    gain += (int32_t)(amax - TM_ACCEL_START) * 15;
+                    if (gain > TM_ACCEL_MAX_X100) gain = TM_ACCEL_MAX_X100;
+                }
 
-            /* Convert to screen pixel displacement (dcol is *10 grid units) */
-            int16_t dx = (int16_t)((int32_t)dcol * s_tm.sensitivity_x / 10);
-            int16_t dy = (int16_t)((int32_t)drow * s_tm.sensitivity_y / 10);
+                /* Screen pixel displacement (dcol is *10 grid units) */
+                int16_t dx = (int16_t)((int32_t)dcol * s_tm.sensitivity_x * gain / 10 / 100);
+                int16_t dy = (int16_t)((int32_t)drow * s_tm.sensitivity_y * gain / 10 / 100);
 
-            if (dx != 0 || dy != 0) {
-                /* Update cursor with clamping.
-                 * DON'T inject TOUCH_MOVE — the cursor is rendered via
-                 * TouchMatrix_InvalidateCursor() in the main loop.
-                 * This ensures swipe only moves the cursor visually,
-                 * without triggering widget events. */
-                s_tm.cursor_x += dx;
-                s_tm.cursor_y += dy;
+                /* Re-anchor at the current centroid */
+                s_tm.anchor_col_x10 = col_x10;
+                s_tm.anchor_row_x10 = row_x10;
 
-                if (s_tm.cursor_x < 0) s_tm.cursor_x = 0;
-                if (s_tm.cursor_x >= TM_SCREEN_W) s_tm.cursor_x = TM_SCREEN_W - 1;
-                if (s_tm.cursor_y < 0) s_tm.cursor_y = 0;
-                if (s_tm.cursor_y >= TM_SCREEN_H) s_tm.cursor_y = TM_SCREEN_H - 1;
+                if (dx != 0 || dy != 0) {
+                    /* Update cursor with clamping.
+                     * DON'T inject TOUCH_MOVE — the cursor is rendered via
+                     * TouchMatrix_InvalidateCursor() in the main loop.
+                     * This ensures swipe only moves the cursor visually,
+                     * without triggering widget events. */
+                    s_tm.cursor_x += dx;
+                    s_tm.cursor_y += dy;
 
-                /* Throttled debug output (every ~200ms) */
-                s_tm.debug_move_count++;
-                if (now - s_tm.last_debug_ms >= 200) {
-                    printf("[tm] MOVE bits=0x%08lX cursor=(%d,%d) d=%d,%d\r\n",
-                           bits, s_tm.cursor_x, s_tm.cursor_y, dx, dy);
-                    s_tm.last_debug_ms = now;
-                    s_tm.debug_move_count = 0;
+                    if (s_tm.cursor_x < 0) s_tm.cursor_x = 0;
+                    if (s_tm.cursor_x >= TM_SCREEN_W) s_tm.cursor_x = TM_SCREEN_W - 1;
+                    if (s_tm.cursor_y < 0) s_tm.cursor_y = 0;
+                    if (s_tm.cursor_y >= TM_SCREEN_H) s_tm.cursor_y = TM_SCREEN_H - 1;
+
+                    /* Throttled debug output (every ~200ms) */
+                    s_tm.debug_move_count++;
+                    if (now - s_tm.last_debug_ms >= 200) {
+                        printf("[tm] MOVE bits=0x%08lX cursor=(%d,%d) d=%d,%d g=%ld\r\n",
+                               bits, s_tm.cursor_x, s_tm.cursor_y, dx, dy, gain);
+                        s_tm.last_debug_ms = now;
+                        s_tm.debug_move_count = 0;
+                    }
                 }
             }
         } else {
@@ -491,11 +538,19 @@ void TouchMatrix_Scan(void)
             int16_t abs_dx = (total_dx < 0) ? -total_dx : total_dx;
             int16_t abs_dy = (total_dy < 0) ? -total_dy : total_dy;
             int16_t max_move = (abs_dx > abs_dy) ? abs_dx : abs_dy;
+            uint32_t press_time = now - s_tm.press_ms;
 
-            printf("[tm] UP bits=0x%08lX cursor=(%d,%d) move=(%d,%d)\r\n",
-                   bits, s_tm.cursor_x, s_tm.cursor_y, total_dx, total_dy);
+            /* Time-assisted tap: a short press is a tap even with some
+             * wobble (the coarse grid jitters when lifting the finger).
+             * A long press must stay nearly still to count as a tap. */
+            bool is_tap = (max_move < TM_TAP_THRESHOLD) ||
+                          (press_time < TM_TAP_TIME_MS && max_move < TM_TAP_MOVE_MAX);
 
-            if (max_move < TM_TAP_THRESHOLD) {
+            printf("[tm] UP bits=0x%08lX cursor=(%d,%d) move=(%d,%d) t=%lu tap=%d\r\n",
+                   bits, s_tm.cursor_x, s_tm.cursor_y, total_dx, total_dy,
+                   press_time, (int)is_tap);
+
+            if (is_tap) {
                 /* Tap: inject TOUCH_DOWN + TOUCH_UP at cursor position.
                  * The gesture synthesizer will produce a CLICK event
                  * (dx=0, dy=0 since both use the same position). */

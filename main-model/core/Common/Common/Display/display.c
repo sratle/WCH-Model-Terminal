@@ -700,6 +700,11 @@ static uint8_t Display_HandleCLI(const protocol_frame_t *req,
                                       chunk, flags);
             offset += chunk;
             chunk_idx++;
+            /* Pace chunk frames: without a gap the display-side RX ring
+             * (2KB) overflows on >2KB responses and silently drops frames
+             * (EOF lost → response never dispatches → apps hang).
+             * 2ms per chunk keeps the link robust for both displays. */
+            if (offset < cli_capture_len) Delay_Ms(2);
         }
     } else {
         /* 无输出也发一个空响应（SOF+EOF），让 Display 知道命令已执行 */
