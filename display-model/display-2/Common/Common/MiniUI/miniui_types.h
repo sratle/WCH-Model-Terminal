@@ -156,6 +156,7 @@ typedef enum {
 
 #define UI_TOUCH_ID_NONE  0xFF
 #define UI_MAX_TOUCH_POINTS 5
+#define UI_MAX_KEYBOARD_KEYS 6   /* Max simultaneous non-modifier keys (USB HID) */
 
 /* Touch event data sub-structure */
 typedef struct {
@@ -181,6 +182,9 @@ typedef struct {
     };
     uint8_t char_code;
     int8_t scroll_delta;
+    /* Mouse button state bitmask (UI_MOUSE_BTN_*) — valid for
+     * UI_INPUT_MOUSE sourced events (e.g. right-click context menu) */
+    uint8_t mouse_buttons;
 } ui_event_t;
 
 /*=============================================================================

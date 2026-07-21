@@ -13,6 +13,7 @@
 #include "app_editor.h"
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
+#include "../MiniUI/miniui_anim.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -124,6 +125,9 @@ static ui_widget_t *s_editor_widgets[5];
 static editor_state_t s_ed;
 static char s_status_buf[80];
 
+/* Smooth (animated, pixel-level) text scrolling */
+static ui_scroller_t s_ed_scroller;
+
 /*=============================================================================
  *  Dirty Region Helpers
  *=============================================================================*/
@@ -133,6 +137,28 @@ static void editor_invalidate_text_area(void)
 {
     ui_rect_t r = {0, EDIT_TEXT_Y, UI_SCREEN_WIDTH, EDIT_TEXT_H};
     ui_page_invalidate(&r);
+}
+
+/* Scroller position update: redraw the text area at the new pixel offset */
+static void editor_scroll_moved(int32_t value, void *user_data)
+{
+    (void)value; (void)user_data;
+    editor_invalidate_text_area();
+}
+
+/* Set scroll position (in lines), clamped; animates the pixel position */
+static void editor_scroll_set(int16_t lines, bool animate)
+{
+    int16_t max_lines = s_ed.line_count - EDIT_VISIBLE_LINES;
+    if (max_lines < 0) max_lines = 0;
+    if (lines > max_lines) lines = max_lines;
+    if (lines < 0) lines = 0;
+    s_ed.scroll_line = lines;
+    if (animate) {
+        ui_scroller_set_goal(&s_ed_scroller, (int32_t)lines * EDIT_LINE_H);
+    } else {
+        ui_scroller_jump(&s_ed_scroller, (int32_t)lines * EDIT_LINE_H);
+    }
 }
 
 /* Invalidate the status bar */
@@ -145,8 +171,8 @@ static void editor_invalidate_status(void)
 /* Invalidate a specific line in the text area */
 static void editor_invalidate_line(int16_t line_idx)
 {
-    if (line_idx < s_ed.scroll_line || line_idx >= s_ed.scroll_line + EDIT_VISIBLE_LINES) return;
-    int16_t y = EDIT_TEXT_Y + (line_idx - s_ed.scroll_line) * EDIT_LINE_H;
+    int16_t y = EDIT_TEXT_Y + line_idx * EDIT_LINE_H - (int16_t)s_ed_scroller.pos;
+    if (y + EDIT_LINE_H <= EDIT_TEXT_Y || y >= EDIT_TEXT_Y + EDIT_TEXT_H) return;
     ui_rect_t r = {0, y, UI_SCREEN_WIDTH, EDIT_LINE_H};
     ui_page_invalidate(&r);
 }
@@ -154,9 +180,8 @@ static void editor_invalidate_line(int16_t line_idx)
 /* Invalidate the cursor region (current line + small area around cursor) */
 static void editor_invalidate_cursor(void)
 {
-    if (s_ed.cursor_line < s_ed.scroll_line ||
-        s_ed.cursor_line >= s_ed.scroll_line + EDIT_VISIBLE_LINES) return;
-    int16_t y = EDIT_TEXT_Y + (s_ed.cursor_line - s_ed.scroll_line) * EDIT_LINE_H;
+    int16_t y = EDIT_TEXT_Y + s_ed.cursor_line * EDIT_LINE_H - (int16_t)s_ed_scroller.pos;
+    if (y + EDIT_LINE_H <= EDIT_TEXT_Y || y >= EDIT_TEXT_Y + EDIT_TEXT_H) return;
     ui_rect_t r = {EDIT_GUTTER_W, y, UI_SCREEN_WIDTH - EDIT_GUTTER_W, EDIT_LINE_H};
     ui_page_invalidate(&r);
 }
@@ -224,13 +249,9 @@ static void editor_update_cursor_coords(void)
 static void editor_ensure_cursor_visible(void)
 {
     if (s_ed.cursor_line < s_ed.scroll_line)
-        s_ed.scroll_line = s_ed.cursor_line;
+        editor_scroll_set(s_ed.cursor_line, true);
     else if (s_ed.cursor_line >= s_ed.scroll_line + EDIT_VISIBLE_LINES)
-        s_ed.scroll_line = s_ed.cursor_line - EDIT_VISIBLE_LINES + 1;
-    int max_scroll = s_ed.line_count - EDIT_VISIBLE_LINES;
-    if (max_scroll < 0) max_scroll = 0;
-    if (s_ed.scroll_line > max_scroll) s_ed.scroll_line = max_scroll;
-    if (s_ed.scroll_line < 0) s_ed.scroll_line = 0;
+        editor_scroll_set(s_ed.cursor_line - EDIT_VISIBLE_LINES + 1, true);
 }
 
 static void editor_update_status(void)
@@ -616,7 +637,7 @@ static void editor_on_cli_stream(const char *chunk, uint16_t len, bool is_last)
             s_ed.is_loading = false;
             s_ed.has_content = true;
             s_ed.is_modified = false;
-            s_ed.scroll_line = 0;
+            editor_scroll_set(0, false);
             s_ed.cursor_pos = 0;
             s_ed.has_selection = false;
             s_ed.undo_top = 0;
@@ -642,7 +663,7 @@ void app_editor_open_file(const char *path, const char *name)
     memset(s_ed.content, 0, sizeof(s_ed.content));
     s_ed.content_len = 0;
     s_ed.line_count = 0;
-    s_ed.scroll_line = 0;
+    editor_scroll_set(0, false);
     s_ed.cursor_pos = 0;
     s_ed.cursor_line = 0;
     s_ed.cursor_col = 0;
@@ -763,19 +784,26 @@ static void editor_draw_gutter(void)
     ui_draw_fill_rect(&gbg, EDIT_GUTTER_BG);
     ui_draw_vline(EDIT_GUTTER_W - 1, EDIT_TEXT_Y, EDIT_TEXT_H, EDIT_BORDER);
 
-    for (int i = 0; i < EDIT_VISIBLE_LINES; i++) {
-        int ln = s_ed.scroll_line + i + 1;
-        if (ln > s_ed.line_count) break;
+    int32_t pos = s_ed_scroller.pos;
+    int16_t first = (int16_t)(pos / EDIT_LINE_H);
+    int16_t off   = (int16_t)(pos % EDIT_LINE_H);
+
+    ui_render_push_target(&gbg);
+    for (int i = 0; i <= EDIT_VISIBLE_LINES; i++) {
+        int li = first + i;
+        if (li >= s_ed.line_count) break;
+        int ln = li + 1;
         char nb[8];
         snprintf(nb, sizeof(nb), "%d", ln);
-        int16_t y = EDIT_TEXT_Y + i * EDIT_LINE_H + 2;
+        int16_t y = EDIT_TEXT_Y - off + i * EDIT_LINE_H + 2;
         int16_t nw = ui_text_width(nb, &font_montserrat_12);
         ui_color_t num_clr = EDIT_GUTTER_TEXT;
         /* Highlight current line number */
-        if (s_ed.has_content && (s_ed.scroll_line + i) == s_ed.cursor_line)
+        if (s_ed.has_content && li == s_ed.cursor_line)
             num_clr = UI_COLOR_PRIMARY;
         ui_draw_text(EDIT_GUTTER_W - nw - 8, y, nb, &font_montserrat_12, num_clr);
     }
+    ui_render_pop_target();
 }
 
 static void editor_draw_text_area(void)
@@ -790,17 +818,24 @@ static void editor_draw_text_area(void)
         return;
     }
 
+    int32_t pos = s_ed_scroller.pos;
+    int16_t first = (int16_t)(pos / EDIT_LINE_H);
+    int16_t off   = (int16_t)(pos % EDIT_LINE_H);
+
+    ui_render_push_target(&tbg);
+
     /* Current line highlight */
-    if (s_ed.cursor_line >= s_ed.scroll_line &&
-        s_ed.cursor_line < s_ed.scroll_line + EDIT_VISIBLE_LINES) {
-        int16_t hl_y = EDIT_TEXT_Y + (s_ed.cursor_line - s_ed.scroll_line) * EDIT_LINE_H;
-        ui_rect_t hl_rect = {EDIT_TEXT_X, hl_y, EDIT_TEXT_W, EDIT_LINE_H};
-        ui_draw_fill_rect(&hl_rect, EDIT_LINE_HIGHLIGHT);
+    if (s_ed.has_content) {
+        int16_t hl_y = EDIT_TEXT_Y + s_ed.cursor_line * EDIT_LINE_H - (int16_t)pos;
+        if (hl_y + EDIT_LINE_H > EDIT_TEXT_Y && hl_y < EDIT_TEXT_Y + EDIT_TEXT_H) {
+            ui_rect_t hl_rect = {EDIT_TEXT_X, hl_y, EDIT_TEXT_W, EDIT_LINE_H};
+            ui_draw_fill_rect(&hl_rect, EDIT_LINE_HIGHLIGHT);
+        }
     }
 
-    /* Draw each visible line */
-    for (int i = 0; i < EDIT_VISIBLE_LINES; i++) {
-        int li = s_ed.scroll_line + i;
+    /* Draw each visible line (pixel-level smooth scroll) */
+    for (int i = 0; i <= EDIT_VISIBLE_LINES; i++) {
+        int li = first + i;
         if (li >= s_ed.line_count) break;
 
         uint16_t start = s_ed.line_offsets[li];
@@ -814,7 +849,7 @@ static void editor_draw_text_area(void)
         while (ll > 0 && (lb[ll - 1] == '\n' || lb[ll - 1] == '\r'))
             lb[--ll] = '\0';
 
-        int16_t y = EDIT_TEXT_Y + i * EDIT_LINE_H + 2;
+        int16_t y = EDIT_TEXT_Y - off + i * EDIT_LINE_H + 2;
 
         /* Selection highlight for this line */
         if (s_ed.has_selection) {
@@ -850,26 +885,27 @@ static void editor_draw_text_area(void)
     }
 
     /* Draw cursor */
-    if (s_ed.cursor_visible && s_ed.has_content &&
-        s_ed.cursor_line >= s_ed.scroll_line &&
-        s_ed.cursor_line < s_ed.scroll_line + EDIT_VISIBLE_LINES) {
-        int16_t cur_y = EDIT_TEXT_Y + (s_ed.cursor_line - s_ed.scroll_line) * EDIT_LINE_H;
+    if (s_ed.cursor_visible && s_ed.has_content) {
+        int16_t cur_y = EDIT_TEXT_Y + s_ed.cursor_line * EDIT_LINE_H - (int16_t)pos;
+        if (cur_y + EDIT_LINE_H > EDIT_TEXT_Y && cur_y < EDIT_TEXT_Y + EDIT_TEXT_H) {
+            /* Calculate cursor X position by measuring text width up to cursor column */
+            uint16_t line_start = s_ed.line_offsets[s_ed.cursor_line];
+            char before_cursor[EDIT_MAX_LINE_LEN];
+            uint16_t bclen = s_ed.cursor_pos - line_start;
+            if (bclen > sizeof(before_cursor) - 1) bclen = sizeof(before_cursor) - 1;
+            memcpy(before_cursor, &s_ed.content[line_start], bclen);
+            before_cursor[bclen] = '\0';
+            int16_t cur_x = EDIT_TEXT_X + 8 + ui_text_width(before_cursor, &font_montserrat_12);
 
-        /* Calculate cursor X position by measuring text width up to cursor column */
-        uint16_t line_start = s_ed.line_offsets[s_ed.cursor_line];
-        char before_cursor[EDIT_MAX_LINE_LEN];
-        uint16_t bclen = s_ed.cursor_pos - line_start;
-        if (bclen > sizeof(before_cursor) - 1) bclen = sizeof(before_cursor) - 1;
-        memcpy(before_cursor, &s_ed.content[line_start], bclen);
-        before_cursor[bclen] = '\0';
-        int16_t cur_x = EDIT_TEXT_X + 8 + ui_text_width(before_cursor, &font_montserrat_12);
-
-        /* Draw cursor as a thin vertical bar */
-        ui_draw_vline(cur_x, cur_y + 1, EDIT_LINE_H - 2, EDIT_CURSOR_COLOR);
-        /* Also draw a small block at the bottom for visibility */
-        ui_rect_t cur_block = {cur_x - 1, cur_y + EDIT_LINE_H - 4, 3, 3};
-        ui_draw_fill_rect(&cur_block, EDIT_CURSOR_COLOR);
+            /* Draw cursor as a thin vertical bar */
+            ui_draw_vline(cur_x, cur_y + 1, EDIT_LINE_H - 2, EDIT_CURSOR_COLOR);
+            /* Also draw a small block at the bottom for visibility */
+            ui_rect_t cur_block = {cur_x - 1, cur_y + EDIT_LINE_H - 4, 3, 3};
+            ui_draw_fill_rect(&cur_block, EDIT_CURSOR_COLOR);
+        }
     }
+
+    ui_render_pop_target();
 }
 
 static void editor_draw_status(void)
@@ -925,30 +961,19 @@ static void text_touch_event(ui_widget_t *w, ui_event_t *e)
     (void)w;
     if (!s_ed.has_content) return;
 
-    /* Mouse wheel scrolling */
+    /* Mouse wheel scrolling (smooth) */
     if (e->type == UI_EVENT_MOVE && e->scroll_delta != 0) {
-        int max_s = s_ed.line_count - EDIT_VISIBLE_LINES;
-        if (max_s < 0) max_s = 0;
-        s_ed.scroll_line -= e->scroll_delta;
-        if (s_ed.scroll_line > max_s) s_ed.scroll_line = max_s;
-        if (s_ed.scroll_line < 0) s_ed.scroll_line = 0;
-        editor_invalidate_text_area();
+        editor_scroll_set(s_ed.scroll_line - e->scroll_delta, true);
         return;
     }
 
-    /* Touch swipe scrolling */
+    /* Touch swipe scrolling (smooth) */
     if (e->type == UI_EVENT_SWIPE_UP) {
-        int max_s = s_ed.line_count - EDIT_VISIBLE_LINES;
-        if (max_s < 0) max_s = 0;
-        s_ed.scroll_line += 3;
-        if (s_ed.scroll_line > max_s) s_ed.scroll_line = max_s;
-        editor_invalidate_text_area();
+        editor_scroll_set(s_ed.scroll_line + 3, true);
         return;
     }
     if (e->type == UI_EVENT_SWIPE_DOWN) {
-        s_ed.scroll_line -= 3;
-        if (s_ed.scroll_line < 0) s_ed.scroll_line = 0;
-        editor_invalidate_text_area();
+        editor_scroll_set(s_ed.scroll_line - 3, true);
         return;
     }
 
@@ -959,7 +984,8 @@ static void text_touch_event(ui_widget_t *w, ui_event_t *e)
         if (rel_y < 0 || rel_y >= EDIT_TEXT_H) return;
         if (rel_x < 0) rel_x = 0;
 
-        int16_t target_line = s_ed.scroll_line + rel_y / EDIT_LINE_H;
+        /* Use the animated pixel offset so the hit matches what is on screen */
+        int16_t target_line = (int16_t)((rel_y + s_ed_scroller.pos) / EDIT_LINE_H);
         if (target_line < 0) target_line = 0;
         if (target_line >= s_ed.line_count) target_line = s_ed.line_count - 1;
 
@@ -1192,6 +1218,7 @@ void app_editor_init(void)
     memset(&s_ed, 0, sizeof(s_ed));
     strcpy(s_ed.file_name, "(no file)");
     s_ed.cursor_visible = true;
+    ui_scroller_init(&s_ed_scroller, 0, editor_scroll_moved, NULL);
     editor_update_status();
 
     ui_rect_t r_save = {UI_SCREEN_WIDTH - 80, 6, 64, 28};

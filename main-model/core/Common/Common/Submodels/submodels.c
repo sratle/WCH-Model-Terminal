@@ -739,6 +739,126 @@ static uint8_t submodels_nfc_dispatch(submodels_t *submodel, const protocol_fram
  *
  * bitmap: bit0=Key1(TP9,方阵左上) … bit15=Key16(TP12,圆环11点钟), 1=touched
  */
+/* ---- 4. 触摸圆环 (type = 0x04) ----
+ *
+ * 圆环 → 鼠标滚轮映射：
+ *   12 个圆环焊盘在触摸位图中占据 bit4~bit15（键 ID 5~16），且位序号递增
+ *   方向与物理顺时针一致（bit4=TP13 12点钟 → bit15=TP12 11点钟）。
+ *   Core 以半步（0.5 焊盘）分辨率跟踪手指质心位置：一圈 = 12 焊盘 = 24 半步。
+ *   质心每累计移动 2 半步（= 1 个焊盘）产生 1 格滚轮增量，打包为标准鼠标
+ *   报告经 CMD_DISP_INPUT_EVENT 转发给 Display。
+ *
+ *   方向约定：顺时针 = 向下滚动（滚轮值为负）；协议定义滚轮正值 = 向上。
+ *   如需反向，翻转 TOUCH_RING_WHEEL_DIR 的符号即可。
+ */
+#define TOUCH_RING_WHEEL_DIR        (-1)  /* 顺时针 → 负滚轮增量（向下） */
+
+static struct {
+    uint8_t tracking;   /* 手指正在圆环上滑动 */
+    int16_t last_pos;   /* 上一次质心位置（半步单位，0~23） */
+    int16_t accum;      /* 累计位移（半步单位），满 2 半步发 1 格滚轮 */
+} s_ring;
+
+/* 将一次圆环触摸位图转换为滚轮增量并转发给 Display（模拟标准鼠标滚轮） */
+static void submodels_touch_ring_to_wheel(uint16_t bitmap)
+{
+    /* 提取圆环 12 键：bitmap bit4~bit15 → ring bit0~bit11 */
+    uint16_t ring_bits = (bitmap >> 4) & 0x0FFF;
+    uint8_t  count = 0;
+    int16_t  offset_sum = 0;
+    uint8_t  jump = 0;
+    int16_t  delta, ticks, wheel;
+    uint8_t  ms_report[4];
+    uint8_t  i;
+
+    /* 手指离开圆环：停止跟踪，等待下次按下重新锚定 */
+    if (ring_bits == 0)
+    {
+        s_ring.tracking = 0;
+        s_ring.accum = 0;
+        return;
+    }
+
+    if (!s_ring.tracking)
+    {
+        /* 新一次触摸：以当前质心为锚点，不产生滚轮增量 */
+        int32_t pos_sum = 0;
+        for (i = 0; i < 12; i++)
+        {
+            if (ring_bits & (1U << i))
+            {
+                pos_sum += (int16_t)(i * 2);
+                count++;
+            }
+        }
+        s_ring.last_pos = (int16_t)(pos_sum / count);
+        s_ring.tracking = 1;
+        s_ring.accum = 0;
+        return;
+    }
+
+    /* 跟踪中：将每个触点半步位置展开为相对 last_pos 的偏移（-12~+11），
+     * 相邻触摸（手指搭在两焊盘之间）自然得到半步分辨率 */
+    for (i = 0; i < 12; i++)
+    {
+        if (ring_bits & (1U << i))
+        {
+            int16_t p = (int16_t)(i * 2);
+            /* 环绕展开到 last_pos 附近：(-12, +12] 区间 */
+            int16_t o = (int16_t)((p - s_ring.last_pos + 36) % 24 - 12);
+            if (o > 6 || o < -6)
+            {
+                /* 距锚点超过 3 个焊盘：视为跳变（多点误触等异常），
+                 * 放弃本次增量，重新锚定。快速滑动（≤3 焊盘/10ms）
+                 * 仍可正常累计。 */
+                jump = 1;
+                break;
+            }
+            offset_sum += o;
+            count++;
+        }
+    }
+
+    if (jump)
+    {
+        int32_t pos_sum = 0;
+        count = 0;
+        for (i = 0; i < 12; i++)
+        {
+            if (ring_bits & (1U << i))
+            {
+                pos_sum += (int16_t)(i * 2);
+                count++;
+            }
+        }
+        s_ring.last_pos = (int16_t)(pos_sum / count);
+        s_ring.accum = 0;
+        return;
+    }
+
+    /* 质心相对偏移即本次位移（半步单位），锚点随动并归一化到 [0,23] */
+    delta = (int16_t)(offset_sum / count);
+    s_ring.last_pos = (int16_t)(((s_ring.last_pos + delta) % 24 + 24) % 24);
+    s_ring.accum = (int16_t)(s_ring.accum + delta);
+
+    /* 每 2 半步（1 个焊盘）= 1 格滚轮；一次上报可携带多格 */
+    ticks = (int16_t)(s_ring.accum / 2);
+    if (ticks == 0)
+        return;
+    s_ring.accum = (int16_t)(s_ring.accum - ticks * 2);
+
+    wheel = (int16_t)(ticks * TOUCH_RING_WHEEL_DIR);
+    if (wheel > 127) wheel = 127;
+    if (wheel < -128) wheel = -128;
+
+    /* 标准鼠标报告: [buttons:1][dx:1][dy:1][wheel:1] */
+    ms_report[0] = 0x00;
+    ms_report[1] = 0;
+    ms_report[2] = 0;
+    ms_report[3] = (uint8_t)(int8_t)wheel;
+    Display_SendInputEvent(&display_g, INPUT_DEV_MOUSE, ms_report, 4);
+}
+
 static uint8_t submodels_touch_dispatch(submodels_t *submodel, const protocol_frame_t *req,
                                         uint8_t *resp, uint16_t resp_size, uint8_t *resp_len)
 {
@@ -756,7 +876,7 @@ static uint8_t submodels_touch_dispatch(submodels_t *submodel, const protocol_fr
                     if (req->len >= 3)
                     {
                         uint16_t bitmap = ((uint16_t)req->data[1] << 8) | req->data[2];
-                        printf("[Touch] bitmap=0x%04X\r\n", bitmap);
+                        submodels_touch_ring_to_wheel(bitmap);
                     }
                     *resp_len = 0;
                     return 1;   /* 事件帧无需回复 */

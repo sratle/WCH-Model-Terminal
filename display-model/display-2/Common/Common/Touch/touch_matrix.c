@@ -157,6 +157,10 @@ static struct {
     int16_t  start_cursor_x;
     int16_t  start_cursor_y;
 
+    /* Last cursor-move timestamp (ms), touchpad or mouse driven.
+     * Used by TouchMatrix_IsCursorActive() for flush coalescing. */
+    uint32_t last_cursor_move_ms;
+
     /* Debug throttle */
     uint32_t last_debug_ms;
     uint8_t  debug_move_count;
@@ -360,6 +364,35 @@ uint32_t TouchMatrix_GetRawState(void)    { return s_tm.raw_bits; }
 #define TM_CURSOR_W  10   /* 8px bitmap + 1px outline each side */
 #define TM_CURSOR_H  13
 
+/*=============================================================================
+ *  Mouse-Driven Cursor Control
+ *===========================================================================*/
+
+void TouchMatrix_MoveCursor(int16_t dx, int16_t dy)
+{
+    if (dx == 0 && dy == 0) return;
+
+    s_tm.cursor_x += dx;
+    s_tm.cursor_y += dy;
+
+    if (s_tm.cursor_x < 0) s_tm.cursor_x = 0;
+    if (s_tm.cursor_x >= TM_SCREEN_W) s_tm.cursor_x = TM_SCREEN_W - 1;
+    if (s_tm.cursor_y < 0) s_tm.cursor_y = 0;
+    if (s_tm.cursor_y >= TM_SCREEN_H) s_tm.cursor_y = TM_SCREEN_H - 1;
+
+    s_tm.last_cursor_move_ms = ui_get_real_ms();
+}
+
+/* Cursor-only flush throttle window; must match miniui_page.c */
+#define TM_CURSOR_ACTIVE_MS  350
+
+bool TouchMatrix_IsCursorActive(void)
+{
+    if (s_tm.state != TM_STATE_IDLE) return true;
+    if (!s_tm.cursor_visible) return false;
+    return (ui_get_real_ms() - s_tm.last_cursor_move_ms) < TM_CURSOR_ACTIVE_MS;
+}
+
 void TouchMatrix_InvalidateCursor(void)
 {
     if (!s_tm.cursor_visible) return;
@@ -520,6 +553,8 @@ void TouchMatrix_Scan(void)
                     if (s_tm.cursor_x >= TM_SCREEN_W) s_tm.cursor_x = TM_SCREEN_W - 1;
                     if (s_tm.cursor_y < 0) s_tm.cursor_y = 0;
                     if (s_tm.cursor_y >= TM_SCREEN_H) s_tm.cursor_y = TM_SCREEN_H - 1;
+
+                    s_tm.last_cursor_move_ms = now;
 
                     /* Throttled debug output (every ~200ms) */
                     s_tm.debug_move_count++;

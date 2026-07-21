@@ -12,6 +12,7 @@
 #include "app_terminal.h"
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
+#include "../MiniUI/miniui_anim.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -107,6 +108,7 @@ static ui_app_page_t s_app_terminal;
 static ui_widget_t s_term_touch;
 static ui_widget_t *s_terminal_widgets[3]; /* back + title + touch */
 static terminal_state_t s_term;
+static ui_scroller_t s_scroller;           /* smooth wheel/swipe scrolling */
 
 /*=============================================================================
  *  Scroll Helpers
@@ -126,23 +128,44 @@ static int16_t term_max_scroll(void)
     return (max > 0) ? max : 0;
 }
 
-/* Clamp scroll_y to valid range, update auto_scroll flag */
-static void term_clamp_scroll(void)
+/* Forward declaration (defined in the Dirty Region Helpers section) */
+static void term_invalidate_content(void);
+
+/* Smooth-scroll position update: keeps the state struct and the
+ * scroller tween in sync, redraws the viewport. */
+static void term_scroll_moved(int32_t value, void *user_data)
+{
+    (void)user_data;
+    s_term.scroll_y = (int16_t)value;
+    term_invalidate_content();
+}
+
+/* Scroll to a pixel position, clamped to the valid range.
+ * animate=true  → ease-out tween (wheel / swipe gestures)
+ * animate=false → instant jump (auto-scroll, resize clamping)
+ * auto_scroll semantics preserved from the old term_clamp_scroll():
+ * it is set when the bottom is (re)ached, and left untouched otherwise. */
+static void term_apply_scroll(int16_t y, bool animate)
 {
     int16_t max = term_max_scroll();
-    if (s_term.scroll_y > max) s_term.scroll_y = max;
-    if (s_term.scroll_y < 0) s_term.scroll_y = 0;
+    if (y > max) y = max;
+    if (y < 0) y = 0;
 
-    /* If scrolled to bottom, re-enable auto-scroll */
-    if (s_term.scroll_y >= max) {
+    if (y >= max) {
         s_term.auto_scroll = true;
+    }
+
+    if (animate) {
+        ui_scroller_set_goal(&s_scroller, y);
+    } else {
+        ui_scroller_jump(&s_scroller, y);
     }
 }
 
 /* Scroll to bottom (for auto-scroll on new output) */
 static void term_scroll_to_bottom(void)
 {
-    s_term.scroll_y = term_max_scroll();
+    term_apply_scroll(term_max_scroll(), false);
     s_term.auto_scroll = true;
 }
 
@@ -523,29 +546,23 @@ static void term_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
 
-    /* Mouse wheel: pixel-level scrolling */
+    /* Mouse wheel: smooth pixel-level scrolling */
     if (e->type == UI_EVENT_MOVE && e->scroll_delta != 0) {
-        s_term.scroll_y -= e->scroll_delta * TERM_WHEEL_PX;
-        term_clamp_scroll();
-        term_invalidate_content();
+        term_apply_scroll((int16_t)(s_scroller.goal - e->scroll_delta * TERM_WHEEL_PX), true);
         return;
     }
 
-    /* Swipe: scroll by lines */
+    /* Swipe: scroll by lines (animated) */
     if (e->type == UI_EVENT_SWIPE_UP) {
-        s_term.scroll_y += TERM_SWIPE_LINES * TERM_LINE_H;
-        term_clamp_scroll();
-        term_invalidate_content();
+        term_apply_scroll((int16_t)(s_scroller.goal + TERM_SWIPE_LINES * TERM_LINE_H), true);
         return;
     }
     if (e->type == UI_EVENT_SWIPE_DOWN) {
-        s_term.scroll_y -= TERM_SWIPE_LINES * TERM_LINE_H;
-        term_clamp_scroll();
-        term_invalidate_content();
+        term_apply_scroll((int16_t)(s_scroller.goal - TERM_SWIPE_LINES * TERM_LINE_H), true);
         return;
     }
 
-    /* Double click: scroll to bottom */
+    /* Double click: scroll to bottom (instant) */
     if (e->type == UI_EVENT_DOUBLE_CLICK) {
         term_scroll_to_bottom();
         term_invalidate_content();
@@ -790,6 +807,7 @@ void app_terminal_init(void)
     s_term.cursor_visible = true;
     s_term.auto_scroll = true;
     strcpy(s_term.cwd, "/");
+    ui_scroller_init(&s_scroller, 0, term_scroll_moved, NULL);
 
     /* Welcome message */
     term_add_line("Terminal v2.0", 13);

@@ -10,6 +10,7 @@
 #include "miniui_widget.h"
 #include "miniui_page.h"
 #include "miniui_render.h"
+#include "../Touch/touch_matrix.h"
 #include "debug.h"
 #include <string.h>
 
@@ -279,11 +280,34 @@ void ui_input_inject_touch(uint8_t id, int16_t x, int16_t y, uint8_t pressed)
     }
 }
 
-void ui_input_process(void)
+/*=============================================================================
+ *  Mouse State (external HID mouse forwarded by Core)
+ *=============================================================================*/
+
+static bool    s_mouse_connected = false;  /* external mouse present */
+static uint8_t s_mouse_buttons = 0;        /* current button bitmask */
+static int16_t s_scroll_accum = 0;         /* pending wheel delta (batched) */
+
+/* Nonlinear mouse acceleration (same feel as Display-1):
+ * |raw| <= 1  →  1 px  (precise)
+ * |raw| == 2  →  4 px
+ * |raw| == 3  →  7 px
+ * |raw| >= 4  →  raw * raw / 2  (aggressive) */
+static int16_t mouse_accel(int8_t raw)
 {
-    /* Polling-based input processing.
-     * Touch events are injected externally via ui_input_inject_touch().
-     * This function can be used for periodic polling if needed. */
+    if (raw == 0) return 0;
+    int16_t sign = (raw > 0) ? 1 : -1;
+    int16_t mag = (raw > 0) ? raw : -raw;
+
+    int16_t out;
+    if (mag <= 1) {
+        out = 1;
+    } else if (mag <= 3) {
+        out = (mag * mag + mag) / 2;   /* quadratic ramp: 2→4, 3→7 */
+    } else {
+        out = (mag * mag) / 2;         /* aggressive: mag^2 / 2 */
+    }
+    return sign * out;
 }
 
 /*=============================================================================
@@ -297,37 +321,86 @@ void ui_input_feed_touch(uint8_t touch_id, bool pressed, int16_t x, int16_t y)
 
 void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
 {
-    /* E-ink display: mouse support is limited.
-     * Map mouse movement to touch events for basic navigation. */
-    (void)scroll;
-    static int16_t mx = 200, my = 150;
-    static bool was_pressed = false;
-
-    mx += dx;
-    my += dy;
-    if (mx < 0) mx = 0;
-    if (mx >= UI_SCREEN_WIDTH) mx = UI_SCREEN_WIDTH - 1;
-    if (my < 0) my = 0;
-    if (my >= UI_SCREEN_HEIGHT) my = UI_SCREEN_HEIGHT - 1;
-
-    bool pressed = (buttons & 0x01) != 0;
-    if (pressed && !was_pressed) {
-        ui_input_inject_touch(0, mx, my, 1);
-    } else if (!pressed && was_pressed) {
-        ui_input_inject_touch(0, mx, my, 0);
-    } else if (pressed) {
-        ui_input_inject_touch(0, mx, my, 1);
+    /* Auto-enable mouse state when any mouse data is received
+     * (CH9350 external mouse or BLE HID mouse, forwarded by Core) */
+    if (!s_mouse_connected) {
+        s_mouse_connected = true;
     }
-    was_pressed = pressed;
+
+    /* Move the shared cursor (same pointer the touchpad drives) */
+    if (dx != 0 || dy != 0) {
+        TouchMatrix_MoveCursor(mouse_accel(dx), mouse_accel(dy));
+    }
+
+    uint8_t prev_buttons = s_mouse_buttons;
+    s_mouse_buttons = buttons;
+
+    int16_t cx = TouchMatrix_GetCursorX();
+    int16_t cy = TouchMatrix_GetCursorY();
+
+    /* --- Left button: touch injection (click / drag via gesture synth) --- */
+    bool left_down = (buttons & UI_MOUSE_BTN_LEFT) != 0;
+    bool prev_left_down = (prev_buttons & UI_MOUSE_BTN_LEFT) != 0;
+
+    if (left_down && !prev_left_down) {
+        ui_input_inject_touch(0, cx, cy, 1);           /* TOUCH_DOWN at cursor */
+    } else if (!left_down && prev_left_down) {
+        ui_input_inject_touch(0, cx, cy, 0);           /* TOUCH_UP → CLICK */
+    } else if (left_down && (dx != 0 || dy != 0)) {
+        ui_input_inject_touch(0, cx, cy, 1);           /* drag → TOUCH_MOVE */
+    }
+
+    /* --- Right button: click delivers a MOUSE CLICK with button mask
+     *     (apps use it for context menus, same as Display-1) --- */
+    bool right_down = (buttons & UI_MOUSE_BTN_RIGHT) != 0;
+    bool prev_right_down = (prev_buttons & UI_MOUSE_BTN_RIGHT) != 0;
+
+    if (!right_down && prev_right_down) {
+        ui_event_t e;
+        memset(&e, 0, sizeof(e));
+        e.type = UI_EVENT_CLICK;
+        e.source = UI_INPUT_MOUSE;
+        e.touch.x = cx;
+        e.touch.y = cy;
+        e.touch.id = UI_TOUCH_ID_NONE;
+        e.mouse_buttons = UI_MOUSE_BTN_RIGHT;
+        ui_input_deliver_event(0, &e);
+    }
+
+    /* --- Wheel: accumulate, delivered batched once per tick in
+     *     ui_input_process() (keeps e-paper refreshes coalesced) --- */
+    if (scroll != 0) {
+        s_scroll_accum += scroll;
+        if (s_scroll_accum > 512) s_scroll_accum = 512;
+        if (s_scroll_accum < -512) s_scroll_accum = -512;
+    }
 }
 
-void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6])
-{
-    /* Full HID keyboard support: navigation keys become UI key events,
-     * printable keys carry their ASCII in char_code (shift-aware) so
-     * text-editing apps (Editor, input dialogs) work over UART HID. */
-    if (!key_codes) return;
+/*=============================================================================
+ *  Keyboard Input Processing
+ *
+ *  Full HID keyboard support (reports forwarded by Core from CH9350 USB
+ *  keyboard / Keyboard module / BLE HID keyboard):
+ *    - newly-pressed keys emit their mapped event immediately
+ *    - held keys auto-repeat after UI_KEY_REPEAT_DELAY_MS, every
+ *      UI_KEY_REPEAT_INTERVAL_MS (Escape excluded)
+ *    - navigation keys become dedicated UI events; printable keys carry
+ *      their ASCII in char_code (shift-aware) so text-editing apps work
+ *=============================================================================*/
 
+#define UI_KEY_REPEAT_DELAY_MS     500
+#define UI_KEY_REPEAT_INTERVAL_MS  100
+
+static struct {
+    uint8_t  hid_code;        /* 0 = empty slot */
+    uint8_t  modifiers;       /* modifiers captured at press time */
+    uint32_t press_ms;
+    uint32_t last_repeat_ms;
+} s_held_keys[UI_MAX_KEYBOARD_KEYS];
+
+/* Map a HID usage ID to its UI event. Returns false for unmappable keys. */
+static bool build_key_event(uint8_t kc, uint8_t modifiers, ui_event_t *e)
+{
     /* HID usage -> (unshifted, shifted) ASCII for punctuation */
     static const char s_punct_map[][2] = {
         {0x2D, 0x5F},   /* 0x2D: - _ */
@@ -346,148 +419,276 @@ void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6])
 
     bool shift = (modifiers & (UI_MOD_LSHIFT | UI_MOD_RSHIFT)) != 0;
 
-    for (uint8_t i = 0; i < 6; i++) {
-        uint8_t kc = key_codes[i];
+    memset(e, 0, sizeof(*e));
+    e->source = UI_INPUT_KEYBOARD;
+    e->key.modifiers = modifiers;
+
+    switch (kc) {
+    /* --- Navigation / control keys -> dedicated events --- */
+    case 0x28:  /* Enter */
+        e->type = UI_EVENT_KEY_OK;
+        e->key.code = UI_KEY_OK;
+        e->char_code = '\n';
+        return true;
+    case 0x29:  /* Escape */
+        e->type = UI_EVENT_KEY_BACK;
+        e->key.code = UI_KEY_BACK;
+        return true;
+    case 0x2A:  /* Backspace */
+        e->type = UI_EVENT_KEY_DOWN;
+        e->char_code = 0x08;
+        return true;
+    case 0x2B:  /* Tab */
+        e->type = UI_EVENT_KEY_DOWN;
+        e->key.code = UI_KEY_TAB;
+        e->char_code = 0x09;
+        return true;
+    case 0x2C:  /* Space */
+        e->type = UI_EVENT_KEY_DOWN;
+        e->char_code = ' ';
+        return true;
+    case 0x4C:  /* Delete (forward) */
+        e->type = UI_EVENT_KEY_DOWN;
+        e->char_code = 0x7F;
+        return true;
+    case 0x4A:  /* Home */
+        e->type = UI_EVENT_KEY_DOWN;
+        e->key.code = UI_KEY_HOME;
+        return true;
+    case 0x4D:  /* End */
+        e->type = UI_EVENT_KEY_DOWN;
+        e->key.code = UI_KEY_END;
+        return true;
+    case 0x4B:  /* PageUp -> swipe up (page back) */
+        e->type = UI_EVENT_SWIPE_UP;
+        return true;
+    case 0x4E:  /* PageDown -> swipe down (page forward) */
+        e->type = UI_EVENT_SWIPE_DOWN;
+        return true;
+    case 0x4F:  /* Right arrow */
+        e->type = UI_EVENT_KEY_RIGHT_ARROW;
+        e->key.code = UI_KEY_RIGHT;
+        return true;
+    case 0x50:  /* Down arrow */
+        e->type = UI_EVENT_KEY_DOWN_ARROW;
+        e->key.code = UI_KEY_DOWN;
+        return true;
+    case 0x51:  /* Left arrow */
+        e->type = UI_EVENT_KEY_LEFT_ARROW;
+        e->key.code = UI_KEY_LEFT;
+        return true;
+    case 0x52:  /* Up arrow */
+        e->type = UI_EVENT_KEY_UP_ARROW;
+        e->key.code = UI_KEY_UP;
+        return true;
+    case 0x65:  /* Application (Menu) key */
+        e->type = UI_EVENT_KEY_DOWN;
+        e->key.code = UI_KEY_MENU;
+        return true;
+    default:
+        /* --- Printable characters --- */
+        if (kc >= 0x04 && kc <= 0x1D) {         /* a-z */
+            char c = (char)('a' + (kc - 0x04));
+            if (shift) c = (char)(c - 'a' + 'A');
+            e->type = UI_EVENT_KEY_DOWN;
+            e->char_code = (uint8_t)c;
+        } else if (kc >= 0x1E && kc <= 0x26) {  /* 1-9 */
+            char c = shift ? s_digit_shift[kc - 0x1E + 1]
+                           : (char)('1' + (kc - 0x1E));
+            e->type = UI_EVENT_KEY_DOWN;
+            e->char_code = (uint8_t)c;
+        } else if (kc == 0x27) {                /* 0 */
+            e->type = UI_EVENT_KEY_DOWN;
+            e->char_code = (uint8_t)(shift ? ')' : '0');
+        } else if (kc >= 0x2D && kc <= 0x31) {  /* - = [ ] \ */
+            e->type = UI_EVENT_KEY_DOWN;
+            e->char_code = (uint8_t)s_punct_map[kc - 0x2D][shift ? 1 : 0];
+        } else if (kc >= 0x33 && kc <= 0x38) {  /* ; ' ` , . / */
+            e->type = UI_EVENT_KEY_DOWN;
+            e->char_code = (uint8_t)s_punct_map[5 + (kc - 0x33)][shift ? 1 : 0];
+        }
+        break;
+    }
+
+    return e->type != UI_EVENT_NONE;
+}
+
+/* Deliver a key event: page handler first; if not consumed, broadcast to
+ * all visible+enabled widgets (mirrors Display-1's non-pointer dispatch).
+ * This lets key-originated swipes (PageUp/PageDown) and arrow events reach
+ * list/content widgets that handle scrolling at the widget level. */
+static void deliver_key_event(ui_event_t *e)
+{
+    ui_page_t *page = ui_page_current();
+    if (!page) return;
+
+    if (page->on_page_event) {
+        if (page->on_page_event(page, e)) return;
+    }
+
+    for (int16_t i = 0; i < (int16_t)page->widget_count; i++) {
+        ui_widget_t *w = page->widgets[i];
+        if (w && (w->flags & UI_WIDGET_FLAG_VISIBLE) && (w->flags & UI_WIDGET_FLAG_ENABLED)) {
+            ui_widget_event(w, e);
+        }
+    }
+}
+
+void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6])
+{
+    if (!key_codes) return;
+
+    uint32_t now = ui_get_real_ms();
+
+    /* Diff: release held keys that disappeared from the report */
+    for (uint8_t i = 0; i < UI_MAX_KEYBOARD_KEYS; i++) {
+        if (s_held_keys[i].hid_code == 0) continue;
+        bool still_held = false;
+        for (uint8_t j = 0; j < UI_MAX_KEYBOARD_KEYS; j++) {
+            if (key_codes[j] == s_held_keys[i].hid_code) {
+                still_held = true;
+                break;
+            }
+        }
+        if (!still_held) s_held_keys[i].hid_code = 0;
+    }
+
+    /* Diff: emit events only for newly pressed keys (HID reports carry the
+     * full pressed set; without this diff every report would re-fire all
+     * held keys) */
+    for (uint8_t j = 0; j < UI_MAX_KEYBOARD_KEYS; j++) {
+        uint8_t kc = key_codes[j];
         if (kc == 0) continue;
 
-        ui_event_t e;
-        memset(&e, 0, sizeof(e));
-        e.source = UI_INPUT_KEYBOARD;
-        e.key.modifiers = modifiers;
-
-        switch (kc) {
-        /* --- Navigation / control keys -> dedicated events --- */
-        case 0x28:  /* Enter */
-            e.type = UI_EVENT_KEY_OK;
-            e.key.code = UI_KEY_OK;
-            e.char_code = '\n';
-            break;
-        case 0x29:  /* Escape */
-            e.type = UI_EVENT_KEY_BACK;
-            e.key.code = UI_KEY_BACK;
-            break;
-        case 0x2A:  /* Backspace */
-            e.type = UI_EVENT_KEY_DOWN;
-            e.char_code = 0x08;
-            break;
-        case 0x2B:  /* Tab */
-            e.type = UI_EVENT_KEY_DOWN;
-            e.key.code = UI_KEY_TAB;
-            e.char_code = 0x09;
-            break;
-        case 0x2C:  /* Space */
-            e.type = UI_EVENT_KEY_DOWN;
-            e.char_code = ' ';
-            break;
-        case 0x4C:  /* Delete (forward) */
-            e.type = UI_EVENT_KEY_DOWN;
-            e.char_code = 0x7F;
-            break;
-        case 0x4A:  /* Home */
-            e.type = UI_EVENT_KEY_DOWN;
-            e.key.code = UI_KEY_HOME;
-            break;
-        case 0x4D:  /* End */
-            e.type = UI_EVENT_KEY_DOWN;
-            e.key.code = UI_KEY_END;
-            break;
-        case 0x4B:  /* PageUp -> swipe up (page back) */
-            e.type = UI_EVENT_SWIPE_UP;
-            break;
-        case 0x4E:  /* PageDown -> swipe down (page forward) */
-            e.type = UI_EVENT_SWIPE_DOWN;
-            break;
-        case 0x4F:  /* Right arrow */
-            e.type = UI_EVENT_KEY_RIGHT_ARROW;
-            e.key.code = UI_KEY_RIGHT;
-            break;
-        case 0x50:  /* Down arrow */
-            e.type = UI_EVENT_KEY_DOWN_ARROW;
-            e.key.code = UI_KEY_DOWN;
-            break;
-        case 0x51:  /* Left arrow */
-            e.type = UI_EVENT_KEY_LEFT_ARROW;
-            e.key.code = UI_KEY_LEFT;
-            break;
-        case 0x52:  /* Up arrow */
-            e.type = UI_EVENT_KEY_UP_ARROW;
-            e.key.code = UI_KEY_UP;
-            break;
-        default:
-            /* --- Printable characters --- */
-            if (kc >= 0x04 && kc <= 0x1D) {         /* a-z */
-                char c = (char)('a' + (kc - 0x04));
-                if (shift) c = (char)(c - 'a' + 'A');
-                e.type = UI_EVENT_KEY_DOWN;
-                e.char_code = (uint8_t)c;
-            } else if (kc >= 0x1E && kc <= 0x26) {  /* 1-9 */
-                char c = shift ? s_digit_shift[kc - 0x1E + 1]
-                               : (char)('1' + (kc - 0x1E));
-                e.type = UI_EVENT_KEY_DOWN;
-                e.char_code = (uint8_t)c;
-            } else if (kc == 0x27) {                /* 0 */
-                e.type = UI_EVENT_KEY_DOWN;
-                e.char_code = (uint8_t)(shift ? ')' : '0');
-            } else if (kc >= 0x2D && kc <= 0x31) {  /* - = [ ] \ */
-                e.type = UI_EVENT_KEY_DOWN;
-                e.char_code = (uint8_t)s_punct_map[kc - 0x2D][shift ? 1 : 0];
-            } else if (kc >= 0x33 && kc <= 0x38) {  /* ; ' ` , . / */
-                e.type = UI_EVENT_KEY_DOWN;
-                e.char_code = (uint8_t)s_punct_map[5 + (kc - 0x33)][shift ? 1 : 0];
+        bool already_held = false;
+        for (uint8_t i = 0; i < UI_MAX_KEYBOARD_KEYS; i++) {
+            if (s_held_keys[i].hid_code == kc) {
+                already_held = true;
+                break;
             }
-            break;
         }
+        if (already_held) continue;
 
-        if (e.type == UI_EVENT_NONE) continue;
-
-        /* Deliver: page handler first, then widgets (same as touch path) */
-        ui_page_t *page = ui_page_current();
-        if (!page) return;
-        if (page->on_page_event) {
-            if (page->on_page_event(page, &e)) continue;
+        int8_t slot = -1;
+        for (uint8_t i = 0; i < UI_MAX_KEYBOARD_KEYS; i++) {
+            if (s_held_keys[i].hid_code == 0) { slot = (int8_t)i; break; }
         }
-        /* Unconsumed control events reach the core-key fallback for
-         * global shortcuts (swipe page turns etc.) */
-        (void)e;
+        if (slot < 0) continue;   /* no free slot: drop extra keys */
+
+        s_held_keys[slot].hid_code = kc;
+        s_held_keys[slot].modifiers = modifiers;
+        s_held_keys[slot].press_ms = now;
+        s_held_keys[slot].last_repeat_ms = now;
+
+        ui_event_t e;
+        if (build_key_event(kc, modifiers, &e)) {
+            deliver_key_event(&e);
+        }
     }
 }
 
 void ui_input_feed_core_key(uint8_t key_id, uint8_t action)
 {
-    /* Core keys: 0=+, 1=-, 2=Enter
+    /* Core keys (per protocol): 0x01 = '+', 0x02 = '-', 0x03 = Enter
      * Map to navigation events on e-ink display */
     if (action != 0x01) return;  /* Only handle press */
 
-    ui_page_t *page = ui_page_current();
-    if (!page) return;
-
     ui_event_t e;
     memset(&e, 0, sizeof(e));
+    e.source = UI_INPUT_CORE_KEY;
 
     switch (key_id) {
-    case 0:  /* + key → swipe up / next */
+    case 0x01:  /* + key → swipe up / next */
         e.type = UI_EVENT_SWIPE_UP;
+        e.key.code = UI_KEY_CORE_PLUS;
+        deliver_key_event(&e);
         break;
-    case 1:  /* - key → swipe down / prev */
+    case 0x02:  /* - key → swipe down / prev */
         e.type = UI_EVENT_SWIPE_DOWN;
+        e.key.code = UI_KEY_CORE_MINUS;
+        deliver_key_event(&e);
         break;
-    case 2:  /* Enter key → click at center */
+    case 0x03:  /* Enter key → click at the current cursor position */
         e.type = UI_EVENT_CLICK;
-        e.touch.x = UI_SCREEN_WIDTH / 2;
-        e.touch.y = UI_SCREEN_HEIGHT / 2;
+        e.key.code = UI_KEY_CORE_ENTER;
+        e.touch.x = TouchMatrix_GetCursorX();
+        e.touch.y = TouchMatrix_GetCursorY();
+        e.touch.id = UI_TOUCH_ID_NONE;
+        ui_input_deliver_event(0, &e);
         break;
     default:
         return;
-    }
-
-    /* Deliver to page event handler */
-    if (page->on_page_event) {
-        page->on_page_event(page, &e);
     }
 }
 
 void ui_input_set_mouse_connected(bool connected)
 {
-    (void)connected;
-    /* E-ink: no mouse cursor rendering, just accept the call */
+    if (s_mouse_connected == connected) return;
+    s_mouse_connected = connected;
+
+    if (!connected) {
+        /* Mouse disconnected: release a held left button so the injected
+         * touch capture cannot get stuck, and drop pending wheel deltas.
+         * The shared cursor stays visible — the local touchpad still
+         * needs it (unlike Display-1, which hides the cursor). */
+        if (s_mouse_buttons & UI_MOUSE_BTN_LEFT) {
+            ui_input_inject_touch(0, TouchMatrix_GetCursorX(),
+                                  TouchMatrix_GetCursorY(), 0);
+        }
+        s_mouse_buttons = 0;
+        s_scroll_accum = 0;
+    }
+}
+
+/*=============================================================================
+ *  Periodic Input Processing — called every UI tick
+ *=============================================================================*/
+
+void ui_input_process(void)
+{
+    /* 1. Deliver the accumulated mouse wheel delta as ONE batched scroll
+     * event per tick.  A fast wheel spin bursts many UART reports into a
+     * single main-loop iteration; delivering each report directly would
+     * trigger one ~300ms e-paper refresh per notch.  Batching collapses
+     * the burst into a single larger scroll step and a single refresh. */
+    if (s_scroll_accum != 0) {
+        int16_t delta = s_scroll_accum;
+        s_scroll_accum = 0;
+        if (delta > 127) delta = 127;
+        if (delta < -128) delta = -128;
+
+        ui_event_t e;
+        memset(&e, 0, sizeof(e));
+        e.type = UI_EVENT_MOVE;   /* scroll is a MOVE variant with scroll_delta */
+        e.source = UI_INPUT_MOUSE;
+        e.touch.x = TouchMatrix_GetCursorX();
+        e.touch.y = TouchMatrix_GetCursorY();
+        e.touch.id = UI_TOUCH_ID_NONE;
+        e.scroll_delta = (int8_t)delta;
+        e.mouse_buttons = s_mouse_buttons;
+        ui_input_deliver_event(0, &e);
+    }
+
+    /* 2. Key auto-repeat: re-emit held keys after the initial delay.
+     * KEY_DOWN events become KEY_LONG_REPEAT for apps that distinguish;
+     * dedicated events (arrows, OK, ...) repeat as-is.  Escape is excluded
+     * so a held ESC cannot walk back multiple pages. */
+    uint32_t now = ui_get_real_ms();
+    for (uint8_t i = 0; i < UI_MAX_KEYBOARD_KEYS; i++) {
+        if (s_held_keys[i].hid_code == 0) continue;
+        if (s_held_keys[i].hid_code == 0x29) continue;   /* Escape */
+        if ((uint32_t)(now - s_held_keys[i].press_ms) < UI_KEY_REPEAT_DELAY_MS)
+            continue;
+        if ((uint32_t)(now - s_held_keys[i].last_repeat_ms) < UI_KEY_REPEAT_INTERVAL_MS)
+            continue;
+
+        s_held_keys[i].last_repeat_ms = now;
+
+        ui_event_t e;
+        if (build_key_event(s_held_keys[i].hid_code, s_held_keys[i].modifiers, &e)) {
+            if (e.type == UI_EVENT_KEY_DOWN)
+                e.type = UI_EVENT_KEY_LONG_REPEAT;
+            deliver_key_event(&e);
+        }
+    }
 }

@@ -16,6 +16,7 @@
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
 #include "../MiniUI/miniui_page.h"
+#include "../MiniUI/miniui_anim.h"
 #include "debug.h"
 #include <string.h>
 #include <stdio.h>
@@ -125,7 +126,7 @@ typedef struct {
     file_entry_t entries[FILE_MAX_ENTRIES];
     int16_t count;
     int16_t selected;
-    int16_t scroll_offset;
+    int16_t scroll_offset;          /* Scroll goal (items); animated px pos in s_list_scroller */
     bool loading;
     bool data_ready;
     uint8_t last_status;
@@ -147,6 +148,9 @@ static ui_widget_t *s_file_widgets[10];
 static file_state_t s_fs;
 static char s_status_text[80];
 static char s_path_display[FILE_PATH_MAX + 16];
+
+/* Smooth (animated, pixel-level) list scrolling */
+static ui_scroller_t s_list_scroller;
 
 /* Double-click detection */
 static uint32_t s_last_click_ms = 0;
@@ -187,11 +191,41 @@ static void file_invalidate_content(void)
     ui_page_invalidate(&r);
 }
 
+/* Invalidate just the scrollable list viewport (used per animation frame) */
+static void file_invalidate_list(void)
+{
+    ui_rect_t r = {0, FILE_LIST_Y, UI_SCREEN_WIDTH, FILE_LIST_H};
+    ui_page_invalidate(&r);
+}
+
+/* Scroller position update: redraw the list at the new pixel offset */
+static void file_scroll_moved(int32_t value, void *user_data)
+{
+    (void)value; (void)user_data;
+    file_invalidate_list();
+}
+
+/* Set list scroll (in items), clamped; animates the pixel position */
+static void file_scroll_set(int16_t items, bool animate)
+{
+    int16_t max_items = s_fs.count - FILE_VISIBLE_ITEMS;
+    if (max_items < 0) max_items = 0;
+    if (items > max_items) items = max_items;
+    if (items < 0) items = 0;
+    s_fs.scroll_offset = items;
+    if (animate) {
+        ui_scroller_set_goal(&s_list_scroller, (int32_t)items * FILE_ITEM_H);
+    } else {
+        ui_scroller_jump(&s_list_scroller, (int32_t)items * FILE_ITEM_H);
+    }
+}
+
 /* Invalidate a single list item row */
 static void file_invalidate_item(int16_t idx)
 {
-    if (idx < s_fs.scroll_offset || idx >= s_fs.scroll_offset + FILE_VISIBLE_ITEMS) return;
-    int16_t y = FILE_LIST_Y + (idx - s_fs.scroll_offset) * FILE_ITEM_H;
+    int32_t pos = s_list_scroller.pos;
+    int16_t y = FILE_LIST_Y + idx * FILE_ITEM_H - (int16_t)pos;
+    if (y + FILE_ITEM_H <= FILE_LIST_Y || y >= FILE_LIST_Y + FILE_LIST_H) return;
     ui_rect_t r = {0, y, UI_SCREEN_WIDTH, FILE_ITEM_H};
     ui_page_invalidate(&r);
 }
@@ -370,13 +404,9 @@ static void file_ensure_selected_visible(void)
 {
     if (s_fs.selected < 0) return;
     if (s_fs.selected < s_fs.scroll_offset)
-        s_fs.scroll_offset = s_fs.selected;
+        file_scroll_set(s_fs.selected, true);
     else if (s_fs.selected >= s_fs.scroll_offset + FILE_VISIBLE_ITEMS)
-        s_fs.scroll_offset = s_fs.selected - FILE_VISIBLE_ITEMS + 1;
-    int max_scroll = s_fs.count - FILE_VISIBLE_ITEMS;
-    if (max_scroll < 0) max_scroll = 0;
-    if (s_fs.scroll_offset > max_scroll) s_fs.scroll_offset = max_scroll;
-    if (s_fs.scroll_offset < 0) s_fs.scroll_offset = 0;
+        file_scroll_set(s_fs.selected - FILE_VISIBLE_ITEMS + 1, true);
 }
 
 /*=============================================================================
@@ -397,7 +427,7 @@ static void on_file_list_received(uint8_t status, const file_entry_t *entries, u
         s_fs.count = 0;
     }
     s_fs.selected = -1;
-    s_fs.scroll_offset = 0;
+    file_scroll_set(0, false);
     file_update_status();
     file_invalidate_content();
 }
@@ -822,13 +852,19 @@ static void file_draw_list(void)
         return;
     }
 
-    for (int i = 0; i < FILE_VISIBLE_ITEMS && (i + s_fs.scroll_offset) < s_fs.count; i++) {
-        int idx = i + s_fs.scroll_offset;
+    /* Items — pixel-level smooth scroll, clipped to the list viewport */
+    int32_t pos = s_list_scroller.pos;
+    int16_t first = (int16_t)(pos / FILE_ITEM_H);
+    int16_t off   = (int16_t)(pos % FILE_ITEM_H);
+
+    ui_render_push_target(&list_bg);
+    for (int i = 0; i <= FILE_VISIBLE_ITEMS && (first + i) < s_fs.count; i++) {
+        int idx = first + i;
         file_entry_t *e = &s_fs.entries[idx];
-        int16_t y = FILE_LIST_Y + i * FILE_ITEM_H;
+        int16_t y = FILE_LIST_Y - off + i * FILE_ITEM_H;
         ui_rect_t item_rect = {0, y, UI_SCREEN_WIDTH, FILE_ITEM_H};
         ui_color_t bg = (idx == s_fs.selected) ? FILE_ITEM_SEL :
-                        (i % 2 == 0) ? FILE_ITEM_BG : FILE_ITEM_ALT;
+                        (idx % 2 == 0) ? FILE_ITEM_BG : FILE_ITEM_ALT;
         ui_draw_fill_rect(&item_rect, bg);
         ui_draw_hline(12, y + FILE_ITEM_H - 1, UI_SCREEN_WIDTH - 24, FILE_BORDER);
 
@@ -853,15 +889,16 @@ static void file_draw_list(void)
             ui_draw_text(44, y + 22, size_buf, &font_montserrat_12, FILE_SIZE_COLOR);
         }
     }
+    ui_render_pop_target();
 
-    /* Scroll indicator */
+    /* Scroll indicator (position follows the animated pixel offset) */
     if (s_fs.count > FILE_VISIBLE_ITEMS) {
         int16_t bar_h = FILE_LIST_H * FILE_VISIBLE_ITEMS / s_fs.count;
         if (bar_h < 20) bar_h = 20;
-        int max_scroll = s_fs.count - FILE_VISIBLE_ITEMS;
+        int32_t max_px = (int32_t)(s_fs.count - FILE_VISIBLE_ITEMS) * FILE_ITEM_H;
         int16_t bar_y = FILE_LIST_Y;
-        if (max_scroll > 0)
-            bar_y += (FILE_LIST_H - bar_h) * s_fs.scroll_offset / max_scroll;
+        if (max_px > 0)
+            bar_y += (int16_t)((int32_t)(FILE_LIST_H - bar_h) * pos / max_px);
         ui_rect_t scroll_bg = {UI_SCREEN_WIDTH - 6, FILE_LIST_Y, 6, FILE_LIST_H};
         ui_draw_fill_rect(&scroll_bg, UI_HEX(0xE0E0E0));
         ui_rect_t scroll_bar = {UI_SCREEN_WIDTH - 6, bar_y, 6, bar_h};
@@ -1101,30 +1138,19 @@ static void list_touch_event(ui_widget_t *w, ui_event_t *e)
         return;
     }
 
-    /* Touch swipe scrolling */
+    /* Touch swipe scrolling (smooth) */
     if (e->type == UI_EVENT_SWIPE_UP) {
-        int max_scroll = s_fs.count - FILE_VISIBLE_ITEMS;
-        if (max_scroll < 0) max_scroll = 0;
-        s_fs.scroll_offset += 3;
-        if (s_fs.scroll_offset > max_scroll) s_fs.scroll_offset = max_scroll;
-        file_invalidate_content();
+        file_scroll_set(s_fs.scroll_offset + 3, true);
         return;
     }
     if (e->type == UI_EVENT_SWIPE_DOWN) {
-        s_fs.scroll_offset -= 3;
-        if (s_fs.scroll_offset < 0) s_fs.scroll_offset = 0;
-        file_invalidate_content();
+        file_scroll_set(s_fs.scroll_offset - 3, true);
         return;
     }
 
-    /* Mouse wheel scrolling */
+    /* Mouse wheel scrolling (smooth) */
     if (e->type == UI_EVENT_MOVE && e->scroll_delta != 0) {
-        int max_scroll = s_fs.count - FILE_VISIBLE_ITEMS;
-        if (max_scroll < 0) max_scroll = 0;
-        s_fs.scroll_offset -= e->scroll_delta;
-        if (s_fs.scroll_offset > max_scroll) s_fs.scroll_offset = max_scroll;
-        if (s_fs.scroll_offset < 0) s_fs.scroll_offset = 0;
-        file_invalidate_content();
+        file_scroll_set(s_fs.scroll_offset - e->scroll_delta, true);
         return;
     }
 
@@ -1133,7 +1159,8 @@ static void list_touch_event(ui_widget_t *w, ui_event_t *e)
     if (s_fs.count == 0) return;
     int16_t rel_y = e->pos.y - FILE_LIST_Y;
     if (rel_y < 0 || rel_y >= FILE_LIST_H) return;
-    int item_idx = s_fs.scroll_offset + rel_y / FILE_ITEM_H;
+    /* Use the animated pixel offset so the hit matches what is on screen */
+    int item_idx = (int)((rel_y + s_list_scroller.pos) / FILE_ITEM_H);
     if (item_idx < 0 || item_idx >= s_fs.count) return;
 
     /* Right-click: context menu */
@@ -1299,7 +1326,7 @@ static bool file_page_event(ui_page_t *page, ui_event_t *e)
         default:
             /* Menu key: open context menu */
             if (e->key_code == UI_KEY_MENU && s_fs.selected >= 0) {
-                int16_t item_y = FILE_LIST_Y + (s_fs.selected - s_fs.scroll_offset) * FILE_ITEM_H;
+                int16_t item_y = FILE_LIST_Y + s_fs.selected * FILE_ITEM_H - (int16_t)s_list_scroller.pos;
                 file_show_context_menu(200, item_y, s_fs.selected);
                 return true;
             }
@@ -1338,6 +1365,7 @@ void app_file_init(void)
     ui_app_page_init(&s_app_file, "Files", 0x101);
     memset(&s_fs, 0, sizeof(s_fs));
     s_fs.current_device = 1;  /* Default to USB */
+    ui_scroller_init(&s_list_scroller, 0, file_scroll_moved, NULL);
     file_update_status();
 
     ui_rect_t r_up = {10, TB_BTN_Y, TB_BTN_W, TB_BTN_H};

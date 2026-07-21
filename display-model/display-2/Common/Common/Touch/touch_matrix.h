@@ -66,6 +66,17 @@ bool     TouchMatrix_IsTouched(void);
 bool     TouchMatrix_IsCursorVisible(void);
 uint32_t TouchMatrix_GetRawState(void);
 
+/* Mouse-driven cursor control (shared cursor with the touchpad).
+ * MoveCursor applies a relative displacement with screen clamping and
+ * records the move time for flush coalescing. */
+void     TouchMatrix_MoveCursor(int16_t dx, int16_t dy);
+
+/* True while the cursor is "active": a finger is on the touchpad OR the
+ * cursor was moved (by touchpad or mouse) within the last
+ * CURSOR_FLUSH_INTERVAL_MS window.  Used by the page manager to coalesce
+ * cursor-only e-paper flushes. */
+bool     TouchMatrix_IsCursorActive(void);
+
 /* Cursor dirty region management (called by ui_system around page draw) */
 void     TouchMatrix_InvalidateCursor(void);
 void     TouchMatrix_CursorRendered(void);

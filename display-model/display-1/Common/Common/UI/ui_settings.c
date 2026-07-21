@@ -11,6 +11,7 @@
 #include "../SSD1963/ssd1963.h"
 #include "../settings.h"
 #include "../UART/uart_module.h"
+#include "../MiniUI/miniui_anim.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -248,14 +249,31 @@ static int16_t settings_max_scroll(void)
     return max > 0 ? max : 0;
 }
 
-/* Clamp scroll_y and return true if it changed */
-static bool settings_clamp_scroll(void)
+/* Smooth scrolling state (wheel / swipe / arrow-key scrolling) */
+static ui_scroller_t s_scroller;
+
+/* Scroller position update: re-lays out content at the new offset */
+static void settings_scroll_moved(int32_t value, void *user_data)
+{
+    (void)user_data;
+    s_scroll_y = (int16_t)value;
+    settings_update_content();
+}
+
+/* Scroll to a pixel offset, clamped to the valid range.
+ * animate=true  → ease-out tween (wheel / swipe gestures)
+ * animate=false → instant jump (tab change, page enter) */
+static void settings_apply_scroll(int16_t y, bool animate)
 {
     int16_t max = settings_max_scroll();
-    int16_t old = s_scroll_y;
-    if (s_scroll_y > max) s_scroll_y = max;
-    if (s_scroll_y < 0) s_scroll_y = 0;
-    return s_scroll_y != old;
+    if (y > max) y = max;
+    if (y < 0) y = 0;
+
+    if (animate) {
+        ui_scroller_set_goal(&s_scroller, y);
+    } else {
+        ui_scroller_jump(&s_scroller, y);
+    }
 }
 
 /* Page-level event handler for key scrolling */
@@ -265,15 +283,11 @@ static bool settings_page_event(ui_page_t *page, ui_event_t *e)
 
     /* Key arrows */
     if (e->type == UI_EVENT_KEY_DOWN_ARROW) {
-        s_scroll_y += SETTINGS_ITEM_H;
-        settings_clamp_scroll();
-        settings_update_content();
+        settings_apply_scroll((int16_t)(s_scroller.goal + SETTINGS_ITEM_H), true);
         return true;
     }
     if (e->type == UI_EVENT_KEY_UP_ARROW) {
-        s_scroll_y -= SETTINGS_ITEM_H;
-        settings_clamp_scroll();
-        settings_update_content();
+        settings_apply_scroll((int16_t)(s_scroller.goal - SETTINGS_ITEM_H), true);
         return true;
     }
 
@@ -357,23 +371,17 @@ static void settings_item_event_cb(ui_widget_t *w, ui_event_t *e)
 {
     /* Swipe: scroll content */
     if (e->type == UI_EVENT_SWIPE_UP) {
-        s_scroll_y += SETTINGS_ITEM_H;
-        settings_clamp_scroll();
-        settings_update_content();
+        settings_apply_scroll((int16_t)(s_scroller.goal + SETTINGS_ITEM_H), true);
         return;
     }
     if (e->type == UI_EVENT_SWIPE_DOWN) {
-        s_scroll_y -= SETTINGS_ITEM_H;
-        settings_clamp_scroll();
-        settings_update_content();
+        settings_apply_scroll((int16_t)(s_scroller.goal - SETTINGS_ITEM_H), true);
         return;
     }
 
     /* Mouse wheel */
     if (e->type == UI_EVENT_MOVE && e->scroll_delta != 0) {
-        s_scroll_y -= e->scroll_delta * SETTINGS_ITEM_H;
-        settings_clamp_scroll();
-        settings_update_content();
+        settings_apply_scroll((int16_t)(s_scroller.goal - e->scroll_delta * SETTINGS_ITEM_H), true);
         return;
     }
 
@@ -390,21 +398,15 @@ static void scroll_bg_event_cb(ui_widget_t *w, ui_event_t *e)
     (void)w;
 
     if (e->type == UI_EVENT_SWIPE_UP) {
-        s_scroll_y += SETTINGS_ITEM_H;
-        settings_clamp_scroll();
-        settings_update_content();
+        settings_apply_scroll((int16_t)(s_scroller.goal + SETTINGS_ITEM_H), true);
         return;
     }
     if (e->type == UI_EVENT_SWIPE_DOWN) {
-        s_scroll_y -= SETTINGS_ITEM_H;
-        settings_clamp_scroll();
-        settings_update_content();
+        settings_apply_scroll((int16_t)(s_scroller.goal - SETTINGS_ITEM_H), true);
         return;
     }
     if (e->type == UI_EVENT_MOVE && e->scroll_delta != 0) {
-        s_scroll_y -= e->scroll_delta * SETTINGS_ITEM_H;
-        settings_clamp_scroll();
-        settings_update_content();
+        settings_apply_scroll((int16_t)(s_scroller.goal - e->scroll_delta * SETTINGS_ITEM_H), true);
         return;
     }
 }
@@ -628,6 +630,7 @@ static void tab_change_cb(ui_widget_t *w, uint8_t tab)
     (void)w;
     (void)tab;
     s_scroll_y = 0;
+    ui_scroller_jump(&s_scroller, 0);
     settings_update_content();
 }
 
@@ -759,6 +762,7 @@ void ui_settings_enter(ui_page_t *page)
     s_fetch_module = -1;
     s_pending_count = 0;
     s_scroll_y = 0;
+    ui_scroller_jump(&s_scroller, 0);
 
     /* Initialize values with defaults */
     for (uint8_t t = 0; t < SETTINGS_TAB_COUNT; t++) {
@@ -796,6 +800,8 @@ void ui_settings_init(void)
 {
     int16_t cx = SIDEBAR_WIDTH + SETTINGS_LEFT;
     int16_t content_w = UI_SCREEN_WIDTH - SIDEBAR_WIDTH - 2 * SETTINGS_LEFT;
+
+    ui_scroller_init(&s_scroller, 0, settings_scroll_moved, NULL);
 
     /* Title */
     ui_rect_t title_rect = { cx, 16, 200, 28 };

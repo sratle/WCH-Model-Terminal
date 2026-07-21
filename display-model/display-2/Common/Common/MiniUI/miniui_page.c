@@ -439,13 +439,14 @@ bool ui_page_draw(void)
     }
 
     /* 6. Decide whether the e-paper flush can be deferred.
-     * While the finger is dragging the touch cursor, every move would
-     * otherwise trigger a ~300-500 ms partial refresh and the screen
-     * would constantly lag behind.  Cursor-only updates are coalesced:
-     * flush at most once per CURSOR_FLUSH_INTERVAL_MS while the finger
-     * is down; the final position flushes immediately on release.
+     * While the cursor is being dragged (touchpad finger down) or moved
+     * (external mouse), every move would otherwise trigger a ~300-500 ms
+     * partial refresh and the screen would constantly lag behind.
+     * Cursor-only updates are coalesced: flush at most once per
+     * CURSOR_FLUSH_INTERVAL_MS while the cursor is active; the final
+     * position flushes immediately on release.
      * Any non-cursor dirty region (real UI change) flushes at once. */
-    if (TouchMatrix_IsTouched() && TouchMatrix_IsCursorVisible()) {
+    if (TouchMatrix_IsCursorActive()) {
         uint32_t now = ui_get_real_ms();
         if ((uint32_t)(now - s_last_epd_flush_ms) < CURSOR_FLUSH_INTERVAL_MS) {
             ui_rect_t cursor_bbox;

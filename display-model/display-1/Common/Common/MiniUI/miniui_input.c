@@ -92,6 +92,29 @@ static bool queue_pop(ui_event_t *e)
     return true;
 }
 
+/* Scroll events coalesce with a pending scroll event at the queue tail:
+ * a fast wheel spin would otherwise flood the queue with MOVE events —
+ * and MOVE events are the first to be dropped when the queue fills,
+ * losing wheel ticks and making scrolling jumpy.  Accumulating preserves
+ * every tick as one larger delta. */
+static bool queue_push_scroll(ui_event_t *e)
+{
+    if (s_queue_count > 0) {
+        uint8_t last = (s_queue_tail + UI_INPUT_QUEUE_SIZE - 1) % UI_INPUT_QUEUE_SIZE;
+        ui_event_t *le = &s_event_queue[last];
+        if (le->type == UI_EVENT_MOVE && le->source == UI_INPUT_MOUSE &&
+            le->scroll_delta != 0) {
+            int16_t sum = le->scroll_delta + e->scroll_delta;
+            if (sum > 127) sum = 127;
+            if (sum < -128) sum = -128;
+            le->scroll_delta = (int8_t)sum;
+            le->pos = e->pos;
+            return true;
+        }
+    }
+    return queue_push(e);
+}
+
 /*=============================================================================
  *  Helpers
  *=============================================================================*/
@@ -390,9 +413,11 @@ void ui_input_feed_touch(uint8_t touch_id, bool pressed, int16_t x, int16_t y)
 void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
 {
     ui_pointer_state_t *mp = &s_state.mouse;
-    /* Auto-enable mouse cursor when any mouse data is received
-     * (from CH9350 external mouse, gamepad ROC2, or BLE) */
-    if (!s_ext_mouse_connected) {
+    /* Auto-enable mouse cursor when pointer data is received (from CH9350
+     * external mouse, gamepad ROC2, or BLE).  Scroll-only reports (e.g. the
+     * touch-ring wheel forwarded by Core) must NOT pop up the cursor —
+     * they carry no pointing intent. */
+    if (!s_ext_mouse_connected && (dx != 0 || dy != 0 || buttons != 0)) {
         s_ext_mouse_connected = true;
     }
     s_state.mouse_present = true;
@@ -496,7 +521,23 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
         queue_push(&e);
     }
 
-    /* Scroll wheel */
+    /* Right button: release emits a CLICK carrying the right-button mask
+     * (context menus).  The left-button gesture path above never fires for
+     * right clicks, so without this branch right-click was unreachable. */
+    bool right_down = (buttons & UI_MOUSE_BTN_RIGHT) != 0;
+    bool prev_right_down = (prev_buttons & UI_MOUSE_BTN_RIGHT) != 0;
+    if (!right_down && prev_right_down) {
+        ui_event_t re;
+        memset(&re, 0, sizeof(re));
+        re.source = UI_INPUT_MOUSE;
+        re.touch_id = UI_TOUCH_ID_NONE;
+        re.type = UI_EVENT_CLICK;
+        re.pos = mp->pos;
+        re.mouse_buttons = UI_MOUSE_BTN_RIGHT;
+        queue_push(&re);
+    }
+
+    /* Scroll wheel (coalesced with pending scroll events at queue tail) */
     if (scroll != 0) {
         ui_event_t se;
         memset(&se, 0, sizeof(se));
@@ -505,7 +546,7 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
         se.pos = mp->pos;
         se.scroll_delta = scroll;
         se.mouse_buttons = buttons;
-        queue_push(&se);
+        queue_push_scroll(&se);
     }
 }
 

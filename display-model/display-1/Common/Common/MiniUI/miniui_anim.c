@@ -96,6 +96,68 @@ bool ui_anim_is_active(void)
 }
 
 /*=============================================================================
+ *  Smooth Scroller Implementation
+ *=============================================================================*/
+
+static void ui_scroller_step(int32_t value, void *user_data)
+{
+    ui_scroller_t *s = (ui_scroller_t *)user_data;
+    s->pos = value;
+    if (value == s->goal) {
+        /* Tween finished: the anim slot is deactivated by ui_anim_tick
+         * right before this callback — clear our handle so a later
+         * ui_anim_stop() can never kill an unrelated animation that
+         * reused the freed slot. */
+        s->anim = NULL;
+    }
+    if (s->on_move) s->on_move(value, s->user_data);
+}
+
+void ui_scroller_init(ui_scroller_t *s, int32_t pos, ui_anim_update_cb_t on_move, void *user_data)
+{
+    if (!s) return;
+    s->pos = pos;
+    s->goal = pos;
+    s->anim = NULL;
+    s->on_move = on_move;
+    s->user_data = user_data;
+}
+
+void ui_scroller_set_goal(ui_scroller_t *s, int32_t goal)
+{
+    if (!s) return;
+    s->goal = goal;
+    if (s->pos == goal) {
+        if (s->anim) { ui_anim_stop(s->anim); s->anim = NULL; }
+        return;
+    }
+    if (s->anim) ui_anim_stop(s->anim);
+    s->anim = ui_anim_start(s->pos, goal, UI_SCROLLER_DURATION_MS, UI_EASE_OUT,
+                            ui_scroller_step, s);
+    if (!s->anim) {
+        /* Animation slots exhausted: jump directly to avoid a stuck view */
+        s->pos = goal;
+        if (s->on_move) s->on_move(goal, s->user_data);
+    }
+}
+
+void ui_scroller_jump(ui_scroller_t *s, int32_t pos)
+{
+    if (!s) return;
+    if (s->anim) { ui_anim_stop(s->anim); s->anim = NULL; }
+    s->goal = pos;
+    if (s->pos != pos) {
+        s->pos = pos;
+        if (s->on_move) s->on_move(pos, s->user_data);
+    }
+}
+
+bool ui_scroller_animating(const ui_scroller_t *s)
+{
+    return s && s->anim != NULL;
+}
+
+/*=============================================================================
  *  Easing Functions
  *=============================================================================*/
 

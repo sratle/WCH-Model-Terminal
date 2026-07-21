@@ -913,3 +913,4 @@ Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | V3.0 | 2026-05-23 | CLI 直通重构：废弃扩展码 0x06~0x0B、0x14、0x19 及基础码 0x1B/0x1D，统一使用 0x1A CLI 直通；Core 不再发送独立 ACK，CLI 响应通过 DISP_EXT_CLI 帧返回；删除批量传输/文件列表/文件操作/音乐控制/音量控制等废弃章节；删除以太网相关内容；章节重新编号 |
 | V3.1 | 2026-05-23 | CWD 三方同步：新增扩展码 0x1B `CMD_DISP_EXT_CWD_NOTIFY`（Core→Display 推送路径变更）；Core `cd`/`device` 成功后输出 `[CWD] <path>` 标记行供 WCH Terminal App 同步；Display 侧 ls 输出头部路径解析；app_file 支持触摸滑动/鼠标滚轮/双击打开/设备切换 |
 | V3.2 | 2026-05-25 | CLI 多帧传输协议：CLI 响应帧新增 `DATA[1]=FLAGS` 字段（`CLI_FLAG_SOF=0x01`, `CLI_FLAG_EOF=0x02`），支持长输出分帧传输；Display 侧基于 SOF/EOF 标记累积多帧响应，仅在收到 EOF 后解析分发；up 按钮和刷新按钮不再受 loading 状态阻塞 |
+| V3.3 | 2026-07-21 | 输入链路完善：Display-2 完整支持 Core 转发的键鼠 HID 输入（共享光标/左右键/滚轮/键盘自动重复，Core 按键 ID 修正）；Core 将触摸圆环（Submodel-4）旋转映射为标准鼠标滚轮报告经 0x15 转发；Display-1 滚轮事件队列合并 + 应用层像素级平滑滚动 |

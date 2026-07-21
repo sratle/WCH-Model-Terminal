@@ -1097,6 +1097,13 @@ static void list_touch_event(ui_widget_t *w, ui_event_t *e)
     int item_idx = s_fs.scroll_offset + rel_y / FILE_ITEM_H;
     if (item_idx < 0 || item_idx >= s_fs.count) return;
 
+    /* Right-click: context menu (external mouse, same as Display-1) */
+    if (e->type == UI_EVENT_CLICK && (e->mouse_buttons & UI_MOUSE_BTN_RIGHT)) {
+        s_fs.selected = item_idx;
+        file_show_context_menu(e->touch.x, e->touch.y, item_idx);
+        return;
+    }
+
     if (e->type == UI_EVENT_DOUBLE_CLICK) {
         s_fs.selected = item_idx;
         file_open_selected();

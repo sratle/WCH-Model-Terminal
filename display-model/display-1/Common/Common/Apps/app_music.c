@@ -17,6 +17,7 @@
 #include "app_music.h"
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
+#include "../MiniUI/miniui_anim.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,10 +114,36 @@ typedef struct {
     int16_t count;
     int16_t current;      /* Index of currently playing track, -1 if none */
     uint8_t mode;         /* PLAY_MODE_SINGLE / REPEAT / SINGLE_LOOP */
-    int16_t scroll;       /* Scroll offset for playlist */
+    int16_t scroll;       /* Scroll offset for playlist (goal, in items) */
 } music_playlist_t;
 
 static music_playlist_t s_playlist;
+
+/* Smooth (animated, pixel-level) playlist scrolling */
+static ui_scroller_t s_pl_scroller;
+
+/* Scroller position update: redraw just the playlist panel */
+static void music_pl_scroll_moved(int32_t value, void *user_data)
+{
+    (void)value; (void)user_data;
+    ui_rect_t r = {PL_X, PL_Y, PL_W, PL_H};
+    ui_page_invalidate(&r);
+}
+
+/* Set playlist scroll (in items), clamped; animates the pixel position */
+static void pl_scroll_set(int16_t items, bool animate)
+{
+    int16_t max_items = s_playlist.count - PL_VISIBLE;
+    if (max_items < 0) max_items = 0;
+    if (items > max_items) items = max_items;
+    if (items < 0) items = 0;
+    s_playlist.scroll = items;
+    if (animate) {
+        ui_scroller_set_goal(&s_pl_scroller, (int32_t)items * PL_ITEM_H);
+    } else {
+        ui_scroller_jump(&s_pl_scroller, (int32_t)items * PL_ITEM_H);
+    }
+}
 
 /*=============================================================================
  *  Static Data
@@ -236,9 +263,9 @@ static void music_ensure_current_visible(void)
 {
     if (s_playlist.current < 0) return;
     if (s_playlist.current < s_playlist.scroll)
-        s_playlist.scroll = s_playlist.current;
+        pl_scroll_set(s_playlist.current, true);
     else if (s_playlist.current >= s_playlist.scroll + PL_VISIBLE)
-        s_playlist.scroll = s_playlist.current - PL_VISIBLE + 1;
+        pl_scroll_set(s_playlist.current - PL_VISIBLE + 1, true);
 }
 
 static void music_update_texts(void)
@@ -441,10 +468,16 @@ static void music_draw_playlist(void)
     ui_draw_text(PL_X + 10, PL_Y + 6, hdr, &font_montserrat_12, MUSIC_TEXT_DIM);
     ui_draw_hline(PL_X, PL_Y + PL_HEADER_H, PL_W, MUSIC_PL_BORDER);
 
-    /* Items */
-    for (int16_t i = 0; i < PL_VISIBLE && (i + s_playlist.scroll) < s_playlist.count; i++) {
-        int16_t idx = i + s_playlist.scroll;
-        int16_t iy = PL_Y + PL_HEADER_H + i * PL_ITEM_H;
+    /* Items — pixel-level smooth scroll, clipped to the items viewport */
+    ui_rect_t items_view = {PL_X, PL_Y + PL_HEADER_H, PL_W, PL_H - PL_HEADER_H};
+    int32_t pos = s_pl_scroller.pos;
+    int16_t first = (int16_t)(pos / PL_ITEM_H);
+    int16_t off   = (int16_t)(pos % PL_ITEM_H);
+
+    ui_render_push_target(&items_view);
+    for (int16_t i = 0; i <= PL_VISIBLE && (first + i) < s_playlist.count; i++) {
+        int16_t idx = first + i;
+        int16_t iy = PL_Y + PL_HEADER_H - off + i * PL_ITEM_H;
         ui_rect_t item_rect = {PL_X + 4, iy + 1, PL_W - 8, PL_ITEM_H - 2};
 
         if (idx == s_playlist.current) {
@@ -461,14 +494,19 @@ static void music_draw_playlist(void)
         /* Separator line */
         ui_draw_hline(PL_X + 8, iy + PL_ITEM_H - 1, PL_W - 16, MUSIC_PL_BORDER);
     }
+    ui_render_pop_target();
 
-    /* Scroll indicator */
+    /* Scroll indicator (position follows the animated pixel offset) */
     if (s_playlist.count > PL_VISIBLE) {
         int16_t scroll_area_y = PL_Y + PL_HEADER_H;
         int16_t scroll_area_h = PL_H - PL_HEADER_H;
         int16_t bar_h = scroll_area_h * PL_VISIBLE / s_playlist.count;
         if (bar_h < 20) bar_h = 20;
-        int16_t bar_y = scroll_area_y + (scroll_area_h - bar_h) * s_playlist.scroll / (s_playlist.count - PL_VISIBLE);
+        int32_t max_px = (int32_t)(s_playlist.count - PL_VISIBLE) * PL_ITEM_H;
+        int16_t bar_y = scroll_area_y;
+        if (max_px > 0) {
+            bar_y += (int16_t)((int32_t)(scroll_area_h - bar_h) * pos / max_px);
+        }
         ui_rect_t scroll_bg = {PL_X + PL_W - 5, scroll_area_y, 5, scroll_area_h};
         ui_draw_fill_rect(&scroll_bg, UI_HEX(0x0D1B2A));
         ui_rect_t scroll_bar = {PL_X + PL_W - 5, bar_y, 5, bar_h};
@@ -681,34 +719,24 @@ static void pl_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
     if (e->type == UI_EVENT_SWIPE_UP) {
-        int16_t max_scroll = s_playlist.count - PL_VISIBLE;
-        if (max_scroll < 0) max_scroll = 0;
-        s_playlist.scroll += 2;
-        if (s_playlist.scroll > max_scroll) s_playlist.scroll = max_scroll;
-        ui_page_invalidate_all();
+        pl_scroll_set(s_playlist.scroll + 2, true);
         return;
     }
     if (e->type == UI_EVENT_SWIPE_DOWN) {
-        s_playlist.scroll -= 2;
-        if (s_playlist.scroll < 0) s_playlist.scroll = 0;
-        ui_page_invalidate_all();
+        pl_scroll_set(s_playlist.scroll - 2, true);
         return;
     }
-    /* Mouse wheel scrolling */
+    /* Mouse wheel scrolling (smooth) */
     if (e->type == UI_EVENT_MOVE && e->scroll_delta != 0) {
-        int16_t max_scroll = s_playlist.count - PL_VISIBLE;
-        if (max_scroll < 0) max_scroll = 0;
-        s_playlist.scroll -= e->scroll_delta;
-        if (s_playlist.scroll > max_scroll) s_playlist.scroll = max_scroll;
-        if (s_playlist.scroll < 0) s_playlist.scroll = 0;
-        ui_page_invalidate_all();
+        pl_scroll_set(s_playlist.scroll - e->scroll_delta, true);
         return;
     }
     if (e->type == UI_EVENT_CLICK) {
-        /* Determine which item was tapped */
+        /* Determine which item was tapped (uses the animated pixel offset
+         * so the hit matches what is on screen) */
         int16_t rel_y = e->pos.y - (PL_Y + PL_HEADER_H);
         if (rel_y < 0) return;
-        int16_t idx = rel_y / PL_ITEM_H + s_playlist.scroll;
+        int16_t idx = (int16_t)((rel_y + s_pl_scroller.pos) / PL_ITEM_H);
         if (idx >= 0 && idx < s_playlist.count) {
             music_play_index(idx);
         }
@@ -804,6 +832,7 @@ void app_music_init(void)
     memset(&s_playlist, 0, sizeof(s_playlist));
     s_playlist.current = -1;
     s_playlist.mode = PLAY_MODE_SINGLE;
+    ui_scroller_init(&s_pl_scroller, 0, music_pl_scroll_moved, NULL);
 
     music_update_texts();
 }
@@ -814,7 +843,7 @@ void app_music_set_playlist(const char *names[], int16_t count, int16_t start_in
 {
     s_playlist.count = 0;
     s_playlist.current = -1;
-    s_playlist.scroll = 0;
+    pl_scroll_set(0, false);
 
     for (int16_t i = 0; i < count && i < MUSIC_PLAYLIST_MAX; i++) {
         if (names[i]) {
