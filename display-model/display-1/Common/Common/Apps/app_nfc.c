@@ -613,7 +613,8 @@ static bool nfc_page_event(ui_page_t *page, ui_event_t *e)
         return false;
 
     if (s_editing) {
-        if (e->type == UI_EVENT_KEY_CLICK && e->char_code >= 0x20 && e->char_code <= 0x7E) {
+        if ((e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) &&
+            e->char_code >= 0x20 && e->char_code <= 0x7E) {
             if (s_adding && strlen(s_edit_hex_id) < NFC_HEX_ID_LEN) {
                 char c = (char)e->char_code;
                 if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
@@ -630,7 +631,8 @@ static bool nfc_page_event(ui_page_t *page, ui_event_t *e)
             }
             return true;
         }
-        if (e->type == UI_EVENT_KEY_CLICK && e->char_code == 0x08) {
+        if ((e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) &&
+            e->char_code == 0x08) {
             if (s_input_len > 0) {
                 s_input[--s_input_len] = '\0';
             } else if (s_adding && strlen(s_edit_hex_id) > 0) {

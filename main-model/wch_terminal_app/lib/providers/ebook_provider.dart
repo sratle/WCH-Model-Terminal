@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/cli/cli_engine.dart';
 import '../core/cli/cli_commands.dart';
@@ -92,17 +93,19 @@ class EBookNotifier extends StateNotifier<EBookState> {
   }
 
   /// After a page is displayable, record where the NEXT page begins.
-  /// With the per-page fetch model, [next] may lie beyond the loaded
-  /// chunk — it will simply be re-fetched when the user turns to it.
+  /// The offset is a BYTE offset (what `read` expects), computed from the
+  /// UTF-8 byte length actually consumed by the current page, so multi-byte
+  /// (e.g. Chinese) text paginates correctly instead of drifting.
   void _registerNextPage() {
-    final start = state.pageStarts[state.currentPage];
-    final chunkEnd = state.chunkOff + state.chunk.length;
-    final next = start + EBookState.charsPerPage;
+    final consumed = utf8.encode(state.pageText).length;
+    final next = state.chunkOff + consumed;
+    final chunkEndByte = state.chunkOff + utf8.encode(state.chunk).length;
 
-    // The book continues unless the file ended inside this chunk and the
-    // next page start would fall at/after its end.
-    final continues = !state.chunkEof || next < chunkEnd;
-    if (continues && state.currentPage + 1 >= state.pageCount) {
+    // The book continues unless the file ended within this chunk and the
+    // current page already consumed all of it.
+    final continues = !state.chunkEof || next < chunkEndByte;
+    if (continues && next > state.chunkOff &&
+        state.currentPage + 1 >= state.pageCount) {
       state = state.copyWith(
         pageStarts: [...state.pageStarts, next],
       );

@@ -428,7 +428,7 @@ static bool build_key_event(uint8_t kc, uint8_t modifiers, ui_event_t *e)
     case 0x28:  /* Enter */
         e->type = UI_EVENT_KEY_OK;
         e->key.code = UI_KEY_OK;
-        e->char_code = '\n';
+        e->char_code = 0x0D;   /* CR, matches Display-1 (apps act on KEY_OK) */
         return true;
     case 0x29:  /* Escape */
         e->type = UI_EVENT_KEY_BACK;

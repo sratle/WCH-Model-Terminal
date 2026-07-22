@@ -33,6 +33,7 @@ class CliEngine {
 
   StreamSubscription? _dataSub;
   StreamSubscription? _connSub;
+  StreamSubscription? _mtuSub;
 
   // Heartbeat
   Timer? _heartbeatTimer;
@@ -50,6 +51,9 @@ class CliEngine {
         _stopHeartbeat();
       }
     });
+    // MTU negotiation completes *after* the `connected` event, so also react
+    // to the dedicated MTU stream to size fragmentation correctly.
+    _mtuSub = _ble.mtuStream.listen((_) => _updateMtu());
     _protocol.onTimeoutFrame = _onTimeoutFrame;
     if (_ble.isConnected) {
       _startHeartbeat();
@@ -183,8 +187,9 @@ class CliEngine {
 
   void _updateMtu() {
     final mtu = _ble.negotiatedMtu;
-    // Per protocol doc: maxPayload = mtu - 11
-    final maxPayload = mtu > 11 ? mtu - 11 : 12;
+    // The APP frame header is 5 bytes and ATT notify/write overhead is 3
+    // bytes, so the max CLI payload per BLE packet is (mtu - 8).
+    final maxPayload = mtu > 8 ? mtu - 8 : 12;
     _protocol.maxPayloadSize = maxPayload;
   }
 
@@ -197,6 +202,7 @@ class CliEngine {
     _stopHeartbeat();
     _connSub?.cancel();
     _dataSub?.cancel();
+    _mtuSub?.cancel();
     _outputController.close();
     _cwdController.close();
   }

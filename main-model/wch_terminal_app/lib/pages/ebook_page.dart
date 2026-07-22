@@ -36,27 +36,37 @@ class _EBookPageState extends ConsumerState<EBookPage> {
     final listAlt = _themeListAlt(theme);
     final accent = _themeAccent(theme);
 
+    // Phones in portrait are too narrow for a side-by-side list; give the
+    // reader the whole width and open the list on demand instead.
+    final isWide = MediaQuery.of(context).size.width >= 600;
+
     return Container(
       color: bgColor,
       child: Column(
         children: [
-          // Title bar
-          _buildTitleBar(state, notifier, accent, textColor),
-          // Main content: list + reader
+          // Title bar (shows a book-list button when the list is off-screen)
+          _buildTitleBar(state, notifier, accent, textColor, isWide, listBg,
+              listSel, listAlt),
+          // Main content
           Expanded(
-            child: Row(
-              children: [
-                // Left: book list (~40%)
-                SizedBox(
-                  width: MediaQuery.of(context).size.width * 0.4,
-                  child: _buildBookList(state, notifier, listBg, listSel, listAlt, textColor),
-                ),
-                // Right: reading area (~60%)
-                Expanded(
-                  child: _buildReader(state, bgColor, textColor, accent),
-                ),
-              ],
-            ),
+            child: isWide
+                // Tablet / landscape: side-by-side list + reader
+                ? Row(
+                    children: [
+                      SizedBox(
+                        width: MediaQuery.of(context).size.width * 0.32,
+                        child: _buildBookList(state, notifier, listBg, listSel,
+                            listAlt, textColor),
+                      ),
+                      Expanded(
+                        child: _buildReaderInteractive(
+                            state, notifier, bgColor, textColor, accent),
+                      ),
+                    ],
+                  )
+                // Phone (portrait): full-width reader, swipe to turn pages
+                : _buildReaderInteractive(
+                    state, notifier, bgColor, textColor, accent),
           ),
           // Bottom toolbar
           _buildToolbar(state, notifier, accent, textColor),
@@ -65,8 +75,9 @@ class _EBookPageState extends ConsumerState<EBookPage> {
     );
   }
 
-  Widget _buildTitleBar(
-      EBookState state, EBookNotifier notifier, Color accent, Color textColor) {
+  Widget _buildTitleBar(EBookState state, EBookNotifier notifier, Color accent,
+      Color textColor, bool isWide, Color listBg, Color listSel,
+      Color listAlt) {
     final themeName = state.theme == EbookTheme.dark
         ? 'Dark'
         : state.theme == EbookTheme.sepia
@@ -77,7 +88,17 @@ class _EBookPageState extends ConsumerState<EBookPage> {
       color: Colors.black12,
       child: Row(
         children: [
-          Icon(Icons.menu_book, color: accent, size: 20),
+          if (!isWide)
+            IconButton(
+              icon: Icon(Icons.menu, color: accent, size: 20),
+              tooltip: 'Book list',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => _openBookListSheet(
+                  notifier, listBg, listSel, listAlt, textColor),
+            )
+          else
+            Icon(Icons.menu_book, color: accent, size: 20),
           const SizedBox(width: 8),
           Text('EBook Reader', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
           const Spacer(),
@@ -92,8 +113,73 @@ class _EBookPageState extends ConsumerState<EBookPage> {
     );
   }
 
+  /// Reader wrapped with horizontal-swipe page turning — the primary
+  /// navigation gesture on phones (toolbar chevrons remain as a fallback).
+  Widget _buildReaderInteractive(EBookState state, EBookNotifier notifier,
+      Color bgColor, Color textColor, Color accent) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragEnd: (details) {
+        if (state.isLoading) return;
+        final v = details.primaryVelocity ?? 0;
+        if (v < -100 && state.hasNextPage) {
+          notifier.nextPage();
+        } else if (v > 100 && state.currentPage > 0) {
+          notifier.prevPage();
+        }
+      },
+      child: _buildReader(state, bgColor, textColor, accent),
+    );
+  }
+
+  /// Book list as a modal sheet (phones). Uses a Consumer so it reflects
+  /// loading/selection changes while open, and closes after a book is picked.
+  void _openBookListSheet(EBookNotifier notifier, Color listBg, Color listSel,
+      Color listAlt, Color textColor) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: listBg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(ctx).size.height * 0.6,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: textColor.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Consumer(
+                    builder: (c, ref2, _) {
+                      final s = ref2.watch(ebookProvider);
+                      return _buildBookList(s, notifier, listBg, listSel,
+                          listAlt, textColor,
+                          onOpened: () => Navigator.of(ctx).maybePop());
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildBookList(EBookState state, EBookNotifier notifier, Color listBg,
-      Color listSel, Color listAlt, Color textColor) {
+      Color listSel, Color listAlt, Color textColor, {VoidCallback? onOpened}) {
     return Container(
       color: listBg,
       child: state.isLoading && state.books.isEmpty
@@ -164,7 +250,10 @@ class _EBookPageState extends ConsumerState<EBookPage> {
                                   color: textColor.withValues(alpha: 0.5), fontSize: 11),
                             )
                           : null,
-                      onTap: () => notifier.openBook(index),
+                      onTap: () {
+                        notifier.openBook(index);
+                        onOpened?.call();
+                      },
                     );
                   },
                 ),

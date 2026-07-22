@@ -27,31 +27,32 @@ class _ImagesPageState extends ConsumerState<ImagesPage> {
     final state = ref.watch(imagesProvider);
     final notifier = ref.read(imagesProvider.notifier);
 
+    // Phones in portrait: full-width preview, file list opens on demand.
+    final isWide = MediaQuery.of(context).size.width >= 600;
+
     return Column(
       children: [
         // Title bar
-        _buildTitleBar(state, notifier),
-        // Main content: list + preview
+        _buildTitleBar(state, notifier, isWide),
+        // Main content
         Expanded(
-          child: Row(
-            children: [
-              // Left: BMP file list (~35%)
-              SizedBox(
-                width: MediaQuery.of(context).size.width * 0.35,
-                child: _buildFileList(state, notifier),
-              ),
-              // Right: preview area (~65%)
-              Expanded(
-                child: _buildPreview(state),
-              ),
-            ],
-          ),
+          child: isWide
+              ? Row(
+                  children: [
+                    SizedBox(
+                      width: MediaQuery.of(context).size.width * 0.32,
+                      child: _buildFileList(state, notifier),
+                    ),
+                    Expanded(child: _buildPreview(state)),
+                  ],
+                )
+              : _buildPreview(state),
         ),
       ],
     );
   }
 
-  Widget _buildTitleBar(ImagesState state, ImagesNotifier notifier) {
+  Widget _buildTitleBar(ImagesState state, ImagesNotifier notifier, bool isWide) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -60,7 +61,16 @@ class _ImagesPageState extends ConsumerState<ImagesPage> {
       ),
       child: Row(
         children: [
-          Icon(Icons.image, color: Theme.of(context).colorScheme.primary, size: 20),
+          if (!isWide)
+            IconButton(
+              icon: const Icon(Icons.photo_library, size: 20),
+              tooltip: 'File list',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => _openFileListSheet(notifier),
+            )
+          else
+            Icon(Icons.image, color: Theme.of(context).colorScheme.primary, size: 20),
           const SizedBox(width: 8),
           const Text('BMP Browser', style: TextStyle(fontWeight: FontWeight.bold)),
           const Spacer(),
@@ -78,7 +88,33 @@ class _ImagesPageState extends ConsumerState<ImagesPage> {
     );
   }
 
-  Widget _buildFileList(ImagesState state, ImagesNotifier notifier) {
+  /// File list as a modal sheet (phones); closes after a file is selected.
+  void _openFileListSheet(ImagesNotifier notifier) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(ctx).size.height * 0.6,
+            child: Consumer(
+              builder: (c, ref2, _) {
+                final s = ref2.watch(imagesProvider);
+                return _buildFileList(s, notifier,
+                    onOpened: () => Navigator.of(ctx).maybePop());
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFileList(ImagesState state, ImagesNotifier notifier,
+      {VoidCallback? onOpened}) {
     if (state.isLoading && state.files.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -131,7 +167,10 @@ class _ImagesPageState extends ConsumerState<ImagesPage> {
                     style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
                   )
                 : null,
-            onTap: () => notifier.loadBmpPreview(index),
+            onTap: () {
+              notifier.loadBmpPreview(index);
+              onOpened?.call();
+            },
           );
         },
       ),

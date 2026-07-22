@@ -122,6 +122,8 @@ class EBookState {
   }
 
   /// Get the text for the current page (from the loaded chunk).
+  /// The chunk always begins exactly at this page's byte offset
+  /// (chunkOff == pageStarts[currentPage]), so the slice starts at 0.
   String get pageText {
     if (chunk.isEmpty || pageStarts.isEmpty) return '';
     final start = pageStarts[currentPage] - chunkOff;
@@ -129,6 +131,16 @@ class EBookState {
     final end = (start + charsPerPage > chunk.length)
         ? chunk.length
         : start + charsPerPage;
-    return chunk.substring(start, end);
+    var pt = chunk.substring(start, end);
+    // When the chunk was truncated mid-file, its last character may be a
+    // partial UTF-8 sequence decoded as U+FFFD. Drop trailing replacement
+    // chars so the next page's byte offset (computed from utf8.encode of this
+    // page) lands exactly on a character boundary — essential for CJK text.
+    if (!chunkEof) {
+      while (pt.isNotEmpty && pt.codeUnitAt(pt.length - 1) == 0xFFFD) {
+        pt = pt.substring(0, pt.length - 1);
+      }
+    }
+    return pt;
   }
 }

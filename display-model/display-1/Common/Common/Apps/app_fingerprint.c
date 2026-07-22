@@ -669,7 +669,8 @@ static bool fp_page_event(ui_page_t *page, ui_event_t *e)
         return false;
 
     if (s_editing) {
-        if (e->type == UI_EVENT_KEY_CLICK && e->char_code >= 0x20 && e->char_code <= 0x7E) {
+        if ((e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) &&
+            e->char_code >= 0x20 && e->char_code <= 0x7E) {
             if (s_input_len < FP_INPUT_MAX) {
                 s_input[s_input_len++] = (char)e->char_code;
                 s_input[s_input_len] = '\0';
@@ -677,7 +678,8 @@ static bool fp_page_event(ui_page_t *page, ui_event_t *e)
             }
             return true;
         }
-        if (e->type == UI_EVENT_KEY_CLICK && e->char_code == 0x08) {
+        if ((e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) &&
+            e->char_code == 0x08) {
             if (s_input_len > 0) {
                 s_input[--s_input_len] = '\0';
                 fp_invalidate_input();

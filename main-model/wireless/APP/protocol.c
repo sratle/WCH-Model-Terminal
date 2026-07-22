@@ -244,20 +244,21 @@ bool Protocol_ParseByte(uint8_t byte)
 
         case PROTO_STATE_TENTATIVE_TAIL3:
             if (byte == PROTO_TAIL3) {
-                /* Frame complete! Extract FLAGS from first data byte if present */
-                uint8_t flags = 0;
-                if (s_stream_idx > 0) {
-                    flags = s_stream_buf[0];
-                }
+                /* Frame complete. For CLI_DATA streaming frames the DATA layout
+                 * is [ext_subcmd=0x07][FLAGS][payload...], so the real FLAGS
+                 * byte is at index 1, NOT index 0 (index 0 is the ext
+                 * sub-command).  Reading index 0 previously mis-detected every
+                 * frame as SOF+EOF. */
+                uint8_t flags = (s_stream_idx > 1) ? s_stream_buf[1] : 0;
                 uint8_t is_eof = (flags & CLI_FLAG_EOF) ? 1 : 0;
-                uint8_t is_sof = (flags & CLI_FLAG_SOF) ? 1 : 0;
 
-                /* For EOF frames, submit and reset. For non-EOF, submit chunk but keep parsing */
+                /* Each streaming frame is independently tail-delimited, so the
+                 * chunk is always complete here.  is_eof only tells the
+                 * consumer whether more frames of the same message follow. */
                 if (is_eof) {
                     SubmitStreamFrame(1, flags);
                     return TRUE;
                 } else {
-                    /* Non-EOF streaming frame: submit chunk, then expect next frame */
                     SubmitStreamFrame(0, flags);
                     s_state = PROTO_STATE_WAIT_HEAD;
                     return TRUE;

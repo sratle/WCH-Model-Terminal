@@ -15,6 +15,7 @@ class TerminalPage extends ConsumerStatefulWidget {
 class _TerminalPageState extends ConsumerState<TerminalPage> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+  final _focusNode = FocusNode();
   final List<String> _history = [];
   int _historyIndex = -1;
   final List<String> _output = [];
@@ -22,6 +23,14 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
   @override
   void initState() {
     super.initState();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    _focusNode.dispose();
+    super.dispose();
   }
 
   bool _isSending = false;
@@ -32,6 +41,38 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
     if (_output.length > maxLines) {
       _output.removeRange(0, _output.length - maxLines);
     }
+  }
+
+  /// Remove ANSI/VT100 escape sequences and stray CR so they don't render as
+  /// stray boxes/garbage in the monospace view.
+  String _stripAnsi(String input) {
+    var s = input;
+    // CSI sequences: ESC [ ... <final letter>  (colors, cursor moves, erase)
+    s = s.replaceAll(RegExp(r'\x1B\[[0-9;?]*[A-Za-z]'), '');
+    // OSC sequences: ESC ] ... BEL
+    s = s.replaceAll(RegExp(r'\x1B\][^\x07]*\x07'), '');
+    // Lone ESC + single char (e.g. ESC c reset)
+    s = s.replaceAll(RegExp(r'\x1B.'), '');
+    s = s.replaceAll('\r', '');
+    return s;
+  }
+
+  /// Append Core output to the terminal, honoring clear-screen sequences
+  /// (`clear` emits \x1B[2J\x1B[H) and stripping other escape codes.
+  void _appendOutput(String rawText) {
+    var text = rawText;
+    // Clear-screen: ESC[2J / ESC[<n>J or form-feed. Discard everything up to
+    // and including the last clear marker, then wipe the view.
+    final clearRe = RegExp(r'\x1B\[[0-3]?J|\x0C');
+    final matches = clearRe.allMatches(text).toList();
+    if (matches.isNotEmpty) {
+      _output.clear();
+      text = text.substring(matches.last.end);
+    }
+    final cleaned = _stripAnsi(text);
+    if (cleaned.isEmpty) return;
+    _output.addAll(cleaned.split('\n'));
+    _trimOutput();
   }
 
   Future<void> _sendCommand() async {
@@ -62,17 +103,19 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
     setState(() {
       _isSending = false;
       if (resp.isSuccess) {
-        _output.addAll(resp.output.split('\n'));
+        _appendOutput(resp.output);
       } else {
         _output.add('Error: ${resp.error}');
       }
       _trimOutput();
     });
     _scrollToBottom();
+    // Keep the keyboard up for the next command instead of dismissing it.
+    _focusNode.requestFocus();
   }
 
   void _scrollToBottom() {
-    Future.delayed(const Duration(milliseconds: 100), () {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
       }
@@ -103,8 +146,7 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
     ref.listen(terminalOutputProvider, (_, asyncValue) {
       asyncValue.whenData((text) {
         setState(() {
-          _output.addAll(text.split('\n'));
-          _trimOutput();
+          _appendOutput(text);
         });
         _scrollToBottom();
       });
@@ -151,6 +193,7 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
                 Expanded(
                   child: TextField(
                     controller: _controller,
+                    focusNode: _focusNode,
                     decoration: const InputDecoration(
                       hintText: '输入命令...',
                       border: OutlineInputBorder(),

@@ -8,6 +8,10 @@ class BleManager {
   BluetoothCharacteristic? _txChar; // Notify
 
   StreamSubscription<BluetoothConnectionState>? _connSub;
+  // Notification (CLI_TX) value subscription. Tracked so a reconnect can
+  // cancel the previous one first — otherwise each reconnect stacks another
+  // listener and every notification gets delivered (and displayed) N times.
+  StreamSubscription<List<int>>? _valueSub;
 
   final _connectionController = StreamController<BluetoothConnectionState>.broadcast();
   Stream<BluetoothConnectionState> get connectionStream => _connectionController.stream;
@@ -21,6 +25,12 @@ class BleManager {
 
   int _negotiatedMtu = 23;
   int get negotiatedMtu => _negotiatedMtu;
+
+  // Emits the negotiated MTU once ATT MTU exchange completes. Consumers (e.g.
+  // CliEngine) must size their fragmentation from this rather than from the
+  // `connected` connection-state event, which fires *before* MTU negotiation.
+  final _mtuController = StreamController<int>.broadcast();
+  Stream<int> get mtuStream => _mtuController.stream;
 
   // Auto reconnect
   bool _autoReconnect = true;
@@ -68,7 +78,8 @@ class BleManager {
           } else if (uuid == AppConstants.bleTxCharUuid) {
             _txChar = char;
             await char.setNotifyValue(true);
-            char.onValueReceived.listen((value) {
+            await _valueSub?.cancel();
+            _valueSub = char.onValueReceived.listen((value) {
               _dataController.add(value);
             });
           }
@@ -82,6 +93,9 @@ class BleManager {
     } catch (e) {
       _negotiatedMtu = 23;
     }
+    // Publish the negotiated MTU so fragmentation sizing updates *after*
+    // negotiation (the `connected` event alone races ahead of this).
+    if (!_mtuController.isClosed) _mtuController.add(_negotiatedMtu);
 
     // Reset reconnect counter on successful connection
     _reconnectAttempts = 0;
@@ -115,6 +129,8 @@ class BleManager {
     _cancelReconnect();
     _connSub?.cancel();
     _connSub = null;
+    await _valueSub?.cancel();
+    _valueSub = null;
     try {
       await _txChar?.setNotifyValue(false);
     } catch (_) {}
@@ -137,5 +153,6 @@ class BleManager {
     _connSub?.cancel();
     _connectionController.close();
     _dataController.close();
+    _mtuController.close();
   }
 }

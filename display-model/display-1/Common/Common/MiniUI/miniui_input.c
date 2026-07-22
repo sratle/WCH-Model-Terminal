@@ -677,6 +677,23 @@ void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6])
             if (ui_key) {
                 emit_logical_key_event(ui_key, UI_INPUT_KEYBOARD);
             }
+
+            /* Page keys -> swipe convenience events (parity with Display-2):
+             * PageUp/PageDown were previously unmapped and did nothing.
+             * Readers/lists navigate via swipe gestures, so surface them. */
+            if (new_hid == 0x4B) {          /* HID PageUp */
+                ui_event_t se;
+                memset(&se, 0, sizeof(se));
+                se.source = UI_INPUT_KEYBOARD;
+                se.type = UI_EVENT_SWIPE_UP;
+                queue_push(&se);
+            } else if (new_hid == 0x4E) {   /* HID PageDown */
+                ui_event_t se;
+                memset(&se, 0, sizeof(se));
+                se.source = UI_INPUT_KEYBOARD;
+                se.type = UI_EVENT_SWIPE_DOWN;
+                queue_push(&se);
+            }
         }
     }
 

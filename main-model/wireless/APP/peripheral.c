@@ -100,8 +100,13 @@ static uint16_t s_ble_tx_head = 0;
 static uint16_t s_ble_tx_tail = 0;
 static uint8_t  s_ble_tx_sending = 0;
 
-#define BLE_NOTIFY_DELAY        16  /* ~100ms between notifications */
-#define BLE_NOTIFY_RETRY_DELAY  48  /* ~300ms on send failure */
+/* TMOS task delay unit is ~625us. We send exactly ONE notification per event
+ * and reschedule, so the BLE stack's own TMOS tasks run between notifications
+ * (freeing notify buffers / advancing the notify state machine). Sending many
+ * GATT_Notification calls back-to-back in one event starves that processing
+ * and corrupts the notify queue. */
+#define BLE_NOTIFY_DELAY        2   /* ~1.25ms pacing between notifications */
+#define BLE_NOTIFY_RETRY_DELAY  16  /* ~10ms back-off when stack buffer full */
 
 /*********************************************************************
  * LOCAL FUNCTIONS
@@ -139,6 +144,13 @@ static uint16_t ble_tx_queue_count(void)
         return BLE_TX_QUEUE_SIZE - s_ble_tx_tail + s_ble_tx_head;
 }
 
+/* Usable free space in the ring buffer (one slot is reserved to distinguish
+ * full from empty). */
+static uint16_t ble_tx_queue_free(void)
+{
+    return (uint16_t)(BLE_TX_QUEUE_SIZE - 1 - ble_tx_queue_count());
+}
+
 static uint16_t ble_tx_queue_push(const uint8_t *data, uint16_t len)
 {
     uint16_t i;
@@ -169,6 +181,15 @@ static void BleTxQueueProcess(void)
     uint8_t hdr;
     uint16_t saved_tail;
 
+    /* Send EXACTLY ONE notification per event, then reschedule.  This is a
+     * hard requirement of the WCH BLE stack: it reclaims notify buffers and
+     * advances its notify state machine in its own TMOS tasks, which only run
+     * between our application events.  Draining the whole queue in a tight
+     * loop here (calling GATT_Notification repeatedly without returning to the
+     * scheduler) starves that processing; combined with the rollback-retry
+     * below it re-sends already-queued frames, which the APP sees as an early
+     * frame arriving twice (an incomplete copy followed by the full one).
+     * A short reschedule delay keeps throughput high without that hazard. */
     if (ble_tx_queue_count() < 2) {
         s_ble_tx_sending = 0;
         return;
@@ -176,6 +197,7 @@ static void BleTxQueueProcess(void)
 
     hdr = s_ble_tx_queue[s_ble_tx_tail];
     if (hdr == 0 || ble_tx_queue_count() < (uint16_t)(1 + hdr)) {
+        /* Incomplete frame (should not happen with the atomic enqueue guard). */
         s_ble_tx_sending = 0;
         return;
     }
@@ -190,9 +212,9 @@ static void BleTxQueueProcess(void)
 
     bStatus_t status = Peripheral_SendToApp(frame, frame_len);
     if (status != SUCCESS) {
+        /* Stack buffer full / busy: this frame was NOT sent (per GATT_Notification
+         * contract), so roll it back and retry after the stack has drained. */
         s_ble_tx_tail = saved_tail;
-        PRINT("[BLE TX] Queue send err=%02X, retry in %d ms\n", status,
-              BLE_NOTIFY_RETRY_DELAY * 6);
         tmos_start_task(Peripheral_TaskID, SBP_BLE_NOTIFY_EVT, BLE_NOTIFY_RETRY_DELAY);
         s_ble_tx_sending = 1;
         return;
@@ -209,6 +231,20 @@ static void BleTxQueueProcess(void)
 static void BleTxQueueEnqueue(const uint8_t *frame, uint16_t frame_len)
 {
     uint8_t hdr[1];
+
+    if (frame_len == 0 || frame_len > 255) {
+        return; /* invalid: length is stored in a single header byte */
+    }
+
+    /* The queue is length-prefixed ([len][frame...]).  A partial push would
+     * store a header claiming N bytes while fewer follow, desyncing every
+     * subsequent frame and sending corrupted notifications to the APP.
+     * Only enqueue when the whole [len][frame] block is guaranteed to fit. */
+    if (ble_tx_queue_free() < (uint16_t)(1 + frame_len)) {
+        PRINT("[BLE TX] Queue full, drop frame (%d bytes)\n", frame_len);
+        return;
+    }
+
     hdr[0] = (uint8_t)frame_len;
     ble_tx_queue_push(hdr, 1);
     ble_tx_queue_push(frame, frame_len);
