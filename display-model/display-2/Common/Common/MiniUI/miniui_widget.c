@@ -182,6 +182,13 @@ static void button_event_cb(ui_widget_t *w, ui_event_t *e)
     } else if (e->type == UI_EVENT_TOUCH_CANCEL) {
         w->flags &= ~UI_WIDGET_FLAG_PRESSED;
         ui_widget_invalidate(w);
+    } else if (e->type == UI_EVENT_KEY_OK) {
+        /* Keyboard activation of the TAB-focused button (PRESSED = focus). */
+        if ((w->flags & UI_WIDGET_FLAG_PRESSED) && btn->on_click) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            ui_widget_invalidate(w);
+            btn->on_click(w);
+        }
     }
 }
 
@@ -191,6 +198,7 @@ void ui_button_init(ui_button_t *btn, const ui_rect_t *rect, const char *text, c
     ui_widget_init(&btn->base, rect);
     btn->base.draw_cb = button_draw_cb;
     btn->base.event_cb = button_event_cb;
+    btn->base.flags |= UI_WIDGET_FLAG_FOCUSABLE;  /* reachable by TAB */
     btn->text = text;
     btn->font = font;
     btn->text_color = UI_COLOR_WHITE;  /* Black bg → white text */
@@ -278,6 +286,13 @@ static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
     } else if (e->type == UI_EVENT_TOUCH_CANCEL) {
         w->flags &= ~UI_WIDGET_FLAG_PRESSED;
         ui_widget_invalidate(w);
+    } else if (e->type == UI_EVENT_KEY_OK) {
+        /* Keyboard activation of the TAB-focused icon button (PRESSED = focus). */
+        if ((w->flags & UI_WIDGET_FLAG_PRESSED) && btn->on_click) {
+            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            ui_widget_invalidate(w);
+            btn->on_click(w);
+        }
     }
 }
 
@@ -289,6 +304,7 @@ void ui_icon_button_init(ui_icon_button_t *btn, const ui_rect_t *rect,
     ui_widget_init(&btn->base, rect);
     btn->base.draw_cb = icon_button_draw_cb;
     btn->base.event_cb = icon_button_event_cb;
+    btn->base.flags |= UI_WIDGET_FLAG_FOCUSABLE;  /* reachable by TAB */
     btn->icon_bitmap = bitmap;
     btn->icon_w = bw;
     btn->icon_h = bh;
@@ -337,6 +353,11 @@ static void slider_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
     ui_draw_fill_circle(knob_x, knob_y, knob_r, slider->knob_color);
     ui_draw_circle_border(knob_x, knob_y, knob_r, UI_COLOR_BLACK, 1);
 
+    /* Keyboard focus outline (set by TAB traversal via PRESSED). */
+    if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+        ui_draw_rect_border(&w->rect, UI_COLOR_BLACK, 2);
+    }
+
     ui_render_pop_target();
 }
 
@@ -354,6 +375,36 @@ static void slider_event_cb(ui_widget_t *w, ui_event_t *e)
         if (slider->on_change) slider->on_change(w, slider->value);
     } else if (e->type == UI_EVENT_TOUCH_UP || e->type == UI_EVENT_TOUCH_CANCEL) {
         slider->dragging = false;
+    } else if (e->type == UI_EVENT_MOVE && e->scroll_delta != 0) {
+        /* Mouse wheel over the slider nudges its value (scroll up = increase).
+         * The step scales with the range so wide sliders still move at a
+         * usable pace, while narrow ones (e.g. font size) move by 1 per notch. */
+        int16_t range = slider->max - slider->min;
+        int16_t step = range / 20;
+        if (step < 1) step = 1;
+        int32_t nv = (int32_t)slider->value + (int32_t)e->scroll_delta * step;
+        if (nv < slider->min) nv = slider->min;
+        if (nv > slider->max) nv = slider->max;
+        if ((int16_t)nv != slider->value) {
+            slider->value = (int16_t)nv;
+            ui_widget_invalidate(w);
+            if (slider->on_change) slider->on_change(w, slider->value);
+        }
+    } else if ((e->type == UI_EVENT_KEY_LEFT_ARROW || e->type == UI_EVENT_KEY_RIGHT_ARROW) &&
+               (w->flags & UI_WIDGET_FLAG_PRESSED)) {
+        /* Arrow keys adjust the value while the slider is TAB-focused. */
+        int16_t range = slider->max - slider->min;
+        int16_t step = range / 20;
+        if (step < 1) step = 1;
+        int32_t av = (int32_t)slider->value +
+                     ((e->type == UI_EVENT_KEY_RIGHT_ARROW) ? step : -step);
+        if (av < slider->min) av = slider->min;
+        if (av > slider->max) av = slider->max;
+        if ((int16_t)av != slider->value) {
+            slider->value = (int16_t)av;
+            ui_widget_invalidate(w);
+            if (slider->on_change) slider->on_change(w, slider->value);
+        }
     }
 }
 
@@ -363,6 +414,7 @@ void ui_slider_init(ui_slider_t *slider, const ui_rect_t *rect, int16_t min, int
     ui_widget_init(&slider->base, rect);
     slider->base.draw_cb = slider_draw_cb;
     slider->base.event_cb = slider_event_cb;
+    slider->base.flags |= UI_WIDGET_FLAG_FOCUSABLE;  /* reachable by TAB */
     slider->min = min;
     slider->max = max;
     slider->value = value;
@@ -408,6 +460,11 @@ static void switch_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
     ui_draw_fill_circle(knob_x, knob_y, knob_r, sw->knob_color);
     ui_draw_circle_border(knob_x, knob_y, knob_r, UI_COLOR_BLACK, 1);
 
+    /* Keyboard focus outline (set by TAB traversal via PRESSED). */
+    if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+        ui_draw_rect_border(&w->rect, UI_COLOR_BLACK, 2);
+    }
+
     ui_render_pop_target();
 }
 
@@ -420,6 +477,11 @@ static void switch_event_cb(ui_widget_t *w, ui_event_t *e)
             ui_widget_invalidate(w);
             if (sw->on_toggle) sw->on_toggle(w, sw->state);
         }
+    } else if (e->type == UI_EVENT_KEY_OK && (w->flags & UI_WIDGET_FLAG_PRESSED)) {
+        /* Keyboard toggle of the TAB-focused switch. */
+        sw->state = !sw->state;
+        ui_widget_invalidate(w);
+        if (sw->on_toggle) sw->on_toggle(w, sw->state);
     }
 }
 
@@ -429,6 +491,7 @@ void ui_switch_init(ui_switch_t *sw, const ui_rect_t *rect, bool state)
     ui_widget_init(&sw->base, rect);
     sw->base.draw_cb = switch_draw_cb;
     sw->base.event_cb = switch_event_cb;
+    sw->base.flags |= UI_WIDGET_FLAG_FOCUSABLE;  /* reachable by TAB */
     sw->state = state;
     sw->track_on_color = UI_COLOR_BLACK;
     sw->track_off_color = UI_COLOR_WHITE;

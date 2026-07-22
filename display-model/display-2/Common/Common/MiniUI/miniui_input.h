@@ -32,6 +32,10 @@ void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6]);
 void ui_input_feed_core_key(uint8_t key_id, uint8_t action);
 void ui_input_set_mouse_connected(bool connected);
 
+/* Called by a widget/page that acts on a right-button click, so the global
+ * "right-click = Back" fallback is suppressed for that click. */
+void ui_input_consume_rightclick(void);
+
 #ifdef __cplusplus
 }
 #endif

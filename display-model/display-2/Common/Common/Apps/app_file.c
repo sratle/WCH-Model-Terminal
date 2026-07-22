@@ -1101,6 +1101,7 @@ static void list_touch_event(ui_widget_t *w, ui_event_t *e)
     if (e->type == UI_EVENT_CLICK && (e->mouse_buttons & UI_MOUSE_BTN_RIGHT)) {
         s_fs.selected = item_idx;
         file_show_context_menu(e->touch.x, e->touch.y, item_idx);
+        ui_input_consume_rightclick();   /* claim: don't also trigger global Back */
         return;
     }
 

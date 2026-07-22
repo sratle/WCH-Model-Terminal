@@ -121,6 +121,15 @@ class EBookNotifier extends StateNotifier<EBookState> {
     }
   }
 
+  /// Manually re-fetch the current page's content from Core (refresh button).
+  Future<void> refreshPage() async {
+    if (state.selectedIndex < 0 || state.isLoading) return;
+    final off = state.currentPage < state.pageStarts.length
+        ? state.pageStarts[state.currentPage]
+        : state.chunkOff;
+    await _requestChunk(off);
+  }
+
   void nextPage() {
     if (state.currentPage + 1 < state.pageCount && !state.isLoading) {
       state = state.copyWith(currentPage: state.currentPage + 1);

@@ -31,6 +31,10 @@ static uint8_t s_prev_modifiers = 0;
 /* External mouse connection state (set by protocol handler) */
 static bool s_ext_mouse_connected = false;
 
+/* Unified "right-click = Back" fallback: set by a widget/page that acts on a
+ * right-button click so the global Back is suppressed for that click. */
+static bool s_rc_consumed = false;
+
 /* Last rendered cursor position for dirty region tracking.
  * Updated after each render cycle to track where cursor was actually drawn. */
 static ui_point_t s_cursor_rendered_pos = { -1, -1 };
@@ -1022,6 +1026,10 @@ const ui_input_state_t* ui_input_get_state(void)
 {
     return &s_state;
 }
+
+void ui_input_consume_rightclick(void)  { s_rc_consumed = true; }
+void ui_input_reset_rightclick(void)    { s_rc_consumed = false; }
+bool ui_input_rightclick_consumed(void) { return s_rc_consumed; }
 
 void ui_input_set_focus(ui_widget_t *widget)
 {

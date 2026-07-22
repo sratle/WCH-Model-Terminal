@@ -201,6 +201,7 @@ typedef struct ui_widget ui_widget_t;
 #define UI_WIDGET_FLAG_PRESSED     (1 << 3)
 #define UI_WIDGET_FLAG_FOCUS       (1 << 4)
 #define UI_WIDGET_FLAG_OPAQUE      (1 << 5)
+#define UI_WIDGET_FLAG_FOCUSABLE   (1 << 6)  /* Reachable by TAB keyboard focus traversal */
 
 /*=============================================================================
  *  Page Type (Forward Declaration)

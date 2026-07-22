@@ -260,6 +260,7 @@ void ui_button_init(ui_button_t *btn, const ui_rect_t *rect, const char *text, c
     ui_widget_init(&btn->base, rect);
     btn->base.draw_cb = button_draw_cb;
     btn->base.event_cb = button_event_cb;
+    btn->base.flags |= UI_WIDGET_FLAG_FOCUSABLE;  /* reachable by TAB */
     btn->text = text ? text : "";
     btn->font = font;
     btn->text_color = UI_COLOR_WHITE;
@@ -409,6 +410,7 @@ void ui_icon_button_init(ui_icon_button_t *btn, const ui_rect_t *rect,
     ui_widget_init(&btn->base, rect);
     btn->base.draw_cb = icon_button_draw_cb;
     btn->base.event_cb = icon_button_event_cb;
+    btn->base.flags |= UI_WIDGET_FLAG_FOCUSABLE;  /* reachable by TAB */
     btn->icon_bitmap = bitmap;
     btn->icon_w = bw;
     btn->icon_h = bh;
@@ -452,6 +454,11 @@ static void slider_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
     int16_t knob_x = w->rect.x + 10 + fill_w;
     int16_t knob_r = 6;
     ui_draw_fill_circle(knob_x, track_y + track_h / 2, knob_r, slider->knob_color);
+
+    /* Keyboard focus outline (set by TAB traversal via PRESSED). */
+    if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+        ui_draw_rect_border(&w->rect, UI_COLOR_ACCENT, 1);
+    }
 }
 
 static void slider_event_cb(ui_widget_t *w, ui_event_t *e)
@@ -463,7 +470,21 @@ static void slider_event_cb(ui_widget_t *w, ui_event_t *e)
         slider->dragging = true;
         /* fall through */
     case UI_EVENT_MOVE:
-        if (slider->dragging) {
+        if (e->scroll_delta != 0 && !slider->dragging) {
+            /* Mouse wheel over the slider adjusts its value (scroll up =
+             * increase). Step scales with the range for a usable pace. */
+            int16_t range = slider->max - slider->min;
+            int16_t step = range / 20;
+            if (step < 1) step = 1;
+            int32_t nv = (int32_t)slider->value + (int32_t)e->scroll_delta * step;
+            if (nv < slider->min) nv = slider->min;
+            if (nv > slider->max) nv = slider->max;
+            if ((int16_t)nv != slider->value) {
+                slider->value = (int16_t)nv;
+                ui_widget_invalidate(w);
+                if (slider->on_change) slider->on_change(w, slider->value);
+            }
+        } else if (slider->dragging) {
             int16_t usable_w = w->rect.w - 20;
             int16_t rel_x = e->pos.x - w->rect.x - 10;
             if (rel_x < 0) rel_x = 0;
@@ -478,6 +499,24 @@ static void slider_event_cb(ui_widget_t *w, ui_event_t *e)
         break;
     case UI_EVENT_UP:
         slider->dragging = false;
+        break;
+    case UI_EVENT_KEY_LEFT_ARROW:
+    case UI_EVENT_KEY_RIGHT_ARROW:
+        /* Arrow keys adjust the value while the slider is TAB-focused. */
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            int16_t range = slider->max - slider->min;
+            int16_t step = range / 20;
+            if (step < 1) step = 1;
+            int32_t nv = (int32_t)slider->value +
+                         ((e->type == UI_EVENT_KEY_RIGHT_ARROW) ? step : -step);
+            if (nv < slider->min) nv = slider->min;
+            if (nv > slider->max) nv = slider->max;
+            if ((int16_t)nv != slider->value) {
+                slider->value = (int16_t)nv;
+                ui_widget_invalidate(w);
+                if (slider->on_change) slider->on_change(w, slider->value);
+            }
+        }
         break;
     case UI_EVENT_SWIPE_UP:
     case UI_EVENT_SWIPE_DOWN:
@@ -497,6 +536,7 @@ void ui_slider_init(ui_slider_t *slider, const ui_rect_t *rect, int16_t min, int
     ui_widget_init(&slider->base, rect);
     slider->base.draw_cb = slider_draw_cb;
     slider->base.event_cb = slider_event_cb;
+    slider->base.flags |= UI_WIDGET_FLAG_FOCUSABLE;  /* reachable by TAB */
     slider->min = min;
     slider->max = max;
     slider->value = value;
@@ -535,19 +575,18 @@ static void switch_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
     int16_t track_r = track_h / 2;
 
     ui_rect_t track = {w->rect.x, track_y, w->rect.w, track_h};
-    bool pressed = (w->flags & UI_WIDGET_FLAG_PRESSED) != 0;
-    ui_color_t track_color;
-    if (pressed) {
-        track_color = sw->state ? sw->track_off_color : sw->track_on_color;
-    } else {
-        track_color = sw->state ? sw->track_on_color : sw->track_off_color;
-    }
+    ui_color_t track_color = sw->state ? sw->track_on_color : sw->track_off_color;
     ui_draw_fill_round_rect(&track, track_r, track_color);
 
     int16_t knob_r = track_h / 2 - 2;
     int16_t knob_x = sw->state ? (w->rect.x + w->rect.w - track_h / 2) : (w->rect.x + track_h / 2);
     int16_t knob_y = w->rect.y + w->rect.h / 2;
     ui_draw_fill_circle(knob_x, knob_y, knob_r, sw->knob_color);
+
+    /* Keyboard focus outline (set by TAB traversal via PRESSED). */
+    if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+        ui_draw_rect_border(&w->rect, UI_COLOR_ACCENT, 1);
+    }
 }
 
 static void switch_event_cb(ui_widget_t *w, ui_event_t *e)
@@ -572,9 +611,13 @@ static void switch_event_cb(ui_widget_t *w, ui_event_t *e)
         if (sw->on_toggle) sw->on_toggle(w, sw->state);
         break;
     case UI_EVENT_KEY_OK:
-        sw->state = !sw->state;
-        ui_widget_invalidate(w);
-        if (sw->on_toggle) sw->on_toggle(w, sw->state);
+        /* Toggle only when TAB-focused, so a broadcast KEY_OK does not flip
+         * every switch on the page. */
+        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+            sw->state = !sw->state;
+            ui_widget_invalidate(w);
+            if (sw->on_toggle) sw->on_toggle(w, sw->state);
+        }
         break;
     case UI_EVENT_SWIPE_UP:
     case UI_EVENT_SWIPE_DOWN:
@@ -597,6 +640,7 @@ void ui_switch_init(ui_switch_t *sw, const ui_rect_t *rect, bool state)
     ui_widget_init(&sw->base, rect);
     sw->base.draw_cb = switch_draw_cb;
     sw->base.event_cb = switch_event_cb;
+    sw->base.flags |= UI_WIDGET_FLAG_FOCUSABLE;  /* reachable by TAB */
     sw->state = state;
     sw->track_on_color = UI_COLOR_PRIMARY;
     sw->track_off_color = UI_COLOR_LIGHT_GRAY;

@@ -133,6 +133,12 @@ void UI_Tick(void)
         ui_widget_t *capture = ui_input_get_capture();
         ui_page_t *page_before = ui_page_current();  /* Track page changes */
 
+        /* Unified "right-click = Back": note right-button clicks and clear the
+         * claim flag; if nothing claims the click below, perform Back. */
+        bool is_right_click = (e->type == UI_EVENT_CLICK && e->source == UI_INPUT_MOUSE &&
+                               (e->mouse_buttons & UI_MOUSE_BTN_RIGHT));
+        if (is_right_click) ui_input_reset_rightclick();
+
         if (capture) {
             /* Safety: if a mouse DOWN arrives while capture is held by a
              * different (possibly stale) touch, force-release the old
@@ -236,6 +242,43 @@ void UI_Tick(void)
                 }
             }
 
+            /* Handle TAB globally: cycle keyboard focus among the current
+             * page's focusable widgets using the PRESSED highlight.  Shift+TAB
+             * reverses.  Activation is per-widget: KEY_OK fires a button /
+             * toggles a switch; arrow keys adjust the focused slider.
+             * Keyed off the raw Tab KEY_DOWN so the Shift modifier is visible. */
+            if (!handled && e->type == UI_EVENT_KEY_DOWN && e->char_code == 0x09) {
+                ui_page_t *pg = ui_page_current();
+                if (pg && pg->widget_count > 0) {
+                    bool reverse = (e->key_modifiers & (UI_MOD_LSHIFT | UI_MOD_RSHIFT)) != 0;
+                    int16_t n = (int16_t)pg->widget_count;
+                    int16_t dir = reverse ? -1 : 1;
+                    int16_t cur = -1;
+                    for (int16_t i = 0; i < n; i++) {
+                        if (pg->widgets[i] && (pg->widgets[i]->flags & UI_WIDGET_FLAG_PRESSED)) {
+                            cur = i; break;
+                        }
+                    }
+                    int16_t base = (cur >= 0) ? cur : (reverse ? n : -1);
+                    for (int16_t step = 1; step <= n; step++) {
+                        int16_t idx = (int16_t)((((base + dir * step) % n) + n) % n);
+                        ui_widget_t *cand = pg->widgets[idx];
+                        if (cand && (cand->flags & UI_WIDGET_FLAG_FOCUSABLE) &&
+                            (cand->flags & UI_WIDGET_FLAG_VISIBLE) &&
+                            (cand->flags & UI_WIDGET_FLAG_ENABLED)) {
+                            if (cur >= 0 && pg->widgets[cur]) {
+                                pg->widgets[cur]->flags &= ~UI_WIDGET_FLAG_PRESSED;
+                                ui_widget_invalidate(pg->widgets[cur]);
+                            }
+                            cand->flags |= UI_WIDGET_FLAG_PRESSED;
+                            ui_widget_invalidate(cand);
+                            break;
+                        }
+                    }
+                    handled = true;
+                }
+            }
+
             if (!handled) {
                 ui_page_t *page = ui_page_current();
                 if (!page) {
@@ -281,6 +324,19 @@ void UI_Tick(void)
                     }
                 }
             }
+        }
+
+        /* Unified "right-click = Back": if no widget/page claimed the click
+         * (ui_input_consume_rightclick), treat it as Back. The current page's
+         * on_page_event gets first say (context-sensitive), else pop. */
+        if (is_right_click && !ui_input_rightclick_consumed()) {
+            ui_page_t *pg = ui_page_current();
+            ui_event_t back = {0};
+            back.type = UI_EVENT_KEY_BACK;
+            back.source = UI_INPUT_KEYBOARD;
+            back.key_code = UI_KEY_BACK;
+            bool handled_back = (pg && pg->on_page_event) ? pg->on_page_event(pg, &back) : false;
+            if (!handled_back && ui_page_can_go_back()) ui_page_pop();
         }
 
         e = ui_input_poll();

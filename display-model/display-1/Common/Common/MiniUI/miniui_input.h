@@ -121,6 +121,13 @@ void ui_input_feed_keyboard(uint8_t modifiers, const uint8_t key_codes[6]);
 /* Core key: feed onboard button event from Core protocol */
 void ui_input_feed_core_key(uint8_t key_id, uint8_t action);
 
+/* Unified "right-click = Back" support (see UI_Tick). A widget/page that acts
+ * on a right-button click calls ui_input_consume_rightclick() so the global
+ * Back is suppressed for that click. The other two are used by the dispatcher. */
+void ui_input_consume_rightclick(void);
+void ui_input_reset_rightclick(void);
+bool ui_input_rightclick_consumed(void);
+
 /*=============================================================================
  *  Event Polling — called by UI_Tick
  *=============================================================================*/

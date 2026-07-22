@@ -889,14 +889,14 @@ static void ap_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
     if (s_ap.state == AP_STATE_IDLE) {
-        if (e->type == UI_EVENT_CLICK) {
+        if (e->type == UI_EVENT_CLICK || e->type == UI_EVENT_KEY_OK) {
             ap_start_game();
             ui_page_invalidate_all();
         }
         return;
     }
     if (s_ap.state == AP_STATE_GAMEOVER) {
-        if (e->type == UI_EVENT_CLICK) {
+        if (e->type == UI_EVENT_CLICK || e->type == UI_EVENT_KEY_OK) {
             ap_start_game();
             ui_page_invalidate_all();
         }

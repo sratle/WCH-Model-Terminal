@@ -102,8 +102,13 @@ typedef struct {
     bool is_modified;
     bool is_loading;
     bool has_content;
-    bool save_sent;
-    int16_t save_chunks_remaining;  /* pending write frames during multi-frame save */
+    bool save_sent;             /* a paced save is in progress (awaiting frame ack) */
+    uint16_t save_offset;       /* content bytes already sent in this save */
+    bool save_started;          /* the "write -s" frame has been sent */
+    bool save_final_sent;       /* the "write -e" frame has been sent */
+    uint32_t save_wait_ms;      /* time since current frame was sent (ack timeout) */
+    uint8_t save_result;        /* transient result: 0=none, 1=ok, 2=fail */
+    uint32_t save_result_ms;    /* time since save_result was set (auto-clear) */
 
     /* Cursor blink */
     uint32_t cursor_blink_ms;
@@ -262,6 +267,10 @@ static void editor_update_status(void)
         snprintf(s_status_buf, sizeof(s_status_buf), "No file loaded");
     else if (s_ed.save_sent)
         snprintf(s_status_buf, sizeof(s_status_buf), "Saving...");
+    else if (s_ed.save_result == 1)
+        snprintf(s_status_buf, sizeof(s_status_buf), "Saved");
+    else if (s_ed.save_result == 2)
+        snprintf(s_status_buf, sizeof(s_status_buf), "Save failed!");
     else
         snprintf(s_status_buf, sizeof(s_status_buf), "Ln %d, Col %d | %d lines | %d chars%s",
                  s_ed.cursor_line + 1, s_ed.cursor_col + 1,
@@ -623,35 +632,141 @@ static void editor_select_all(void)
 
 static void editor_on_cli_stream(const char *chunk, uint16_t len, bool is_last)
 {
-    /* File content received via CLI "cat" command */
-    if (!s_ed.save_sent) {
-        uint16_t space = EDIT_BUF_SIZE - 1 - s_ed.content_len;
-        uint16_t copy_len = (len < space) ? len : space;
-        if (copy_len > 0) {
-            memcpy(&s_ed.content[s_ed.content_len], chunk, copy_len);
-            s_ed.content_len += copy_len;
-        }
+    /* Capture streamed bytes ONLY while a file LOAD is in progress.
+     *
+     * The `write` command echoes status lines back ("write: started (N bytes)",
+     * "write: done", "write: no active write session").  Those arrive
+     * asynchronously AFTER editor_save_file() has already returned, so gating
+     * on save_sent (reset to false at the end of the save) let them slip into
+     * the buffer — they were shown on screen and, worse, written back into the
+     * file on the next save, a self-amplifying loop that grows and corrupts the
+     * content.  is_loading is set only by app_editor_open_file() and cleared on
+     * the final load frame, so it is guaranteed false during/after a save. */
+    if (!s_ed.is_loading) return;
 
-        if (is_last) {
-            s_ed.content[s_ed.content_len] = '\0';
-            s_ed.is_loading = false;
-            s_ed.has_content = true;
-            s_ed.is_modified = false;
-            editor_scroll_set(0, false);
-            s_ed.cursor_pos = 0;
-            s_ed.has_selection = false;
-            s_ed.undo_top = 0;
-            editor_parse_lines();
-            editor_update_cursor_coords();
-            editor_update_status();
-            editor_invalidate_content();
-        }
+    uint16_t space = EDIT_BUF_SIZE - 1 - s_ed.content_len;
+    uint16_t copy_len = (len < space) ? len : space;
+    if (copy_len > 0) {
+        memcpy(&s_ed.content[s_ed.content_len], chunk, copy_len);
+        s_ed.content_len += copy_len;
     }
-    /* Save response: ignore — save is marked complete immediately after sending */
+
+    if (is_last) {
+        s_ed.content[s_ed.content_len] = '\0';
+        s_ed.is_loading = false;
+        s_ed.has_content = true;
+        s_ed.is_modified = false;
+        editor_scroll_set(0, false);
+        s_ed.cursor_pos = 0;
+        s_ed.has_selection = false;
+        s_ed.undo_top = 0;
+        editor_parse_lines();
+        editor_update_cursor_coords();
+        editor_update_status();
+        editor_invalidate_content();
+    }
+}
+
+/* ---- Paced (one-frame-at-a-time) save with per-frame acknowledgement ---- */
+
+#define EDITOR_SAVE_ACK_TIMEOUT_MS  3000   /* abort if a frame is never acked */
+
+static void editor_save_pump(void);
+static void editor_save_finish(bool ok);
+
+/* Send the NEXT write frame of the in-progress save.  Exactly one frame is
+ * emitted per call; the following frame is only sent once the Core acks this
+ * one (editor_on_cli_complete).  This per-frame flow control avoids overrunning
+ * the Core's CLI RX buffer on multi-frame (large file) saves. */
+static void editor_save_pump(void)
+{
+    char cmd[PROTO_MAX_DATA_LEN + 32];
+    int path_len = (int)strlen(s_ed.file_path);
+    int max_cmd = PROTO_MAX_DATA_LEN - 1;   /* 254 bytes */
+    int first_overhead = 12 + path_len;     /* write -s "path" */
+    int first_avail = max_cmd - first_overhead;
+    if (first_avail < 0) first_avail = 0;
+    int append_avail = max_cmd - 9;         /* write -a / -e prefix = 9 */
+
+    uint16_t remaining = s_ed.content_len - s_ed.save_offset;
+    int pos = 0;
+
+    s_ed.save_wait_ms = 0;                  /* restart the ack timeout */
+
+    if (!s_ed.save_started) {
+        /* First frame: create/truncate + first chunk */
+        memcpy(&cmd[pos], "write -s \"", 10); pos += 10;
+        memcpy(&cmd[pos], s_ed.file_path, path_len); pos += path_len;
+        memcpy(&cmd[pos], "\" ", 2); pos += 2;
+        uint16_t chunk = (remaining < (uint16_t)first_avail) ? remaining : (uint16_t)first_avail;
+        if (chunk > 0) { memcpy(&cmd[pos], &s_ed.content[s_ed.save_offset], chunk); pos += chunk; }
+        cmd[pos] = '\0';
+        s_ed.save_offset += chunk;
+        s_ed.save_started = true;
+        UART_SendCLI(cmd);
+        return;
+    }
+
+    if (remaining > (uint16_t)append_avail) {
+        /* Middle frame: append one full chunk */
+        memcpy(&cmd[pos], "write -a ", 9); pos += 9;
+        memcpy(&cmd[pos], &s_ed.content[s_ed.save_offset], (uint16_t)append_avail);
+        pos += append_avail;
+        cmd[pos] = '\0';
+        s_ed.save_offset += (uint16_t)append_avail;
+        UART_SendCLI(cmd);
+        return;
+    }
+
+    /* Final frame: append the tail (possibly empty) and close the file */
+    memcpy(&cmd[pos], "write -e ", 9); pos += 9;
+    if (remaining > 0) { memcpy(&cmd[pos], &s_ed.content[s_ed.save_offset], remaining); pos += remaining; }
+    cmd[pos] = '\0';
+    s_ed.save_offset += remaining;
+    s_ed.save_final_sent = true;
+    UART_SendCLI(cmd);
+}
+
+/* Conclude the save and surface a transient "Saved" / "Save failed" status. */
+static void editor_save_finish(bool ok)
+{
+    s_ed.save_sent = false;
+    s_ed.save_started = false;
+    s_ed.save_final_sent = false;
+    s_ed.save_wait_ms = 0;
+    if (ok) s_ed.is_modified = false;
+    s_ed.save_result = ok ? 1 : 2;
+    s_ed.save_result_ms = 0;
+    editor_update_status();
+    editor_invalidate_status();
+}
+
+/* Each write frame's assembled response drives the paced save forward and lets
+ * us confirm success or detect failure. */
+static void editor_on_cli_complete(const char *buf, uint16_t len, const char *tag)
+{
+    (void)len;
+    if (!s_ed.save_sent) return;                /* not saving -> ignore */
+    if (strncmp(tag, "write", 5) != 0) return;  /* only write responses */
+
+    bool failed = (strstr(buf, "no active write session") != NULL) ||
+                  (strstr(buf, "cannot") != NULL) ||
+                  (strstr(buf, "failed") != NULL);
+    if (failed) {
+        editor_save_finish(false);
+        return;
+    }
+
+    if (s_ed.save_final_sent) {
+        editor_save_finish(true);               /* "write: done" acked */
+    } else {
+        editor_save_pump();                     /* send the next frame */
+    }
 }
 
 static uart_cli_cb_t s_editor_cb = {
     .on_cli_stream = editor_on_cli_stream,
+    .on_cli_complete = editor_on_cli_complete,
 };
 
 /*=============================================================================
@@ -672,7 +787,9 @@ void app_editor_open_file(const char *path, const char *name)
     s_ed.is_loading = true;
     s_ed.has_content = false;
     s_ed.save_sent = false;
-    s_ed.save_chunks_remaining = 0;
+    s_ed.save_started = false;
+    s_ed.save_final_sent = false;
+    s_ed.save_result = 0;
     s_ed.undo_top = 0;
 
     strncpy(s_ed.file_name, name, sizeof(s_ed.file_name) - 1);
@@ -692,86 +809,19 @@ static void editor_save_file(void)
 
     UART_SetCLICallbacks(&s_editor_cb);
     s_ed.save_sent = true;
+    s_ed.save_offset = 0;
+    s_ed.save_started = false;
+    s_ed.save_final_sent = false;
+    s_ed.save_wait_ms = 0;
+    s_ed.save_result = 0;
     editor_update_status();     /* Show "Saving..." immediately */
     editor_invalidate_status();
 
-    /* Save via CLI write command with multi-frame support:
-     *   write -s "filepath" <data>   (create/truncate + first chunk)
-     *   write -a <data>              (append chunks)
-     *   write -e [data]              (close file)
-     *
-     * PROTO_MAX_DATA_LEN = 255, UART_SendCLI uses 1 byte for DISP_EXT_CLI,
-     * so max command string = 254 bytes.
-     */
-    char cmd[PROTO_MAX_DATA_LEN + 32];
-    int path_len = strlen(s_ed.file_path);
-    int max_cmd = PROTO_MAX_DATA_LEN - 1; /* 254 bytes */
-
-    /* First frame overhead: "write -s \"" (10) + path + "\" " (2) = 12 + path_len */
-    int first_overhead = 12 + path_len;
-    int first_avail = max_cmd - first_overhead;
-    if (first_avail < 0) first_avail = 0;
-
-    /* Append/end overhead: "write -a " or "write -e " = 9 bytes */
-    int append_overhead = 9;
-    int append_avail = max_cmd - append_overhead;  /* 245 bytes per chunk */
-
-    uint16_t offset = 0;
-    uint16_t remaining = s_ed.content_len;
-
-    /* --- First frame: write -s "path" <data> --- */
-    {
-        int pos = 0;
-        memcpy(&cmd[pos], "write -s \"", 10); pos += 10;
-        memcpy(&cmd[pos], s_ed.file_path, path_len); pos += path_len;
-        memcpy(&cmd[pos], "\" ", 2); pos += 2;
-
-        uint16_t chunk = (remaining < (uint16_t)first_avail) ? remaining : (uint16_t)first_avail;
-        if (chunk > 0) {
-            memcpy(&cmd[pos], &s_ed.content[offset], chunk);
-            pos += chunk;
-        }
-        cmd[pos] = '\0';
-        printf("[editor] save frame1: len=%d cmd=\"%.40s...\"\r\n", pos, cmd);
-        UART_SendCLI(cmd);
-        offset += chunk;
-        remaining -= chunk;
-    }
-
-    /* --- Middle frames: write -a <data> (only if remaining > append_avail) --- */
-    while (remaining > (uint16_t)append_avail) {
-        int pos = 0;
-        memcpy(&cmd[pos], "write -a ", append_overhead); pos += append_overhead;
-        memcpy(&cmd[pos], &s_ed.content[offset], (uint16_t)append_avail);
-        pos += append_avail;
-        cmd[pos] = '\0';
-        printf("[editor] save frame_mid: len=%d\r\n", pos);
-        UART_SendCLI(cmd);
-        offset += (uint16_t)append_avail;
-        remaining -= (uint16_t)append_avail;
-    }
-
-    /* --- Final frame: write -e [remaining data] (close file) --- */
-    {
-        int pos = 0;
-        memcpy(&cmd[pos], "write -e ", append_overhead); pos += append_overhead;
-        if (remaining > 0) {
-            memcpy(&cmd[pos], &s_ed.content[offset], remaining);
-            pos += remaining;
-        }
-        cmd[pos] = '\0';
-        printf("[editor] save frame_end: len=%d remaining=%d\r\n", pos, remaining);
-        UART_SendCLI(cmd);
-    }
-
-    /* All frames sent synchronously. Core processes CLI commands in order.
-     * Mark save complete immediately — response tracking across multiple
-     * UART_SendCLI calls is unreliable due to cli_resp_reset(). */
-    s_ed.save_sent = false;
-    s_ed.save_chunks_remaining = 0;
-    s_ed.is_modified = false;
-    editor_update_status();
-    editor_invalidate_status();
+    /* Paced multi-frame save: send the first frame now; the rest are sent one
+     * at a time as each is acknowledged (editor_on_cli_complete), with an ack
+     * timeout enforced in editor_page_update.  Content is written byte-for-byte
+     * via the write command's raw buffer, so embedded newlines are preserved. */
+    editor_save_pump();
 }
 
 /*=============================================================================
@@ -1203,6 +1253,21 @@ static void editor_page_update(ui_page_t *page)
             s_ed.cursor_visible = true;
             s_ed.cursor_blink_ms = 0;
             editor_invalidate_cursor();
+        }
+    }
+
+    /* Paced-save ack timeout + transient "Saved/failed" banner auto-clear. */
+    if (s_ed.save_sent) {
+        s_ed.save_wait_ms += 16;
+        if (s_ed.save_wait_ms >= EDITOR_SAVE_ACK_TIMEOUT_MS) {
+            editor_save_finish(false);   /* frame lost / Core unresponsive */
+        }
+    } else if (s_ed.save_result != 0) {
+        s_ed.save_result_ms += 16;
+        if (s_ed.save_result_ms >= 2500) {
+            s_ed.save_result = 0;
+            editor_update_status();
+            editor_invalidate_status();
         }
     }
     /* Keyboard events are now handled by editor_page_event (on_page_event callback). */

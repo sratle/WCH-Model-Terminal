@@ -859,6 +859,42 @@ static void submodels_touch_ring_to_wheel(uint16_t bitmap)
     Display_SendInputEvent(&display_g, INPUT_DEV_MOUSE, ms_report, 4);
 }
 
+/*
+ * 2×2 中心方阵 → 导航键（iPod 式点按环的中心键）：
+ *   Key1(bit0, 左上) = 返回 (Esc)      Key2(bit1, 右上) = 确定/开始 (Enter)
+ *   Key3(bit2, 左下) = 上一项/页 (Left)  Key4(bit3, 右下) = 下一项/页 (Right)
+ * 每次按下（上升沿）注入一次标准 HID 键盘“轻触”（按下 + 抬起），走与
+ * 真实键盘相同的 CMD_DISP_INPUT_EVENT 通路，由 Display 生成 UI_EVENT_KEY_OK /
+ * KEY_BACK / KEY_LEFT_ARROW / KEY_RIGHT_ARROW（与环=滚轮互不干扰，环用 bit4~15）。
+ */
+static uint8_t s_matrix_prev = 0;   /* 上一次方阵位图 bit0~3，用于边沿检测 */
+
+static void submodels_touch_matrix_to_keys(uint16_t bitmap)
+{
+    /* HID usage id（USB HID Keyboard page）：Esc / Enter / Left / Right */
+    static const uint8_t k_hid[4] = { 0x29, 0x28, 0x50, 0x4F };
+
+    uint8_t matrix  = (uint8_t)(bitmap & 0x0F);            /* bit0~3 = Key1~4 */
+    uint8_t pressed = (uint8_t)(matrix & ~s_matrix_prev);  /* 仅上升沿 = 新按下 */
+    uint8_t i;
+
+    s_matrix_prev = matrix;
+    if (pressed == 0)
+        return;
+
+    for (i = 0; i < 4; i++)
+    {
+        if (pressed & (1U << i))
+        {
+            uint8_t kb_report[8] = {0};
+            kb_report[2] = k_hid[i];   /* 按下：键码放第一个槽位 */
+            Display_SendInputEvent(&display_g, INPUT_DEV_KEYBOARD, kb_report, 8);
+            kb_report[2] = 0;          /* 抬起：空报告 */
+            Display_SendInputEvent(&display_g, INPUT_DEV_KEYBOARD, kb_report, 8);
+        }
+    }
+}
+
 static uint8_t submodels_touch_dispatch(submodels_t *submodel, const protocol_frame_t *req,
                                         uint8_t *resp, uint16_t resp_size, uint8_t *resp_len)
 {
@@ -877,6 +913,7 @@ static uint8_t submodels_touch_dispatch(submodels_t *submodel, const protocol_fr
                     {
                         uint16_t bitmap = ((uint16_t)req->data[1] << 8) | req->data[2];
                         submodels_touch_ring_to_wheel(bitmap);
+                        submodels_touch_matrix_to_keys(bitmap);
                     }
                     *resp_len = 0;
                     return 1;   /* 事件帧无需回复 */

@@ -175,8 +175,8 @@ static char     s_status[80];
 /* Widgets */
 static ui_widget_t  s_list_touch;
 static ui_widget_t  s_view_touch;
-static ui_button_t  btn_prev, btn_next, btn_theme, btn_font, btn_back_list;
-static ui_widget_t *s_widgets[2 + 2 + 5];
+static ui_button_t  btn_prev, btn_next, btn_theme, btn_font, btn_back_list, btn_refresh;
+static ui_widget_t *s_widgets[2 + 2 + 6];
 
 /* Forward declarations */
 static void eb_on_cli_complete(const char *buf, uint16_t len, const char *tag);
@@ -774,8 +774,16 @@ static void view_touch_event(ui_widget_t *w, ui_event_t *e)
         eb_prev_page();
     }
     else if (e->type == UI_EVENT_CLICK) {
-        if (e->pos.x > EB_VIEW_X + EB_VIEW_W / 2) eb_next_page();
-        else eb_prev_page();
+        /* Right mouse button = previous page (claims the click so the global
+         * right-click=Back does not also fire). */
+        if (e->source == UI_INPUT_MOUSE && (e->mouse_buttons & UI_MOUSE_BTN_RIGHT)) {
+            eb_prev_page();
+            ui_input_consume_rightclick();
+        } else if (e->pos.x > EB_VIEW_X + EB_VIEW_W / 2) {
+            eb_next_page();
+        } else {
+            eb_prev_page();
+        }
     }
 }
 
@@ -785,6 +793,14 @@ static void view_touch_event(ui_widget_t *w, ui_event_t *e)
 
 static void btn_prev_click(ui_widget_t *w) { (void)w; eb_prev_page(); }
 static void btn_next_click(ui_widget_t *w) { (void)w; eb_next_page(); }
+
+static void btn_refresh_click(ui_widget_t *w)
+{
+    (void)w;
+    if (!s_viewing || s_loading) return;
+    /* Re-fetch the current page's content from Core. */
+    eb_request_chunk(s_page_starts[s_page]);
+}
 
 static void btn_theme_click(ui_widget_t *w)
 {
@@ -933,6 +949,15 @@ void app_ebook_init(void)
     s_widgets[wi++] = &s_view_touch;
 
     int16_t tb_y = EB_TOOLBAR_Y + 7;
+
+    {
+        ui_rect_t r = {UI_SCREEN_WIDTH - 530, tb_y, EB_TB_BTN_W, EB_TB_BTN_H};
+        ui_button_init(&btn_refresh, &r, "Reload", &font_montserrat_12);
+        ui_button_set_callback(&btn_refresh, btn_refresh_click);
+        ui_button_set_colors(&btn_refresh, UI_HEX(0x1B5E20), UI_HEX(0x2E7D32), UI_COLOR_WHITE);
+        btn_refresh.radius = 6;
+    }
+    s_widgets[wi++] = (ui_widget_t *)&btn_refresh;
 
     {
         ui_rect_t r = {UI_SCREEN_WIDTH - 440, tb_y, EB_TB_BTN_W, EB_TB_BTN_H};

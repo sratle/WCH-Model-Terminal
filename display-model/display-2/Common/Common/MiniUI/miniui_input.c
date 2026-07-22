@@ -288,6 +288,11 @@ static bool    s_mouse_connected = false;  /* external mouse present */
 static uint8_t s_mouse_buttons = 0;        /* current button bitmask */
 static int16_t s_scroll_accum = 0;         /* pending wheel delta (batched) */
 
+/* Set by a widget/page that acts on a right-button click, to suppress the
+ * global "right-click = Back" fallback for that click (see ui_input_feed_mouse). */
+static bool    s_rc_consumed = false;
+void ui_input_consume_rightclick(void) { s_rc_consumed = true; }
+
 /* Nonlinear mouse acceleration (same feel as Display-1):
  * |raw| <= 1  →  1 px  (precise)
  * |raw| == 2  →  4 px
@@ -356,6 +361,7 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
     bool prev_right_down = (prev_buttons & UI_MOUSE_BTN_RIGHT) != 0;
 
     if (!right_down && prev_right_down) {
+        s_rc_consumed = false;
         ui_event_t e;
         memset(&e, 0, sizeof(e));
         e.type = UI_EVENT_CLICK;
@@ -365,6 +371,21 @@ void ui_input_feed_mouse(int8_t dx, int8_t dy, uint8_t buttons, int8_t scroll)
         e.touch.id = UI_TOUCH_ID_NONE;
         e.mouse_buttons = UI_MOUSE_BTN_RIGHT;
         ui_input_deliver_event(0, &e);
+
+        /* Unified "right-click = Back": if no widget/page claimed the click
+         * (via ui_input_consume_rightclick), treat it as a Back action — the
+         * current page's on_page_event gets first say (context-sensitive back,
+         * e.g. e-book closes the book), otherwise pop the page. */
+        if (!s_rc_consumed) {
+            ui_page_t *pg = ui_page_current();
+            ui_event_t back;
+            memset(&back, 0, sizeof(back));
+            back.type = UI_EVENT_KEY_BACK;
+            back.source = UI_INPUT_KEYBOARD;
+            back.key.code = UI_KEY_BACK;
+            bool handled = (pg && pg->on_page_event) ? pg->on_page_event(pg, &back) : false;
+            if (!handled && ui_page_can_go_back()) ui_page_pop();
+        }
     }
 
     /* --- Wheel: accumulate, delivered batched once per tick in
@@ -469,13 +490,13 @@ static bool build_key_event(uint8_t kc, uint8_t modifiers, ui_event_t *e)
         e->type = UI_EVENT_KEY_RIGHT_ARROW;
         e->key.code = UI_KEY_RIGHT;
         return true;
-    case 0x50:  /* Down arrow */
-        e->type = UI_EVENT_KEY_DOWN_ARROW;
-        e->key.code = UI_KEY_DOWN;
-        return true;
-    case 0x51:  /* Left arrow */
+    case 0x50:  /* Left arrow (USB HID 0x50) */
         e->type = UI_EVENT_KEY_LEFT_ARROW;
         e->key.code = UI_KEY_LEFT;
+        return true;
+    case 0x51:  /* Down arrow (USB HID 0x51) */
+        e->type = UI_EVENT_KEY_DOWN_ARROW;
+        e->key.code = UI_KEY_DOWN;
         return true;
     case 0x52:  /* Up arrow */
         e->type = UI_EVENT_KEY_UP_ARROW;
@@ -524,6 +545,38 @@ static void deliver_key_event(ui_event_t *e)
 
     if (page->on_page_event) {
         if (page->on_page_event(page, e)) return;
+    }
+
+    /* TAB cycles keyboard focus (PRESSED highlight) among the page's focusable
+     * widgets; Shift+TAB reverses.  KEY_OK then activates the focused button /
+     * toggles a switch, arrow keys adjust the focused slider. */
+    if (e->type == UI_EVENT_KEY_DOWN && e->key.code == UI_KEY_TAB) {
+        bool reverse = (e->key.modifiers & (UI_MOD_LSHIFT | UI_MOD_RSHIFT)) != 0;
+        int16_t n = (int16_t)page->widget_count;
+        int16_t dir = reverse ? -1 : 1;
+        int16_t cur = -1;
+        for (int16_t i = 0; i < n; i++) {
+            if (page->widgets[i] && (page->widgets[i]->flags & UI_WIDGET_FLAG_PRESSED)) {
+                cur = i; break;
+            }
+        }
+        int16_t base = (cur >= 0) ? cur : (reverse ? n : -1);
+        for (int16_t step = 1; step <= n; step++) {
+            int16_t idx = (int16_t)((((base + dir * step) % n) + n) % n);
+            ui_widget_t *cand = page->widgets[idx];
+            if (cand && (cand->flags & UI_WIDGET_FLAG_FOCUSABLE) &&
+                (cand->flags & UI_WIDGET_FLAG_VISIBLE) &&
+                (cand->flags & UI_WIDGET_FLAG_ENABLED)) {
+                if (cur >= 0 && page->widgets[cur]) {
+                    page->widgets[cur]->flags &= ~UI_WIDGET_FLAG_PRESSED;
+                    ui_widget_invalidate(page->widgets[cur]);
+                }
+                cand->flags |= UI_WIDGET_FLAG_PRESSED;
+                ui_widget_invalidate(cand);
+                break;
+            }
+        }
+        return;
     }
 
     for (int16_t i = 0; i < (int16_t)page->widget_count; i++) {

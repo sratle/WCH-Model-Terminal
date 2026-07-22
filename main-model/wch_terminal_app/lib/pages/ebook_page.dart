@@ -352,6 +352,14 @@ class _EBookPageState extends ConsumerState<EBookPage> {
             onPressed: () => notifier.cycleTheme(),
             tooltip: 'Cycle theme',
           ),
+          // Reload the current page's content from the device
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 18),
+            onPressed: state.hasBook && !state.isLoading
+                ? () => notifier.refreshPage()
+                : null,
+            tooltip: 'Reload page',
+          ),
           const Spacer(),
           // Page navigation
           IconButton(
