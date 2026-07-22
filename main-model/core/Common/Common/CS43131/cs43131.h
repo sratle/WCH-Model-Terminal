@@ -80,11 +80,11 @@ typedef struct {
 } wav_info_t;
 
 /* ======================================================================== */
-/*  Effects: Biquad Filter (Q12 fixed-point)                                 */
+/*  Effects: Biquad Filter (Q20 fixed-point)                                 */
 /* ======================================================================== */
 
 typedef struct {
-    int32_t b0, b1, b2, a1, a2;    /* Q12 coefficients */
+    int32_t b0, b1, b2, a1, a2;    /* Q20 coefficients */
     int32_t x1, x2, y1, y2;        /* state variables */
 } biquad_t;
 
@@ -97,7 +97,8 @@ typedef struct {
     int16_t  bass_gain_db;      /* -12 ~ +12 dB, 100 Hz */
     int16_t  mid_gain_db;       /* -12 ~ +12 dB, 1 kHz  */
     int16_t  treble_gain_db;    /* -12 ~ +12 dB, 10 kHz */
-    biquad_t bands[3];          /* bass, mid, treble (computed internally) */
+    biquad_t bands[3];          /* bass, mid, treble — LEFT channel state  */
+    biquad_t bands_r[3];        /* bass, mid, treble — RIGHT channel state */
 } audio_eq_t;
 
 /* ======================================================================== */
@@ -108,8 +109,12 @@ typedef struct {
     uint8_t  enable;
     int16_t  threshold_db;      /* -40 ~ 0 dB */
     int16_t  ratio;             /* 1~10 (e.g. 4 = 4:1) */
-    int16_t  makeup_db;         /* 0 ~ 20 dB */
-    int32_t  env;               /* envelope follower state (internal) */
+    int16_t  makeup_db;         /* 0 ~ 24 dB */
+    /* internal fixed-point state (computed in Audio_Comp_SetParams/Enable) */
+    int32_t  gain_q15;          /* smoothed applied gain (Q15, 32768 = 1.0) */
+    int32_t  thresh_amp;        /* threshold as amplitude (Q15, 0..32768)   */
+    int32_t  makeup_lin;        /* makeup gain (Q15)                        */
+    int32_t  k_q15;             /* (ratio-1)/ratio in Q15                   */
 } audio_compressor_t;
 
 /* ======================================================================== */
@@ -127,6 +132,7 @@ typedef struct {
     int16_t  delay_line[ECHO_DELAY_SAMPLES * 2]; /* stereo interleaved */
     uint16_t delay_len;         /* actual delay in samples */
     uint16_t delay_pos;
+    int32_t  lp_l, lp_r;        /* one-pole LPF state in the feedback path (damping) */
 } audio_echo_t;
 
 /* ======================================================================== */
@@ -308,6 +314,9 @@ void Audio_PreFill(void);
 /** Effects master switch: 0=bypass all effects, 1=apply enabled effects */
 void Audio_FX_MasterEnable(uint8_t en);
 uint8_t Audio_FX_IsMasterEnabled(void);
+
+/** Apply the built-in "electronic piano enhancement" preset (EQ+Comp+Echo). */
+void Audio_FX_ApplyMusicPreset(void);
 
 /** EQ: set gains in dB (-12~+12), then recompute coefficients */
 void Audio_EQ_SetBass(int16_t gain_db);

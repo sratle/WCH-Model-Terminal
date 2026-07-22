@@ -859,10 +859,11 @@ uint8_t Keyboard_Music_Start(void)
     prev_key_bitmap[0] = prev_key_bitmap[1] = prev_key_bitmap[2] = 0;
     current_playing_key = 0;
 
-    /* 启用效果器总开关 */
+    /* 启用效果器总开关 + 电子琴增强预设 */
     Audio_FX_MasterEnable(1);
+    Audio_FX_ApplyMusicPreset();
 
-    printf("[MUSIC] Keyboard-3 event reporting STARTED (FX enabled)\r\n");
+    printf("[MUSIC] Keyboard-3 event reporting STARTED (FX + piano preset)\r\n");
     return 1;
 }
 
@@ -901,4 +902,19 @@ uint8_t Keyboard_Music_Stop(void)
 uint8_t Keyboard_Music_IsActive(void)
 {
     return music_active;
+}
+
+void Keyboard_Music_Disable(void)
+{
+    /* 强制关闭音乐/效果器（不校验当前子类型，也不向键盘发帧）。
+     * 供心跳检测到键盘子类型不再是音乐键盘时调用。 */
+    if (!music_active)
+        return;
+
+    music_active = 0;
+    Audio_PlayStop();
+    Audio_FX_MasterEnable(0);
+    current_playing_key = 0;
+    prev_key_bitmap[0] = prev_key_bitmap[1] = prev_key_bitmap[2] = 0;
+    printf("[MUSIC] Force-disabled (keyboard subtype changed)\r\n");
 }

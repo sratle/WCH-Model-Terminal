@@ -77,4 +77,10 @@ uint8_t Keyboard_Music_Stop(void);
  */
 uint8_t Keyboard_Music_IsActive(void);
 
+/**
+ * @brief  强制关闭音乐/效果器（不校验子类型、不发帧）
+ *         供心跳检测到键盘子类型不再是音乐键盘时调用。
+ */
+void Keyboard_Music_Disable(void);
+
 #endif

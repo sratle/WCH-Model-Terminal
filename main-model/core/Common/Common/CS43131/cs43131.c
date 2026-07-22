@@ -236,144 +236,167 @@ static void ch_rb_write(audio_channel_t *ch, const uint8_t *data, uint32_t len)
 }
 
 /* ======================================================================== */
-/*  Biquad Filter (Q13 fixed-point)                                         */
+/*  Biquad Filter (Q20 fixed-point, int64 accumulator)                       */
 /* ======================================================================== */
 
-#define BQ_SHIFT 13
-#define BQ_UNITY (1 << BQ_SHIFT)  /* 8192 */
+#define BQ_SHIFT 20
+#define BQ_UNITY (1 << BQ_SHIFT)  /* 1048576 (Q20) — high precision needed for the
+                                   * 100Hz bass band whose poles sit close to z=1 */
 
-static inline int16_t biquad_process(biquad_t *bq, int16_t x)
+static inline int32_t biquad_process(biquad_t *bq, int32_t x)
 {
-    int32_t acc;
-    int32_t x0 = x;
-    acc  = bq->b0 * x0;
-    acc += bq->b1 * bq->x1;
-    acc += bq->b2 * bq->x2;
-    acc -= bq->a1 * bq->y1;
-    acc -= bq->a2 * bq->y2;
+    int64_t acc;
+    acc  = (int64_t)bq->b0 * x;
+    acc += (int64_t)bq->b1 * bq->x1;
+    acc += (int64_t)bq->b2 * bq->x2;
+    acc -= (int64_t)bq->a1 * bq->y1;
+    acc -= (int64_t)bq->a2 * bq->y2;
     acc >>= BQ_SHIFT;
-    bq->x2 = bq->x1; bq->x1 = x0;
-    bq->y2 = bq->y1;
-    if (acc > 32767) acc = 32767;
-    if (acc < -32768) acc = -32768;
-    bq->y1 = (int16_t)acc;
-    return (int16_t)acc;
+    bq->x2 = bq->x1; bq->x1 = x;
+    bq->y2 = bq->y1; bq->y1 = (int32_t)acc;
+    /* No inter-stage clamp: the caller clamps once after the full cascade,
+     * preserving headroom/precision (state is kept in int32). */
+    return (int32_t)acc;
 }
 
 /* ======================================================================== */
-/*  EQ: Pre-computed biquad coefficients (Q13)                              */
-/*  Bass=100Hz, Mid=1kHz, Treble=10kHz @ 44.1kHz, Q≈0.707                  */
+/*  EQ: runtime biquad design from a gain LUT (fixed-point, no soft-float)   */
+/*  3 peaking bands: Bass=100Hz, Mid=1kHz, Treble=10kHz @44.1kHz, Q=0.707    */
+/*                                                                           */
+/*  RBJ peaking coefficients are affine in A=10^(g/40) and 1/A given a fixed */
+/*  w0/Q, so only A (and 1/A) depend on gain. We keep cos(w0) and            */
+/*  alpha=sin(w0)/(2Q) as per-band constants (Q15) and look A up in a table. */
 /* ======================================================================== */
 
-/* Target coefficients at +6dB gain, stored as (coeff_Q13, a_sign_for_a1a2) */
-/* Bass 100Hz low-shelf +6dB: b0=8931 b1=-17051 b2=8512 a1=-15640 a2=6823 */
-/* Mid  1kHz peaking  +6dB:   b0=11121 b1=-12858 b2=6313 a1=-12858 a2=4666 */
-/* Treble 10kHz high-shelf+6dB: b0=14762 b1=-21541 b2=9143 a1=-18751 a2=7566 */
+/* Per-band constants in Q15: cos(w0) and alpha = sin(w0)/(2*Q), Q=0.707 */
+static const int32_t eq_cos_w0[3] = { 32765, 32436,  4769 }; /* bass, mid, treble */
+static const int32_t eq_alpha[3]  = {   330,  3290, 22924 };
 
-static const int16_t eq_boost_b[3][3] = {
-    { 8931, -17051,  8512},  /* bass  b0,b1,b2 */
-    {11121, -12858,  6313},  /* mid   b0,b1,b2 */
-    {14762, -21541,  9143},  /* treble b0,b1,b2 */
+/* A = 10^(gain/40) in Q15 for gain = -12..+12 dB (index 0..24).
+ * 1/A for gain index i equals A at index (24 - i) (symmetry of 10^x). */
+static const int32_t eq_A_lut[25] = {
+    16423, 17396, 18427, 19519, 20676, 21901, 23199, 24573, 26030,
+    27572, 29205, 30936, 32768, 34710, 36767, 38945, 41253, 43697,
+    46286, 49029, 51934, 55011, 58271, 61723, 65379
 };
-static const int16_t eq_boost_a[3][2] = {
-    {-15640,  6823},  /* bass  a1,a2 */
-    {-12858,  4666},  /* mid   a1,a2 */
-    {-18751,  7566},  /* treble a1,a2 */
-};
+
+static void eq_design_band(int band, int16_t gain_db)
+{
+    biquad_t *bl = &CS43131_g.eq.bands[band];
+    biquad_t *br = &CS43131_g.eq.bands_r[band];
+    int32_t idx, A, invA, alA, alInvA;
+    int32_t b0, b1, b2, a0, a2;
+    int32_t B0, B1, B2, A2;
+
+    if (gain_db > 12)  gain_db = 12;
+    if (gain_db < -12) gain_db = -12;
+
+    if (gain_db == 0) {
+        bl->b0 = br->b0 = BQ_UNITY;
+        bl->b1 = br->b1 = 0; bl->b2 = br->b2 = 0;
+        bl->a1 = br->a1 = 0; bl->a2 = br->a2 = 0;
+        return;
+    }
+
+    idx  = gain_db + 12;
+    A    = eq_A_lut[idx];
+    invA = eq_A_lut[24 - idx];
+
+    /* peaking: b0=1+alpha*A, b2=1-alpha*A, a0=1+alpha/A, a2=1-alpha/A,
+     *          b1 = a1 = -2*cos(w0)  (all pre-normalization, Q15) */
+    alA    = (int32_t)(((int64_t)eq_alpha[band] * A)    >> 15);
+    alInvA = (int32_t)(((int64_t)eq_alpha[band] * invA) >> 15);
+
+    b0 = 32768 + alA;
+    b2 = 32768 - alA;
+    a0 = 32768 + alInvA;          /* always >= 32768, safe divisor */
+    a2 = 32768 - alInvA;
+    b1 = -(eq_cos_w0[band] << 1); /* -2*cos(w0), shared by numerator and a1 */
+
+    /* normalize by a0 and store in Q20; same coeffs feed both L and R banks
+     * (each channel keeps its own filter state to avoid L/R cross-talk). */
+    B0 = (int32_t)(((int64_t)b0 * BQ_UNITY) / a0);
+    B1 = (int32_t)(((int64_t)b1 * BQ_UNITY) / a0);
+    B2 = (int32_t)(((int64_t)b2 * BQ_UNITY) / a0);
+    A2 = (int32_t)(((int64_t)a2 * BQ_UNITY) / a0);
+
+    bl->b0 = br->b0 = B0;
+    bl->b1 = br->b1 = B1;
+    bl->b2 = br->b2 = B2;
+    bl->a1 = br->a1 = B1;   /* a1 numerator equals b1 (-2*cos) */
+    bl->a2 = br->a2 = A2;
+}
 
 void Audio_EQ_UpdateCoeffs(void)
 {
-    int band;
-    int16_t gains[3];
-    gains[0] = CS43131_g.eq.bass_gain_db;
-    gains[1] = CS43131_g.eq.mid_gain_db;
-    gains[2] = CS43131_g.eq.treble_gain_db;
-
-    for (band = 0; band < 3; band++) {
-        int16_t g = gains[band];
-        biquad_t *bq = &CS43131_g.eq.bands[band];
-        if (g > 12) g = 12;
-        if (g < -12) g = -12;
-        if (g == 0) {
-            bq->b0 = BQ_UNITY; bq->b1 = 0; bq->b2 = 0;
-            bq->a1 = 0; bq->a2 = 0;
-        } else {
-            int16_t abs_g = (g > 0) ? g : -g;
-            /* lerp: coeff = UNITY + abs_g/6 * (target - UNITY) */
-            bq->b0 = BQ_UNITY + (int32_t)abs_g * (eq_boost_b[band][0] - BQ_UNITY) / 6;
-            bq->b1 = (int32_t)abs_g * eq_boost_b[band][1] / 6;
-            bq->b2 = (int32_t)abs_g * eq_boost_b[band][2] / 6;
-            bq->a1 = (int32_t)abs_g * eq_boost_a[band][0] / 6;
-            bq->a2 = (int32_t)abs_g * eq_boost_a[band][1] / 6;
-            /* For cut (negative gain), negate all target coefficients */
-            if (g < 0) {
-                bq->b0 = 2 * BQ_UNITY - bq->b0;  /* = UNITY - (bq->b0 - UNITY) */
-                bq->b1 = -bq->b1;
-                bq->b2 = -bq->b2;
-                bq->a1 = -bq->a1;
-                bq->a2 = -bq->a2;
-            }
-        }
-    }
+    eq_design_band(0, CS43131_g.eq.bass_gain_db);
+    eq_design_band(1, CS43131_g.eq.mid_gain_db);
+    eq_design_band(2, CS43131_g.eq.treble_gain_db);
 }
 
 /* ======================================================================== */
-/*  Compressor                                                               */
+/*  Compressor (feed-forward, continuous Q15 gain, smoothed envelope)        */
 /* ======================================================================== */
 
-static int32_t comp_abs_db(int16_t sample)
-{
-    /* Rough dB estimate: 20*log10(|sample|/32768) ≈ 6*(bitpos-15) */
-    uint16_t abs_s = (sample < 0) ? (uint16_t)(-sample) : (uint16_t)sample;
-    if (abs_s == 0) return -96;
-    int bit = 0;
-    uint16_t v = abs_s;
-    while (v) { bit++; v >>= 1; }
-    return (int32_t)(bit - 15) * 6;
-}
+/* 10^(-dB/20) in Q15 for dB = 0..40 (attenuation, used for threshold amp). */
+static const int32_t comp_atten_lut[41] = {
+    32768, 29205, 26029, 23198, 20675, 18426, 16423, 14640, 13048, 11629,
+    10362,  9235,  8232,  7336,  6538,  5827,  5194,  4629,  4126,  3677,
+     3277,  2921,  2603,  2320,  2068,  1843,  1642,  1464,  1305,  1163,
+     1036,   923,   823,   734,   654,   583,   519,   463,   413,   368,
+      328
+};
+
+/* 10^(dB/20) in Q15 for dB = 0..24 (makeup gain, >= unity). */
+static const int32_t comp_makeup_lut[25] = {
+     32768,  36767,  41253,  46286,  51934,  58271,  65379,  73357,  82310,
+     92353, 103631, 116271, 130456, 146373, 164229, 184267, 206755, 232000,
+    260305, 292062, 327680, 367641, 412553, 462946, 519357
+};
 
 static void compressor_process(audio_compressor_t *comp, int16_t *buf, uint32_t len)
 {
+    const int32_t attack_q15  = 6553;   /* ~0.2  : fast gain reduction  */
+    const int32_t release_q15 = 328;    /* ~0.01 : slow recovery        */
     uint32_t i;
-    int32_t attack_coeff = 983;   /* ~0.12 in Q13, fast attack */
-    int32_t release_coeff = 131;  /* ~0.016 in Q13, slow release */
-    int32_t threshold = comp->threshold_db;
-    int32_t ratio = comp->ratio;
+    int32_t thresh = comp->thresh_amp;
+    int32_t makeup = comp->makeup_lin;
+    int32_t k      = comp->k_q15;
+    int32_t gain   = comp->gain_q15;
 
-    for (i = 0; i < len; i++) {
-        int32_t in_db = comp_abs_db(buf[i]);
-        int32_t gain_db = 0;
+    if (makeup <= 0) makeup = 32768;    /* defensive: unity if never set */
+    if (gain   <= 0) gain   = makeup;
 
-        /* Envelope follower */
-        if (in_db > comp->env)
-            comp->env += ((in_db - comp->env) * attack_coeff) >> BQ_SHIFT;
-        else
-            comp->env += ((in_db - comp->env) * release_coeff) >> BQ_SHIFT;
+    /* Stereo-linked: one gain derived from max(|L|,|R|), applied to both. */
+    for (i = 0; i + 1 < len; i += 2) {
+        int32_t l = buf[i];
+        int32_t r = buf[i + 1];
+        int32_t al = (l < 0) ? -l : l;
+        int32_t ar = (r < 0) ? -r : r;
+        int32_t peak = (al > ar) ? al : ar;
+        int32_t inst_g, target, coeff, ol, orr;
 
-        /* Gain reduction */
-        if (comp->env > threshold && ratio > 1) {
-            gain_db = -((comp->env - threshold) * (ratio - 1)) / ratio;
+        if (thresh > 0 && peak > thresh) {
+            /* soft compression: g = 1 - k*(1 - thresh/peak), k=(ratio-1)/ratio */
+            int32_t ratio_te = (int32_t)(((int64_t)thresh << 15) / peak); /* Q15 <=1 */
+            inst_g = 32768 - (int32_t)(((int64_t)k * (32768 - ratio_te)) >> 15);
+        } else {
+            inst_g = 32768;
         }
+        target = (int32_t)(((int64_t)inst_g * makeup) >> 15);
 
-        /* Apply gain reduction + makeup in one step (approximate) */
-        {
-            int32_t total_db = gain_db + comp->makeup_db;
-            /* Convert dB to linear: approximate 2^(db/6) via shift */
-            int32_t samp = buf[i];
-            if (total_db < 0) {
-                int32_t atten = (-total_db);
-                if (atten > 48) atten = 48;
-                samp = samp >> (atten / 6);  /* rough -6dB per halving */
-            } else if (total_db > 0) {
-                int32_t boost = total_db;
-                if (boost > 24) boost = 24;
-                samp = samp * (1 + boost / 6);
-            }
-            if (samp > 32767) samp = 32767;
-            if (samp < -32768) samp = -32768;
-            buf[i] = (int16_t)samp;
-        }
+        coeff = (target < gain) ? attack_q15 : release_q15;
+        gain += (int32_t)(((int64_t)coeff * (target - gain)) >> 15);
+        if (gain < 0) gain = 0;
+
+        ol  = (int32_t)(((int64_t)l * gain) >> 15);
+        orr = (int32_t)(((int64_t)r * gain) >> 15);
+        if (ol  > 32767) ol  = 32767; if (ol  < -32768) ol  = -32768;
+        if (orr > 32767) orr = 32767; if (orr < -32768) orr = -32768;
+        buf[i]     = (int16_t)ol;
+        buf[i + 1] = (int16_t)orr;
     }
+    comp->gain_q15 = gain;
 }
 
 /* ======================================================================== */
@@ -383,42 +406,50 @@ static void compressor_process(audio_compressor_t *comp, int16_t *buf, uint32_t 
 static void echo_process(audio_echo_t *echo, int16_t *buf, uint32_t len)
 {
     uint32_t i;
-    int32_t fb = (int32_t)echo->feedback;   /* 0~200 → scale /256 */
-    int32_t wet = (int32_t)echo->mix;       /* 0~100 → scale /100 */
     uint16_t dlen = echo->delay_len;
     uint16_t dpos = echo->delay_pos;
+    int32_t  fb   = (int32_t)echo->feedback * 128;  /* 0..200 -> Q15 (~0..0.78) */
+    int32_t  wet  = (int32_t)echo->mix * 328;       /* 0..100 -> Q15 (~0..1.0)  */
+    int32_t  dry;
+    const int32_t damp = 9830;                      /* ~0.3 one-pole LPF (feedback damping) */
+    int32_t  lp_l = echo->lp_l, lp_r = echo->lp_r;
 
     if (dlen == 0) return;
+    if (wet > 32768) wet = 32768;
+    dry = 32768 - wet;
 
-    for (i = 0; i < len; i += 2) {
-        /* Read delayed samples (stereo interleaved) */
-        uint16_t rd_idx = (dpos * 2);
-        int16_t del_l = echo->delay_line[rd_idx];
-        int16_t del_r = echo->delay_line[rd_idx + 1];
+    for (i = 0; i + 1 < len; i += 2) {
+        uint16_t rd_idx = (uint16_t)(dpos * 2);
+        int32_t del_l = echo->delay_line[rd_idx];
+        int32_t del_r = echo->delay_line[rd_idx + 1];
+        int32_t dry_l = buf[i];
+        int32_t dry_r = buf[i + 1];
+        int32_t out_l, out_r, wr_l, wr_r;
 
-        /* Mix dry + wet */
-        int32_t out_l = (int32_t)buf[i]     + (del_l * wet) / 100;
-        int32_t out_r = (int32_t)buf[i + 1] + (del_r * wet) / 100;
-        if (out_l > 32767) out_l = 32767;
-        if (out_l < -32768) out_l = -32768;
-        if (out_r > 32767) out_r = 32767;
-        if (out_r < -32768) out_r = -32768;
+        /* dry/wet cross-fade (keeps overall level bounded) */
+        out_l = (int32_t)(((int64_t)dry_l * dry + (int64_t)del_l * wet) >> 15);
+        out_r = (int32_t)(((int64_t)dry_r * dry + (int64_t)del_r * wet) >> 15);
+        if (out_l > 32767) out_l = 32767; if (out_l < -32768) out_l = -32768;
+        if (out_r > 32767) out_r = 32767; if (out_r < -32768) out_r = -32768;
         buf[i]     = (int16_t)out_l;
         buf[i + 1] = (int16_t)out_r;
 
-        /* Write to delay line: input + feedback */
-        int32_t wr_l = (int32_t)buf[i]     + (del_l * fb) / 256;
-        int32_t wr_r = (int32_t)buf[i + 1] + (del_r * fb) / 256;
-        if (wr_l > 32767) wr_l = 32767;
-        if (wr_l < -32768) wr_l = -32768;
-        if (wr_r > 32767) wr_r = 32767;
-        if (wr_r < -32768) wr_r = -32768;
+        /* feedback: low-pass the delayed signal (damping) then add DRY input */
+        lp_l += (int32_t)(((int64_t)damp * (del_l - lp_l)) >> 15);
+        lp_r += (int32_t)(((int64_t)damp * (del_r - lp_r)) >> 15);
+        wr_l = dry_l + (int32_t)(((int64_t)fb * lp_l) >> 15);
+        wr_r = dry_r + (int32_t)(((int64_t)fb * lp_r) >> 15);
+        if (wr_l > 32767) wr_l = 32767; if (wr_l < -32768) wr_l = -32768;
+        if (wr_r > 32767) wr_r = 32767; if (wr_r < -32768) wr_r = -32768;
         echo->delay_line[rd_idx]     = (int16_t)wr_l;
         echo->delay_line[rd_idx + 1] = (int16_t)wr_r;
 
-        dpos = (dpos + 1) % dlen;
+        dpos++;
+        if (dpos >= dlen) dpos = 0;
     }
     echo->delay_pos = dpos;
+    echo->lp_l = lp_l;
+    echo->lp_r = lp_r;
 }
 
 /* ======================================================================== */
@@ -431,12 +462,21 @@ static void effects_chain_process(int16_t *buf, uint32_t len)
 
     if (CS43131_g.eq.enable) {
         uint32_t i;
-        for (i = 0; i < len; i++) {
-            int16_t s = buf[i];
-            s = biquad_process(&CS43131_g.eq.bands[0], s);
-            s = biquad_process(&CS43131_g.eq.bands[1], s);
-            s = biquad_process(&CS43131_g.eq.bands[2], s);
-            buf[i] = s;
+        /* Stereo: L and R each run through their own 3-band state bank so the
+         * bands act at the true 44.1kHz rate with no L/R cross-contamination. */
+        for (i = 0; i + 1 < len; i += 2) {
+            int32_t sl = buf[i];
+            int32_t sr = buf[i + 1];
+            sl = biquad_process(&CS43131_g.eq.bands[0], sl);
+            sl = biquad_process(&CS43131_g.eq.bands[1], sl);
+            sl = biquad_process(&CS43131_g.eq.bands[2], sl);
+            sr = biquad_process(&CS43131_g.eq.bands_r[0], sr);
+            sr = biquad_process(&CS43131_g.eq.bands_r[1], sr);
+            sr = biquad_process(&CS43131_g.eq.bands_r[2], sr);
+            if (sl > 32767)  sl = 32767;  if (sl < -32768) sl = -32768;
+            if (sr > 32767)  sr = 32767;  if (sr < -32768) sr = -32768;
+            buf[i]     = (int16_t)sl;
+            buf[i + 1] = (int16_t)sr;
         }
     }
     if (CS43131_g.compressor.enable) {
@@ -666,6 +706,22 @@ void Audio_FX_MasterEnable(uint8_t en)
 
 uint8_t Audio_FX_IsMasterEnabled(void) { return CS43131_g.fx_master_enable; }
 
+void Audio_FX_ApplyMusicPreset(void)
+{
+    /* 电子琴增强预设：适度低频暖度 + 高频亮度 + 轻压缩 + 可控空间感。
+     * Faders 后续会实时覆盖 bass/echo/comp；treble 常驻提供明亮感。 */
+    Audio_EQ_SetBass(3);
+    Audio_EQ_SetMid(0);
+    Audio_EQ_SetTreble(4);
+    Audio_EQ_Enable(1);
+
+    Audio_Comp_SetParams(-18, 3, 4);   /* threshold -18dB, 3:1, +4dB makeup */
+    Audio_Comp_Enable(1);
+
+    Audio_Echo_SetParams(90, 60, 22);  /* 90ms, ~23% feedback, 22% wet */
+    Audio_Echo_Enable(1);
+}
+
 void Audio_EQ_SetBass(int16_t db)   { CS43131_g.eq.bass_gain_db = db; Audio_EQ_UpdateCoeffs(); }
 void Audio_EQ_SetMid(int16_t db)    { CS43131_g.eq.mid_gain_db = db; Audio_EQ_UpdateCoeffs(); }
 void Audio_EQ_SetTreble(int16_t db) { CS43131_g.eq.treble_gain_db = db; Audio_EQ_UpdateCoeffs(); }
@@ -673,11 +729,29 @@ void Audio_EQ_Enable(uint8_t en)    { CS43131_g.eq.enable = en ? 1 : 0; }
 
 void Audio_Comp_SetParams(int16_t threshold_db, int16_t ratio, int16_t makeup_db)
 {
+    if (threshold_db > 0)   threshold_db = 0;
+    if (threshold_db < -40) threshold_db = -40;
+    if (ratio < 1)  ratio = 1;
+    if (ratio > 10) ratio = 10;
+    if (makeup_db < 0)  makeup_db = 0;
+    if (makeup_db > 24) makeup_db = 24;
+
     CS43131_g.compressor.threshold_db = threshold_db;
-    CS43131_g.compressor.ratio = ratio;
-    CS43131_g.compressor.makeup_db = makeup_db;
+    CS43131_g.compressor.ratio        = ratio;
+    CS43131_g.compressor.makeup_db    = makeup_db;
+    CS43131_g.compressor.thresh_amp   = comp_atten_lut[-threshold_db];
+    CS43131_g.compressor.makeup_lin   = comp_makeup_lut[makeup_db];
+    CS43131_g.compressor.k_q15        = (int32_t)(ratio - 1) * 32768 / ratio;
 }
-void Audio_Comp_Enable(uint8_t en) { CS43131_g.compressor.enable = en ? 1 : 0; }
+void Audio_Comp_Enable(uint8_t en)
+{
+    CS43131_g.compressor.enable = en ? 1 : 0;
+    if (en) {
+        /* start at the makeup gain so enabling doesn't jump */
+        int32_t m = CS43131_g.compressor.makeup_lin;
+        CS43131_g.compressor.gain_q15 = (m > 0) ? m : 32768;
+    }
+}
 
 void Audio_Echo_SetParams(uint16_t delay_ms, uint8_t feedback, uint8_t mix)
 {
@@ -696,6 +770,8 @@ void Audio_Echo_Enable(uint8_t en)
     if (en) {
         memset(CS43131_g.echo.delay_line, 0, sizeof(CS43131_g.echo.delay_line));
         CS43131_g.echo.delay_pos = 0;
+        CS43131_g.echo.lp_l = 0;
+        CS43131_g.echo.lp_r = 0;
     }
 }
 
@@ -729,8 +805,17 @@ uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info)
             info->data_offset = pos + 8;
             info->data_size   = chunk_size;
             found_data = 1;
+            /* data chunk size is the (possibly huge) audio payload; we already
+             * have the offset, so stop scanning to avoid pos overflow/wrap. */
+            break;
         }
-        pos += 8 + ((chunk_size + 1) & ~1U);
+        {
+            uint32_t adv = 8 + ((chunk_size + 1) & ~1U);
+            /* guard against malformed chunk_size causing wrap / stall */
+            if (adv < 8 || pos + adv <= pos)
+                break;
+            pos += adv;
+        }
     }
     if (!found_fmt) { printf("WAV: fmt chunk not found\r\n"); return 3; }
     if (!found_data) { printf("WAV: data chunk not found\r\n"); return 4; }
@@ -747,6 +832,11 @@ uint8_t Audio_ParseWAVHeader(uint8_t *buf, wav_info_t *info)
 /* ======================================================================== */
 
 static uint8_t stream_channel_idx = 0; /* round-robin index */
+
+/* Shared CH378 read staging buffer. Kept in .bss instead of on the (2KB) stack;
+ * Audio_Process / Audio_PreFill run only in main-loop context, are never
+ * re-entrant and never called from an ISR, so a single shared buffer is safe. */
+static uint8_t audio_ch378_buf[AUDIO_CH_READ_BLOCK];
 
 /* Low watermark: trigger read when buffer drops below this (~93ms). */
 #define AUDIO_CH_LOW_WATERMARK  (AUDIO_CH_RB_SIZE / 2)
@@ -790,7 +880,6 @@ static uint8_t channel_file_open(audio_channel_t *ch)
 void Audio_PreFill(void)
 {
     uint8_t ch_idx;
-    uint8_t temp_buf[AUDIO_CH_READ_BLOCK];
     uint16_t real_len;
     uint8_t status;
 
@@ -816,12 +905,12 @@ void Audio_PreFill(void)
 
         /* Fill until high watermark or EOF */
         while (ch_rb_used(ch) < AUDIO_CH_HIGH_WATERMARK) {
-            status = CH378ByteRead(temp_buf, AUDIO_CH_READ_BLOCK, &real_len);
+            status = CH378ByteRead(audio_ch378_buf, AUDIO_CH_READ_BLOCK, &real_len);
             if (status != ERR_SUCCESS || real_len == 0) {
                 ch->eof = 1;
                 break;
             }
-            ch_rb_write(ch, temp_buf, real_len);
+            ch_rb_write(ch, audio_ch378_buf, real_len);
             ch->read_offset += real_len;
             if (real_len < AUDIO_CH_READ_BLOCK) {
                 ch->eof = 1;
@@ -837,7 +926,6 @@ void Audio_Process(void)
     audio_channel_t *ch;
     uint8_t status;
     uint16_t real_len;
-    uint8_t temp_buf[AUDIO_CH_READ_BLOCK]; /* 8KB stack buffer */
     uint8_t attempts;
     uint32_t used, target, to_read;
 
@@ -901,13 +989,13 @@ void Audio_Process(void)
          * Sequential reads — no seek overhead within this loop. */
         to_read = target;
         while (to_read >= AUDIO_CH_READ_BLOCK) {
-            status = CH378ByteRead(temp_buf, AUDIO_CH_READ_BLOCK, &real_len);
+            status = CH378ByteRead(audio_ch378_buf, AUDIO_CH_READ_BLOCK, &real_len);
             if (status != ERR_SUCCESS || real_len == 0) {
                 ch->eof = 1;
                 channel_file_close(ch);
                 break;
             }
-            ch_rb_write(ch, temp_buf, real_len);
+            ch_rb_write(ch, audio_ch378_buf, real_len);
             ch->read_offset += real_len;
             if (real_len < AUDIO_CH_READ_BLOCK) {
                 ch->eof = 1;
@@ -953,13 +1041,17 @@ static void mixer_fill_half(uint16_t *out, uint32_t count)
             int16_t sl = (int16_t)(lo_l | (hi_l << 8));
             int16_t sr = (int16_t)(lo_r | (hi_r << 8));
 
-            vol = (int32_t)ch->volume;
+            vol = (int32_t)ch->volume;          /* 0..100 */
             /* pan: 0=full left, 128=center, 255=full right */
             pan_l = (255 - ch->pan);
             pan_r = ch->pan;
 
-            l += (sl * vol * pan_l) >> 15;
-            r += (sr * vol * pan_r) >> 15;
+            /* Normalize by (100*255) so full volume + hard pan == unity gain,
+             * restoring headroom vs the old >>15 which capped a single channel
+             * at ~0.78 full-scale (and centre pan at ~0.39). The final clip
+             * below still guards simultaneous full-scale channels. */
+            l += ((int32_t)sl * vol * pan_l) / 25500;
+            r += ((int32_t)sr * vol * pan_r) / 25500;
 
             ch->samples_played += 2;
         }

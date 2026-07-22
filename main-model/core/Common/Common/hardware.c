@@ -160,17 +160,22 @@ void Hardware_Heartbeat(void)
             {
                 uint8_t idx = i - 3;
 
-                /* 如果有自定义帧待传输，优先发送帧数据 */
+                /* 如果有自定义帧待传输，优先发送帧数据（每次心跳最多发 5 帧，
+                 * 20 帧上传约 4 次心跳 ≈ 2s，替代原来每心跳 1 帧的 ~10s） */
                 if (hardware_g.rgb_frame.pending)
                 {
-                    uint8_t next_frame = hardware_g.rgb_frame.next_frame_idx;
-                    if (next_frame < hardware_g.rgb_frame.frame_count)
+                    uint8_t sent = 0;
+                    while (sent < 5 &&
+                           hardware_g.rgb_frame.next_frame_idx < hardware_g.rgb_frame.frame_count)
                     {
+                        uint8_t next_frame = hardware_g.rgb_frame.next_frame_idx;
                         Submodels_RGB_SendFrame(&submodels_g[idx], next_frame,
                                                  hardware_g.rgb_frame.frame_data[next_frame]);
                         hardware_g.rgb_frame.next_frame_idx = next_frame + 1;
+                        sent++;
                     }
-                    else
+
+                    if (hardware_g.rgb_frame.next_frame_idx >= hardware_g.rgb_frame.frame_count)
                     {
                         /* 所有帧已发送，发送播放命令 */
                         Submodels_RGB_PlayAnimation(&submodels_g[idx],
@@ -294,6 +299,16 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
                 subtype == MODULE_SUBTYPE_SUBMODEL_RGB)
             {
                 hardware_g.rgb_config.pending = 1;
+            }
+
+            /* 门控加固：键盘子类型不再是音乐键盘时，强制关闭音乐/效果器，
+             * 保证效果器只在 Keyboard-3 + music start 时启用。 */
+            if (module_id == MODULE_ID_KEYBOARD &&
+                type == MODULE_TYPE_KEYBOARD &&
+                subtype != MODULE_SUBTYPE_KEYBOARD_MUSIC &&
+                Keyboard_Music_IsActive())
+            {
+                Keyboard_Music_Disable();
             }
 
             return;

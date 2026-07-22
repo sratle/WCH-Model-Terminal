@@ -110,16 +110,19 @@ uint16_t Protocol_PackFrame(uint8_t src, uint8_t dst, uint8_t cmd,
     if (out_size < total_len)
         return 0;
 
+    /* Move payload first: allows in-place packing (data aliasing out_buf).
+     * Writing the 5-byte header before the memmove would clobber the first
+     * bytes of the source payload when data == out_buf. */
+    if (data_len > 0 && data != NULL)
+    {
+        memmove(&out_buf[5], data, data_len);
+    }
+
     out_buf[0] = PROTO_FRAME_HEAD;
     out_buf[1] = src;
     out_buf[2] = dst;
     out_buf[3] = len_field;
     out_buf[4] = cmd;
-
-    if (data_len > 0 && data != NULL)
-    {
-        memmove(&out_buf[5], data, data_len);
-    }
 
     out_buf[5 + data_len]     = PROTO_FRAME_TAIL0;
     out_buf[5 + data_len + 1] = PROTO_FRAME_TAIL1;
@@ -161,16 +164,17 @@ uint16_t Protocol_PackStreamFrame(uint8_t src, uint8_t dst, uint8_t cmd,
     if (out_size < total_len)
         return 0;
 
+    /* Move payload first (see Protocol_PackFrame): safe for in-place packing. */
+    if (data_len > 0 && data != NULL)
+    {
+        memmove(&out_buf[5], data, data_len);
+    }
+
     out_buf[0] = PROTO_FRAME_HEAD;
     out_buf[1] = src;
     out_buf[2] = dst;
     out_buf[3] = PROTO_STREAM_LEN;
     out_buf[4] = cmd;
-
-    if (data_len > 0 && data != NULL)
-    {
-        memmove(&out_buf[5], data, data_len);
-    }
 
     out_buf[5 + data_len]     = PROTO_FRAME_TAIL0;
     out_buf[5 + data_len + 1] = PROTO_FRAME_TAIL1;
@@ -335,7 +339,11 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
             if (byte == PROTO_FRAME_TAIL3)
             {
                 ctx->frame_ready = 1;
-                ctx->frame.len = ctx->data_idx + 1;
+                /* Clamp reported length so consumers never read past the
+                 * PROTO_MAX_DATA_LEN-sized frame.data[] buffer on overflow. */
+                ctx->frame.len = (uint16_t)((ctx->data_idx > PROTO_MAX_DATA_LEN
+                                                 ? PROTO_MAX_DATA_LEN
+                                                 : ctx->data_idx) + 1);
                 ctx->state = PROTO_STATE_FRAME_READY;
                 return 1;
             }
