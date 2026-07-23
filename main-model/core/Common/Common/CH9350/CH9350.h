@@ -183,6 +183,9 @@ void CH9350_Send_Ack(ch9350_t *ch9350);
 // 上位机主动切换CH9350工作状态（发送0x40命令）
 void CH9350_Set_Work_State(ch9350_t *ch9350, uint8_t state);
 
+// 重发当前外接 HID（USB）键盘/鼠标连接状态给 Display（供进页拉取一次）
+void CH9350_ReportHidStatusToDisplay(ch9350_t *ch9350);
+
 // USB HID键码转按键名称（已知键返回名称，未知返回NULL）
 const char *CH9350_KeyCode_Name(uint8_t keycode);
 

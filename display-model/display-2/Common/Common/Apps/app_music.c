@@ -124,6 +124,7 @@ static char s_status_text[32];
 static uint8_t s_prev_state = 0xFF;
 static uint8_t s_prev_vol = 0xFF;
 static uint32_t s_prev_dur = 0xFFFFFFFF;
+static uint8_t s_prev_speaker = 0xFF;
 
 /* Speaker state: true = external speaker ON, false = headphone only */
 static bool s_speaker_on = false;
@@ -470,6 +471,7 @@ static void music_page_enter(ui_page_t *page)
     s_prev_state = 0xFF;
     s_prev_vol = 0xFF;
     s_prev_dur = 0xFFFFFFFF;
+    s_prev_speaker = 0xFF;
     s_local_tracking = false;
     s_local_pos_ms = g_disp_state.music_pos_ms;
     s_track_ended = false;
@@ -579,6 +581,13 @@ static void music_page_update(ui_page_t *page, uint32_t dt_ms)
         ui_rect_t vol_area = {VOL_X - 40, VOL_Y,
                               VOL_W + 60, VOL_H};
         ui_page_invalidate(&vol_area);
+    }
+
+    /* Speaker (外放) change from Core (e.g. core ENTER key or CLI): refresh Spk button */
+    if (g_disp_state.music_speaker != s_prev_speaker) {
+        s_prev_speaker = g_disp_state.music_speaker;
+        music_update_texts();
+        ui_page_invalidate_all();
     }
 }
 

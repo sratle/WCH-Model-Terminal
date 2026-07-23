@@ -1348,6 +1348,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  resume [ch]     Resume playback (no ch=all)\r\n");
         printf("  stop [ch]       Stop playback, cannot resume (no ch=all)\r\n");
         printf("  playst          Show playback status\r\n");
+        printf("  powerst         Show battery level and charging state\r\n");
         printf("  lsdev           List module status (online/offline/type)\r\n");
         printf("  bmp get <file> [sub]  Read BMP file (hex dump, sub=send to SubDisplay)\r\n");
         printf("  lsstatus        Show system status (audio/battery/ble/modules)\r\n");
@@ -1401,8 +1402,8 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  head <file> [n], tail <file> [n], tree [dir], du <dir>\r\n");
         printf("  find <pattern>, df, free, device [usb|sd]\r\n");
         printf("  stat <file>, chmod <file> <attr>, ver\r\n");
-        printf("  play <file> [ch], vol <0-100>, pause [ch], resume [ch], stop [ch], playst\r\n");
-        printf("  music <start|stop|status>\r\n");
+        printf("  play <file> [ch], vol <0-100>, pause [ch], resume [ch], stop [ch]\r\n");
+        printf("  playst, powerst, music <start|stop|status>\r\n");
         printf("  lsdev, bmp get <file> [sub], lsstatus\r\n");
         printf("  subdisp mode <0|1>, subdisp refresh status\r\n");
         printf("  light <0-255>, note <text>\r\n");
@@ -1508,6 +1509,17 @@ static void CLI_Cmd_Playst(void)
     printf("Speaker: L=%s R=%s\r\n",
            (spk & SPEAKER_CHANNEL_LEFT) ? "ON" : "OFF",
            (spk & SPEAKER_CHANNEL_RIGHT) ? "ON" : "OFF");
+}
+
+static void CLI_Cmd_Powerst(void)
+{
+    if (!power_g.has_status) {
+        printf("Battery:  unknown (no report)\r\n");
+        printf("Charging: unknown\r\n");
+        return;
+    }
+    printf("Battery:  %d%%\r\n", power_g.battery_pct);
+    printf("Charging: %s\r\n", (power_g.charge_flags & 0x01) ? "Yes" : "No");
 }
 
 static void CLI_Cmd_Ver(void)
@@ -3354,7 +3366,7 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         strcmp(argv[0], "keyboard") == 0 || strcmp(argv[0], "music") == 0 ||
         strcmp(argv[0], "clear") == 0 || strcmp(argv[0], "ver") == 0 ||
         strcmp(argv[0], "help") == 0 || strcmp(argv[0], "lsstatus") == 0 ||
-        strcmp(argv[0], "lsdev") == 0) {
+        strcmp(argv[0], "powerst") == 0 || strcmp(argv[0], "lsdev") == 0) {
         needs_ch378 = 0;
     }
 
@@ -3430,6 +3442,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Stop(argc, argv);
     } else if (strcmp(argv[0], "playst") == 0) {
         CLI_Cmd_Playst();
+    } else if (strcmp(argv[0], "powerst") == 0) {
+        CLI_Cmd_Powerst();
     } else if (strcmp(argv[0], "lsdev") == 0) {
         CLI_Cmd_Lsdev();
     } else if (strcmp(argv[0], "bmp") == 0) {

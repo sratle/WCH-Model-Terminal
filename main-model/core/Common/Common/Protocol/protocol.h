@@ -76,6 +76,7 @@
 /* 0x19: 废弃 (V3.0 CLI 直通替代) — CD */
 #define CMD_DISP_EXT_CLI                0x1A    /* CLI 命令直通 (Display→Core) */
 #define CMD_DISP_EXT_CWD_NOTIFY         0x1B    /* CWD 变更通知 (Core→Display) */
+#define CMD_DISP_EXT_GET_SYS_STATUS     0x1C    /* 请求重发全部系统状态 (Display→Core)：模块/电量/BT/HID/流量 */
 
 /* ---- HID 设备类型 (CMD_DISP_EXT_HID_STATUS DATA[2]) ---- */
 #define HID_DEV_KEYBOARD                0x01    /* 外接键盘 */
@@ -132,6 +133,8 @@
 #define BT_EVT_SCAN_RESULT              0x03
 #define BT_EVT_SCAN_COMPLETE            0x04
 #define BT_EVT_PAIR_RESULT              0x05
+#define BT_EVT_STATUS                   0x06    /* 无线芯片在线/连接状态: DATA[2]=online, DATA[3]=connected */
+#define BT_EVT_TRAFFIC                  0x07    /* 最近流量: DATA[2]=count, DATA[3..]=count × uint16(BE) 字节数 */
 
 /* ---- 蓝牙控制类型 (CMD_DISP_EXT_BT_CONTROL DATA[1]) ---- */
 #define BT_CTRL_SCAN_START              0x00
@@ -243,6 +246,11 @@
 #define MODULE_TYPE_POWER       0x03
 #define MODULE_TYPE_KEYBOARD    0x04
 #define MODULE_TYPE_SUBMODEL    0x05
+
+/* 模块状态事件类型 (CMD_DISP_EXT_MODULE_STATUS DATA[1]) */
+#define MODULE_EVT_INSERTED     0x00    /* 模块接入/上线 */
+#define MODULE_EVT_REMOVED      0x01    /* 模块移除/离线 */
+#define MODULE_EVT_LIST         0x02    /* 完整模块列表 */
 
 /* ============================================================================
  * 模块子类型编号 (CMD_GET_TYPE 响应 DATA[1])

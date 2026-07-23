@@ -125,6 +125,9 @@ void Hardware_Heartbeat(void);
 /* 由各模块 Process 在收到 GET_TYPE ACK 时调用，标记槽位在线 */
 void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype);
 
+/* 重发所有模块在线/离线状态给 Display（供进页拉取一次） */
+void Hardware_ReportModuleStatusToDisplay(void);
+
 #ifdef __cplusplus
 }
 #endif

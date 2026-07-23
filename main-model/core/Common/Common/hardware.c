@@ -131,6 +131,12 @@ void Hardware_Heartbeat(void)
                 hardware_g.hb_slots[i].status = HB_STATUS_OFFLINE;
                 printf("[HB] %s OFFLINE\r\n", hb_slot_names[i]);
 
+                /* 主动推送模块离线事件给 Display */
+                Display_SendModuleStatus(&display_g, MODULE_EVT_REMOVED,
+                                         hardware_g.hb_slots[i].module_id,
+                                         hardware_g.hb_slots[i].type,
+                                         hardware_g.hb_slots[i].subtype);
+
                 /* Keyboard 失联时自动停止音乐并关闭效果器 */
                 if (hardware_g.hb_slots[i].module_id == MODULE_ID_KEYBOARD) {
                     if (Keyboard_Music_IsActive()) {
@@ -285,6 +291,10 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
                 printf("[HB] %s ONLINE type=0x%02X subtype=0x%02X\r\n",
                        hb_slot_names[i], type, subtype);
 
+                /* 主动推送模块上线事件给 Display */
+                Display_SendModuleStatus(&display_g, MODULE_EVT_INSERTED,
+                                         module_id, type, subtype);
+
                 /* SubDisplay 首次上线时，主动发送一次当前状态 */
                 if (type == MODULE_TYPE_SUBMODEL &&
                     subtype == MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY)
@@ -313,6 +323,27 @@ void Hardware_Hb_MarkOnline(uint8_t module_id, uint8_t type, uint8_t subtype)
 
             return;
         }
+    }
+}
+
+/*********************************************************************
+ * @fn      Hardware_ReportModuleStatusToDisplay
+ *
+ * @brief   重发所有心跳槽位的在线/离线状态给 Display（供进页拉取一次）。
+ *
+ * @return  none
+ *********************************************************************/
+void Hardware_ReportModuleStatusToDisplay(void)
+{
+    uint8_t i;
+    for (i = 0; i < HB_MAX_SLOTS; i++)
+    {
+        uint8_t evt = (hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
+                          ? MODULE_EVT_INSERTED : MODULE_EVT_REMOVED;
+        Display_SendModuleStatus(&display_g, evt,
+                                 hardware_g.hb_slots[i].module_id,
+                                 hardware_g.hb_slots[i].type,
+                                 hardware_g.hb_slots[i].subtype);
     }
 }
 

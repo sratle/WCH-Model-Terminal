@@ -635,19 +635,55 @@ static void handle_factory_reset(const uint8_t *data, uint8_t len)
 static void handle_ext_module_status(const uint8_t *data, uint8_t len)
 {
     if (len < 5) return;  /* ext(1) + evt_type(1) + module_id(1) + type(1) + subtype(1) */
-    /* uint8_t evt_type  = data[1]; */
-    /* uint8_t module_id = data[2]; */
-    /* uint8_t mod_type  = data[3]; */
-    /* uint8_t mod_sub   = data[4]; */
-    /* TODO: update UI module status display */
+    uint8_t evt_type = data[1];
+    uint8_t mod_type = data[3];
+    uint8_t online   = (evt_type == MODULE_EVT_INSERTED) ? 1 : 0;
+
+    if (evt_type == MODULE_EVT_INSERTED || evt_type == MODULE_EVT_REMOVED) {
+        if (mod_type == MODULE_TYPE_POWER)
+            g_disp_state.power_online = online;
+        else if (mod_type == MODULE_TYPE_WIRELESS)
+            g_disp_state.wireless_online = online;
+    }
 }
 
 static void handle_ext_bt_event(const uint8_t *data, uint8_t len)
 {
     if (len < 2) return;  /* ext(1) + evt_type(1) + ... */
-    /* uint8_t evt_type = data[1]; */
-    /* Parse based on evt_type (connected/disconnected/scan result) */
-    /* TODO: update UI BT device list */
+    uint8_t evt_type = data[1];
+
+    switch (evt_type) {
+    case BT_EVT_CONNECTED:
+        g_disp_state.wireless_online = 1;
+        g_disp_state.bt_connected = 1;
+        break;
+    case BT_EVT_DISCONNECTED:
+        g_disp_state.bt_connected = 0;
+        break;
+    case BT_EVT_STATUS:
+        if (len >= 4) {
+            g_disp_state.wireless_online = data[2];
+            g_disp_state.bt_connected    = data[3];
+        }
+        break;
+    case BT_EVT_TRAFFIC:
+        if (len >= 3) {
+            uint8_t n = data[2];
+            uint8_t i;
+            if (n > 10) n = 10;
+            /* data[3..] = n × uint16(BE)，旧→新顺序，线性存 [0..n-1] */
+            for (i = 0; i < n && (uint8_t)(3 + i * 2 + 1) < len; i++) {
+                g_disp_state.bt_traffic[i] =
+                    ((uint16_t)data[3 + i * 2] << 8) | data[4 + i * 2];
+            }
+            g_disp_state.bt_traffic_count = i;
+            g_disp_state.bt_traffic_head  = 0;
+            g_disp_state.wireless_online  = 1;
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 static void handle_ext_submodel_event(const uint8_t *data, uint8_t len)
@@ -668,9 +704,16 @@ static void handle_ext_submodel_event(const uint8_t *data, uint8_t len)
 static void handle_ext_power_event(const uint8_t *data, uint8_t len)
 {
     if (len < 2) return;  /* ext(1) + evt_type(1) + ... */
-    /* uint8_t evt_type = data[1]; */
-    /* Update power status in g_disp_state or dedicated UI */
-    /* TODO: implement power status UI */
+    uint8_t evt_type = data[1];
+
+    /* 收到电源事件即说明 Power 模块在线 */
+    g_disp_state.power_online = 1;
+
+    if (evt_type == POWER_EVT_STATUS_CHANGE && len >= 4) {
+        g_disp_state.battery_pct  = data[2];
+        g_disp_state.charge_state = data[3];
+        g_disp_state.status_valid |= (STATUS_BIT_BATTERY | STATUS_BIT_CHARGING);
+    }
 }
 
 static void handle_ext_config_result(const uint8_t *data, uint8_t len)
@@ -1258,6 +1301,12 @@ void UART_SendBTControl(uint8_t ctrl_type, const uint8_t *param, uint8_t param_l
         total += param_len;
     }
     UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, total);
+}
+
+void UART_SendGetSysStatus(void)
+{
+    uint8_t d = DISP_EXT_GET_SYS_STATUS;
+    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, &d, 1);
 }
 
 void UART_SendErrorReport(uint8_t error_code, const char *msg)

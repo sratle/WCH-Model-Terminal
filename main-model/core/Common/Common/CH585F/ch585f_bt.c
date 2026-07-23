@@ -3,6 +3,7 @@
 #include "CLI/CLI.h"
 #include "debug.h"
 #include "hardware.h"
+#include "Display/display.h"
 #include <string.h>
 
 /* CLI 输出捕获缓冲区（被 debug.c _write 写入） */
@@ -11,6 +12,13 @@ uint16_t cli_capture_len = 0;
 uint8_t cli_capture_flag = 0;
 
 ch585f_bt_ctx_t ch585f_bt_g;
+
+/* ===== 最近 10 次 BT 流量（字节数，环形）与在线状态 ===== */
+#define BT_TRAFFIC_HISTORY  10
+static uint16_t s_bt_traffic[BT_TRAFFIC_HISTORY];
+static uint8_t  s_bt_traffic_count;   /* 有效条数 0..10 */
+static uint8_t  s_bt_traffic_head;    /* 下一写入位置 */
+static uint8_t  s_bt_online;          /* 已从 CH585F 收到过帧 = 在线 */
 
 /* 静态发送缓冲区：Protocol_PackFrame 打包完整帧后，写入 TX FIFO */
 static uint8_t s_tx_buf[PROTO_MAX_FRAME_LEN];
@@ -114,6 +122,67 @@ void CH585F_BT_Init(void)
     Protocol_InitRxCtx(&ch585f_bt_g.rx_ctx);
     cli_capture_len = 0;
     cli_capture_flag = 0;
+    s_bt_traffic_count = 0;
+    s_bt_traffic_head = 0;
+    s_bt_online = 0;
+}
+
+/*********************************************************************
+ * @fn      CH585F_BT_PushStatus / PushTraffic / ReportStatusToDisplay
+ *
+ * @brief   主动向 Display 推送无线在线/连接状态与最近流量。
+ *          状态变化时调用；ReportStatusToDisplay 供 Display 进页拉取一次。
+ *********************************************************************/
+void CH585F_BT_PushStatus(void)
+{
+    uint8_t d[2];
+    d[0] = s_bt_online;
+    d[1] = ch585f_bt_g.app_connected;
+    Display_SendBtEvent(&display_g, BT_EVT_STATUS, d, 2);
+}
+
+void CH585F_BT_PushTraffic(void)
+{
+    uint8_t d[1 + 2 * BT_TRAFFIC_HISTORY];
+    uint8_t n = s_bt_traffic_count;
+    uint8_t i;
+
+    d[0] = n;
+    for (i = 0; i < n; i++)
+    {
+        uint8_t idx = (s_bt_traffic_count >= BT_TRAFFIC_HISTORY)
+                          ? (uint8_t)((s_bt_traffic_head + i) % BT_TRAFFIC_HISTORY)
+                          : i;   /* 按旧→新顺序 */
+        d[1 + i * 2] = (uint8_t)(s_bt_traffic[idx] >> 8);
+        d[2 + i * 2] = (uint8_t)(s_bt_traffic[idx] & 0xFF);
+    }
+    Display_SendBtEvent(&display_g, BT_EVT_TRAFFIC, d, (uint8_t)(1 + n * 2));
+}
+
+void CH585F_BT_ReportStatusToDisplay(void)
+{
+    CH585F_BT_PushStatus();
+    CH585F_BT_PushTraffic();
+}
+
+/* 记录一次流量（字节数）并主动推送给 Display */
+static void bt_traffic_record(uint16_t bytes)
+{
+    s_bt_traffic[s_bt_traffic_head] = bytes;
+    s_bt_traffic_head = (uint8_t)((s_bt_traffic_head + 1) % BT_TRAFFIC_HISTORY);
+    if (s_bt_traffic_count < BT_TRAFFIC_HISTORY)
+        s_bt_traffic_count++;
+    CH585F_BT_PushTraffic();
+}
+
+/* 首次收到 CH585F 帧时标记在线并推送 */
+static void bt_mark_online(void)
+{
+    if (!s_bt_online)
+    {
+        s_bt_online = 1;
+        CH585F_BT_PushStatus();
+    }
 }
 
 /*********************************************************************
@@ -247,6 +316,8 @@ void CH585F_BT_HandleFrame(void)
 {
     protocol_frame_t *frame = &ch585f_bt_g.rx_ctx.frame;
 
+    bt_mark_online();   /* 收到任意帧 = 无线芯片在线 */
+
     switch (frame->cmd)
     {
         case CMD_BT_CONN_EVT:
@@ -328,6 +399,7 @@ static void CH585F_BT_HandleConnEvt(const protocol_frame_t *frame)
             ch585f_bt_g.app_connected = 0;
             printf("[BT] APP disconnected\r\n");
         }
+        CH585F_BT_PushStatus();   /* 连接状态变化，主动推送 Display */
     }
 }
 
@@ -387,6 +459,7 @@ static void CH585F_BT_HandleCliData(const protocol_frame_t *frame)
     {
         ch585f_bt_g.app_connected = 1;
         printf("[BT] APP auto-connected via CLI data\r\n");
+        CH585F_BT_PushStatus();
     }
 
     flags    = frame->data[1];
@@ -442,6 +515,9 @@ static void CH585F_BT_HandleCliData(const protocol_frame_t *frame)
             printf("[BT] CLI exec: len=%d, cmd='%s'\r\n",
                    s_cli_assemble_len, s_cli_assemble_buf);
 
+            /* 记录本次上行（APP→Core）BT 流量 */
+            bt_traffic_record(s_cli_assemble_len);
+
             /* 执行 CLI 命令并捕获输出
              * CLI_Process 接收 uint8_t len，最大 255，超限截断
              */
@@ -483,6 +559,9 @@ void CH585F_BT_SendCliData(uint8_t *data, uint16_t len)
     uint16_t offset = 0;
     uint8_t flags;
     uint16_t j;
+
+    /* 记录本次下行（Core→APP）BT 流量 */
+    bt_traffic_record(len);
 
     /* 调试：打印 CLI 输出内容 */
     printf("[BT] SendCliData input: len=%d\r\n", len);

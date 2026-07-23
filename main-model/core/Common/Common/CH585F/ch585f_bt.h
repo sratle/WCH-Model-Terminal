@@ -40,6 +40,12 @@ void CH585F_BT_Init(void);
 void CH585F_BT_Poll(void);
 void CH585F_BT_SendCliData(uint8_t *data, uint16_t len);
 
+/* 主动向 Display 推送无线在线/连接状态与最近 BT 流量 */
+void CH585F_BT_PushStatus(void);
+void CH585F_BT_PushTraffic(void);
+/* 供 Display 进页拉取一次：重发在线/连接 + 流量 */
+void CH585F_BT_ReportStatusToDisplay(void);
+
 void CLI_Capture_Start(void);
 void CLI_Capture_Stop(void);
 uint8_t* CLI_Capture_Flush(uint16_t *out_len);

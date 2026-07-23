@@ -1,6 +1,7 @@
 #include "power.h"
 #include "../Protocol/protocol_common.h"
 #include "../hardware.h"
+#include "../Display/display.h"
 
 power_t *power_ptr = NULL;
 
@@ -8,27 +9,8 @@ power_t *power_ptr = NULL;
  * 前向声明：Power 专用命令 handler
  * ============================================================================ */
 
-/* 请求类 handler：返回 1=成功（resp_buf 写入 DATA 域，*resp_len=DATA 长度），0=失败 */
-static uint8_t Power_HandleGetStatus(const protocol_frame_t *req,
-                                     uint8_t *resp_buf, uint16_t resp_size,
-                                     uint8_t *resp_len);
-static uint8_t Power_HandleGetBatteryInfo(const protocol_frame_t *req,
-                                          uint8_t *resp_buf, uint16_t resp_size,
-                                          uint8_t *resp_len);
-static uint8_t Power_HandleSetChargePolicy(const protocol_frame_t *req,
-                                           uint8_t *resp_buf, uint16_t resp_size,
-                                           uint8_t *resp_len);
-static uint8_t Power_HandleSetOutputPolicy(const protocol_frame_t *req,
-                                           uint8_t *resp_buf, uint16_t resp_size,
-                                           uint8_t *resp_len);
-static uint8_t Power_HandleSetAlarmThreshold(const protocol_frame_t *req,
-                                             uint8_t *resp_buf, uint16_t resp_size,
-                                             uint8_t *resp_len);
-
-/* 事件类 handler：无返回值 */
+/* 事件类 handler：Power 仅上报电量（简化协议） */
 static void Power_HandleStatusReport(const protocol_frame_t *req);
-static void Power_HandleChargeEvent(const protocol_frame_t *req);
-static void Power_HandleAlarmEvent(const protocol_frame_t *req);
 
 /* ============================================================================
  * UART 初始化与数据收发
@@ -145,40 +127,6 @@ static const protocol_common_cb_t power_common_cb = {
 };
 
 /* ============================================================================
- * 专用命令分发辅助函数
- * ============================================================================ */
-
-/**
- * @brief  请求类 handler 的统一分发与 ACK/NACK 打包
- * @param  req       请求帧
- * @param  handler   handler 函数指针（NULL 则直接 NACK）
- * @param  resp_buf  响应缓冲区
- * @param  resp_size 缓冲区大小
- * @return 实际写入 resp_buf 的字节数（完整响应帧）
- */
-static uint8_t power_dispatch_req(const protocol_frame_t *req,
-                                  uint8_t (*handler)(const protocol_frame_t *,
-                                                     uint8_t *, uint16_t, uint8_t *),
-                                  uint8_t *resp_buf, uint16_t resp_size)
-{
-    uint8_t data_len = 0;
-
-    if (handler == NULL)
-        return ProtocolCommon_Nack(req->dst, req->src, PROTO_ERR_UNSUPPORTED_CMD,
-                                   resp_buf, resp_size);
-
-    if (!handler(req, resp_buf, resp_size, &data_len))
-        return ProtocolCommon_Nack(req->dst, req->src, PROTO_ERR_UNSUPPORTED_CMD,
-                                   resp_buf, resp_size);
-
-    if (data_len > 0)
-        return Protocol_PackFrame(req->dst, req->src, CMD_ACK,
-                                  resp_buf, data_len, resp_buf, resp_size);
-
-    return ProtocolCommon_Ack(req->dst, req->src, resp_buf, resp_size);
-}
-
-/* ============================================================================
  * 主循环帧处理
  * ============================================================================ */
 
@@ -211,61 +159,11 @@ void Power_Process(power_t *power)
     {
         handled = 1;
     }
-    /* 2. Power 专用基础操作码：0x31 ~ 0x38 */
-    else if (req->cmd >= CMD_PWR_GET_STATUS && req->cmd <= CMD_PWR_ALARM_EVENT)
+    /* 2. Power 专用：电量状态上报（Power→Core，事件类，无需响应） */
+    else if (req->cmd == CMD_PWR_STATUS_REPORT)
     {
-        switch (req->cmd)
-        {
-            /* ---- Core→Power 查询类 ---- */
-            case CMD_PWR_GET_STATUS:
-                resp_len = power_dispatch_req(req, Power_HandleGetStatus,
-                                              resp, sizeof(resp));
-                handled = 1;
-                break;
-            case CMD_PWR_GET_BATTERY_INFO:
-                resp_len = power_dispatch_req(req, Power_HandleGetBatteryInfo,
-                                              resp, sizeof(resp));
-                handled = 1;
-                break;
-
-            /* ---- Core→Power 设置类（发送即忘，但防御性处理） ---- */
-            case CMD_PWR_SET_CHARGE_POLICY:
-                resp_len = power_dispatch_req(req, Power_HandleSetChargePolicy,
-                                              resp, sizeof(resp));
-                handled = 1;
-                break;
-            case CMD_PWR_SET_OUTPUT_POLICY:
-                resp_len = power_dispatch_req(req, Power_HandleSetOutputPolicy,
-                                              resp, sizeof(resp));
-                handled = 1;
-                break;
-            case CMD_PWR_SET_ALARM_THRESHOLD:
-                resp_len = power_dispatch_req(req, Power_HandleSetAlarmThreshold,
-                                              resp, sizeof(resp));
-                handled = 1;
-                break;
-
-            /* ---- Power→Core 事件类（不需要 ACK） ---- */
-            case CMD_PWR_STATUS_REPORT:
-                Power_HandleStatusReport(req);
-                handled = 1;
-                break;
-            case CMD_PWR_CHARGE_EVENT:
-                Power_HandleChargeEvent(req);
-                handled = 1;
-                break;
-            case CMD_PWR_ALARM_EVENT:
-                Power_HandleAlarmEvent(req);
-                handled = 1;
-                break;
-
-            default:
-                resp_len = ProtocolCommon_Nack(req->dst, req->src,
-                                               PROTO_ERR_UNSUPPORTED_CMD,
-                                               resp, sizeof(resp));
-                handled = 1;
-                break;
-        }
+        Power_HandleStatusReport(req);
+        handled = 1;
     }
 
     /* 发送响应（如果有） */
@@ -279,88 +177,48 @@ void Power_Process(power_t *power)
  * Power 专用命令 handler 实现（框架，待填充业务逻辑）
  * ============================================================================ */
 
-/* ---- 查询类 handler ---- */
-static uint8_t Power_HandleGetStatus(const protocol_frame_t *req,
-                                     uint8_t *resp_buf, uint16_t resp_size,
-                                     uint8_t *resp_len)
-{
-    (void)req; (void)resp_buf; (void)resp_size;
-    *resp_len = 0;
-    /* TODO: 返回当前电源完整状态
-     * resp_buf[0] = 状态位图
-     * resp_buf[1] = 电量百分比
-     * resp_buf[2..3] = 电压(mV, uint16大端)
-     * resp_buf[4..5] = 电流(mA, int16大端)
-     * resp_buf[6] = 温度(°C, int8)
-     * resp_buf[7..8] = 功率(mW, uint16大端)
-     * *resp_len = 9;
-     */
-    return 0;
-}
-
-static uint8_t Power_HandleGetBatteryInfo(const protocol_frame_t *req,
-                                          uint8_t *resp_buf, uint16_t resp_size,
-                                          uint8_t *resp_len)
-{
-    (void)req; (void)resp_buf; (void)resp_size;
-    *resp_len = 0;
-    /* TODO: 返回电池详细信息
-     * resp_buf[0..1] = 设计容量(mAh, uint16大端)
-     * resp_buf[2..3] = 实际容量(mAh, uint16大端)
-     * resp_buf[4..5] = 循环次数(uint16大端)
-     * resp_buf[6] = 健康度(%)
-     * resp_buf[7] = 电池类型
-     * *resp_len = 8;
-     */
-    return 0;
-}
-
-/* ---- 设置类 handler ---- */
-static uint8_t Power_HandleSetChargePolicy(const protocol_frame_t *req,
-                                           uint8_t *resp_buf, uint16_t resp_size,
-                                           uint8_t *resp_len)
-{
-    (void)req; (void)resp_buf; (void)resp_size;
-    *resp_len = 0;
-    /* TODO: 解析 req->data[0]=充电策略，设置充电模式 */
-    return 0;
-}
-
-static uint8_t Power_HandleSetOutputPolicy(const protocol_frame_t *req,
-                                           uint8_t *resp_buf, uint16_t resp_size,
-                                           uint8_t *resp_len)
-{
-    (void)req; (void)resp_buf; (void)resp_size;
-    *resp_len = 0;
-    /* TODO: 解析 req->data[0]=输出开关, data[1..2]=限制功率，设置充电宝输出策略 */
-    return 0;
-}
-
-static uint8_t Power_HandleSetAlarmThreshold(const protocol_frame_t *req,
-                                             uint8_t *resp_buf, uint16_t resp_size,
-                                             uint8_t *resp_len)
-{
-    (void)req; (void)resp_buf; (void)resp_size;
-    *resp_len = 0;
-    /* TODO: 解析 req->data[0]=低电量阈值, data[1]=过温阈值, data[2]=关机阈值 */
-    return 0;
-}
-
-/* ---- 事件类 handler ---- */
+/* ---- 电量上报（Power→Core，事件类）: DATA=[电量:1][充电:1] ---- */
 static void Power_HandleStatusReport(const protocol_frame_t *req)
 {
-    (void)req;
-    /* TODO: 解析周期性状态上报，更新 Core 侧电源状态 */
+    uint8_t new_batt;
+    uint8_t new_charge;
+
+    /* 简化协议：DATA[0]=电量(0~100)，DATA[1]=充电状态(0=放电,1=充电中)
+     * 充电字节可选（旧固件只发电量时兼容为非充电） */
+    if (req->len < 2)   /* CMD + 电量 */
+        return;
+    if (power_ptr == NULL)
+        return;
+
+    new_batt   = req->data[0];
+    if (new_batt > 100) new_batt = 100;
+    new_charge = (req->len >= 3 && req->data[1]) ? 1 : 0;
+
+    /* 仅在电量或充电状态变化时才主动推送（周期上报不重复推） */
+    if (power_ptr->has_status &&
+        power_ptr->battery_pct == new_batt &&
+        power_ptr->charge_flags == new_charge)
+        return;
+
+    power_ptr->battery_pct = new_batt;
+    power_ptr->charge_flags = new_charge;   /* bit0 = 充电中 */
+    power_ptr->has_status  = 1;
+
+    Power_ReportStatusToDisplay(power_ptr);
 }
 
-static void Power_HandleChargeEvent(const protocol_frame_t *req)
+/*********************************************************************
+ * @fn      Power_ReportStatusToDisplay
+ *
+ * @brief   重发最新电量/充电状态给 Display（供进页拉取一次）。
+ *          evt_data = [电量:1][状态位图:1]
+ *********************************************************************/
+void Power_ReportStatusToDisplay(power_t *power)
 {
-    (void)req;
-    /* TODO: 解析充电状态变化事件（插入/拔出/充满/切换快充等） */
-}
-
-static void Power_HandleAlarmEvent(const protocol_frame_t *req)
-{
-    (void)req;
-    /* TODO: 解析告警事件（低电量/过温/过流/电池健康度低） */
+    uint8_t d[2];
+    if (power == NULL || !power->has_status)
+        return;
+    d[0] = power->battery_pct;
+    d[1] = power->charge_flags;
+    Display_SendPowerEvent(&display_g, POWER_EVT_STATUS_CHANGE, d, 2);
 }

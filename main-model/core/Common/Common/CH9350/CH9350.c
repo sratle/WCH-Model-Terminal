@@ -735,3 +735,26 @@ void CH9350_Process(ch9350_t *ch9350)
         CH9350_Clear_Data(ch9350);
     }
 }
+
+/*********************************************************************
+ * @fn      CH9350_ReportHidStatusToDisplay
+ *
+ * @brief   重发当前外接 HID（USB）键盘/鼠标连接状态给 Display，
+ *          供 Display 进页（USB App）拉取一次。
+ *
+ * @return  none
+ *********************************************************************/
+void CH9350_ReportHidStatusToDisplay(ch9350_t *ch9350)
+{
+    uint8_t kbd_connected;
+    uint8_t mouse_connected;
+
+    if (ch9350 == NULL)
+        return;
+
+    kbd_connected   = (ch9350->connected_dev_type == CH9350_DEV_KEYBOARD)  ? 1 : 0;
+    mouse_connected = (ch9350->connected_dev_type == CH9350_DEV_MOUSE_REL) ? 1 : 0;
+
+    Display_SendHidStatus(&display_g, HID_DEV_KEYBOARD, kbd_connected);
+    Display_SendHidStatus(&display_g, HID_DEV_MOUSE, mouse_connected);
+}

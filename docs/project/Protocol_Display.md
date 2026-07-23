@@ -142,7 +142,8 @@ Display 模块操作码分为两类：
 | `0x19` | — | — | **已废弃**（V3.0 CLI 直通 `cd` 替代） | — |
 | `0x1A` | `CMD_DISP_EXT_CLI` | 双向 | **CLI 命令直通**（Display→Core 发命令，Core 执行后通过同扩展码返回文本） | §4 |
 | `0x1B` | `CMD_DISP_EXT_CWD_NOTIFY` | Core→Display | **CWD 变更通知**（Core 主动推送当前工作目录，用于三方路径同步） | §4.8 |
-| `0x1C~0x3F` | — | — | 预留 | — |
+| `0x1C` | `CMD_DISP_EXT_GET_SYS_STATUS` | Display→Core | **系统状态拉取**（进页一次）：Core 重发模块在线/电量/BT在线连接/HID/BT流量 | 无 |
+| `0x1D~0x3F` | — | — | 预留 | — |
 
 > **V3.0 已废弃（Core 回复 NACK）**：`0x06~0x0B`（FILE_LIST/READ/SAVE/OP/PLAY_MUSIC）、`0x14`（BULK_TRANSFER）、`0x19`（CD）、基础码 `0x1B`（MUSIC_CONTROL）、`0x1D`（VOLUME_CONTROL）。全部由 CLI 直通替代。
 
@@ -721,6 +722,8 @@ DATA[1]: 事件类型（1字节）
   - 0x03: 扫描结果（设备列表）
   - 0x04: 扫描完成
   - 0x05: 配对结果
+  - 0x06: 无线芯片在线/连接状态（BT_EVT_STATUS）
+  - 0x07: 最近 BT 流量（BT_EVT_TRAFFIC）
 DATA[2]: 设备类型（1字节，事件类型 0x00~0x02/0x05 时有效）
   - 0x00: 未知
   - 0x01: BLE 键盘
@@ -740,6 +743,22 @@ DATA[3]:      设备1 状态（0=已配对, 1=已连接, 2=发现中）
 DATA[4..19]:  设备1 名称（16字节）
 DATA[20..25]: 设备1 MAC（6字节）
 ... 后续设备
+```
+
+**在线/连接状态格式（事件类型 = 0x06，BT_EVT_STATUS）**：无线芯片（CH585F）在线与 APP 连接状态变化时由 Core 主动推送。
+```
+DATA[0]: 扩展码 = 0x0C
+DATA[1]: 事件类型 = 0x06
+DATA[2]: 无线芯片在线（0=离线, 1=在线；收到过 CH585F 帧即为在线）
+DATA[3]: APP 是否已连接（0=未连接, 1=已连接）
+```
+
+**BT 流量格式（事件类型 = 0x07，BT_EVT_TRAFFIC）**：每次 BLE CLI 上/下行传输时，Core 侧无线驱动（ch585f_bt.c）记录字节数到最近 10 次环形数组，并主动推送。
+```
+DATA[0]: 扩展码 = 0x0C
+DATA[1]: 事件类型 = 0x07
+DATA[2]: 样本数 N（0~10）
+DATA[3..]: N × uint16（大端）字节数，按旧→新顺序
 ```
 
 > 每个设备信息固定 **23 字节**：状态(1) + 名称(16) + MAC(6)，与 Wireless 协议对齐。

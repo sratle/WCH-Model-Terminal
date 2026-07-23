@@ -6,6 +6,8 @@
 #include "../CH585F/ch585f_bt.h"
 #include "../CLI/CLI.h"
 #include "../Config/config.h"
+#include "../Power/power.h"
+#include "../CH9350/CH9350.h"
 #include "../hardware.h"
 #include <string.h>
 
@@ -358,6 +360,15 @@ void Display_Process(display_t *display)
                     break;
                 case CMD_DISP_EXT_ERROR_REPORT:
                     Display_HandleErrorReport(req);
+                    handled = 1;
+                    break;
+
+                /* ---- 系统状态拉取（Display 进页一次）：重发全部反应式状态 ---- */
+                case CMD_DISP_EXT_GET_SYS_STATUS:
+                    Hardware_ReportModuleStatusToDisplay();  /* 模块在线（含 Power） */
+                    Power_ReportStatusToDisplay(&power_g);    /* 电量/充电 */
+                    CH585F_BT_ReportStatusToDisplay();        /* 无线在线/连接/流量 */
+                    CH9350_ReportHidStatusToDisplay(&ch9350_g); /* 外接 HID(USB) */
                     handled = 1;
                     break;
 
