@@ -219,6 +219,9 @@ void ui_home_init(void)
 void ui_home_enter(ui_page_t *page)
 {
     (void)page;
+    /* 进页主动拉取一次全部系统状态（电量/充电/BT/模块在线），
+     * Core 重推后由下方 1s 轮询变更检测响应式刷新 */
+    UART_SendGetSysStatus();
     home_format_time();
     home_format_battery();
     ui_label_set_text(&lbl_date, s_date_text);

@@ -746,9 +746,19 @@ static void handle_factory_reset(const uint8_t *data, uint8_t len)
 static void handle_ext_module_status(const uint8_t *data, uint8_t len)
 {
     if (len < 5) return;
-    /* DATA[1]=event (0x00 insert / 0x01 remove / 0x02 full list),
-     * DATA[2]=module ID, DATA[3]=type, DATA[4]=subtype.
-     * Refresh the Models page if it is currently visible. */
+    /* DATA[1]=event (insert/remove/list), DATA[2]=module ID,
+     * DATA[3]=type, DATA[4]=subtype. */
+    uint8_t evt_type = data[1];
+    uint8_t mod_type = data[3];
+
+    if (evt_type == MODULE_EVT_INSERTED || evt_type == MODULE_EVT_REMOVED) {
+        uint8_t online = (evt_type == MODULE_EVT_INSERTED) ? 1 : 0;
+        if (mod_type == MODULE_TYPE_POWER)
+            g_disp_state.power_online = online;
+        else if (mod_type == MODULE_TYPE_WIRELESS)
+            g_disp_state.wireless_online = online;
+    }
+
     printf("[UART] module status: evt=%d id=0x%02X type=%d sub=%d\r\n",
            data[1], data[2], data[3], data[4]);
     ui_models_notify_module_change();
@@ -757,10 +767,41 @@ static void handle_ext_module_status(const uint8_t *data, uint8_t len)
 static void handle_ext_bt_event(const uint8_t *data, uint8_t len)
 {
     if (len < 2) return;
-    /* BT events carry the wireless module's event id in DATA[1];
-     * connection-state changes are mirrored into the status cache so
-     * the Home card updates.  Full BT list UI is not ported. */
-    printf("[UART] bt event: %d len=%d\r\n", data[1], len);
+    uint8_t evt_type = data[1];
+
+    /* 连接状态变化镜像到状态缓存，Home 的 BT 卡片据此响应式刷新。
+     * BT 应用在 E-ink 上仍为 stub，流量数组仅为两屏状态一致而保留。 */
+    switch (evt_type) {
+    case BT_EVT_CONNECTED:
+        g_disp_state.wireless_online = 1;
+        g_disp_state.bt_connected = 1;
+        break;
+    case BT_EVT_DISCONNECTED:
+        g_disp_state.bt_connected = 0;
+        break;
+    case BT_EVT_STATUS:
+        if (len >= 4) {
+            g_disp_state.wireless_online = data[2];
+            g_disp_state.bt_connected    = data[3];
+        }
+        break;
+    case BT_EVT_TRAFFIC:
+        if (len >= 3) {
+            uint8_t n = data[2];
+            uint8_t i;
+            if (n > 10) n = 10;
+            for (i = 0; i < n && (uint8_t)(3 + i * 2 + 1) < len; i++) {
+                g_disp_state.bt_traffic[i] =
+                    ((uint16_t)data[3 + i * 2] << 8) | data[4 + i * 2];
+            }
+            g_disp_state.bt_traffic_count = i;
+            g_disp_state.bt_traffic_head  = 0;
+            g_disp_state.wireless_online  = 1;
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 static void handle_ext_submodel_event(const uint8_t *data, uint8_t len)
@@ -781,12 +822,17 @@ static void handle_ext_submodel_event(const uint8_t *data, uint8_t len)
 static void handle_ext_power_event(const uint8_t *data, uint8_t len)
 {
     if (len < 2) return;
-    /* Event 0x00 (status change): DATA[2]=status bitmap
-     * (bit0 charging, bit1 full, bit2 powerbank output), DATA[3]=battery % */
-    if (data[1] == 0x00 && len >= 4) {
-        g_disp_state.charge_state = data[2];
-        g_disp_state.battery_pct  = data[3];
-        g_disp_state.status_valid |= STATUS_BIT_CHARGING | STATUS_BIT_BATTERY;
+    uint8_t evt_type = data[1];
+
+    /* 收到电源事件即说明 Power 模块在线 */
+    g_disp_state.power_online = 1;
+
+    /* POWER_EVT_STATUS_CHANGE: DATA[2]=电量%, DATA[3]=充电状态位图(bit0 充电中)
+     * 字节顺序与 Core(Power_ReportStatusToDisplay)、display-1 一致 */
+    if (evt_type == POWER_EVT_STATUS_CHANGE && len >= 4) {
+        g_disp_state.battery_pct  = data[2];
+        g_disp_state.charge_state = data[3];
+        g_disp_state.status_valid |= STATUS_BIT_BATTERY | STATUS_BIT_CHARGING;
     }
 }
 
@@ -1382,6 +1428,12 @@ void UART_SendBTControl(uint8_t ctrl_type, const uint8_t *param, uint8_t param_l
         total += param_len;
     }
     UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, total);
+}
+
+void UART_SendGetSysStatus(void)
+{
+    uint8_t d = DISP_EXT_GET_SYS_STATUS;
+    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, &d, 1);
 }
 
 void UART_SendErrorReport(uint8_t error_code, const char *msg)

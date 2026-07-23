@@ -110,6 +110,7 @@ extern "C" {
 #define DISP_EXT_HID_STATUS         0x18
 #define DISP_EXT_CLI                0x1A
 #define DISP_EXT_CWD_NOTIFY         0x1B
+#define DISP_EXT_GET_SYS_STATUS     0x1C    /* 请求重发全部系统状态 (Display→Core) */
 
 /* HID device types */
 #define HID_DEV_KEYBOARD            0x01
@@ -174,6 +175,8 @@ extern "C" {
 #define BT_EVT_SCAN_RESULT      0x03
 #define BT_EVT_SCAN_COMPLETE    0x04
 #define BT_EVT_PAIR_RESULT      0x05
+#define BT_EVT_STATUS           0x06    /* 无线芯片在线/连接: DATA[2]=online, DATA[3]=connected */
+#define BT_EVT_TRAFFIC          0x07    /* 最近流量: DATA[2]=count, DATA[3..]=count × uint16(BE) */
 
 /* BT device types */
 #define BT_DEV_UNKNOWN          0x00
@@ -327,6 +330,13 @@ typedef struct {
     uint8_t  current_app_id;
     uint8_t  status_valid;
 
+    /* System module status cache (from Core, reactive push) */
+    uint8_t  power_online;        /* Power 模块是否接入 */
+    uint8_t  wireless_online;     /* 无线/BT 芯片是否在线 */
+    uint16_t bt_traffic[10];      /* 最近 10 次 BT 流量（字节数，环形） */
+    uint8_t  bt_traffic_count;    /* 有效条数 0..10 */
+    uint8_t  bt_traffic_head;     /* 下一写入位置（环形） */
+
     /* Music state cache (from Core) */
     uint8_t  music_state;
     uint32_t music_pos_ms;
@@ -390,6 +400,7 @@ void UART_RequestFileRead(const char *path);
 void UART_RequestFileSave(const char *path);
 void UART_SendBTControl(uint8_t ctrl_type, const uint8_t *param, uint8_t param_len);
 void UART_SendErrorReport(uint8_t error_code, const char *msg);
+void UART_SendGetSysStatus(void);
 
 void UART_NotifyActivity(void);
 const char *UART_GetLastCLITag(void);
