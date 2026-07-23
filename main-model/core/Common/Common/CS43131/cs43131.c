@@ -41,6 +41,7 @@ void Speaker_On(speaker_channel_t channel)
         GPIO_ResetBits(SPEAKER_LEFT_SHUTDOWN_GPIO_PORT, SPEAKER_LEFT_SHUTDOWN_PIN);
     if (channel & SPEAKER_CHANNEL_RIGHT)
         GPIO_ResetBits(SPEAKER_RIGHT_SHUTDOWN_GPIO_PORT, SPEAKER_RIGHT_SHUTDOWN_PIN);
+    CS43131_g.status_dirty = 1;   /* 外放状态变化，触发向 Display 推送 */
 }
 
 void Speaker_Off(speaker_channel_t channel)
@@ -49,6 +50,7 @@ void Speaker_Off(speaker_channel_t channel)
         GPIO_SetBits(SPEAKER_LEFT_SHUTDOWN_GPIO_PORT, SPEAKER_LEFT_SHUTDOWN_PIN);
     if (channel & SPEAKER_CHANNEL_RIGHT)
         GPIO_SetBits(SPEAKER_RIGHT_SHUTDOWN_GPIO_PORT, SPEAKER_RIGHT_SHUTDOWN_PIN);
+    CS43131_g.status_dirty = 1;   /* 外放状态变化，触发向 Display 推送 */
 }
 
 speaker_channel_t Speaker_GetState(void)

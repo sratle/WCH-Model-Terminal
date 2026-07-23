@@ -255,6 +255,11 @@ static void music_update_texts(void)
     }
     btn_play.base.flags |= UI_WIDGET_FLAG_DIRTY;
 
+    /* 外放状态由 Core 二进制 MUSIC_STATUS 驱动同步 */
+    s_speaker_on = (g_disp_state.music_speaker != 0);
+    btn_speaker.text = s_speaker_on ? "Spk ON" : "Spk OFF";
+    btn_speaker.base.flags |= UI_WIDGET_FLAG_DIRTY;
+
     switch (s_playlist.mode) {
     case PLAY_MODE_SINGLE:      btn_mode.text = "1"; break;
     case PLAY_MODE_REPEAT:      btn_mode.text = "Rep"; break;
@@ -329,9 +334,8 @@ static void music_on_cli_complete(const char *output, uint16_t len, const char *
             bool l_on = false, r_on = false;
             if (l_pos && l_pos[2] == 'O' && l_pos[3] == 'N') l_on = true;
             if (r_pos && r_pos[2] == 'O' && r_pos[3] == 'N') r_on = true;
-            s_speaker_on = (l_on || r_on);
-            btn_speaker.text = s_speaker_on ? "Spk ON" : "Spk OFF";
-            btn_speaker.base.flags |= UI_WIDGET_FLAG_DIRTY;
+            /* 写入共享状态，由 music_update_texts 统一刷新按钮 */
+            g_disp_state.music_speaker = (l_on || r_on) ? 1 : 0;
         }
 
         music_update_texts();
@@ -627,6 +631,7 @@ static void btn_speaker_click(ui_widget_t *w)
 {
     (void)w;
     s_speaker_on = !s_speaker_on;
+    g_disp_state.music_speaker = s_speaker_on ? 1 : 0;  /* 乐观更新，Core 推送会回正 */
     btn_speaker.text = s_speaker_on ? "Spk ON" : "Spk OFF";
     btn_speaker.base.flags |= UI_WIDGET_FLAG_DIRTY;
     UART_SendCLI(s_speaker_on ? "speaker on" : "speaker off");

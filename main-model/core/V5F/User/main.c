@@ -42,6 +42,7 @@ int main(void)
     while(1)
     {
         Display_Process(&display_g);
+        Display_SyncStatus(&display_g);   /* 主动推送 Core 侧状态变化，不依赖收到 Display 帧 */
         Audio_Process();
         Debug_CLI_Process();
         CH585F_BT_Poll();

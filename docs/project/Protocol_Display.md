@@ -109,7 +109,7 @@ Display 模块操作码分为两类：
 | `0x19` | `CMD_DISP_GET_SCREEN_STATE` | Core -> Display | 获取屏幕当前状态 | 无，Display 回复 ACK + 状态 |
 | `0x1A` | `CMD_DISP_SHOW_NOTICE` | Core -> Display | 显示通知弹窗 | `[优先级:1][标题:16字节][内容:变长]` |
 | `0x1B` | ~~CMD_DISP_MUSIC_CONTROL~~ | — | **已废弃**（V3.0 CLI 直通替代） | — |
-| `0x1C` | `CMD_DISP_MUSIC_STATUS` | Core -> Display | 音乐播放状态上报 | `[播放状态:1][当前时间:4][总时长:4][音量:1][曲目名:变长]` |
+| `0x1C` | `CMD_DISP_MUSIC_STATUS` | Core -> Display | 音乐播放状态上报 | `[播放状态:1][当前时间:4][总时长:4][音量:1][外放:1][曲目名:变长]` |
 | `0x1D` | ~~CMD_DISP_VOLUME_CONTROL~~ | — | **已废弃**（V3.0 CLI 直通替代） | — |
 | `0x1E` | `CMD_DISP_FACTORY_RESET` | Core -> Display | 恢复出厂设置 | `[确认码: 0xA5]` |
 | `0x1F` | — | — | 预留 | — |
@@ -632,10 +632,11 @@ DATA[0]: 播放状态（1字节）
 DATA[1..4]: 当前播放时间（uint32 大端，单位毫秒）
 DATA[5..8]: 总时长（uint32 大端，单位毫秒，0 表示未知）
 DATA[9]: 音量（0~100）
-DATA[10..N]: 当前曲目名称（UTF-8 字符串，变长，N 最大 63）
+DATA[10]: 外放状态（功放 SHUTDOWN 位掩码；bit0=左, bit1=右，0=纯耳机/关闭外放，非0=有通道外放）
+DATA[11..N]: 当前曲目名称（UTF-8 字符串，变长，N 最大 63）
 ```
 
-> 播放时间由 `Audio_GetPlayTime_ms()` 获取，基于 DMA 传输的声道样本数计算（Stereo 44.1kHz = 88200 样本/秒）。曲目名称由 `Audio_GetCurrentTrackName()` 获取，最长 63 字节。
+> 播放时间由 `Audio_GetPlayTime_ms()` 获取，基于 DMA 传输的声道样本数计算（Stereo 44.1kHz = 88200 样本/秒）。曲目名称由 `Audio_GetCurrentTrackName()` 获取，最长 63 字节。外放状态由 `Speaker_GetState()` 获取；任何改变外放/音量/播放状态的操作（含 Core 侧 ENTER 键切换外放、± 键调音量、CLI `speaker`/`vol`/`play`/`pause` 等）都会置脏标记，由 Core 主循环 `Display_SyncStatus()` 主动推送，不依赖 Display 是否发帧。
 
 ### 5.4 屏幕控制格式（CMD 0x18）
 

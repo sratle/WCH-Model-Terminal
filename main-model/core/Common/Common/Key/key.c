@@ -99,28 +99,6 @@ key_event_t Key_Scan(uint8_t *key_id)
     return KEY_EVT_NONE;
 }
 
-static uint8_t key_id_to_proto(uint8_t key_id)
-{
-    switch (key_id)
-    {
-        case KEY_PLUS:  return CORE_KEY_PLUS;
-        case KEY_SUB:   return CORE_KEY_SUB;
-        case KEY_ENTER: return CORE_KEY_ENTER;
-        default:        return 0;
-    }
-}
-
-static uint8_t key_evt_to_proto(uint8_t evt)
-{
-    switch (evt)
-    {
-        case KEY_EVT_PRESS:      return CORE_KEY_EVT_PRESS;
-        case KEY_EVT_RELEASE:    return CORE_KEY_EVT_RELEASE;
-        case KEY_EVT_LONG_PRESS: return CORE_KEY_EVT_LONG_PRESS;
-        default:                 return CORE_KEY_EVT_RELEASE;
-    }
-}
-
 void Key_PollAndProcess(void)
 {
     key_event_t evt;
@@ -130,16 +108,9 @@ void Key_PollAndProcess(void)
     if (evt == KEY_EVT_NONE)
         return;
 
-    /* 转发按键事件到 Display */
-    {
-        uint8_t report[2];
-        report[0] = key_evt_to_proto((uint8_t)evt);
-        report[1] = key_id_to_proto(key_id);
-        Display_SendInputEvent(&display_g, INPUT_DEV_CORE_KEY,
-                               report, 2);
-    }
+    /* 核心按键仅在本地处理，不再向 Display 转发事件 */
 
-    /* 处理音量调节 */
+    /* PLUS / SUB：本地音量调节（按下与长按均生效） */
     if (evt == KEY_EVT_PRESS || evt == KEY_EVT_LONG_PRESS)
     {
         if (key_id == KEY_SUB)
@@ -163,6 +134,21 @@ void Key_PollAndProcess(void)
                 Audio_SetVolume(vol + step);
             else
                 Audio_SetVolume(100);
+        }
+    }
+
+    /* ENTER：切换是否外放（功放 SHUTDOWN），仅在按下沿触发一次 */
+    if (evt == KEY_EVT_PRESS && key_id == KEY_ENTER)
+    {
+        if (Speaker_GetState() != 0)
+        {
+            Speaker_Off(SPEAKER_CHANNEL_BOTH);
+            printf("[KEY] ENTER: speaker OFF\r\n");
+        }
+        else
+        {
+            Speaker_On(SPEAKER_CHANNEL_BOTH);
+            printf("[KEY] ENTER: speaker ON\r\n");
         }
     }
 }

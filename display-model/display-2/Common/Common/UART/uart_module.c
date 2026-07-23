@@ -713,17 +713,18 @@ static void handle_show_notice(const uint8_t *data, uint8_t len)
 
 static void handle_music_status(const uint8_t *data, uint8_t len)
 {
-    if (len < 10) return;
+    if (len < 11) return;
     g_disp_state.music_state  = data[0];
     g_disp_state.music_pos_ms = ((uint32_t)data[1] << 24) | ((uint32_t)data[2] << 16) |
                                  ((uint32_t)data[3] << 8)  |  (uint32_t)data[4];
     g_disp_state.music_dur_ms = ((uint32_t)data[5] << 24) | ((uint32_t)data[6] << 16) |
                                  ((uint32_t)data[7] << 8)  |  (uint32_t)data[8];
     g_disp_state.music_volume = data[9];
-    uint8_t name_len = (len > 10) ? (len - 10) : 0;
+    g_disp_state.music_speaker = data[10];
+    uint8_t name_len = (len > 11) ? (len - 11) : 0;
     if (name_len > sizeof(g_disp_state.music_track) - 1)
         name_len = sizeof(g_disp_state.music_track) - 1;
-    memcpy(g_disp_state.music_track, &data[10], name_len);
+    memcpy(g_disp_state.music_track, &data[11], name_len);
     g_disp_state.music_track[name_len] = '\0';
 }
 

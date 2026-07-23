@@ -445,8 +445,25 @@ void Display_Process(display_t *display)
 
     Protocol_ResetRxCtx(&display->rx_ctx);
 
-    /* 音乐状态变化同步：仅在状态/音量/曲目变化时推送给 Display */
-    if (display->type_received && Audio_IsStatusDirty()) {
+    /* 状态变化推送：也在主循环里独立调用 Display_SyncStatus()，
+     * 因此即使 Display 长时间不发帧，Core 侧的状态变化也能及时同步。 */
+    Display_SyncStatus(display);
+}
+
+/*********************************************************************
+ * @fn      Display_SyncStatus
+ *
+ * @brief   若音频/播放/音量/外放等状态有变化（status_dirty），
+ *          主动向 Display 推送一次 MUSIC_STATUS。需在主循环中周期调用，
+ *          不依赖是否收到 Display 帧。
+ *********************************************************************/
+void Display_SyncStatus(display_t *display)
+{
+    if (display == NULL || !display->type_received)
+        return;
+
+    if (Audio_IsStatusDirty())
+    {
         Display_SendMusicStatus(display);
         Audio_ClearStatusDirty();
     }
@@ -814,7 +831,7 @@ void Display_SendHidStatus(display_t *display, uint8_t dev_type, uint8_t connect
 void Display_SendMusicStatus(display_t *display)
 {
     uint8_t buf[PROTO_MAX_FRAME_LEN];
-    uint8_t data[11 + 64]; /* 状态(1) + 时间(4) + 时长(4) + 音量(1) + 曲目名(变长) */
+    uint8_t data[11 + 64]; /* 状态(1)+时间(4)+时长(4)+音量(1)+外放(1)+曲目名(变长) */
     uint16_t frame_len;
     audio_state_t state;
     uint32_t play_time;
@@ -856,13 +873,16 @@ void Display_SendMusicStatus(display_t *display)
     /* 音量 */
     data[9] = vol;
 
+    /* 外放状态（功放 SHUTDOWN 位掩码，非0=有通道正在外放） */
+    data[10] = (uint8_t)Speaker_GetState();
+
     /* 曲目名称 */
     if (track_name != NULL)
     {
         track_len = (uint8_t)strlen(track_name);
         if (track_len > 63)
             track_len = 63;
-        memcpy(&data[10], track_name, track_len);
+        memcpy(&data[11], track_name, track_len);
     }
     else
     {
@@ -871,7 +891,7 @@ void Display_SendMusicStatus(display_t *display)
 
     frame_len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
                                    CMD_DISP_MUSIC_STATUS,
-                                   data, 10 + track_len,
+                                   data, 11 + track_len,
                                    buf, sizeof(buf));
     if (frame_len > 0)
         Display_Send_Data(display, buf, frame_len);

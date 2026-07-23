@@ -387,6 +387,7 @@ typedef struct {
     uint32_t music_pos_ms;
     uint32_t music_dur_ms;
     uint8_t  music_volume;
+    uint8_t  music_speaker;       /* 外放状态位掩码 (0=关, 非0=开) */
     char     music_track[64];
 } uart_disp_state_t;
 

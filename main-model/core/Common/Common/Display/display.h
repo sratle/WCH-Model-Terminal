@@ -58,6 +58,9 @@ void Display_Send_Data(display_t *display, const uint8_t *data, uint16_t length)
 /* 主循环帧处理（在主循环中调用） */
 void Display_Process(display_t *display);
 
+/* 状态变化主动推送（在主循环中周期调用，不依赖收到 Display 帧） */
+void Display_SyncStatus(display_t *display);
+
 /* UART 中断处理函数（在中断服务函数中调用） */
 void Display_UART_IRQ_Handler(display_t *display);
 
