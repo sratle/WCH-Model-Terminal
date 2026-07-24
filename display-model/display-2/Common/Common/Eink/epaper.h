@@ -115,6 +115,7 @@ void Epaper_SetMaintFrames(uint8_t frames);
 void Epaper_SetClearFrames(uint8_t shake, uint8_t erase, uint8_t drive);
 void Epaper_SetDfv(uint8_t en);
 void Epaper_SetPofAfterRefresh(uint8_t en);
+void Epaper_SetBlackReinforce(uint8_t pct); /* 黑重全刷后补黑阈值%，0=关闭 */
 void Epaper_SetFrameScale(uint8_t mode);   /* 0=auto, 1=force x1, 2=force x2 */
 int8_t Epaper_RefreshTemperature(void);    /* re-read TSC, returns °C */
 void Epaper_DumpTune(void);

@@ -70,10 +70,15 @@
  *   drive: drive each transition to its target state. */
 #define CLEAR_SHAKE_FRAMES        12   /* black shake (~240ms)  */
 #define CLEAR_LUT_PHASE1_FRAMES   20   /* white erase (~400ms)  */
-#define CLEAR_LUT_PHASE2_FRAMES   20   /* target drive (~400ms) */
+#define CLEAR_LUT_PHASE2_FRAMES   40   /* target drive (~800ms)：加长驱黑，缓解大面积黑欠驱发灰 */
 
 /* After this many partial refreshes, force a full CLEAR refresh. */
 #define PARTIAL_REFRESH_CLEAR_INTERVAL  50
+
+/* 全刷后“补黑”阈值：新帧黑像素(bit=1)占比 ≥ 此百分比时，追加一遍全屏
+ * 驱黑(FAST BB 维持脉冲)把大面积实心黑补深，抵消一次 CLEAR 大面积同时
+ * 驱黑时 VSH 下垂造成的欠驱发灰。0 = 关闭补黑。 */
+#define BLACK_HEAVY_PERCENT       12
 
 /* Below this temperature: double frame counts, VGL HiZ ending, 5s POF */
 #define LUT_COLD_THRESHOLD_C      10
@@ -121,6 +126,7 @@ static uint8_t  s_erase_frames   = CLEAR_LUT_PHASE1_FRAMES;
 static uint8_t  s_drive_frames   = CLEAR_LUT_PHASE2_FRAMES;
 static uint8_t  s_dfv_en         = EPD_DFV_EN;
 static uint8_t  s_pof_after      = EPD_POF_AFTER_REFRESH;
+static uint8_t  s_black_reinforce_pct = BLACK_HEAVY_PERCENT; /* 补黑阈值(%)，0=关 */
 
 /*============================================================================
  *  LUT construction helpers
@@ -561,6 +567,12 @@ void Epaper_SetPofAfterRefresh(uint8_t en)
     s_pof_after = en ? 1 : 0;
 }
 
+void Epaper_SetBlackReinforce(uint8_t pct)
+{
+    if (pct > 100) pct = 100;
+    s_black_reinforce_pct = pct;   /* 0 = 关闭补黑 */
+}
+
 /*********************************************************************
  * @fn      Epaper_SetFrameScale
  *
@@ -603,12 +615,12 @@ int8_t Epaper_RefreshTemperature(void)
 void Epaper_DumpTune(void)
 {
     printf("[epd] tune: vdcs=0x%02X temp=%dC scale=x%d(mode=%d) fast=%d maint=%d "
-           "clear=%d+%d+%d dfv=%d pof=%d\r\n",
+           "clear=%d+%d+%d dfv=%d pof=%d rb=%d%%\r\n",
            s_vdcs, (int)s_temp_c, (int)s_frame_scale, (int)s_scale_mode,
            s_fast_frames * s_frame_scale, s_maint_frames * s_frame_scale,
            s_shake_frames * s_frame_scale, s_erase_frames * s_frame_scale,
            s_drive_frames * s_frame_scale,
-           (int)s_dfv_en, (int)s_pof_after);
+           (int)s_dfv_en, (int)s_pof_after, (int)s_black_reinforce_pct);
 }
 
 /*********************************************************************
@@ -700,6 +712,17 @@ void Epaper_Update(void)
            t1 - t0, t2 - t1, t3 - t2, ret);
 }
 
+/* 判断整屏是否“黑重”：黑像素(bit=1)占比 ≥ s_black_reinforce_pct%。 */
+static bool frame_is_black_heavy(const uint8_t *frame)
+{
+    uint32_t black = 0;
+    uint32_t i;
+    if (s_black_reinforce_pct == 0 || frame == NULL) return false;
+    for (i = 0; i < EPD_FRAME_SIZE; i++)
+        black += (uint32_t)__builtin_popcount(frame[i]);
+    return (black * 100u >= (uint32_t)EPD_WIDTH * EPD_HEIGHT * s_black_reinforce_pct);
+}
+
 /*********************************************************************
  * @fn      Epaper_UpdateFull
  *
@@ -727,15 +750,32 @@ void Epaper_UpdateFull(const uint8_t *old_frame, const uint8_t *new_frame)
 
     epaper_load_fast_lut();
 
-    if (s_pof_after) epaper_power_off();
+    if (s_pof_after) epaper_power_off();   /* CLEAR 后立即 POF：放电 VCOM，防整屏发灰 */
     uint32_t t4 = Platform_Millis();
+
+    /* 补黑：黑重页面(大面积实心黑，如 file app 标题栏+密集列表)在一次 CLEAR 里
+     * 因大量像素同时驱黑而 VSH 下垂、欠驱发灰。此处对黑重帧单独再跑一次完整的
+     * PON -> 全屏 FAST DRF -> POF：FAST 下白像素保持(VSL)、黑像素再驱
+     * s_maint_frames 帧(VSH)把黑补深，且不擦白。
+     * 关键：必须是"独立的、带自己 POF 的一次刷新"——每次 DRF 后都 POF 放电
+     * VCOM，否则两次 DRF 共用一个 POF 会让 VCOM 直流偏置累积，导致本应是白的
+     * 区域整屏逐渐发灰。仅黑重帧触发，其它页面不额外耗时。 */
+    uint8_t reinforced = 0;
+    if (frame_is_black_heavy(new_frame)) {
+        epaper_ensure_power_on();
+        Epaper_DisplayImage(new_frame);   /* DTM1=DTM2=new -> 全 WW/BB */
+        Epaper_Hw_WriteCmd(0x12);         /* DRF（FAST LUT 已载入） */
+        (void)Epaper_Hw_WaitBusy(15000);
+        if (s_pof_after) epaper_power_off();  /* 补黑刷新后同样 POF */
+        reinforced = 1;
+    }
 
     s_partial_count = 0;
 
-    printf("[epd] update full(clear %d+%d+%dF): pon=%lums data=%lums drf=%lums pof=%lums ret=%d\r\n",
+    printf("[epd] update full(clear %d+%d+%dF rb=%d): pon=%lums data=%lums drf=%lums pof=%lums ret=%d\r\n",
            s_shake_frames * s_frame_scale,
            s_erase_frames * s_frame_scale,
-           s_drive_frames * s_frame_scale,
+           s_drive_frames * s_frame_scale, reinforced,
            t1 - t0, t2 - t1, t3 - t2, t4 - t3, ret);
 }
 
