@@ -625,6 +625,63 @@ const char* Audio_ChannelGetTrackName(uint8_t ch)
     return CS43131_g.channels[ch].track_name;
 }
 
+uint8_t Audio_ChannelSeek_ms(uint8_t ch, uint32_t ms)
+{
+    audio_channel_t *c;
+    uint32_t byte_rate, bytes_per_frame, data_byte_off, dur_ms;
+    audio_state_t prev_state;
+
+    if (ch >= AUDIO_MAX_CHANNELS) return 1;
+    c = &CS43131_g.channels[ch];
+
+    /* 通道必须处于活动播放/暂停状态（正在播放才允许拖动进度） */
+    if (!c->active ||
+        (c->state != AUDIO_STATE_PLAYING && c->state != AUDIO_STATE_PAUSED))
+        return 2;
+    prev_state = c->state;
+
+    /* 目标位置必须严格小于音频时长（防越界） */
+    dur_ms = Audio_ChannelGetDuration_ms(ch);
+    if (dur_ms == 0 || ms >= dur_ms) return 3;
+
+    byte_rate = c->wav_info.sample_rate * c->wav_info.num_channels *
+                (c->wav_info.bits_per_sample / 8);
+    bytes_per_frame = c->wav_info.num_channels * (c->wav_info.bits_per_sample / 8);
+    if (byte_rate == 0 || bytes_per_frame == 0) return 3;
+
+    /* ms → data chunk 内字节偏移，并对齐到整帧边界（防止左右声错位） */
+    data_byte_off = (uint32_t)(((uint64_t)ms * byte_rate) / 1000);
+    data_byte_off -= (data_byte_off % bytes_per_frame);
+    if (data_byte_off > c->wav_info.data_size)
+        data_byte_off = c->wav_info.data_size - (c->wav_info.data_size % bytes_per_frame);
+
+    /* 先在临界区外关闭旧文件句柄（涉及 SPI I/O，耗时较长，不能屏蔽中断执行）。
+     * 此时环形缓冲区仍保留旧音频，DMA 混音 ISR 继续正常出声，不会卡顿。
+     * Audio_Process 之后会按新的 read_offset 重新打开文件并定位。 */
+    if (c->file_open) {
+        CH378FileClose(0);
+        c->file_open = 0;
+    }
+
+    /* 临界区：屏蔽 DMA 混音中断，原子地清空环形缓冲并改写读位置/进度，
+     * 避免 ISR 读到半更新的读写指针。区间内不做任何阻塞调用。 */
+    NVIC_DisableIRQ(DMA1_Channel1_IRQn);
+    c->rb_read_pos = 0;
+    c->rb_write_pos = 0;
+    c->eof = 0;
+    c->read_offset = c->wav_info.data_offset + data_byte_off;
+    /* 播放进度对齐到新位置（供 playst / 进度条显示；samples_played 每帧计 2） */
+    c->samples_played = ((uint64_t)data_byte_off / bytes_per_frame) * 2;
+    /* 恢复通道状态（防止 seek 前若已到 EOF 被 ISR 置为 IDLE） */
+    c->state = prev_state;
+    NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+
+    if (prev_state == AUDIO_STATE_PLAYING)
+        CS43131_g.audio_state = AUDIO_STATE_PLAYING;
+    CS43131_g.status_dirty = 1;
+    return 0;
+}
+
 /* ======================================================================== */
 /*  Master Controls                                                          */
 /* ======================================================================== */

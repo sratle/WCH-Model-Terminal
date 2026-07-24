@@ -1344,6 +1344,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  ver             Show CH378 firmware version\r\n");
         printf("  vol <0-100>     Set playback volume\r\n");
         printf("  play <file> [ch]  Play WAV file (ch=0|1, default ch0 stops all)\r\n");
+        printf("  playloc <ms> [ch]  Seek playback position in ms (progress bar drag)\r\n");
         printf("  pause [ch]      Pause playback (no ch=all)\r\n");
         printf("  resume [ch]     Resume playback (no ch=all)\r\n");
         printf("  stop [ch]       Stop playback, cannot resume (no ch=all)\r\n");
@@ -1403,6 +1404,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  find <pattern>, df, free, device [usb|sd]\r\n");
         printf("  stat <file>, chmod <file> <attr>, ver\r\n");
         printf("  play <file> [ch], vol <0-100>, pause [ch], resume [ch], stop [ch]\r\n");
+        printf("  playloc <ms> [ch]\r\n");
         printf("  playst, powerst, music <start|stop|status>\r\n");
         printf("  lsdev, bmp get <file> [sub], lsstatus\r\n");
         printf("  subdisp mode <0|1>, subdisp refresh status\r\n");
@@ -2896,6 +2898,61 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
     }
 }
 
+/* playloc <ms> [channel]
+ * 将指定通道当前播放位置拖到绝对位置（毫秒），用于音频拖进度条。
+ * 需通道正在播放，且目标位置 < 音频时长（由 Audio_ChannelSeek_ms 校验防越界）。 */
+static void CLI_Cmd_Playloc(uint8_t argc, char **argv)
+{
+    int ms_i;
+    uint8_t ch = 0;
+    uint8_t rc;
+
+    if (argc < 2) {
+        printf("Usage: playloc <ms> [channel]\r\n");
+        printf("  Seek current playback to an absolute position (milliseconds)\r\n");
+        printf("  channel: 0 or 1 (default 0)\r\n");
+        printf("  e.g. playloc 30000      (seek ch0 to 30s)\r\n");
+        printf("       playloc 5000 1     (seek ch1 to 5s)\r\n");
+        return;
+    }
+
+    ms_i = atoi(argv[1]);
+    if (ms_i < 0) {
+        printf("playloc: invalid position '%s'\r\n", argv[1]);
+        return;
+    }
+
+    if (argc >= 3) {
+        int parsed = atoi(argv[2]);
+        if (parsed < 0 || parsed >= AUDIO_MAX_CHANNELS) {
+            printf("playloc: invalid channel %d (0~%d)\r\n", parsed, AUDIO_MAX_CHANNELS - 1);
+            return;
+        }
+        ch = (uint8_t)parsed;
+    }
+
+    rc = Audio_ChannelSeek_ms(ch, (uint32_t)ms_i);
+    switch (rc) {
+        case 0:
+            printf("Seek ch%d -> %d ms (duration %lu ms)\r\n",
+                   ch, ms_i, (unsigned long)Audio_ChannelGetDuration_ms(ch));
+            break;
+        case 1:
+            printf("playloc: invalid channel %d\r\n", ch);
+            break;
+        case 2:
+            printf("playloc: ch%d is not playing\r\n", ch);
+            break;
+        case 3:
+            printf("playloc: %d ms out of range (duration %lu ms)\r\n",
+                   ms_i, (unsigned long)Audio_ChannelGetDuration_ms(ch));
+            break;
+        default:
+            printf("playloc: failed (rc=%d)\r\n", rc);
+            break;
+    }
+}
+
 static void CLI_Cmd_Speaker(uint8_t argc, char **argv)
 {
     speaker_channel_t ch;
@@ -3360,7 +3417,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
     /* Commands that don't touch CH378 file system — skip Lock/PreFill */
     if (strcmp(argv[0], "vol") == 0 || strcmp(argv[0], "pause") == 0 ||
         strcmp(argv[0], "resume") == 0 || strcmp(argv[0], "stop") == 0 ||
-        strcmp(argv[0], "playst") == 0 || strcmp(argv[0], "speaker") == 0 ||
+        strcmp(argv[0], "playst") == 0 || strcmp(argv[0], "playloc") == 0 ||
+        strcmp(argv[0], "speaker") == 0 ||
         strcmp(argv[0], "light") == 0 || strcmp(argv[0], "note") == 0 ||
         strcmp(argv[0], "mouse") == 0 || strcmp(argv[0], "roll") == 0 ||
         strcmp(argv[0], "keyboard") == 0 || strcmp(argv[0], "music") == 0 ||
@@ -3432,6 +3490,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Chmod(argc, argv);
     } else if (strcmp(argv[0], "play") == 0) {
         CLI_Cmd_Play(argc, argv);
+    } else if (strcmp(argv[0], "playloc") == 0) {
+        CLI_Cmd_Playloc(argc, argv);
     } else if (strcmp(argv[0], "vol") == 0) {
         CLI_Cmd_Vol(argc, argv);
     } else if (strcmp(argv[0], "pause") == 0) {

@@ -250,6 +250,22 @@ void Audio_StopAll(void);
 void Audio_ChannelPause(uint8_t ch);
 void Audio_ChannelResume(uint8_t ch);
 
+/**
+ * Seek a currently-playing channel to an absolute position (milliseconds).
+ * Used for progress-bar dragging. The channel must be active and
+ * PLAYING/PAUSED, and ms must be strictly less than the track duration.
+ * Resets the channel ring buffer and read offset; the audio engine re-opens
+ * the file and refills from the new position on the next Audio_Process() pass.
+ *
+ * @param ch  channel index (0 ~ AUDIO_MAX_CHANNELS-1)
+ * @param ms  absolute playback position in milliseconds
+ * @return    0 = success;
+ *            1 = invalid channel index;
+ *            2 = channel not currently playing;
+ *            3 = position out of range / unknown duration
+ */
+uint8_t Audio_ChannelSeek_ms(uint8_t ch, uint32_t ms);
+
 /** Per-channel volume and pan */
 void Audio_ChannelSetVolume(uint8_t ch, uint8_t vol);
 void Audio_ChannelSetPan(uint8_t ch, uint8_t pan);

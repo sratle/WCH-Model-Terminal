@@ -13,6 +13,7 @@ keyboard_t *keyboard_ptr = NULL;
 static uint8_t music_active = 0;           /* 1=音乐键盘已启动事件上报 */
 static uint8_t prev_key_bitmap[3] = {0};   /* 上一帧琴键位图 */
 static uint8_t current_playing_key = 0;    /* 当前正在播放的琴键 ID (1~24, 0=无) */
+static uint8_t prev_button_bitmap[2] = {0};/* 上一帧控制按钮位图（12 bit，鼓点边沿检测用） */
 
 /* Game Keyboard state */
 static game_input_state_t game_state = {0};
@@ -413,37 +414,38 @@ static void Keyboard_HandleHidReport(const protocol_frame_t *req)
  * Music Keyboard (Keyboard-3) 事件处理
  * ============================================================================ */
 
-/*
- * 播放指定琴键对应的钢琴音色 WAV 文件
- * key_id: 1~24 → \SOUND\PIANO-01.WAV ~ PIANO-24.WAV
- * 双通道轮转分配：优先使用空闲通道，两路均忙时替换较早的通道
- */
-static uint8_t piano_next_ch = 0; /* 轮转索引 */
+/* ----------------------------------------------------------------------------
+ * 琴键 / 鼓点 音色播放：双通道轮转分配
+ *
+ * 琴键（PIANO-xx.WAV）与控制按钮鼓点（DRUM-xx.WAV）共用同一套 ch0/ch1 轮转。
+ * music_last_ch 记录上一次（无论琴键还是鼓点）实际使用的通道，每个新音色一律
+ * 分配到"另一路"，实现 ch0 ↔ ch1 严格交替：上一个仍在延音的音色留在原通道
+ * 继续自然衰减，新音色在另一通道起播，避免相互打断、保证播放流畅。
+ * -------------------------------------------------------------------------- */
+static uint8_t music_last_ch = 1; /* 初值 1 → 第一次分配得到 ch0 */
 
-static void Music_PlayPianoKey(uint8_t key_id)
+/* 取下一个播放通道：与上一次使用的通道交替（0↔1） */
+static uint8_t Music_PickChannel(void)
 {
-    char path[CH378_MAX_PATH_LEN];
+    music_last_ch ^= 1u;
+    return music_last_ch;
+}
+
+/*
+ * 在轮转分配的通道上流式播放一个 WAV 音色文件（琴键与鼓点共用）。
+ * path: CH378 上的 8.3 短文件名完整路径
+ * tag : 日志标签（"PIANO" / "DRUM"）
+ */
+static void Music_PlaySampleFile(const char *path, const char *tag)
+{
     uint8_t status;
     uint8_t header[512];
     uint16_t real_len;
     wav_info_t info;
     uint8_t ch;
 
-    if (key_id < 1 || key_id > 24)
-        return;
-
-    /* 通道分配：优先选空闲通道，否则轮转替换 */
-    if (Audio_ChannelGetState(0) == AUDIO_STATE_IDLE ||
-        Audio_ChannelGetState(0) == AUDIO_STATE_STOPPED) {
-        ch = 0;
-    } else if (Audio_ChannelGetState(1) == AUDIO_STATE_IDLE ||
-               Audio_ChannelGetState(1) == AUDIO_STATE_STOPPED) {
-        ch = 1;
-    } else {
-        /* 两路都在播放，替换轮转指向的通道 */
-        ch = piano_next_ch;
-        piano_next_ch = (piano_next_ch + 1) % AUDIO_MAX_CHANNELS;
-    }
+    /* 双通道轮转：与上一个音色交替，避免打断仍在延音的上一路 */
+    ch = Music_PickChannel();
 
     /* 仅停止选中的通道 */
     Audio_ChannelStop(ch);
@@ -459,20 +461,17 @@ static void Music_PlayPianoKey(uint8_t key_id)
         }
     }
 
-    /* 构建路径: \SOUND\PIANO-xx.WAV (8.3 短文件名) */
-    snprintf(path, sizeof(path), "\\SOUND\\PIANO-%02d.WAV", key_id);
-
     /* 打开文件 */
     status = CH378FileOpen((uint8_t*)path);
     if (status != ERR_SUCCESS) {
-        printf("[PIANO] Cannot open %s (0x%02X)\r\n", path, status);
+        printf("[%s] Cannot open %s (0x%02X)\r\n", tag, path, status);
         return;
     }
 
     /* 读取 WAV 头 */
     status = CH378ByteRead(header, 512, &real_len);
     if (status != ERR_SUCCESS || real_len < 44) {
-        printf("[PIANO] Failed to read header\r\n");
+        printf("[%s] Failed to read header\r\n", tag);
         CH378FileClose(0);
         return;
     }
@@ -486,7 +485,7 @@ static void Music_PlayPianoKey(uint8_t key_id)
     /* 定位到 data chunk 起始位置 */
     status = CH378ByteLocate(info.data_offset);
     if (status != ERR_SUCCESS) {
-        printf("[PIANO] Seek failed (0x%02X)\r\n", status);
+        printf("[%s] Seek failed (0x%02X)\r\n", tag, status);
         CH378FileClose(0);
         return;
     }
@@ -495,14 +494,47 @@ static void Music_PlayPianoKey(uint8_t key_id)
 
     /* 启动流式播放 */
     if (Audio_ChannelStart(ch, path, &info) != 0) {
-        printf("[PIANO] Failed to start channel %d\r\n", ch);
+        printf("[%s] Failed to start channel %d\r\n", tag, ch);
         CH378FileClose(0);
         return;
     }
     /* 标记文件已打开，Audio_Process 直接顺序读取 */
     CS43131_g.channels[ch].file_open = 1;
 
-    printf("[PIANO] Key %d → ch%d %s\r\n", key_id, ch, path);
+    printf("[%s] %s → ch%d\r\n", tag, path, ch);
+}
+
+/*
+ * 播放指定琴键对应的钢琴音色 WAV 文件
+ * key_id: 1~24 → \SOUND\PIANO-01.WAV ~ PIANO-24.WAV
+ */
+static void Music_PlayPianoKey(uint8_t key_id)
+{
+    char path[CH378_MAX_PATH_LEN];
+
+    if (key_id < 1 || key_id > 24)
+        return;
+
+    /* 构建路径: \SOUND\PIANO-xx.WAV (8.3 短文件名) */
+    snprintf(path, sizeof(path), "\\SOUND\\PIANO-%02d.WAV", key_id);
+    Music_PlaySampleFile(path, "PIANO");
+}
+
+/*
+ * 播放指定控制按钮对应的鼓点音色 WAV 文件
+ * btn_id: 1~12（KEY1~KEY12）→ \SOUND\DRUM-01.WAV ~ DRUM-12.WAV
+ * 与琴键共用 ch0/ch1 轮转（见 Music_PickChannel）
+ */
+static void Music_PlayDrum(uint8_t btn_id)
+{
+    char path[CH378_MAX_PATH_LEN];
+
+    if (btn_id < 1 || btn_id > 12)
+        return;
+
+    /* 构建路径: \SOUND\DRUM-xx.WAV (8.3 短文件名) */
+    snprintf(path, sizeof(path), "\\SOUND\\DRUM-%02d.WAV", btn_id);
+    Music_PlaySampleFile(path, "DRUM");
 }
 
 static void Keyboard_HandleMusicKeys(const protocol_frame_t *req)
@@ -569,6 +601,7 @@ static void Keyboard_HandleMusicKeys(const protocol_frame_t *req)
 static void Keyboard_HandleMusicButtons(const protocol_frame_t *req)
 {
     const uint8_t *bitmap;
+    uint8_t i;
 
     if (req->len < 3)  /* CMD + 2 bytes bitmap */
         return;
@@ -578,6 +611,25 @@ static void Keyboard_HandleMusicButtons(const protocol_frame_t *req)
 
     bitmap = &req->data[0];
     printf("[MUSIC] Buttons: %02X %02X\r\n", bitmap[0], bitmap[1]);
+
+    /* 12 个控制按钮 KEY1~KEY12 → \SOUND\DRUM-01.WAV ~ DRUM-12.WAV
+     * 边沿检测：仅在按钮由"松"变"按"（上升沿）时触发一次鼓点，
+     * 一击即发、不做延音；松开不主动停止，让 WAV 自然衰减结束。
+     * 每次触发共用琴键的 ch0/ch1 轮转（见 Music_PickChannel），
+     * 上一个音色（琴键或鼓点）留在原通道继续，鼓点落到另一通道。
+     * 位图布局：byte0 bit0~7 = KEY1~KEY8，byte1 bit0~3 = KEY9~KEY12。 */
+    for (i = 0; i < 12; i++) {
+        uint8_t byte_idx = i >> 3;
+        uint8_t bit_mask = 1u << (i & 7);
+        uint8_t is_pressed  = (bitmap[byte_idx] & bit_mask) ? 1 : 0;
+        uint8_t was_pressed = (prev_button_bitmap[byte_idx] & bit_mask) ? 1 : 0;
+        if (is_pressed && !was_pressed)
+            Music_PlayDrum(i + 1);  /* 1-based: KEY1→DRUM-01 */
+    }
+
+    /* 保存当前位图用于下一帧边沿检测 */
+    prev_button_bitmap[0] = bitmap[0];
+    prev_button_bitmap[1] = bitmap[1];
 }
 
 static void Keyboard_HandleMusicFaders(const protocol_frame_t *req)
@@ -857,6 +909,7 @@ uint8_t Keyboard_Music_Start(void)
 
     /* 清空状态 */
     prev_key_bitmap[0] = prev_key_bitmap[1] = prev_key_bitmap[2] = 0;
+    prev_button_bitmap[0] = prev_button_bitmap[1] = 0;
     current_playing_key = 0;
 
     /* 启用效果器总开关 + 电子琴增强预设 */
@@ -894,6 +947,7 @@ uint8_t Keyboard_Music_Stop(void)
     Audio_FX_MasterEnable(0);
     current_playing_key = 0;
     prev_key_bitmap[0] = prev_key_bitmap[1] = prev_key_bitmap[2] = 0;
+    prev_button_bitmap[0] = prev_button_bitmap[1] = 0;
 
     printf("[MUSIC] Keyboard-3 event reporting STOPPED (FX disabled)\r\n");
     return 1;
@@ -916,5 +970,6 @@ void Keyboard_Music_Disable(void)
     Audio_FX_MasterEnable(0);
     current_playing_key = 0;
     prev_key_bitmap[0] = prev_key_bitmap[1] = prev_key_bitmap[2] = 0;
+    prev_button_bitmap[0] = prev_button_bitmap[1] = 0;
     printf("[MUSIC] Force-disabled (keyboard subtype changed)\r\n");
 }
