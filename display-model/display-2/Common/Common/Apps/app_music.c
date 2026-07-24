@@ -46,6 +46,7 @@
 #define PROG_W              (LEFT_W - 64)
 #define PROG_H              14
 #define TIME_Y              (PROG_Y + PROG_H + 2)
+#define PROG_MAX_PERMILLE   1000   /* 进度滑条取值范围：0..1000（时长的千分比） */
 
 /* Control buttons */
 #define CTRL_Y              (TIME_Y + 20)
@@ -115,7 +116,7 @@ static ui_button_t btn_play, btn_prev, btn_next, btn_stop, btn_mode;
 static ui_button_t btn_speaker, btn_refresh;
 static ui_widget_t s_vol_touch;
 static ui_widget_t s_pl_touch;  /* Playlist touch area */
-static ui_widget_t *s_music_widgets[11];
+static ui_widget_t *s_music_widgets[12];
 static char s_track_name[68];
 static char s_time_pos[12];
 static char s_time_dur[12];
@@ -135,6 +136,11 @@ static bool s_local_tracking = false;
 
 /* Track-end detection flag — set when position reaches duration */
 static bool s_track_ended = false;
+
+/* Progress slider (seek bar) + scrub state */
+static ui_slider_t s_progress;
+static bool s_seek_pending = false;   /* on_change 已锁定目标，松手后提交 playloc */
+static int16_t s_seek_permille = 0;   /* 锁定的滑条值（0..PROG_MAX_PERMILLE） */
 
 /* Flag: skip playst on enter because play command was just sent */
 static bool s_skip_playst = false;
@@ -373,19 +379,8 @@ static void music_draw_info(void)
 
 static void music_draw_progress(void)
 {
-    ui_rect_t prog_bg = {PROG_X, PROG_Y, PROG_W, PROG_H};
-    ui_draw_round_rect_border(&prog_bg, 4, MUSIC_FG, 1);
-
-    uint32_t dur = g_disp_state.music_dur_ms;
-    uint32_t pos = s_local_tracking ? s_local_pos_ms : g_disp_state.music_pos_ms;
-    if (dur > 0 && pos <= dur) {
-        int16_t fill_w = (int16_t)((uint32_t)(PROG_W - 2) * pos / dur);
-        if (fill_w > 0) {
-            ui_rect_t pf = {PROG_X + 1, PROG_Y + 1, fill_w, PROG_H - 2};
-            ui_draw_fill_round_rect(&pf, 3, MUSIC_FG);
-        }
-    }
-
+    /* 进度条本体由 s_progress 滑条控件绘制；此处仅画两侧时间文本。
+     * 拖动/点按时 s_time_pos 显示目标预览（由 progress_on_change 写入）。 */
     ui_draw_text(PROG_X, TIME_Y, s_time_pos, &font_montserrat_12, MUSIC_FG);
     int16_t dw = ui_text_width(s_time_dur, &font_montserrat_12);
     ui_draw_text(PROG_X + PROG_W - dw, TIME_Y, s_time_dur, &font_montserrat_12, MUSIC_FG);
@@ -521,32 +516,58 @@ static void music_page_update(ui_page_t *page, uint32_t dt_ms)
 {
     (void)page;
 
+    /* --- 进度滑条拖动/点按提交：松手后向 Core 发送 playloc 实现拖进度 --- */
+    if (s_seek_pending && !s_progress.dragging) {
+        s_seek_pending = false;
+        uint32_t dur = g_disp_state.music_dur_ms;
+        if (dur > 0) {
+            uint32_t ms = (uint32_t)((uint64_t)s_seek_permille * dur / PROG_MAX_PERMILLE);
+            char cmd[24];
+            snprintf(cmd, sizeof(cmd), "playloc %lu", (unsigned long)ms);
+            UART_SendCLI(cmd);
+            /* 立即从目标位置继续本地计时，不等 Core 回推 */
+            s_local_pos_ms = ms;
+            s_local_tracking = true;
+            s_track_ended = false;
+        }
+    }
+
+    /* 拖动中（或待提交）时冻结时间驱动，交由滑条/on_change 驱动显示 */
+    bool scrubbing = (s_progress.dragging || s_seek_pending);
+
     /* --- Position tracking with real elapsed time --- */
     if (g_disp_state.music_state == MUSIC_STATE_PLAYING) {
         if (!s_local_tracking) {
             s_local_tracking = true;
             s_local_pos_ms = g_disp_state.music_pos_ms;
         }
-        s_local_pos_ms += dt_ms;
-        if (g_disp_state.music_dur_ms > 0 &&
-            s_local_pos_ms > g_disp_state.music_dur_ms)
-            s_local_pos_ms = g_disp_state.music_dur_ms;
+        if (!scrubbing) {
+            s_local_pos_ms += dt_ms;
+            if (g_disp_state.music_dur_ms > 0 &&
+                s_local_pos_ms > g_disp_state.music_dur_ms)
+                s_local_pos_ms = g_disp_state.music_dur_ms;
 
-        /* Detect track end */
-        if (!s_track_ended && g_disp_state.music_dur_ms > 0 &&
-            s_local_pos_ms >= g_disp_state.music_dur_ms) {
-            music_on_track_end();
-        }
+            /* Detect track end */
+            if (!s_track_ended && g_disp_state.music_dur_ms > 0 &&
+                s_local_pos_ms >= g_disp_state.music_dur_ms) {
+                music_on_track_end();
+            }
 
-        /* Refresh the progress area at ~1 Hz only (e-ink friendly) */
-        static uint32_t s_prog_acc = 0;
-        s_prog_acc += dt_ms;
-        if (s_prog_acc >= 1000) {
-            s_prog_acc = 0;
-            music_update_texts();
-            ui_rect_t prog_area = {PROG_X - 2, PROG_Y - 2,
-                                   PROG_W + 4, (TIME_Y + 16) - PROG_Y + 4};
-            ui_page_invalidate(&prog_area);
+            /* Refresh the progress area at ~1 Hz only (e-ink friendly) */
+            static uint32_t s_prog_acc = 0;
+            s_prog_acc += dt_ms;
+            if (s_prog_acc >= 1000) {
+                s_prog_acc = 0;
+                music_update_texts();
+                if (g_disp_state.music_dur_ms > 0) {
+                    int16_t pm = (int16_t)((uint64_t)s_local_pos_ms * PROG_MAX_PERMILLE /
+                                           g_disp_state.music_dur_ms);
+                    if (pm != s_progress.value)
+                        ui_slider_set_value(&s_progress, pm);
+                }
+                ui_rect_t time_area = {PROG_X, TIME_Y, PROG_W, 16};
+                ui_page_invalidate(&time_area);
+            }
         }
     } else {
         if (s_local_tracking) {
@@ -560,6 +581,9 @@ static void music_page_update(ui_page_t *page, uint32_t dt_ms)
         s_prev_state = g_disp_state.music_state;
         s_local_pos_ms = g_disp_state.music_pos_ms;
         music_update_texts();
+        if (!scrubbing && g_disp_state.music_dur_ms > 0)
+            ui_slider_set_value(&s_progress,
+                (int16_t)((uint64_t)s_local_pos_ms * PROG_MAX_PERMILLE / g_disp_state.music_dur_ms));
         ui_page_invalidate_all();
         return;
     }
@@ -570,6 +594,12 @@ static void music_page_update(ui_page_t *page, uint32_t dt_ms)
         s_local_pos_ms = g_disp_state.music_pos_ms;
         s_local_tracking = true;
         music_update_texts();
+        if (!scrubbing) {
+            int16_t pm = (g_disp_state.music_dur_ms > 0)
+                ? (int16_t)((uint64_t)s_local_pos_ms * PROG_MAX_PERMILLE / g_disp_state.music_dur_ms)
+                : 0;
+            ui_slider_set_value(&s_progress, pm);
+        }
         ui_page_invalidate_all();
         return;
     }
@@ -703,6 +733,22 @@ static void pl_touch_event(ui_widget_t *w, ui_event_t *e)
     }
 }
 
+/* Progress slider callback: fires while the user scrubs (touchpad tap or
+ * mouse drag). Latch the target position + freeze time tracking; the actual
+ * playloc is sent from music_page_update once the slider is released. */
+static void progress_on_change(ui_widget_t *w, int16_t value)
+{
+    (void)w;
+    s_seek_pending = true;
+    s_seek_permille = value;
+    /* 目标预览：显示拖动/点按的目标时间文本 */
+    uint32_t dur = g_disp_state.music_dur_ms;
+    uint32_t ms = (dur > 0) ? (uint32_t)((uint64_t)value * dur / PROG_MAX_PERMILLE) : 0;
+    format_time_ms(ms, s_time_pos);
+    ui_rect_t time_area = {PROG_X, TIME_Y, PROG_W, 16};
+    ui_page_invalidate(&time_area);
+}
+
 /*=============================================================================
  *  Public API
  *=============================================================================*/
@@ -760,6 +806,15 @@ void app_music_init(void)
     ui_button_set_colors(&btn_refresh, UI_COLOR_WHITE, UI_COLOR_BLACK, UI_COLOR_BLACK);
     btn_refresh.radius = 12;
 
+    /* Progress slider (seek bar) — value 0..PROG_MAX_PERMILLE (时长千分比)；
+     * 1bpp：全轨黑线 + 白色旋钮（draw_cb 自带黑描边） */
+    ui_rect_t prog_rect = {PROG_X, PROG_Y - 2, PROG_W, 18};
+    ui_slider_init(&s_progress, &prog_rect, 0, PROG_MAX_PERMILLE, 0);
+    ui_slider_set_callback(&s_progress, progress_on_change);
+    s_progress.track_color = MUSIC_FG;
+    s_progress.fill_color  = MUSIC_FG;
+    s_progress.knob_color  = MUSIC_BG;
+
     ui_rect_t vol_rect = {VOL_X, VOL_Y, VOL_W, VOL_H};
     ui_widget_init(&s_vol_touch, &vol_rect);
     s_vol_touch.bg_color = UI_COLOR_TRANSPARENT;
@@ -782,8 +837,9 @@ void app_music_init(void)
     s_music_widgets[8] = &s_pl_touch;
     s_music_widgets[9] = (ui_widget_t *)&btn_speaker;
     s_music_widgets[10] = (ui_widget_t *)&btn_refresh;
+    s_music_widgets[11] = (ui_widget_t *)&s_progress;
 
-    ui_page_set_widgets(&s_app_music.page, s_music_widgets, 11);
+    ui_page_set_widgets(&s_app_music.page, s_music_widgets, 12);
     ui_page_set_callbacks(&s_app_music.page, music_page_enter, music_page_exit, music_page_draw, NULL);
     ui_page_set_update_cb(&s_app_music.page, music_page_update);
     ui_page_register(&s_app_music.page);

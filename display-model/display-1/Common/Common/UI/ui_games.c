@@ -4,7 +4,7 @@
 * Version            : V4.0.0
 * Date               : 2026/05/25
 * Description        : Games page implementation.
-*                      8 games in a single page grid (3x4 layout, no pagination).
+*                      5 games in a single page grid (3x4 layout, no pagination).
 *                      V4.0: Keyboard navigation support (arrow keys + Enter).
 ********************************************************************************/
 #include "ui_games.h"
@@ -24,7 +24,7 @@
 #define GAME_BTN_GAP_X       20
 #define GAME_BTN_GAP_Y       16
 #define GAME_GRID_TOP        70
-#define GAME_TOTAL           6
+#define GAME_TOTAL           5
 
 /*=============================================================================
  *  Game Entry Data
@@ -42,7 +42,6 @@ static const game_entry_t s_games[GAME_TOTAL] = {
     {"Tetris",     icon_shuffle_16_bitmap,  ICON_SHUFFLE_16_WIDTH,  ICON_SHUFFLE_16_HEIGHT,  game_tetris_get_page},
     {"2048",       icon_copy_16_bitmap,     ICON_COPY_16_WIDTH,     ICON_COPY_16_HEIGHT,     game_2048_get_page},
     {"Snake",      icon_loop_16_bitmap,     ICON_LOOP_16_WIDTH,     ICON_LOOP_16_HEIGHT,     game_snake_get_page},
-    {"Breakout",   icon_play_16_bitmap,     ICON_PLAY_16_WIDTH,     ICON_PLAY_16_HEIGHT,     game_breakout_get_page},
     {"Airplane",   icon_up_16_bitmap,       ICON_UP_16_WIDTH,       ICON_UP_16_HEIGHT,       game_airplane_get_page},
     {"MineSweeper",icon_warning_16_bitmap,  ICON_WARNING_16_WIDTH,  ICON_WARNING_16_HEIGHT,  game_minesweeper_get_page},
 };

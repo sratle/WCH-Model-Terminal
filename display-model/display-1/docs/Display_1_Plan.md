@@ -227,7 +227,7 @@ lcd/
 │   │   │   └── font/              位图字体数据
 │   │   ├── SSD1963/            SSD1963 控制器驱动
 │   │   ├── UI/                 业务 UI 页面
-│   │   ├── Games/              本地游戏（8个：tetris/2048/snake/breakout/airplane/touchball/minesweeper/contra）
+│   │   ├── Games/              本地游戏（5个：tetris/2048/snake/airplane/minesweeper）
 │   │   ├── Apps/               系统应用（16个）
 │   │   ├── Touch/              GT911 电容触摸屏驱动
 │   │   ├── UART/               模块间串口通信
@@ -272,10 +272,7 @@ lcd/
 | Tetris | 俄罗斯方块 |
 | 2048 | 数字合成 |
 | Snake | 贪吃蛇 |
-| Breakout | 打砖块 |
 | Airplane | 飞机大战 |
-| Touch Ball | 点击飞行小球 |
 | Minesweeper | 扫雷（双击扫开） |
-| Contra | 魂斗罗（多点触控操控） |
 
 所有游戏使用统一的 on_update/on_draw 分离模式，合成渲染器自动处理脏区域刷新。
