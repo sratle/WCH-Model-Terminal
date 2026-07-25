@@ -11,6 +11,7 @@ power_t *power_ptr = NULL;
 
 /* 事件类 handler：Power 仅上报电量（简化协议） */
 static void Power_HandleStatusReport(const protocol_frame_t *req);
+static void power_update_status(uint8_t new_batt, uint8_t new_charge);
 
 /* ============================================================================
  * UART 初始化与数据收发
@@ -142,7 +143,10 @@ void Power_Process(power_t *power)
 
     req = &power->rx_ctx.frame;
 
-    /* 0. 处理 Power 返回的 ACK 响应（心跳 GET_TYPE 的回复） */
+    /* 0. 处理 Power 返回的 ACK 响应（心跳 GET_TYPE 的回复）。
+     * Power 把电量/充电作为 ACK 扩展字段 DATA[5]/DATA[6] 单帧携带：
+     * 模块链路是单帧 rx_ctx，ACK+STATUS 背靠背双帧会导致前帧被
+     * 后帧帧头顶掉（err_frame_ready），所以不能分两帧发。 */
     if (req->cmd == CMD_ACK)
     {
         module_identity_t id;
@@ -151,6 +155,8 @@ void Power_Process(power_t *power)
             Hardware_Hb_MarkOnline(MODULE_ID_POWER, id.type, id.subtype);
             power->type_id = id.subtype;
         }
+        if (req->len >= 8)   /* CMD + 身份5 + 电量1 + 充电1 */
+            power_update_status(req->data[5], req->data[6]);
         handled = 1;
     }
     /* 1. 通用命令（0x00~0x0F） */
@@ -177,22 +183,14 @@ void Power_Process(power_t *power)
  * Power 专用命令 handler 实现（框架，待填充业务逻辑）
  * ============================================================================ */
 
-/* ---- 电量上报（Power→Core，事件类）: DATA=[电量:1][充电:1] ---- */
-static void Power_HandleStatusReport(const protocol_frame_t *req)
+/* ---- 电量/充电状态统一入口：缓存 + 仅变化时推送 Display ---- */
+static void power_update_status(uint8_t new_batt, uint8_t new_charge)
 {
-    uint8_t new_batt;
-    uint8_t new_charge;
-
-    /* 简化协议：DATA[0]=电量(0~100)，DATA[1]=充电状态(0=放电,1=充电中)
-     * 充电字节可选（旧固件只发电量时兼容为非充电） */
-    if (req->len < 2)   /* CMD + 电量 */
-        return;
     if (power_ptr == NULL)
         return;
 
-    new_batt   = req->data[0];
     if (new_batt > 100) new_batt = 100;
-    new_charge = (req->len >= 3 && req->data[1]) ? 1 : 0;
+    new_charge = new_charge ? 1 : 0;
 
     /* 仅在电量或充电状态变化时才主动推送（周期上报不重复推） */
     if (power_ptr->has_status &&
@@ -205,6 +203,16 @@ static void Power_HandleStatusReport(const protocol_frame_t *req)
     power_ptr->has_status  = 1;
 
     Power_ReportStatusToDisplay(power_ptr);
+}
+
+/* ---- 电量上报（Power→Core，事件类）: DATA=[电量:1][充电:1] ----
+ * 兼容保留：当前 Power 固件电量随 ACK 扩展字段携带，不再单独发 0x36 */
+static void Power_HandleStatusReport(const protocol_frame_t *req)
+{
+    if (req->len < 2)   /* CMD + 电量 */
+        return;
+    power_update_status(req->data[0],
+                        (req->len >= 3) ? req->data[1] : 0);
 }
 
 /*********************************************************************

@@ -58,7 +58,7 @@
 #define MODULE_SUBTYPE_POWER_STANDARD 0x01
 
 #define POWER_FW_MAJOR              0x02
-#define POWER_FW_MINOR              0x00
+#define POWER_FW_MINOR              0x01
 #define POWER_HW_VER                0x01
 
 /* ============================================================================
@@ -221,24 +221,25 @@ static void Power_SendFrame(uint8_t cmd, const uint8_t *data, uint8_t data_len)
     Power_UART_Send(buf, n);
 }
 
+/* GET_TYPE 应答：单帧携带 身份 + 电量/充电 扩展字段(DATA[5]/DATA[6])。
+ * 必须合并为一帧：Core 侧模块链路是"单帧 rx_ctx"，若 ACK 与 STATUS 背靠背
+ * 连发，前一帧(ACK)会在 Core 主循环消费前被后一帧的帧头顶掉(err_frame_ready)，
+ * 导致 Core 收得到电量却收不到心跳应答、把 Power 误判为离线。 */
 static void Power_SendGetTypeAck(void)
 {
-    uint8_t d[5];
+    uint8_t d[7];
+    uint8_t n = 5;
     d[0] = MODULE_TYPE_POWER;
     d[1] = MODULE_SUBTYPE_POWER_STANDARD;
     d[2] = POWER_HW_VER;
     d[3] = POWER_FW_MAJOR;
     d[4] = POWER_FW_MINOR;
-    Power_SendFrame(CMD_ACK, d, 5);
-}
-
-/* DATA = [电量:1][充电:1] */
-static void Power_SendStatus(uint8_t pct, uint8_t charging)
-{
-    uint8_t d[2];
-    d[0] = pct;
-    d[1] = charging ? 1 : 0;
-    Power_SendFrame(CMD_PWR_STATUS_REPORT, d, 2);
+    if (s_have_batt) {
+        d[5] = s_reported_pct;               /* 扩展: 电量 0~100 */
+        d[6] = s_reported_charge ? 1 : 0;    /* 扩展: 充电状态   */
+        n = 7;
+    }
+    Power_SendFrame(CMD_ACK, d, n);
 }
 
 static uint8_t Power_RxParse(uint8_t b)
@@ -284,12 +285,11 @@ void USART1_IRQHandler(void)
     if (USART_GetITStatus(USART1, USART_IT_RXNE) != RESET) {
         uint8_t b = (uint8_t)USART_ReceiveData(USART1);
         /* 完整帧到达即处理：发给本模块的 GET_TYPE 立即应答（<1ms），
-         * 不受主循环数码管采样阻塞影响。ISR 是唯一 TX 点，避免与主循环抢 UART */
+         * 不受主循环数码管采样阻塞影响。ISR 是唯一 TX 点，且每次心跳只发
+         * 这一帧（电量/充电放在 ACK 扩展字段里，绝不背靠背连发第二帧） */
         if (Power_RxParse(b) &&
             g_rx_dst == MODULE_ID_POWER && g_rx_cmd == CMD_GET_TYPE) {
             Power_SendGetTypeAck();
-            if (s_have_batt)
-                Power_SendStatus(s_reported_pct, s_reported_charge);
         }
     }
 }
