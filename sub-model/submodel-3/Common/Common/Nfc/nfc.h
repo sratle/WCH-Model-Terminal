@@ -24,13 +24,13 @@
 #define NFC_ROUTE_MAX          0x33
 
 /* Debounce threshold: require this many consecutive identical
- * card reads before reporting to Core */
-#define NFC_DEBOUNCE_THRESHOLD 5
+ * card reads before reporting to Core (one frame every 91ms) */
+#define NFC_DEBOUNCE_THRESHOLD 10
 
-/* Card-absent timeout (main loop iterations).
- * NFC module sends a frame every 91ms; ~5000 iterations ≈ 500ms
- * without a valid frame → card has left. */
-#define NFC_CARD_ABSENT_TIMEOUT  5000
+/* Card-absent timeout in milliseconds.
+ * NFC module sends a frame every 91ms while a card is present;
+ * no valid frame for 500ms -> card has left. */
+#define NFC_CARD_ABSENT_MS     500
 
 /* NFC frame parser states */
 typedef enum {
@@ -51,8 +51,8 @@ typedef struct {
     uint8_t  frame_buf[NFC_FRAME_LEN];
     uint8_t  frame_idx;
 
-    /* Last valid parsed card data */
-    uint8_t  card_id;           /* 1~4, 0 = no card */
+    /* Last valid parsed card data (written by ISR, consumed by main loop) */
+    volatile uint8_t  card_id;  /* 1~4, 0 = no pending frame */
     uint8_t  card_number[5];
 
     /* Debounce: consecutive identical reads */
@@ -64,8 +64,8 @@ typedef struct {
     uint8_t  reported_card_id;
     uint8_t  reported_card_number[5];
 
-    /* Card-absent timeout counter */
-    uint32_t frame_alive_counter;
+    /* Timestamp (ms) of the last valid frame, for card-absent detection */
+    uint32_t last_frame_ms;
 
     /* New card ready flag (set by debounce logic) */
     volatile uint8_t card_ready;
@@ -73,7 +73,7 @@ typedef struct {
 
 void Nfc_Init(void);
 void Nfc_ParseByte(uint8_t byte);
-void Nfc_Process(void);
+void Nfc_Process(uint32_t now_ms);
 void Nfc_ResetCard(void);
 
 extern nfc_ctx_t nfc_ctx;

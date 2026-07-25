@@ -1388,6 +1388,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  nfc set <hex_id> <name>  Set NFC card name (10-hex-digit id, nfc.json)\r\n");
         printf("  nfc get <hex_id>  Get NFC card name\r\n");
         printf("  nfc ls          List all NFC card names\r\n");
+        printf("  nfc st          Query current card status from NFC module\r\n");
         printf("  ir start        Start IR ranging (submodel-6)\r\n");
         printf("  ir stop         Stop IR ranging (submodel-6)\r\n");
         printf("  clear           Clear screen\r\n");
@@ -1414,7 +1415,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  speaker <on|off> [left|right]\r\n");
         printf("  rgb mode|refresh|status\r\n");
         printf("  fp register|del <ID>|ls|count|config [led|sec]|set|get|names\r\n");
-        printf("  nfc set <hex_id> <name>|get <hex_id>|ls\r\n");
+        printf("  nfc set <hex_id> <name>|get <hex_id>|ls|st\r\n");
         printf("  ir start|stop\r\n");
         printf("  clear, help [d]\r\n");
     }
@@ -2683,10 +2684,11 @@ static void CLI_Cmd_Ir(uint8_t argc, char **argv)
     }
 }
 
-/* ---- NFC 名称管理命令 ----
+/* ---- NFC 名称管理与状态查询命令 ----
  * nfc set <hex_id> <name>   设置 NFC 卡名称 (ID 为 10 位十六进制，写入 nfc.json)
  * nfc get <hex_id>          获取 NFC 卡名称
  * nfc ls                    列出所有已存储的 NFC 卡
+ * nfc st                    查询 NFC 模块当前卡状态（异步，响应由 ACK 打印）
  */
 static void CLI_Cmd_Nfc(uint8_t argc, char **argv)
 {
@@ -2694,6 +2696,20 @@ static void CLI_Cmd_Nfc(uint8_t argc, char **argv)
         printf("Usage: nfc set <hex_id> <name>\r\n");
         printf("       nfc get <hex_id>\r\n");
         printf("       nfc ls\r\n");
+        printf("       nfc st\r\n");
+        return;
+    }
+
+    if (strcmp(argv[1], "st") == 0) {
+        submodels_t *nfc = Submodels_FindNfcSlot();
+        if (nfc == NULL) {
+            printf("nfc: no NFC submodel online\r\n");
+            return;
+        }
+        if (Submodels_NFC_QueryStatus(nfc))
+            printf("nfc: status query sent\r\n");
+        else
+            printf("nfc: failed to send query\r\n");
         return;
     }
 

@@ -1,5 +1,4 @@
 #include "nfc.h"
-#include "../Uart/uart_core.h"
 #include <string.h>
 
 nfc_ctx_t nfc_ctx;
@@ -54,17 +53,80 @@ void Nfc_Init(void)
 
 /* ---- Byte-by-byte NFC frame parser (called from USART2 ISR) ----
  *
- * NFC module 8-byte frame:
+ * NFC module 8-byte frame (per module datasheet):
  *   [0] 0xAA header
  *   [1] route (0x30~0x33)
  *   [2..6] card_number (5 bytes)
- *   [7] parity (XOR of bytes [0..6])
+ *   [7] checksum = XOR of the 5 card_number bytes [2..6]
  */
 
 void Nfc_ParseByte(uint8_t byte)
 {
-    /* Raw passthrough: forward every byte from UART2 to UART1 */
-    UartCore_SendData(&byte, 1);
+    switch (nfc_ctx.parse_state)
+    {
+        case NFC_PARSE_WAIT_HEAD:
+        {
+            if (byte == NFC_FRAME_HEAD)
+            {
+                nfc_ctx.frame_buf[0] = byte;
+                nfc_ctx.parse_state = NFC_PARSE_WAIT_ROUTE;
+            }
+            break;
+        }
+
+        case NFC_PARSE_WAIT_ROUTE:
+        {
+            if (byte >= NFC_ROUTE_MIN && byte <= NFC_ROUTE_MAX)
+            {
+                nfc_ctx.frame_buf[1] = byte;
+                nfc_ctx.frame_idx = 2;
+                nfc_ctx.parse_state = NFC_PARSE_WAIT_CARD_0;
+            }
+            else
+            {
+                /* Invalid route: resync (byte may itself be a new head) */
+                nfc_ctx.parse_state = (byte == NFC_FRAME_HEAD)
+                                    ? NFC_PARSE_WAIT_ROUTE
+                                    : NFC_PARSE_WAIT_HEAD;
+            }
+            break;
+        }
+
+        case NFC_PARSE_WAIT_CARD_0:
+        case NFC_PARSE_WAIT_CARD_1:
+        case NFC_PARSE_WAIT_CARD_2:
+        case NFC_PARSE_WAIT_CARD_3:
+        case NFC_PARSE_WAIT_CARD_4:
+        {
+            nfc_ctx.frame_buf[nfc_ctx.frame_idx++] = byte;
+            nfc_ctx.parse_state++;
+            break;
+        }
+
+        case NFC_PARSE_WAIT_PARITY:
+        {
+            uint8_t xor_sum = nfc_ctx.frame_buf[2] ^ nfc_ctx.frame_buf[3] ^
+                              nfc_ctx.frame_buf[4] ^ nfc_ctx.frame_buf[5] ^
+                              nfc_ctx.frame_buf[6];
+
+            if (byte == xor_sum)
+            {
+                /* Valid frame: publish parsed card for the main loop.
+                 * card_id acts as the pending flag (cleared by Nfc_Process). */
+                memcpy(nfc_ctx.card_number, &nfc_ctx.frame_buf[2], 5);
+                nfc_ctx.card_id = (uint8_t)(nfc_ctx.frame_buf[1] - NFC_ROUTE_MIN + 1);
+            }
+
+            nfc_ctx.parse_state = NFC_PARSE_WAIT_HEAD;
+            break;
+        }
+
+        default:
+        {
+            nfc_ctx.parse_state = NFC_PARSE_WAIT_HEAD;
+            break;
+        }
+    }
 }
 
 /* ---- Debounce & card-absent logic (called from main loop) ---- */
@@ -90,18 +152,19 @@ void Nfc_ResetCard(void)
     nfc_ctx.card_ready = 0;
 }
 
-void Nfc_Process(void)
+void Nfc_Process(uint32_t now_ms)
 {
-    /* If a valid card was parsed by ISR (card_id != 0) */
+    /* If a valid card frame was parsed by ISR (card_id != 0) */
     if (nfc_ctx.card_id != 0)
     {
-        nfc_ctx.frame_alive_counter = 0;
+        nfc_ctx.last_frame_ms = now_ms;
 
         /* Check if this is the same card as the debounce candidate */
         if (nfc_ctx.card_id == nfc_ctx.debounce_card_id &&
             CardNumbersEqual(nfc_ctx.card_number, nfc_ctx.debounce_card_number))
         {
-            nfc_ctx.debounce_count++;
+            if (nfc_ctx.debounce_count < NFC_DEBOUNCE_THRESHOLD)
+                nfc_ctx.debounce_count++;
         }
         else
         {
@@ -127,19 +190,12 @@ void Nfc_Process(void)
         /* Clear the parsed card_id so we only process each ISR parse once */
         nfc_ctx.card_id = 0;
     }
-    else
+    else if (nfc_ctx.debounce_card_id != 0 || nfc_ctx.reported_card_id != 0)
     {
-        /* No valid card frame this iteration */
-        nfc_ctx.frame_alive_counter++;
-
-        if (nfc_ctx.frame_alive_counter > NFC_CARD_ABSENT_TIMEOUT)
+        /* No frame for NFC_CARD_ABSENT_MS: card has left, reset all state */
+        if ((uint32_t)(now_ms - nfc_ctx.last_frame_ms) > NFC_CARD_ABSENT_MS)
         {
-            if (nfc_ctx.reported_card_id != 0)
-            {
-                /* Card has left: reset all state */
-                Nfc_ResetCard();
-            }
-            nfc_ctx.frame_alive_counter = NFC_CARD_ABSENT_TIMEOUT;
+            Nfc_ResetCard();
         }
     }
 }
