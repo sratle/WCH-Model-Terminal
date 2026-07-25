@@ -137,6 +137,14 @@ void Hardware_Heartbeat(void)
                                          hardware_g.hb_slots[i].type,
                                          hardware_g.hb_slots[i].subtype);
 
+                /* Submodel 失联：复位槽位类型，支持热插拔换插不同子模块 */
+                if (hardware_g.hb_slots[i].module_id >= MODULE_ID_SUBMODEL_1 &&
+                    hardware_g.hb_slots[i].module_id <= MODULE_ID_SUBMODEL_3)
+                {
+                    uint8_t idx = hardware_g.hb_slots[i].module_id - MODULE_ID_SUBMODEL_1;
+                    submodels_g[idx].type_id = MODULE_SUBTYPE_SUBMODEL_RESERVED;
+                }
+
                 /* Keyboard 失联时自动停止音乐并关闭效果器 */
                 if (hardware_g.hb_slots[i].module_id == MODULE_ID_KEYBOARD) {
                     if (Keyboard_Music_IsActive()) {

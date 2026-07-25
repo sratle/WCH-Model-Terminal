@@ -292,9 +292,14 @@ void Submodels_Process(submodels_t *submodel)
     {
         uint8_t module_id = MODULE_ID_SUBMODEL_1 + (submodel->submodels_id - 1);
 
-        /* type_id 未确定时，记录类型 */
-        if (submodel->type_id == MODULE_SUBTYPE_SUBMODEL_RESERVED)
+        /* 记录/刷新类型：支持同一槽位热插拔换插不同子模块 */
+        if (submodel->type_id != req->data[1])
+        {
+            if (submodel->type_id != MODULE_SUBTYPE_SUBMODEL_RESERVED)
+                printf("[SUB] Slot%d type changed: 0x%02X -> 0x%02X\r\n",
+                       submodel->submodels_id, submodel->type_id, req->data[1]);
             submodel->type_id = req->data[1];
+        }
 
         Hardware_Hb_MarkOnline(module_id, req->data[0], req->data[1]);
 
