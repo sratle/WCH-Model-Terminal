@@ -10,6 +10,14 @@
 
 #include "protocol.h"
 
+/* 协议毫秒 tick（主循环递增，ISR 只读），用于帧间超时判定 */
+static volatile uint32_t s_proto_tick = 0;
+
+void Protocol_TickInc(void)
+{
+    s_proto_tick++;
+}
+
 /*********************************************************************
  * @fn      Protocol_InitRxCtx
  *
@@ -26,12 +34,14 @@ void Protocol_InitRxCtx(protocol_rx_ctx_t *ctx)
 
     memset(ctx, 0, sizeof(protocol_rx_ctx_t));
     ctx->state = PROTO_STATE_WAIT_HEAD;
+    ctx->frame_consumed = 1;    /* 初始状态：允许接收第一帧 */
 }
 
 /*********************************************************************
  * @fn      Protocol_ResetRxCtx
  *
  * @brief   Reset receive context after a frame has been processed.
+ *          双缓冲语义：仅释放 read_frame，不打断 ISR 正在解析的帧。
  *
  * @param   ctx - pointer to receive context.
  *
@@ -42,10 +52,81 @@ void Protocol_ResetRxCtx(protocol_rx_ctx_t *ctx)
     if (ctx == NULL)
         return;
 
+    ctx->frame_ready = 0;
+    ctx->frame_consumed = 1;
+}
+
+/*********************************************************************
+ * @fn      Protocol_AbortRx
+ *
+ * @brief   Force the parser back to WAIT_HEAD, discarding any
+ *          half-received frame. Only call when the link is idle
+ *          or known to be stuck.
+ *
+ * @param   ctx - pointer to receive context.
+ *
+ * @return  none
+ *********************************************************************/
+void Protocol_AbortRx(protocol_rx_ctx_t *ctx)
+{
+    if (ctx == NULL)
+        return;
+
     ctx->state = PROTO_STATE_WAIT_HEAD;
     ctx->data_idx = 0;
-    ctx->frame_ready = 0;
-    memset(&ctx->frame, 0, sizeof(protocol_frame_t));
+}
+
+/*********************************************************************
+ * @fn      Protocol_RxCheckTimeout
+ *
+ * @brief   Inter-byte timeout watchdog: if the parser sits in a
+ *          mid-frame state with no new byte for timeout_ms ticks,
+ *          abort the half frame so the next real frame can sync.
+ *
+ * @param   ctx        - pointer to receive context.
+ * @param   timeout_ms - timeout threshold in protocol ticks (~ms).
+ *
+ * @return  none
+ *********************************************************************/
+void Protocol_RxCheckTimeout(protocol_rx_ctx_t *ctx, uint32_t timeout_ms)
+{
+    if (ctx == NULL)
+        return;
+
+    if (ctx->state == PROTO_STATE_WAIT_HEAD ||
+        ctx->state == PROTO_STATE_FRAME_READY)
+        return;
+
+    if ((uint32_t)(s_proto_tick - ctx->last_rx_tick) >= timeout_ms)
+    {
+        ctx->err_timeout++;
+        Protocol_AbortRx(ctx);
+    }
+}
+
+/*********************************************************************
+ * @fn      commit_frame
+ *
+ * @brief   Frame complete: publish to read_frame if the consumer has
+ *          finished with the previous one, otherwise drop the new
+ *          frame (keep-oldest policy, heartbeat ACK arrives first).
+ *
+ * @param   ctx - pointer to receive context.
+ *
+ * @return  none
+ *********************************************************************/
+static void commit_frame(protocol_rx_ctx_t *ctx)
+{
+    if (ctx->frame_consumed)
+    {
+        memcpy(&ctx->read_frame, &ctx->frame, sizeof(protocol_frame_t));
+        ctx->frame_consumed = 0;
+        ctx->frame_ready = 1;
+    }
+    else
+    {
+        ctx->err_frame_ready++;
+    }
 }
 
 /*********************************************************************
@@ -199,6 +280,8 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
     if (ctx == NULL)
         return 0;
 
+    ctx->last_rx_tick = s_proto_tick;
+
     switch (ctx->state)
     {
         case PROTO_STATE_WAIT_HEAD:
@@ -338,12 +421,12 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
         {
             if (byte == PROTO_FRAME_TAIL3)
             {
-                ctx->frame_ready = 1;
                 /* Clamp reported length so consumers never read past the
                  * PROTO_MAX_DATA_LEN-sized frame.data[] buffer on overflow. */
                 ctx->frame.len = (uint16_t)((ctx->data_idx > PROTO_MAX_DATA_LEN
                                                  ? PROTO_MAX_DATA_LEN
                                                  : ctx->data_idx) + 1);
+                commit_frame(ctx);
                 ctx->state = PROTO_STATE_FRAME_READY;
                 return 1;
             }
@@ -408,7 +491,7 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
         {
             if (byte == PROTO_FRAME_TAIL3)
             {
-                ctx->frame_ready = 1;
+                commit_frame(ctx);
                 ctx->state = PROTO_STATE_FRAME_READY;
                 return 1;
             }
@@ -421,12 +504,11 @@ uint8_t Protocol_ParseByte(protocol_rx_ctx_t *ctx, uint8_t byte)
 
         case PROTO_STATE_FRAME_READY:
         {
+            /* 双缓冲：read_frame 已独立保存，收到新帧头即可继续解析，
+             * 不再顶掉未消费的旧帧 */
             if (byte == PROTO_FRAME_HEAD)
             {
-                ctx->err_frame_ready++;
-                ctx->frame_ready = 0;
                 ctx->data_idx = 0;
-                memset(&ctx->frame, 0, sizeof(protocol_frame_t));
                 ctx->frame.head = byte;
                 ctx->state = PROTO_STATE_WAIT_SRC;
             }

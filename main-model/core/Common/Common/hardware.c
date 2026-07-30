@@ -74,6 +74,21 @@ static void hb_init_slots(void)
     hardware_g.hb_tick = 0;
 }
 
+/* 向指定槽位发送原始字节流 */
+static void hb_send_raw(uint8_t slot_idx, const uint8_t *data, uint16_t len)
+{
+    switch (slot_idx)
+    {
+        case 0: Display_Send_Data(&display_g, data, len); break;
+        case 1: Keyboard_Send_Data(&keyboard_g, (uint8_t *)data, len); break;
+        case 2: Power_Send_Data(&power_g, (uint8_t *)data, len); break;
+        case 3: Submodels_Send_Data(&submodels_g[0], (uint8_t *)data, len); break;
+        case 4: Submodels_Send_Data(&submodels_g[1], (uint8_t *)data, len); break;
+        case 5: Submodels_Send_Data(&submodels_g[2], (uint8_t *)data, len); break;
+        default: break;
+    }
+}
+
 /* 向指定槽位发送 CMD_GET_TYPE */
 static void hb_send_get_type(uint8_t slot_idx)
 {
@@ -86,17 +101,18 @@ static void hb_send_get_type(uint8_t slot_idx)
     if (len == 0)
         return;
 
-    switch (slot_idx)
-    {
-        case 0: Display_Send_Data(&display_g, buf, len); break;
-        case 1: Keyboard_Send_Data(&keyboard_g, buf, len); break;
-        case 2: Power_Send_Data(&power_g, buf, len); break;
-        case 3: Submodels_Send_Data(&submodels_g[0], buf, len); break;
-        case 4: Submodels_Send_Data(&submodels_g[1], buf, len); break;
-        case 5: Submodels_Send_Data(&submodels_g[2], buf, len); break;
-        default: break;
-    }
+    hb_send_raw(slot_idx, buf, len);
 }
+
+/* 解析器反卡死填充：0x00 既不是帧头也不匹配帧尾序列，模块侧解析器无论因
+ * 插拔噪声卡在何种半帧状态（最坏 LEN=255 等待 254 字节数据 + 4 字节帧尾），
+ * 消费完 258 字节后必然回到 WAIT_HEAD，下一帧 GET_TYPE 即可正常同步。
+ * 仅对非在线槽位发送（每轮心跳轮转一个槽），在线链路零开销。 */
+#define HB_FLUSH_PAD_LEN    258
+static const uint8_t hb_flush_pad[HB_FLUSH_PAD_LEN] = {0};
+
+/* Core 侧接收状态机帧间超时阈值（ms）：热插拔噪声伪造 LEN 后自恢复 */
+#define HB_RX_TIMEOUT_MS    100
 
 /*********************************************************************
  * @fn      Hardware_Heartbeat
@@ -109,6 +125,18 @@ static void hb_send_get_type(uint8_t slot_idx)
 void Hardware_Heartbeat(void)
 {
     uint8_t i;
+    static uint8_t hb_flush_rr = 0;
+
+    /* 协议 tick 递增与接收状态机帧间超时巡检（每 ~1ms 一次）：
+     * 热插拔噪声可能伪造帧头+大 LEN 使解析器长时间吞字节，
+     * 空闲超时后强制复位，保证下一帧心跳能重新同步 */
+    Protocol_TickInc();
+    Protocol_RxCheckTimeout(&display_g.rx_ctx, HB_RX_TIMEOUT_MS);
+    Protocol_RxCheckTimeout(&keyboard_g.rx_ctx, HB_RX_TIMEOUT_MS);
+    Protocol_RxCheckTimeout(&power_g.rx_ctx, HB_RX_TIMEOUT_MS);
+    Protocol_RxCheckTimeout(&submodels_g[0].rx_ctx, HB_RX_TIMEOUT_MS);
+    Protocol_RxCheckTimeout(&submodels_g[1].rx_ctx, HB_RX_TIMEOUT_MS);
+    Protocol_RxCheckTimeout(&submodels_g[2].rx_ctx, HB_RX_TIMEOUT_MS);
 
     hardware_g.hb_tick++;
 
@@ -131,7 +159,7 @@ void Hardware_Heartbeat(void)
                 hardware_g.hb_slots[i].status = HB_STATUS_OFFLINE;
                 printf("[HB] %s OFFLINE\r\n", hb_slot_names[i]);
 
-                /* 主动推送模块离线事件给 Display */
+                /* 主动推送模块离线事件给 Display（携带旧类型信息） */
                 Display_SendModuleStatus(&display_g, MODULE_EVT_REMOVED,
                                          hardware_g.hb_slots[i].module_id,
                                          hardware_g.hb_slots[i].type,
@@ -145,14 +173,27 @@ void Hardware_Heartbeat(void)
                     submodels_g[idx].type_id = MODULE_SUBTYPE_SUBMODEL_RESERVED;
                 }
 
+                /* Display 失联：复位识别标志，重插上线后重新下发配置 */
+                if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY)
+                    display_g.type_received = 0;
+
+                /* Power 失联：复位状态缓存，重插后重新推送电量 */
+                if (hardware_g.hb_slots[i].module_id == MODULE_ID_POWER)
+                    power_g.has_status = 0;
+
                 /* Keyboard 失联时自动停止音乐并关闭效果器 */
                 if (hardware_g.hb_slots[i].module_id == MODULE_ID_KEYBOARD) {
+                    keyboard_g.type_id = MODULE_SUBTYPE_KEYBOARD_RESERVED;
                     if (Keyboard_Music_IsActive()) {
                         Audio_PlayStop();
                         Audio_FX_MasterEnable(0);
                         printf("[HB] Music stopped & FX off (Keyboard disconnected)\r\n");
                     }
                 }
+
+                /* 槽位标记为空：清除残留类型，避免设备列表/副屏显示旧模块 */
+                hardware_g.hb_slots[i].type    = MODULE_TYPE_RESERVED;
+                hardware_g.hb_slots[i].subtype = 0;
             }
         }
 
@@ -163,6 +204,12 @@ void Hardware_Heartbeat(void)
         if (hardware_g.hb_slots[i].miss_count == 0)
             hardware_g.hb_slots[i].miss_count = 1;
     }
+
+    /* 对一个非在线槽位追加解析器反卡死填充（每轮心跳轮转一个槽，
+     * 避免单轮阻塞过久），下一轮 GET_TYPE 即可命中已同步的解析器 */
+    hb_flush_rr = (uint8_t)((hb_flush_rr + 1) % HB_MAX_SLOTS);
+    if (hardware_g.hb_slots[hb_flush_rr].status != HB_STATUS_ONLINE)
+        hb_send_raw(hb_flush_rr, hb_flush_pad, HB_FLUSH_PAD_LEN);
 
     /* 检查是否有 pending 的 RGB 配置需要发送给已在线的 RGB 子模块 */
     if (hardware_g.config_applied)

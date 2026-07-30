@@ -41,11 +41,11 @@ void ui_home_init(void)
     int16_t cx = SIDEBAR_WIDTH + 20;
 
     ui_rect_t date_rect = {cx, 20, 200, 24};
-    ui_label_init(&lbl_date, &date_rect, "2025/04/19", &font_montserrat_12);
+    ui_label_init(&lbl_date, &date_rect, "2025/04/19", &font_montserrat_16);
     ui_label_set_color(&lbl_date, UI_COLOR_TEXT_SECONDARY);
 
     ui_rect_t time_rect = {cx, 48, 300, 36};
-    ui_label_init(&lbl_time, &time_rect, "14:30:00", &font_montserrat_16);
+    ui_label_init(&lbl_time, &time_rect, "14:30:00", &font_montserrat_24);
     ui_label_set_color(&lbl_time, UI_COLOR_PRIMARY);
 
     int16_t card_w = 130;
@@ -76,22 +76,22 @@ void ui_home_init(void)
     ui_rect_t name_rect = {0, 0, card_w - 30, 20};
     name_rect.x = cx + 10;
     name_rect.y = card_y + 10;
-    ui_label_init(&lbl_core_name, &name_rect, "MCU", &font_montserrat_12);
+    ui_label_init(&lbl_core_name, &name_rect, "MCU", &font_montserrat_16);
     lbl_core_name.base.bg_color = UI_COLOR_TRANSPARENT;
     ui_label_set_color(&lbl_core_name, UI_COLOR_TEXT_PRIMARY);
 
     name_rect.x = cx + card_w + card_gap + 10;
-    ui_label_init(&lbl_bt_name, &name_rect, "BT", &font_montserrat_12);
+    ui_label_init(&lbl_bt_name, &name_rect, "BT", &font_montserrat_16);
     lbl_bt_name.base.bg_color = UI_COLOR_TRANSPARENT;
     ui_label_set_color(&lbl_bt_name, UI_COLOR_TEXT_PRIMARY);
 
     name_rect.x = cx + 2 * (card_w + card_gap) + 10;
-    ui_label_init(&lbl_wifi_name, &name_rect, "WiFi", &font_montserrat_12);
+    ui_label_init(&lbl_wifi_name, &name_rect, "WiFi", &font_montserrat_16);
     lbl_wifi_name.base.bg_color = UI_COLOR_TRANSPARENT;
     ui_label_set_color(&lbl_wifi_name, UI_COLOR_TEXT_PRIMARY);
 
     name_rect.x = cx + 3 * (card_w + card_gap) + 10;
-    ui_label_init(&lbl_touch_name, &name_rect, "Touch", &font_montserrat_12);
+    ui_label_init(&lbl_touch_name, &name_rect, "Touch", &font_montserrat_16);
     lbl_touch_name.base.bg_color = UI_COLOR_TRANSPARENT;
     ui_label_set_color(&lbl_touch_name, UI_COLOR_TEXT_PRIMARY);
 

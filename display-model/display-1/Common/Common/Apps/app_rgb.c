@@ -420,11 +420,11 @@ static void rgb_page_draw(ui_page_t *page, ui_rect_t *dirty)
     if (dirty_left < RGB_LEFT_W && dirty_bot > APP_TITLE_BAR_H) {
         /* Section labels */
         if (dirty_top < RGB_MODE_Y + 10) {
-            ui_draw_text(12, RGB_MODE_Y - 2, "Mode", &font_montserrat_12, RGB_TEXT_DIM);
+            ui_draw_text(12, RGB_MODE_Y - 2, "Mode", &font_montserrat_16, RGB_TEXT_DIM);
         }
 
         if (dirty_top < RGB_PREVIEW_Y + 20) {
-            ui_draw_text(12, RGB_PREVIEW_Y - 14, "Color Preview", &font_montserrat_12, RGB_TEXT_DIM);
+            ui_draw_text(12, RGB_PREVIEW_Y - 14, "Color Preview", &font_montserrat_16, RGB_TEXT_DIM);
         }
 
         /* Color preview square */
@@ -438,14 +438,14 @@ static void rgb_page_draw(ui_page_t *page, ui_rect_t *dirty)
             char rgb_text[32];
             snprintf(rgb_text, sizeof(rgb_text), "R:%d  G:%d  B:%d", s_r, s_g, s_b);
             ui_draw_text(RGB_PREVIEW_X, RGB_PREVIEW_Y + RGB_PREVIEW_SIZE + 6,
-                         rgb_text, &font_montserrat_12, RGB_TEXT);
+                         rgb_text, &font_montserrat_16, RGB_TEXT);
         }
 
         /* Slider labels */
         if (dirty_top < RGB_B_Y + RGB_SLIDER_H + 20) {
-            ui_draw_text(RGB_LABEL_X, RGB_R_Y + 2, "R", &font_montserrat_12, UI_HEX(0xFF6666));
-            ui_draw_text(RGB_LABEL_X, RGB_G_Y + 2, "G", &font_montserrat_12, UI_HEX(0x66FF66));
-            ui_draw_text(RGB_LABEL_X, RGB_B_Y + 2, "B", &font_montserrat_12, UI_HEX(0x6666FF));
+            ui_draw_text(RGB_LABEL_X, RGB_R_Y + 2, "R", &font_montserrat_16, UI_HEX(0xFF6666));
+            ui_draw_text(RGB_LABEL_X, RGB_G_Y + 2, "G", &font_montserrat_16, UI_HEX(0x66FF66));
+            ui_draw_text(RGB_LABEL_X, RGB_B_Y + 2, "B", &font_montserrat_16, UI_HEX(0x6666FF));
         }
 
         /* Mode button active highlights */
@@ -464,15 +464,15 @@ static void rgb_page_draw(ui_page_t *page, ui_rect_t *dirty)
         /* Section labels */
         if (dirty_top < RGB_BRIGHT_Y + 20) {
             ui_draw_text(RGB_RIGHT_X + 12, RGB_BRIGHT_Y - 2, "Brightness",
-                         &font_montserrat_12, RGB_TEXT_DIM);
+                         &font_montserrat_16, RGB_TEXT_DIM);
         }
         if (dirty_top < RGB_SPEED_Y + 20) {
             ui_draw_text(RGB_RIGHT_X + 12, RGB_SPEED_Y - 14, "Speed",
-                         &font_montserrat_12, RGB_TEXT_DIM);
+                         &font_montserrat_16, RGB_TEXT_DIM);
         }
         if (dirty_top < RGB_PRESET_Y + 10) {
             ui_draw_text(RGB_RIGHT_X + 12, RGB_PRESET_Y - 14, "Quick Colors",
-                         &font_montserrat_12, RGB_TEXT_DIM);
+                         &font_montserrat_16, RGB_TEXT_DIM);
         }
 
         /* Preset color swatch borders */
@@ -484,9 +484,9 @@ static void rgb_page_draw(ui_page_t *page, ui_rect_t *dirty)
         }
 
         /* Info text area */
-        if (dirty_top < RGB_INFO_Y + 80 && dirty_bot > RGB_INFO_Y) {
+        if (dirty_top < RGB_INFO_Y + 104 && dirty_bot > RGB_INFO_Y) {
             ui_rect_t info_bg = {RGB_RIGHT_X + 8, RGB_INFO_Y,
-                                 UI_SCREEN_WIDTH - RGB_RIGHT_X - 16, 72};
+                                 UI_SCREEN_WIDTH - RGB_RIGHT_X - 16, 96};
             ui_draw_fill_rect(&info_bg, RGB_PANEL_BG);
             ui_draw_rect_border(&info_bg, RGB_BORDER, 1);
 
@@ -494,8 +494,8 @@ static void rgb_page_draw(ui_page_t *page, ui_rect_t *dirty)
             if (s_info[0] != '\0') {
                 int16_t ty = RGB_INFO_Y + 6;
                 const char *p = s_info;
-                int max_chars = (UI_SCREEN_WIDTH - RGB_RIGHT_X - 32) / 8;
-                while (*p && ty < RGB_INFO_Y + 66) {
+                int max_chars = (UI_SCREEN_WIDTH - RGB_RIGHT_X - 32) / 9;
+                while (*p && ty < RGB_INFO_Y + 86) {
                     char line[64];
                     int llen = 0;
                     while (*p && llen < max_chars && *p != '\n') {
@@ -503,12 +503,12 @@ static void rgb_page_draw(ui_page_t *page, ui_rect_t *dirty)
                     }
                     if (*p == '\n') p++;
                     line[llen] = '\0';
-                    ui_draw_text(RGB_RIGHT_X + 14, ty, line, &font_montserrat_12, RGB_TEXT_DIM);
-                    ty += 14;
+                    ui_draw_text(RGB_RIGHT_X + 14, ty, line, &font_montserrat_16, RGB_TEXT_DIM);
+                    ty += 20;
                 }
             } else {
                 ui_draw_text(RGB_RIGHT_X + 14, RGB_INFO_Y + 6,
-                             "Press Status to query", &font_montserrat_12, RGB_TEXT_DIM);
+                             "Press Status to query", &font_montserrat_16, RGB_TEXT_DIM);
             }
         }
     }
@@ -517,7 +517,7 @@ static void rgb_page_draw(ui_page_t *page, ui_rect_t *dirty)
     if (dirty_bot > RGB_STATUS_Y) {
         ui_rect_t status_bg = {0, RGB_STATUS_Y, UI_SCREEN_WIDTH, RGB_STATUS_H};
         ui_draw_fill_rect(&status_bg, RGB_STATUS_BG);
-        ui_draw_text(12, RGB_STATUS_Y + 8, s_status, &font_montserrat_12, RGB_STATUS_TEXT);
+        ui_draw_text(12, RGB_STATUS_Y + 8, s_status, &font_montserrat_16, RGB_STATUS_TEXT);
     }
 }
 
@@ -552,7 +552,7 @@ void app_rgb_init(void)
             ui_rect_t r = {mx + col * (RGB_MODE_BTN_W + RGB_MODE_GAP),
                            RGB_MODE_Y + row * (RGB_MODE_BTN_H + RGB_MODE_GAP),
                            RGB_MODE_BTN_W, RGB_MODE_BTN_H};
-            ui_button_init(&btn_mode[i], &r, s_mode_names[i], &font_montserrat_12);
+            ui_button_init(&btn_mode[i], &r, s_mode_names[i], &font_montserrat_16);
             ui_button_set_callback(&btn_mode[i], mode_btn_click);
             ui_button_set_colors(&btn_mode[i], RGB_BTN_BG, RGB_BTN_ACTIVE, RGB_TEXT);
             btn_mode[i].radius = 8;
@@ -599,7 +599,7 @@ void app_rgb_init(void)
     {
         int16_t bx = RGB_RIGHT_X + 12;
         ui_rect_t r1 = {bx, RGB_ACT_Y, RGB_ACT_BTN_W, RGB_ACT_BTN_H};
-        ui_button_init(&btn_apply, &r1, "Apply", &font_montserrat_12);
+        ui_button_init(&btn_apply, &r1, "Apply", &font_montserrat_16);
         ui_button_set_callback(&btn_apply, btn_apply_click);
         ui_button_set_colors(&btn_apply, RGB_ACCENT, UI_HEX(0x5BA8A8), UI_COLOR_WHITE);
         btn_apply.radius = 8;
@@ -607,7 +607,7 @@ void app_rgb_init(void)
 
         bx += RGB_ACT_BTN_W + RGB_ACT_GAP;
         ui_rect_t r2 = {bx, RGB_ACT_Y, RGB_ACT_BTN_W, RGB_ACT_BTN_H};
-        ui_button_init(&btn_custom, &r2, "Load Custom", &font_montserrat_12);
+        ui_button_init(&btn_custom, &r2, "Load Custom", &font_montserrat_16);
         ui_button_set_callback(&btn_custom, btn_custom_click);
         ui_button_set_colors(&btn_custom, RGB_BTN_BG, RGB_BTN_ACTIVE, RGB_TEXT);
         btn_custom.radius = 8;
@@ -615,7 +615,7 @@ void app_rgb_init(void)
 
         bx += RGB_ACT_BTN_W + RGB_ACT_GAP;
         ui_rect_t r3 = {bx, RGB_ACT_Y, RGB_ACT_BTN_W, RGB_ACT_BTN_H};
-        ui_button_init(&btn_status, &r3, "Status", &font_montserrat_12);
+        ui_button_init(&btn_status, &r3, "Status", &font_montserrat_16);
         ui_button_set_callback(&btn_status, btn_status_click);
         ui_button_set_colors(&btn_status, RGB_BTN_BG, RGB_BTN_ACTIVE, RGB_TEXT);
         btn_status.radius = 8;

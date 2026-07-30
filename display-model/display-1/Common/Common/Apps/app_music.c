@@ -38,7 +38,7 @@
 
 /* Track info */
 #define INFO_Y              (DISC_Y + DISC_SIZE + 12)
-#define INFO_H              44
+#define INFO_H              52
 
 /* Progress bar */
 #define PROG_Y              (INFO_Y + INFO_H + 8)
@@ -411,24 +411,24 @@ static void music_draw_disc(void)
     ui_draw_fill_circle(cx, cy, r_outer - 25, MUSIC_DISC_INNER);
     ui_draw_fill_circle(cx, cy, 18, MUSIC_DISC_CENTER);
     ui_draw_circle_border(cx, cy, r_outer - 5, MUSIC_ACCENT, 1);
-    ui_draw_text(cx - 6, cy - 8, "*", &font_montserrat_16, MUSIC_ACCENT);
+    ui_draw_text(cx - 6, cy - 8, "*", &font_montserrat_24, MUSIC_ACCENT);
 }
 
 static void music_draw_info(void)
 {
-    ui_rect_t info_rect = {20, INFO_Y, LEFT_W - 40, INFO_H};
-    ui_draw_text_in_rect(&info_rect, s_track_name, &font_montserrat_16, MUSIC_TEXT, 0x11);
-    ui_rect_t status_rect = {20, INFO_Y + 24, LEFT_W - 40, 20};
-    ui_draw_text_in_rect(&status_rect, s_status_text, &font_montserrat_12, MUSIC_TEXT_DIM, 0x11);
+    ui_rect_t info_rect = {20, INFO_Y, LEFT_W - 40, 28};
+    ui_draw_text_in_rect(&info_rect, s_track_name, &font_montserrat_24, MUSIC_TEXT, 0x11);
+    ui_rect_t status_rect = {20, INFO_Y + 30, LEFT_W - 40, 20};
+    ui_draw_text_in_rect(&status_rect, s_status_text, &font_montserrat_16, MUSIC_TEXT_DIM, 0x11);
 }
 
 static void music_draw_progress(void)
 {
     /* 进度条本体由 s_progress 滑条控件绘制；此处仅画两侧时间文本。
      * 拖动时 s_time_pos 显示拖动目标预览（由 progress_on_change 写入）。 */
-    ui_draw_text(PROG_X, TIME_Y, s_time_pos, &font_montserrat_12, MUSIC_TEXT_DIM);
-    int16_t dw = ui_text_width(s_time_dur, &font_montserrat_12);
-    ui_draw_text(PROG_X + PROG_W - dw, TIME_Y, s_time_dur, &font_montserrat_12, MUSIC_TEXT_DIM);
+    ui_draw_text(PROG_X, TIME_Y, s_time_pos, &font_montserrat_16, MUSIC_TEXT_DIM);
+    int16_t dw = ui_text_width(s_time_dur, &font_montserrat_16);
+    ui_draw_text(PROG_X + PROG_W - dw, TIME_Y, s_time_dur, &font_montserrat_16, MUSIC_TEXT_DIM);
 }
 
 static void music_draw_volume(void)
@@ -442,13 +442,13 @@ static void music_draw_volume(void)
         ui_draw_fill_round_rect(&vf, 4, MUSIC_VOL_FILL);
     }
 
-    ui_draw_text(VOL_X - 36, VOL_Y + 4, "Vol", &font_montserrat_12, MUSIC_TEXT_DIM);
-    ui_draw_text(VOL_X + VOL_W + 6, VOL_Y + 4, s_vol_text, &font_montserrat_12, MUSIC_TEXT_DIM);
+    ui_draw_text(VOL_X - 36, VOL_Y + 4, "Vol", &font_montserrat_16, MUSIC_TEXT_DIM);
+    ui_draw_text(VOL_X + VOL_W + 6, VOL_Y + 4, s_vol_text, &font_montserrat_16, MUSIC_TEXT_DIM);
 }
 
 static void music_draw_speaker_row(void)
 {
-    ui_draw_text(SPK_BTN_X - 36, SPK_Y + 10, "Out", &font_montserrat_12, MUSIC_TEXT_DIM);
+    ui_draw_text(SPK_BTN_X - 36, SPK_Y + 10, "Out", &font_montserrat_16, MUSIC_TEXT_DIM);
 }
 
 static void music_draw_playlist(void)
@@ -465,7 +465,7 @@ static void music_draw_playlist(void)
     /* Header */
     char hdr[24];
     snprintf(hdr, sizeof(hdr), "Playlist (%d)", s_playlist.count);
-    ui_draw_text(PL_X + 10, PL_Y + 6, hdr, &font_montserrat_12, MUSIC_TEXT_DIM);
+    ui_draw_text(PL_X + 10, PL_Y + 6, hdr, &font_montserrat_16, MUSIC_TEXT_DIM);
     ui_draw_hline(PL_X, PL_Y + PL_HEADER_H, PL_W, MUSIC_PL_BORDER);
 
     /* Items — pixel-level smooth scroll, clipped to the items viewport */
@@ -483,12 +483,12 @@ static void music_draw_playlist(void)
         if (idx == s_playlist.current) {
             ui_draw_fill_round_rect(&item_rect, 4, MUSIC_PL_SEL);
             /* Playing indicator */
-            ui_draw_text(PL_X + 10, iy + 8, ">", &font_montserrat_12, MUSIC_PL_CUR);
+            ui_draw_text(PL_X + 10, iy + 8, ">", &font_montserrat_16, MUSIC_PL_CUR);
             ui_draw_text(PL_X + 24, iy + 8, s_playlist.names[idx],
-                         &font_montserrat_12, MUSIC_PL_CUR);
+                         &font_montserrat_16, MUSIC_PL_CUR);
         } else {
             ui_draw_text(PL_X + 24, iy + 8, s_playlist.names[idx],
-                         &font_montserrat_12, MUSIC_TEXT_DIM);
+                         &font_montserrat_16, MUSIC_TEXT_DIM);
         }
 
         /* Separator line */
@@ -813,49 +813,49 @@ void app_music_init(void)
     int16_t bx = CTRL_X;
 
     ui_rect_t r_mode = {bx, CTRL_Y, CTRL_BTN_W, CTRL_BTN_H};
-    ui_button_init(&btn_mode, &r_mode, "1", &font_montserrat_12);
+    ui_button_init(&btn_mode, &r_mode, "1", &font_montserrat_16);
     ui_button_set_callback(&btn_mode, btn_mode_click);
     ui_button_set_colors(&btn_mode, MUSIC_CTRL_BG, MUSIC_ACCENT, MUSIC_TEXT);
     btn_mode.radius = 12;
 
     bx += CTRL_BTN_W + CTRL_GAP;
     ui_rect_t r_prev = {bx, CTRL_Y, CTRL_BTN_W, CTRL_BTN_H};
-    ui_button_init(&btn_prev, &r_prev, "<<", &font_montserrat_16);
+    ui_button_init(&btn_prev, &r_prev, "<<", &font_montserrat_24);
     ui_button_set_callback(&btn_prev, btn_prev_click);
     ui_button_set_colors(&btn_prev, MUSIC_CTRL_BG, MUSIC_ACCENT, MUSIC_TEXT);
     btn_prev.radius = 12;
 
     bx += CTRL_BTN_W + CTRL_GAP;
     ui_rect_t r_play = {bx, CTRL_Y, CTRL_BTN_W, CTRL_BTN_H};
-    ui_button_init(&btn_play, &r_play, ">", &font_montserrat_16);
+    ui_button_init(&btn_play, &r_play, ">", &font_montserrat_24);
     ui_button_set_callback(&btn_play, btn_play_click);
     ui_button_set_colors(&btn_play, MUSIC_ACCENT, UI_COLOR_SECONDARY, MUSIC_BG);
     btn_play.radius = 24;
 
     bx += CTRL_BTN_W + CTRL_GAP;
     ui_rect_t r_next = {bx, CTRL_Y, CTRL_BTN_W, CTRL_BTN_H};
-    ui_button_init(&btn_next, &r_next, ">>", &font_montserrat_16);
+    ui_button_init(&btn_next, &r_next, ">>", &font_montserrat_24);
     ui_button_set_callback(&btn_next, btn_next_click);
     ui_button_set_colors(&btn_next, MUSIC_CTRL_BG, MUSIC_ACCENT, MUSIC_TEXT);
     btn_next.radius = 12;
 
     bx += CTRL_BTN_W + CTRL_GAP;
     ui_rect_t r_stop = {bx, CTRL_Y, CTRL_BTN_W, CTRL_BTN_H};
-    ui_button_init(&btn_stop, &r_stop, "Stop", &font_montserrat_12);
+    ui_button_init(&btn_stop, &r_stop, "Stop", &font_montserrat_16);
     ui_button_set_callback(&btn_stop, btn_stop_click);
     ui_button_set_colors(&btn_stop, MUSIC_CTRL_BG, MUSIC_ACCENT, MUSIC_TEXT);
     btn_stop.radius = 12;
 
     /* Speaker toggle button */
     ui_rect_t r_speaker = {SPK_BTN_X, SPK_Y, SPK_BTN_W, SPK_BTN_H};
-    ui_button_init(&btn_speaker, &r_speaker, "Spk OFF", &font_montserrat_12);
+    ui_button_init(&btn_speaker, &r_speaker, "Spk OFF", &font_montserrat_16);
     ui_button_set_callback(&btn_speaker, btn_speaker_click);
     ui_button_set_colors(&btn_speaker, MUSIC_CTRL_BG, MUSIC_ACCENT, MUSIC_TEXT);
     btn_speaker.radius = 12;
 
     /* Refresh button */
     ui_rect_t r_refresh = {SPK_BTN_X + SPK_BTN_W + SPK_BTN_GAP, SPK_Y, SPK_BTN_W, SPK_BTN_H};
-    ui_button_init(&btn_refresh, &r_refresh, "Refresh", &font_montserrat_12);
+    ui_button_init(&btn_refresh, &r_refresh, "Refresh", &font_montserrat_16);
     ui_button_set_callback(&btn_refresh, btn_refresh_click);
     ui_button_set_colors(&btn_refresh, MUSIC_CTRL_BG, MUSIC_ACCENT, MUSIC_TEXT);
     btn_refresh.radius = 12;

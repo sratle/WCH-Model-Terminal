@@ -39,11 +39,11 @@ typedef struct {
 } game_entry_t;
 
 static const game_entry_t s_games[GAME_TOTAL] = {
-    {"Tetris",     icon_shuffle_16_bitmap,  ICON_SHUFFLE_16_WIDTH,  ICON_SHUFFLE_16_HEIGHT,  game_tetris_get_page},
-    {"2048",       icon_copy_16_bitmap,     ICON_COPY_16_WIDTH,     ICON_COPY_16_HEIGHT,     game_2048_get_page},
-    {"Snake",      icon_loop_16_bitmap,     ICON_LOOP_16_WIDTH,     ICON_LOOP_16_HEIGHT,     game_snake_get_page},
-    {"Airplane",   icon_up_16_bitmap,       ICON_UP_16_WIDTH,       ICON_UP_16_HEIGHT,       game_airplane_get_page},
-    {"MineSweeper",icon_warning_16_bitmap,  ICON_WARNING_16_WIDTH,  ICON_WARNING_16_HEIGHT,  game_minesweeper_get_page},
+    {"Tetris",     icon_shuffle_24_bitmap,  ICON_SHUFFLE_24_WIDTH,  ICON_SHUFFLE_24_HEIGHT,  game_tetris_get_page},
+    {"2048",       icon_copy_24_bitmap,     ICON_COPY_24_WIDTH,     ICON_COPY_24_HEIGHT,     game_2048_get_page},
+    {"Snake",      icon_loop_24_bitmap,     ICON_LOOP_24_WIDTH,     ICON_LOOP_24_HEIGHT,     game_snake_get_page},
+    {"Airplane",   icon_up_24_bitmap,       ICON_UP_24_WIDTH,       ICON_UP_24_HEIGHT,       game_airplane_get_page},
+    {"MineSweeper",icon_warning_24_bitmap,  ICON_WARNING_24_WIDTH,  ICON_WARNING_24_HEIGHT,  game_minesweeper_get_page},
 };
 
 /*=============================================================================
@@ -170,7 +170,7 @@ void ui_games_init(void)
     int16_t cx = SIDEBAR_WIDTH + 30;
 
     ui_rect_t title_rect = {cx - 10, 20, 300, 30};
-    ui_label_init(&lbl_title, &title_rect, "Games", &font_montserrat_16);
+    ui_label_init(&lbl_title, &title_rect, "Games", &font_montserrat_24);
     ui_label_set_color(&lbl_title, UI_COLOR_TEXT_PRIMARY);
 
     s_games_widgets[0] = (ui_widget_t *)&lbl_title;
@@ -191,7 +191,7 @@ void ui_games_init(void)
 
         ui_icon_button_init(&btn_games[i], &btn_rect,
                             s_games[i].icon, s_games[i].icon_w, s_games[i].icon_h,
-                            s_games[i].name, &font_montserrat_12);
+                            s_games[i].name, &font_montserrat_16);
         ui_icon_button_set_callback(&btn_games[i], game_button_click);
         btn_games[i].base.user_data = (void *)(intptr_t)i;
 

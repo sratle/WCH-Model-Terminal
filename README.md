@@ -12,7 +12,7 @@
 - **RISC-V生态**: 基于CH32V307/H417/V103系列MCU
 - **多屏支持**: TFT液晶屏（800×480）、墨水屏可选
 - **多样键盘**: 小配列、手柄布局、电子琴布局
-- **丰富配件**: 指纹、旋钮、健康监测、NFC等扩展模块
+- **丰富配件**: 指纹、健康监测、NFC等扩展模块
 - **统一通信**: UART协议
 - **无线连接**: 板载蓝牙/WiFi（CH585F）
 - **长续航**: 可拆卸电池，支持PD快充与无线充电
@@ -35,11 +35,11 @@
 ### [main-model](main-model/) - 核心底板
 
 - **core**: CH32H417主控
-- **wireless**: CH585蓝牙
+- **wireless**: CH585F蓝牙
 
 ### [display-model](display-model/) - 显示模块
 
-- **display-1**: 7寸TFT屏（800×480，CH32H417 + LTDC）
+- **display-1**: 7寸TFT屏（800×480，CH32H417 + SSD1963）
 - **display-2**: 墨水屏（低功耗，SPI驱动）
 
 ### [keyboard-model](keyboard-model/) - 键盘模块
@@ -53,7 +53,7 @@
 - **submodel-1**: 指纹识别
 - **submodel-2**: 健康监测
 - **submodel-3**: NFC读卡
-- **submodel-4**: 触摸圆环/旋钮
+- **submodel-4**: 触摸圆环
 - **submodel-5**: RGB点阵
 - **submodel-6**: 激光测距
 - **submodel-7**: 副屏显示

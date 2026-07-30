@@ -370,7 +370,13 @@ void UART_Module_Init(void)
 void USART1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void USART1_IRQHandler(void)
 {
-    if (USART_GetITStatus(USART1, USART_IT_RXNE) == RESET) return;
+    if (USART_GetITStatus(USART1, USART_IT_RXNE) == RESET) {
+        /* 热插拔噪声防护：ORE 置位而 RXNE 已清时中断会反复触发，
+         * 读 STATR+DATAR 完成清除序列 */
+        if (USART_GetFlagStatus(USART1, USART_FLAG_ORE) != RESET)
+            (void)USART_ReceiveData(USART1);
+        return;
+    }
     uint8_t b = (uint8_t)USART_ReceiveData(USART1);
 
     switch (s_rx_state) {

@@ -909,7 +909,13 @@ Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | DATA[2] | 硬件版本号 | Display 硬件版本 |
 | DATA[3] | 固件主版本号 | Display 固件主版本 |
 | DATA[4] | 固件次版本号 | Display 固件次版本 |
-| DATA[5..N] | 扩展信息 | 分辨率、触摸支持等能力位（可选） |
+
+> **身份 ACK 指纹约束**：Core 按 `LEN == 6 且 DATA[0] == 0x01` 识别 GET_TYPE 身份 ACK。
+> 1. 身份 ACK 数据域**固定 5 字节**，不支持扩展字节（原"DATA[5..N] 扩展信息"已废弃）；
+> 2. 其他查询 ACK 数据域长度**不得为 5 字节**（如 GET_STATUS 为 3 字节，满足约束）。
+>
+> **重连行为**：Display 被心跳判定 OFFLINE 后重新上线（或同槽换插不同子类型屏）时，
+> Core 会重新执行 `Config_Apply()` 下发亮度/背光等配置，无需 Display 主动请求。
 
 **Display 子类型定义**
 
@@ -934,3 +940,4 @@ Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | V3.1 | 2026-05-23 | CWD 三方同步：新增扩展码 0x1B `CMD_DISP_EXT_CWD_NOTIFY`（Core→Display 推送路径变更）；Core `cd`/`device` 成功后输出 `[CWD] <path>` 标记行供 WCH Terminal App 同步；Display 侧 ls 输出头部路径解析；app_file 支持触摸滑动/鼠标滚轮/双击打开/设备切换 |
 | V3.2 | 2026-05-25 | CLI 多帧传输协议：CLI 响应帧新增 `DATA[1]=FLAGS` 字段（`CLI_FLAG_SOF=0x01`, `CLI_FLAG_EOF=0x02`），支持长输出分帧传输；Display 侧基于 SOF/EOF 标记累积多帧响应，仅在收到 EOF 后解析分发；up 按钮和刷新按钮不再受 loading 状态阻塞 |
 | V3.3 | 2026-07-21 | 输入链路完善：Display-2 完整支持 Core 转发的键鼠 HID 输入（共享光标/左右键/滚轮/键盘自动重复，Core 按键 ID 修正）；Core 将触摸圆环（Submodel-4）旋转映射为标准鼠标滚轮报告经 0x15 转发；Display-1 滚轮事件队列合并 + 应用层像素级平滑滚动 |
+| V3.4 | 2026-07-27 | 热插拔可靠性加固：身份 ACK 指纹约束（LEN 固定 6，废弃扩展字节）；Display OFFLINE 重连或换插不同子类型屏时 Core 自动重发 Config_Apply；Core/Display 侧 USART ISR 增加 ORE 清除 |

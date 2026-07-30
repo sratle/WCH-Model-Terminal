@@ -542,7 +542,7 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
         char hdr_text[40];
         snprintf(hdr_text, sizeof(hdr_text), "Fingerprints (%d)", s_fp_count);
         ui_draw_text(FP_LIST_X + 14, FP_LIST_Y + 9, hdr_text,
-                     &font_montserrat_12, FP_ACCENT);
+                     &font_montserrat_16, FP_ACCENT);
 
         /* Items */
         for (int16_t vis = 0; vis < FP_VISIBLE; vis++) {
@@ -565,11 +565,11 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
             ui_draw_fill_round_rect(
                 &(ui_rect_t){FP_LIST_X + 10, iy + 8, 44, 22}, 4, FP_BADGE_BG);
             ui_draw_text(FP_LIST_X + 16, iy + 12, id_text,
-                         &font_montserrat_12, FP_BADGE_TEXT);
+                         &font_montserrat_16, FP_BADGE_TEXT);
 
             /* Name */
             ui_draw_text(FP_LIST_X + 64, iy + 12, s_fp_list[idx].name,
-                         &font_montserrat_12, FP_TEXT);
+                         &font_montserrat_16, FP_TEXT);
 
             /* HW indicator */
             if (s_fp_list[idx].from_hw) {
@@ -577,7 +577,7 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
                     &(ui_rect_t){FP_LIST_X + FP_LIST_W - 52, iy + 10, 36, 18}, 4,
                     UI_HEX(0x1B5E20));
                 ui_draw_text(FP_LIST_X + FP_LIST_W - 46, iy + 12, "HW",
-                             &font_montserrat_12, UI_HEX(0x66BB6A));
+                             &font_montserrat_16, UI_HEX(0x66BB6A));
             }
         }
 
@@ -612,14 +612,14 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
             ui_draw_round_rect_border(&rr, 8, FP_OK_BORDER, 2);
             char buf[40];
             snprintf(buf, sizeof(buf), "OK: ID #%d", s_id_fp_id);
-            ui_draw_text(FP_RIGHT_X + 28, ry + 13, buf,
-                         &font_montserrat_16, UI_HEX(0x66BB6A));
+            ui_draw_text(FP_RIGHT_X + 28, ry + 9, buf,
+                         &font_montserrat_24, UI_HEX(0x66BB6A));
         } else if (s_id_result == 2) {
             ui_rect_t rr = {FP_RIGHT_X + 16, ry, FP_RIGHT_W - 32, FP_ID_RESULT_H};
             ui_draw_fill_round_rect(&rr, 8, FP_FAIL_BG);
             ui_draw_round_rect_border(&rr, 8, FP_FAIL_BORDER, 2);
-            ui_draw_text(FP_RIGHT_X + 28, ry + 13, "Identify Failed",
-                         &font_montserrat_16, UI_HEX(0xEF4444));
+            ui_draw_text(FP_RIGHT_X + 28, ry + 9, "Identify Failed",
+                         &font_montserrat_24, UI_HEX(0xEF4444));
         }
 
         /* Input area (when editing) */
@@ -631,12 +631,12 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
 
             ui_draw_text(FP_RIGHT_X + 28, input_y + 10,
                          s_adding ? "Add New Fingerprint" : "Edit Fingerprint Name",
-                         &font_montserrat_12, FP_ACCENT);
+                         &font_montserrat_16, FP_ACCENT);
 
             /* Input field */
             ui_draw_text(FP_RIGHT_X + 28, input_y + 30, "Name:",
-                         &font_montserrat_12, FP_TEXT_DIM);
-            ui_rect_t field = {FP_RIGHT_X + 28, input_y + 46, FP_RIGHT_W - 56, 28};
+                         &font_montserrat_16, FP_TEXT_DIM);
+            ui_rect_t field = {FP_RIGHT_X + 28, input_y + 46, FP_RIGHT_W - 56, 36};
             ui_draw_fill_round_rect(&field, 4, FP_INPUT_FIELD);
             ui_draw_round_rect_border(&field, 4, FP_BORDER, 1);
 
@@ -644,12 +644,12 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
             memcpy(display, s_input, s_input_len);
             display[s_input_len] = '|';
             display[s_input_len + 1] = '\0';
-            ui_draw_text(FP_RIGHT_X + 34, input_y + 52, display,
-                         &font_montserrat_16, FP_TEXT);
+            ui_draw_text(FP_RIGHT_X + 34, input_y + 50, display,
+                         &font_montserrat_24, FP_TEXT);
 
-            ui_draw_text(FP_RIGHT_X + 28, input_y + 82,
+            ui_draw_text(FP_RIGHT_X + 28, input_y + 92,
                          "Enter=Save  Esc=Cancel",
-                         &font_montserrat_12, FP_TEXT_DIM);
+                         &font_montserrat_16, FP_TEXT_DIM);
         }
     }
 
@@ -658,7 +658,7 @@ static void fp_page_draw(ui_page_t *page, ui_rect_t *dirty)
         ui_rect_t sb = {0, FP_STATUS_Y, UI_SCREEN_WIDTH, FP_STATUS_H};
         ui_draw_fill_rect(&sb, FP_STATUS_BG);
         ui_draw_text(16, FP_STATUS_Y + 9, s_status,
-                     &font_montserrat_12, FP_STATUS_TEXT);
+                     &font_montserrat_16, FP_STATUS_TEXT);
     }
 }
 
@@ -763,7 +763,7 @@ void app_fingerprint_init(void)
     /* Row 1: Register, Delete */
     {
         ui_rect_t r = {bx_l, by, FP_BTN_W, FP_BTN_H};
-        ui_button_init(&btn_register, &r, "Register", &font_montserrat_12);
+        ui_button_init(&btn_register, &r, "Register", &font_montserrat_16);
         ui_button_set_callback(&btn_register, btn_register_click);
         ui_button_set_colors(&btn_register, UI_HEX(0x0F3460), UI_HEX(0x1565C0), UI_COLOR_WHITE);
         btn_register.radius = 6;
@@ -772,7 +772,7 @@ void app_fingerprint_init(void)
 
     {
         ui_rect_t r = {bx_r, by, FP_BTN_W, FP_BTN_H};
-        ui_button_init(&btn_delete, &r, "Delete", &font_montserrat_12);
+        ui_button_init(&btn_delete, &r, "Delete", &font_montserrat_16);
         ui_button_set_callback(&btn_delete, btn_delete_click);
         ui_button_set_colors(&btn_delete, UI_HEX(0x7F1D1D), UI_HEX(0x991B1B), UI_COLOR_WHITE);
         btn_delete.radius = 6;
@@ -784,7 +784,7 @@ void app_fingerprint_init(void)
     /* Row 2: Add Name, Edit Name */
     {
         ui_rect_t r = {bx_l, by, FP_BTN_W, FP_BTN_H};
-        ui_button_init(&btn_add, &r, "Add Name", &font_montserrat_12);
+        ui_button_init(&btn_add, &r, "Add Name", &font_montserrat_16);
         ui_button_set_callback(&btn_add, btn_add_click);
         ui_button_set_colors(&btn_add, UI_HEX(0x1B5E20), UI_HEX(0x2E7D32), UI_COLOR_WHITE);
         btn_add.radius = 6;
@@ -793,7 +793,7 @@ void app_fingerprint_init(void)
 
     {
         ui_rect_t r = {bx_r, by, FP_BTN_W, FP_BTN_H};
-        ui_button_init(&btn_edit, &r, "Edit Name", &font_montserrat_12);
+        ui_button_init(&btn_edit, &r, "Edit Name", &font_montserrat_16);
         ui_button_set_callback(&btn_edit, btn_edit_click);
         ui_button_set_colors(&btn_edit, UI_HEX(0xE65100), UI_HEX(0xFF9800), UI_COLOR_WHITE);
         btn_edit.radius = 6;
@@ -805,7 +805,7 @@ void app_fingerprint_init(void)
     /* Row 3: Refresh, Save */
     {
         ui_rect_t r = {bx_l, by, FP_BTN_W, FP_BTN_H};
-        ui_button_init(&btn_refresh, &r, "Refresh", &font_montserrat_12);
+        ui_button_init(&btn_refresh, &r, "Refresh", &font_montserrat_16);
         ui_button_set_callback(&btn_refresh, btn_refresh_click);
         ui_button_set_colors(&btn_refresh, UI_HEX(0x0F3460), UI_HEX(0x1565C0), UI_COLOR_WHITE);
         btn_refresh.radius = 6;
@@ -814,7 +814,7 @@ void app_fingerprint_init(void)
 
     {
         ui_rect_t r = {bx_r, by, FP_BTN_W, FP_BTN_H};
-        ui_button_init(&btn_save, &r, "Save", &font_montserrat_12);
+        ui_button_init(&btn_save, &r, "Save", &font_montserrat_16);
         ui_button_set_callback(&btn_save, btn_save_click);
         ui_button_set_colors(&btn_save, UI_HEX(0x0F3460), UI_HEX(0x1565C0), UI_COLOR_WHITE);
         btn_save.radius = 6;
@@ -826,7 +826,7 @@ void app_fingerprint_init(void)
     /* Row 4: Cancel */
     {
         ui_rect_t r = {bx_l, by, FP_BTN_W, FP_BTN_H};
-        ui_button_init(&btn_cancel, &r, "Cancel", &font_montserrat_12);
+        ui_button_init(&btn_cancel, &r, "Cancel", &font_montserrat_16);
         ui_button_set_callback(&btn_cancel, btn_cancel_click);
         ui_button_set_colors(&btn_cancel, UI_HEX(0x424242), UI_HEX(0x616161), FP_TEXT);
         btn_cancel.radius = 6;

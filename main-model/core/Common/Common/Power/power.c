@@ -77,6 +77,15 @@ void Power_UART_IRQ_Handler(power_t *power)
         uint8_t byte = (uint8_t)USART_ReceiveData(POWER_UART);
         Protocol_ParseByte(&power->rx_ctx, byte);
     }
+
+    /* 热插拔噪声防护：ORE/FE/NE 置位时读 STATR+DATAR 清除，
+     * 否则错误标志滞留会导致中断反复触发、RX 永久卡死 */
+    if (USART_GetFlagStatus(POWER_UART, USART_FLAG_ORE) != RESET ||
+        USART_GetFlagStatus(POWER_UART, USART_FLAG_FE)  != RESET ||
+        USART_GetFlagStatus(POWER_UART, USART_FLAG_NE)  != RESET)
+    {
+        (void)USART_ReceiveData(POWER_UART);
+    }
 }
 
 // 获取Power类型，入口参数是Power结构体指针
@@ -141,22 +150,26 @@ void Power_Process(power_t *power)
     if (power == NULL || !power->rx_ctx.frame_ready)
         return;
 
-    req = &power->rx_ctx.frame;
+    req = &power->rx_ctx.read_frame;
 
     /* 0. 处理 Power 返回的 ACK 响应（心跳 GET_TYPE 的回复）。
-     * Power 把电量/充电作为 ACK 扩展字段 DATA[5]/DATA[6] 单帧携带：
-     * 模块链路是单帧 rx_ctx，ACK+STATUS 背靠背双帧会导致前帧被
-     * 后帧帧头顶掉（err_frame_ready），所以不能分两帧发。 */
+     * Power 把电量/充电作为 ACK 扩展字段 DATA[5]/DATA[6] 单帧携带
+     * （len==6 无状态 / len==8 带状态）。按身份指纹门控，
+     * 防止未来其他查询 ACK 污染槽位类型。 */
     if (req->cmd == CMD_ACK)
     {
-        module_identity_t id;
-        if (Protocol_ParseIdentity(req, &id))
+        if ((req->len == 6 || req->len == 8) &&
+            req->data[0] == MODULE_TYPE_POWER)
         {
-            Hardware_Hb_MarkOnline(MODULE_ID_POWER, id.type, id.subtype);
-            power->type_id = id.subtype;
+            module_identity_t id;
+            if (Protocol_ParseIdentity(req, &id))
+            {
+                Hardware_Hb_MarkOnline(MODULE_ID_POWER, id.type, id.subtype);
+                power->type_id = id.subtype;
+            }
+            if (req->len >= 8)   /* CMD + 身份5 + 电量1 + 充电1 */
+                power_update_status(req->data[5], req->data[6]);
         }
-        if (req->len >= 8)   /* CMD + 身份5 + 电量1 + 充电1 */
-            power_update_status(req->data[5], req->data[6]);
         handled = 1;
     }
     /* 1. 通用命令（0x00~0x0F） */

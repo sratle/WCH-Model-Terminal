@@ -135,6 +135,15 @@ void Submodels_UART_IRQ_Handler(submodels_t *submodel, USART_TypeDef *USARTx)
         uint8_t byte = (uint8_t)USART_ReceiveData(USARTx);
         Protocol_ParseByte(&submodel->rx_ctx, byte);
     }
+
+    /* 热插拔噪声防护：ORE/FE/NE 置位时读 STATR+DATAR 清除，
+     * 否则错误标志滞留会导致中断反复触发、RX 永久卡死 */
+    if (USART_GetFlagStatus(USARTx, USART_FLAG_ORE) != RESET ||
+        USART_GetFlagStatus(USARTx, USART_FLAG_FE)  != RESET ||
+        USART_GetFlagStatus(USARTx, USART_FLAG_NE)  != RESET)
+    {
+        (void)USART_ReceiveData(USARTx);
+    }
 }
 
 // 获取Submodels类型，入口参数是Submodels结构体指针
@@ -164,11 +173,11 @@ void Submodels_Get_Type(submodels_t *submodel)
         if (submodel->rx_ctx.frame_ready)
         {
             /* 必须是 ACK 帧，且数据域至少包含 type + subtype */
-            if (submodel->rx_ctx.frame.cmd == CMD_ACK &&
-                submodel->rx_ctx.frame.len >= 2 &&
-                submodel->rx_ctx.frame.data[0] == MODULE_TYPE_SUBMODEL)
+            if (submodel->rx_ctx.read_frame.cmd == CMD_ACK &&
+                submodel->rx_ctx.read_frame.len >= 2 &&
+                submodel->rx_ctx.read_frame.data[0] == MODULE_TYPE_SUBMODEL)
             {
-                submodel->type_id = submodel->rx_ctx.frame.data[1];
+                submodel->type_id = submodel->rx_ctx.read_frame.data[1];
                 Protocol_ResetRxCtx(&submodel->rx_ctx);
                 return;
             }
@@ -282,7 +291,7 @@ void Submodels_Process(submodels_t *submodel)
     if (submodel == NULL || !submodel->rx_ctx.frame_ready)
         return;
 
-    req = &submodel->rx_ctx.frame;
+    req = &submodel->rx_ctx.read_frame;
 
     /* 0. 处理 GET_TYPE ACK 响应
      * GET_TYPE ACK 格式: [type:1][subtype:1][hw_ver:1][fw_major:1][fw_minor:1]

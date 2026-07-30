@@ -79,18 +79,18 @@ static void bt_draw_status(void)
     ui_draw_fill_circle(BT_ROW_X + 30, line1 + 8, 11,
                         online ? UI_COLOR_STATUS_ON : UI_COLOR_STATUS_OFF);
     ui_draw_text(BT_ROW_X + 52, line1, "Wireless chip",
-                 &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+                 &font_montserrat_24, UI_COLOR_TEXT_PRIMARY);
     ui_draw_text(BT_ROW_X + 260, line1, online ? "Online" : "Offline",
-                 &font_montserrat_16,
+                 &font_montserrat_24,
                  online ? UI_COLOR_TEXT_PRIMARY : UI_COLOR_TEXT_SECONDARY);
 
     /* App/phone connection */
     ui_draw_fill_circle(BT_ROW_X + 30, line2 + 8, 11,
                         connected ? UI_COLOR_STATUS_ON : UI_COLOR_STATUS_OFF);
     ui_draw_text(BT_ROW_X + 52, line2, "App connection",
-                 &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+                 &font_montserrat_24, UI_COLOR_TEXT_PRIMARY);
     ui_draw_text(BT_ROW_X + 260, line2, connected ? "Connected" : "Not connected",
-                 &font_montserrat_16,
+                 &font_montserrat_24,
                  connected ? UI_COLOR_TEXT_PRIMARY : UI_COLOR_TEXT_SECONDARY);
 }
 
@@ -101,12 +101,12 @@ static void bt_draw_chart(void)
     ui_draw_round_rect_border(&card, 10, BT_CARD_BORDER, 1);
 
     ui_draw_text(BT_ROW_X + 16, BT_CHART_Y + 10, "Recent BT traffic (bytes)",
-                 &font_montserrat_12, UI_COLOR_TEXT_SECONDARY);
+                 &font_montserrat_16, UI_COLOR_TEXT_SECONDARY);
 
     uint8_t n = g_disp_state.bt_traffic_count;
     if (n == 0) {
         ui_draw_text(BT_ROW_X + BT_ROW_W / 2 - 50, BT_CHART_Y + BT_CHART_H / 2 - 8,
-                     "No traffic yet", &font_montserrat_12, UI_COLOR_TEXT_SECONDARY);
+                     "No traffic yet", &font_montserrat_16, UI_COLOR_TEXT_SECONDARY);
         return;
     }
 
@@ -128,7 +128,7 @@ static void bt_draw_chart(void)
     {
         char maxs[12];
         snprintf(maxs, sizeof(maxs), "%u", peak);
-        ui_draw_text(BT_ROW_X + 8, py - 6, maxs, &font_montserrat_12, UI_COLOR_TEXT_SECONDARY);
+        ui_draw_text(BT_ROW_X + 8, py - 6, maxs, &font_montserrat_16, UI_COLOR_TEXT_SECONDARY);
         ui_draw_hline(px, py, pw, BT_GRID_COLOR);
     }
 
@@ -152,12 +152,12 @@ static void bt_draw_chart(void)
         {
             char vs[12];
             snprintf(vs, sizeof(vs), "%u", val);
-            int16_t tw = ui_text_width(vs, &font_montserrat_12);
+            int16_t tw = ui_text_width(vs, &font_montserrat_16);
             int16_t tx = bx + (bar_w - tw) / 2;
             if (tx < px) tx = px;
             int16_t ty = by - 14;
             if (ty < py) ty = py;
-            ui_draw_text(tx, ty, vs, &font_montserrat_12, UI_COLOR_TEXT_PRIMARY);
+            ui_draw_text(tx, ty, vs, &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
         }
     }
 }
@@ -208,7 +208,7 @@ static void bt_page_draw(ui_page_t *page, ui_rect_t *dirty)
 
     if (dtop < BT_STATUS_Y) {
         ui_draw_text(BT_ROW_X, BT_HDR_Y, "Bluetooth / Wireless",
-                     &font_montserrat_12, UI_COLOR_TEXT_SECONDARY);
+                     &font_montserrat_16, UI_COLOR_TEXT_SECONDARY);
     }
     if (dbot > BT_STATUS_Y && dtop < BT_STATUS_Y + BT_STATUS_H)
         bt_draw_status();

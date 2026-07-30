@@ -9,8 +9,8 @@
 ********************************************************************************/
 #include "game_2048.h"
 #include "../UI/ui_app_common.h"
-#include "../MiniUI/font/font_montserrat_12.h"
 #include "../MiniUI/font/font_montserrat_16.h"
+#include "../MiniUI/font/font_montserrat_24.h"
 #include <string.h>
 
 /*=============================================================================
@@ -344,9 +344,9 @@ static void g4_draw_tile(int16_t x, int16_t y, uint16_t val)
 
     char buf[8];
     g4_itoa(val, buf);
-    const ui_font_t *font = &font_montserrat_16;
-    if (val >= 16384) font = &font_montserrat_12;
-    else if (val >= 1024) font = &font_montserrat_12;
+    const ui_font_t *font = &font_montserrat_24;
+    if (val >= 16384) font = &font_montserrat_16;
+    else if (val >= 1024) font = &font_montserrat_16;
     ui_draw_text_in_rect(&r, buf, font, g4_tile_fg(val), 1);
 }
 
@@ -371,19 +371,19 @@ static void g4_draw_panel(void)
     int16_t y = G4_PANEL_Y;
 
     /* Score */
-    ui_draw_text(G4_PANEL_X, y, "SCORE", &font_montserrat_12, UI_COLOR_BLACK);
+    ui_draw_text(G4_PANEL_X, y, "SCORE", &font_montserrat_16, UI_COLOR_BLACK);
     y += 18;
     ui_rect_t score_bg = {G4_PANEL_X, y, G4_PANEL_W, 36};
     ui_draw_fill_round_rect(&score_bg, 6, UI_COLOR_BLACK);
-    ui_draw_text_in_rect(&score_bg, s_g4.buf_score, &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&score_bg, s_g4.buf_score, &font_montserrat_24, UI_COLOR_WHITE, 1);
     y += 50;
 
     /* Moves */
-    ui_draw_text(G4_PANEL_X, y, "MOVES", &font_montserrat_12, UI_COLOR_BLACK);
+    ui_draw_text(G4_PANEL_X, y, "MOVES", &font_montserrat_16, UI_COLOR_BLACK);
     y += 18;
     ui_rect_t moves_bg = {G4_PANEL_X, y, G4_PANEL_W, 36};
     ui_draw_fill_round_rect(&moves_bg, 6, UI_COLOR_BLACK);
-    ui_draw_text_in_rect(&moves_bg, s_g4.buf_moves, &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&moves_bg, s_g4.buf_moves, &font_montserrat_24, UI_COLOR_WHITE, 1);
     y += 50;
 
     /* Undo button */
@@ -391,7 +391,7 @@ static void g4_draw_panel(void)
     ui_color_t undo_fg = s_g4.undo_available ? UI_COLOR_WHITE : UI_COLOR_BLACK;
     ui_rect_t undo_r = {G4_UNDO_X, G4_UNDO_Y, G4_UNDO_W, G4_UNDO_H};
     ui_draw_fill_round_rect(&undo_r, 6, undo_bg);
-    ui_draw_text_in_rect(&undo_r, "UNDO", &font_montserrat_12, undo_fg, 1);
+    ui_draw_text_in_rect(&undo_r, "UNDO", &font_montserrat_16, undo_fg, 1);
 
     /* D-pad buttons */
     g4_draw_dpad();
@@ -405,22 +405,22 @@ static void g4_draw_dpad(void)
     /* Up */
     ui_rect_t up_r = {G4_DPAD_UP_X, G4_DPAD_UP_Y, G4_DPAD_BTN, G4_DPAD_BTN};
     ui_draw_fill_round_rect(&up_r, 6, bg);
-    ui_draw_text_in_rect(&up_r, "^", &font_montserrat_16, fg, 1);
+    ui_draw_text_in_rect(&up_r, "^", &font_montserrat_24, fg, 1);
 
     /* Down */
     ui_rect_t dn_r = {G4_DPAD_DOWN_X, G4_DPAD_DOWN_Y, G4_DPAD_BTN, G4_DPAD_BTN};
     ui_draw_fill_round_rect(&dn_r, 6, bg);
-    ui_draw_text_in_rect(&dn_r, "v", &font_montserrat_16, fg, 1);
+    ui_draw_text_in_rect(&dn_r, "v", &font_montserrat_24, fg, 1);
 
     /* Left */
     ui_rect_t lt_r = {G4_DPAD_LEFT_X, G4_DPAD_LEFT_Y, G4_DPAD_BTN, G4_DPAD_BTN};
     ui_draw_fill_round_rect(&lt_r, 6, bg);
-    ui_draw_text_in_rect(&lt_r, "<", &font_montserrat_16, fg, 1);
+    ui_draw_text_in_rect(&lt_r, "<", &font_montserrat_24, fg, 1);
 
     /* Right */
     ui_rect_t rt_r = {G4_DPAD_RIGHT_X, G4_DPAD_RIGHT_Y, G4_DPAD_BTN, G4_DPAD_BTN};
     ui_draw_fill_round_rect(&rt_r, 6, bg);
-    ui_draw_text_in_rect(&rt_r, ">", &font_montserrat_16, fg, 1);
+    ui_draw_text_in_rect(&rt_r, ">", &font_montserrat_24, fg, 1);
 }
 
 static void g4_dpad_event(ui_widget_t *w, ui_event_t *e)
@@ -467,11 +467,11 @@ static void g4_draw_idle_screen(void)
 
     ui_rect_t title = {G4_GRID_X, G4_GRID_Y + G4_GRID_TOTAL / 2 - 40,
                        G4_GRID_TOTAL, 40};
-    ui_draw_text_in_rect(&title, "2048", &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&title, "2048", &font_montserrat_24, UI_COLOR_WHITE, 1);
 
     ui_rect_t sub = {G4_GRID_X, G4_GRID_Y + G4_GRID_TOTAL / 2,
                      G4_GRID_TOTAL, 30};
-    ui_draw_text_in_rect(&sub, "Swipe to start", &font_montserrat_12,
+    ui_draw_text_in_rect(&sub, "Swipe to start", &font_montserrat_16,
                          UI_COLOR_WHITE, 1);
 }
 
@@ -482,17 +482,17 @@ static void g4_draw_overlay(const char *title, ui_color_t title_color)
 
     ui_rect_t tr = {G4_GRID_X, G4_GRID_Y + G4_GRID_TOTAL / 2 - 30,
                     G4_GRID_TOTAL, 30};
-    ui_draw_text_in_rect(&tr, title, &font_montserrat_16, title_color, 1);
+    ui_draw_text_in_rect(&tr, title, &font_montserrat_24, title_color, 1);
 
     char buf[32];
     g4_itoa(s_g4.score, buf);
     ui_rect_t sr = {G4_GRID_X, G4_GRID_Y + G4_GRID_TOTAL / 2 + 5,
                     G4_GRID_TOTAL, 24};
-    ui_draw_text_in_rect(&sr, buf, &font_montserrat_12, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&sr, buf, &font_montserrat_16, UI_COLOR_WHITE, 1);
 
     ui_rect_t hr = {G4_GRID_X, G4_GRID_Y + G4_GRID_TOTAL / 2 + 35,
                     G4_GRID_TOTAL, 24};
-    ui_draw_text_in_rect(&hr, "Swipe to restart", &font_montserrat_12,
+    ui_draw_text_in_rect(&hr, "Swipe to restart", &font_montserrat_16,
                          UI_COLOR_WHITE, 1);
 }
 

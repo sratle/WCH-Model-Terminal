@@ -17,8 +17,8 @@
 #include "app_editor.h"
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
-#include "../MiniUI/font/font_montserrat_12.h"
 #include "../MiniUI/font/font_montserrat_16.h"
+#include "../MiniUI/font/font_montserrat_24.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -33,7 +33,7 @@
 #define EDIT_TEXT_Y         APP_TITLE_BAR_H
 #define EDIT_TEXT_W         (UI_SCREEN_WIDTH - EDIT_GUTTER_W)
 #define EDIT_TEXT_H         (EDIT_STATUS_Y - APP_TITLE_BAR_H)
-#define EDIT_LINE_H         18
+#define EDIT_LINE_H         22
 #define EDIT_VISIBLE_LINES  (EDIT_TEXT_H / EDIT_LINE_H)
 #define EDIT_BUF_SIZE       4096
 #define EDIT_MAX_LINES      256
@@ -773,8 +773,8 @@ static void editor_draw_gutter(void)
         char nb[8];
         snprintf(nb, sizeof(nb), "%d", ln);
         int16_t y = EDIT_TEXT_Y + i * EDIT_LINE_H + 2;
-        int16_t nw = ui_text_width(nb, &font_montserrat_12);
-        ui_draw_text(EDIT_GUTTER_W - nw - 8, y, nb, &font_montserrat_12, UI_COLOR_BLACK);
+        int16_t nw = ui_text_width(nb, &font_montserrat_16);
+        ui_draw_text(EDIT_GUTTER_W - nw - 8, y, nb, &font_montserrat_16, UI_COLOR_BLACK);
     }
 
     /* Current-line marker triangle in the gutter */
@@ -782,7 +782,7 @@ static void editor_draw_gutter(void)
         s_ed.cursor_line >= s_ed.scroll_line &&
         s_ed.cursor_line < s_ed.scroll_line + EDIT_VISIBLE_LINES) {
         int16_t my = EDIT_TEXT_Y + (s_ed.cursor_line - s_ed.scroll_line) * EDIT_LINE_H + 4;
-        ui_draw_text(4, my, ">", &font_montserrat_12, UI_COLOR_BLACK);
+        ui_draw_text(4, my, ">", &font_montserrat_16, UI_COLOR_BLACK);
     }
 }
 
@@ -794,7 +794,7 @@ static void editor_draw_text_area(void)
     if (!s_ed.has_content) {
         ui_draw_text_in_rect(&tbg,
             s_ed.is_loading ? "Loading file..." : "No file loaded",
-            &font_montserrat_12, UI_COLOR_BLACK, 1);
+            &font_montserrat_16, UI_COLOR_BLACK, 1);
         return;
     }
 
@@ -830,13 +830,13 @@ static void editor_draw_text_area(void)
                 if (before_len > sizeof(tmp) - 1) before_len = sizeof(tmp) - 1;
                 memcpy(tmp, lb, before_len);
                 tmp[before_len] = '\0';
-                sel_x_start += ui_text_width(tmp, &font_montserrat_12);
+                sel_x_start += ui_text_width(tmp, &font_montserrat_16);
 
                 uint16_t sel_len = line_sel_end - start;
                 if (sel_len > sizeof(tmp) - 1) sel_len = sizeof(tmp) - 1;
                 memcpy(tmp, lb, sel_len);
                 tmp[sel_len] = '\0';
-                sel_x_end += ui_text_width(tmp, &font_montserrat_12);
+                sel_x_end += ui_text_width(tmp, &font_montserrat_16);
 
                 ui_rect_t sel_rect = {sel_x_start, y - 1, sel_x_end - sel_x_start, EDIT_LINE_H - 2};
                 ui_draw_fill_rect(&sel_rect, UI_COLOR_BLACK);
@@ -848,7 +848,7 @@ static void editor_draw_text_area(void)
                 if (st_len > sizeof(sel_txt) - 1) st_len = sizeof(sel_txt) - 1;
                 memcpy(sel_txt, lb + st_off, st_len);
                 sel_txt[st_len] = '\0';
-                ui_draw_text(sel_x_start, y, sel_txt, &font_montserrat_12, UI_COLOR_WHITE);
+                ui_draw_text(sel_x_start, y, sel_txt, &font_montserrat_16, UI_COLOR_WHITE);
 
                 /* Draw non-selected prefix/suffix normally */
                 if (st_off > 0) {
@@ -856,19 +856,19 @@ static void editor_draw_text_area(void)
                     if (st_off > sizeof(pre) - 1) st_off = sizeof(pre) - 1;
                     memcpy(pre, lb, st_off);
                     pre[st_off] = '\0';
-                    ui_draw_text(EDIT_TEXT_X + 8, y, pre, &font_montserrat_12, UI_COLOR_BLACK);
+                    ui_draw_text(EDIT_TEXT_X + 8, y, pre, &font_montserrat_16, UI_COLOR_BLACK);
                 }
                 {
                     uint16_t suf_off = line_sel_end - start;
                     if (suf_off < ll) {
-                        ui_draw_text(sel_x_end, y, lb + suf_off, &font_montserrat_12, UI_COLOR_BLACK);
+                        ui_draw_text(sel_x_end, y, lb + suf_off, &font_montserrat_16, UI_COLOR_BLACK);
                     }
                 }
                 continue;
             }
         }
 
-        ui_draw_text(EDIT_TEXT_X + 8, y, lb, &font_montserrat_12, UI_COLOR_BLACK);
+        ui_draw_text(EDIT_TEXT_X + 8, y, lb, &font_montserrat_16, UI_COLOR_BLACK);
     }
 
     /* Draw cursor */
@@ -883,7 +883,7 @@ static void editor_draw_text_area(void)
         if (bclen > sizeof(before_cursor) - 1) bclen = sizeof(before_cursor) - 1;
         memcpy(before_cursor, &s_ed.content[line_start], bclen);
         before_cursor[bclen] = '\0';
-        int16_t cur_x = EDIT_TEXT_X + 8 + ui_text_width(before_cursor, &font_montserrat_12);
+        int16_t cur_x = EDIT_TEXT_X + 8 + ui_text_width(before_cursor, &font_montserrat_16);
 
         ui_draw_vline(cur_x, cur_y + 1, EDIT_LINE_H - 2, UI_COLOR_BLACK);
         ui_rect_t cur_block = {cur_x - 1, cur_y + EDIT_LINE_H - 4, 3, 3};
@@ -899,17 +899,17 @@ static void editor_draw_status(void)
 
     /* File name + modified marker */
     ui_draw_text(12, EDIT_STATUS_Y + 6, s_ed.file_name,
-                 &font_montserrat_12, UI_COLOR_BLACK);
+                 &font_montserrat_16, UI_COLOR_BLACK);
     if (s_ed.is_modified) {
-        int16_t nw = ui_text_width(s_ed.file_name, &font_montserrat_12);
+        int16_t nw = ui_text_width(s_ed.file_name, &font_montserrat_16);
         ui_draw_text(12 + nw + 4, EDIT_STATUS_Y + 6, "*",
-                     &font_montserrat_12, UI_COLOR_BLACK);
+                     &font_montserrat_16, UI_COLOR_BLACK);
     }
 
     /* Status info on the right */
-    int16_t sw = ui_text_width(s_status_buf, &font_montserrat_12);
+    int16_t sw = ui_text_width(s_status_buf, &font_montserrat_16);
     ui_draw_text(UI_SCREEN_WIDTH - sw - 12, EDIT_STATUS_Y + 6,
-                 s_status_buf, &font_montserrat_12, UI_COLOR_BLACK);
+                 s_status_buf, &font_montserrat_16, UI_COLOR_BLACK);
 }
 
 /*=============================================================================
@@ -1003,7 +1003,7 @@ static void text_touch_event(ui_widget_t *w, ui_event_t *e)
 
         for (uint16_t ci = 0; ci < line_len; ci++) {
             char tmp[2] = {line_buf[ci], '\0'};
-            int16_t char_w = ui_text_width(tmp, &font_montserrat_12);
+            int16_t char_w = ui_text_width(tmp, &font_montserrat_16);
             int16_t mid = acc_width + char_w / 2;
             int16_t dist = rel_x - mid;
             if (dist < 0) dist = -dist;
@@ -1196,7 +1196,7 @@ void app_editor_init(void)
     editor_update_status();
 
     ui_rect_t r_save = {UI_SCREEN_WIDTH - 80, 6, 64, 28};
-    ui_button_init(&btn_save, &r_save, "Save", &font_montserrat_12);
+    ui_button_init(&btn_save, &r_save, "Save", &font_montserrat_16);
     ui_button_set_callback(&btn_save, btn_save_click);
     ui_button_set_colors(&btn_save, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
     btn_save.radius = 8;

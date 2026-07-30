@@ -575,30 +575,30 @@ static void snk_draw_panel(void)
 {
     /* Score label */
     ui_rect_t sl = {SNK_PANEL_X, SNK_SCORE_LABEL_Y, SNK_PANEL_W, SNK_INFO_LABEL_H};
-    ui_draw_text_in_rect(&sl, "SCORE", &font_montserrat_12, UI_COLOR_TEXT_SECONDARY, 1);
+    ui_draw_text_in_rect(&sl, "SCORE", &font_montserrat_16, UI_COLOR_TEXT_SECONDARY, 1);
 
     /* Score box */
     ui_rect_t sb = {SNK_PANEL_X, SNK_SCORE_BOX_Y, SNK_PANEL_W, SNK_INFO_BOX_H};
     ui_draw_fill_round_rect(&sb, SNK_INFO_BOX_R, UI_HEX(0x3C3C3C));
-    ui_draw_text_in_rect(&sb, s_snk.buf_score, &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&sb, s_snk.buf_score, &font_montserrat_24, UI_COLOR_WHITE, 1);
 
     /* Level label */
     ui_rect_t ll = {SNK_PANEL_X, SNK_LEVEL_LABEL_Y, SNK_PANEL_W, SNK_INFO_LABEL_H};
-    ui_draw_text_in_rect(&ll, "LEVEL", &font_montserrat_12, UI_COLOR_TEXT_SECONDARY, 1);
+    ui_draw_text_in_rect(&ll, "LEVEL", &font_montserrat_16, UI_COLOR_TEXT_SECONDARY, 1);
 
     /* Level box */
     ui_rect_t lb = {SNK_PANEL_X, SNK_LEVEL_BOX_Y, SNK_PANEL_W, SNK_INFO_BOX_H};
     ui_draw_fill_round_rect(&lb, SNK_INFO_BOX_R, UI_HEX(0x3C3C3C));
-    ui_draw_text_in_rect(&lb, s_snk.buf_level, &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&lb, s_snk.buf_level, &font_montserrat_24, UI_COLOR_WHITE, 1);
 
     /* Best label */
     ui_rect_t bl = {SNK_PANEL_X, SNK_BEST_LABEL_Y, SNK_PANEL_W, SNK_INFO_LABEL_H};
-    ui_draw_text_in_rect(&bl, "BEST", &font_montserrat_12, UI_COLOR_TEXT_SECONDARY, 1);
+    ui_draw_text_in_rect(&bl, "BEST", &font_montserrat_16, UI_COLOR_TEXT_SECONDARY, 1);
 
     /* Best box */
     ui_rect_t bb = {SNK_PANEL_X, SNK_BEST_BOX_Y, SNK_PANEL_W, SNK_INFO_BOX_H};
     ui_draw_fill_round_rect(&bb, SNK_INFO_BOX_R, UI_HEX(0x3C3C3C));
-    ui_draw_text_in_rect(&bb, s_snk.buf_best, &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&bb, s_snk.buf_best, &font_montserrat_24, UI_COLOR_WHITE, 1);
 
     /* D-pad */
     snk_draw_dpad();
@@ -659,11 +659,11 @@ static void snk_draw_idle_overlay(void)
 
     ui_rect_t title = {SNK_GRID_X, SNK_GRID_Y + SNK_GRID_H / 2 - 30,
                        SNK_GRID_W, 30};
-    ui_draw_text_in_rect(&title, "SNAKE", &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&title, "SNAKE", &font_montserrat_24, UI_COLOR_WHITE, 1);
 
     ui_rect_t sub = {SNK_GRID_X, SNK_GRID_Y + SNK_GRID_H / 2 + 5,
                      SNK_GRID_W, 24};
-    ui_draw_text_in_rect(&sub, "Swipe or press to start", &font_montserrat_12,
+    ui_draw_text_in_rect(&sub, "Swipe or press to start", &font_montserrat_16,
                          UI_HEX(0xAAAAAA), 1);
 }
 
@@ -676,18 +676,18 @@ static void snk_draw_gameover_overlay(void)
 
     ui_rect_t title = {SNK_GRID_X, SNK_GRID_Y + SNK_GRID_H / 2 - 30,
                        SNK_GRID_W, 30};
-    ui_draw_text_in_rect(&title, "GAME OVER", &font_montserrat_16,
+    ui_draw_text_in_rect(&title, "GAME OVER", &font_montserrat_24,
                          UI_HEX(0xF44336), 1);
 
     char buf[16];
     snk_itoa(s_snk.score, buf);
     ui_rect_t sr = {SNK_GRID_X, SNK_GRID_Y + SNK_GRID_H / 2 + 5,
                     SNK_GRID_W, 24};
-    ui_draw_text_in_rect(&sr, buf, &font_montserrat_12, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&sr, buf, &font_montserrat_16, UI_COLOR_WHITE, 1);
 
     ui_rect_t hr = {SNK_GRID_X, SNK_GRID_Y + SNK_GRID_H / 2 + 35,
                     SNK_GRID_W, 24};
-    ui_draw_text_in_rect(&hr, "Press to restart", &font_montserrat_12,
+    ui_draw_text_in_rect(&hr, "Press to restart", &font_montserrat_16,
                          UI_HEX(0xAAAAAA), 1);
 }
 

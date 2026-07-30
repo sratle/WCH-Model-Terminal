@@ -271,17 +271,17 @@ void CH585F_BT_Poll(void)
 
     /* 解析接收到的数据。
      * 注意：此处不可在帧就绪时 break，因为剩余字节已随本轮 SPI 传输接收，
-     * break 会导致它们被永久丢弃。Protocol_ResetRxCtx() 会将状态重置为
-     * WAIT_HEAD，因此循环可以继续解析下一帧。 */
+     * break 会导致它们被永久丢弃。双缓冲下 Protocol_ResetRxCtx() 释放
+     * read_frame 后，循环可以继续解析下一帧。 */
     for (i = 0; i < CH585F_BT_POLL_SIZE; i++)
     {
         if (Protocol_ParseByte(&ch585f_bt_g.rx_ctx, rx_buf[i]))
         {
             s_rx_stuck_cnt = 0;
             printf("[BT] Frame ready: cmd=0x%02X, len=%d, data[0]=0x%02X\r\n",
-                   ch585f_bt_g.rx_ctx.frame.cmd,
-                   ch585f_bt_g.rx_ctx.frame.len,
-                   ch585f_bt_g.rx_ctx.frame.data[0]);
+                   ch585f_bt_g.rx_ctx.read_frame.cmd,
+                   ch585f_bt_g.rx_ctx.read_frame.len,
+                   ch585f_bt_g.rx_ctx.read_frame.data[0]);
             CH585F_BT_HandleFrame();
             Protocol_ResetRxCtx(&ch585f_bt_g.rx_ctx);
         }
@@ -295,7 +295,7 @@ void CH585F_BT_Poll(void)
         {
             printf("[BT] RX state machine stuck (state=%d, cnt=%d), force reset\r\n",
                    ch585f_bt_g.rx_ctx.state, s_rx_stuck_cnt);
-            Protocol_ResetRxCtx(&ch585f_bt_g.rx_ctx);
+            Protocol_AbortRx(&ch585f_bt_g.rx_ctx);
             s_rx_stuck_cnt = 0;
         }
     }
@@ -314,7 +314,7 @@ void CH585F_BT_Poll(void)
  *********************************************************************/
 void CH585F_BT_HandleFrame(void)
 {
-    protocol_frame_t *frame = &ch585f_bt_g.rx_ctx.frame;
+    protocol_frame_t *frame = &ch585f_bt_g.rx_ctx.read_frame;
 
     bt_mark_online();   /* 收到任意帧 = 无线芯片在线 */
 

@@ -47,14 +47,14 @@ void ui_app_page_init(ui_app_page_t *app, const char *name, uint32_t id)
 
     ui_page_struct_init_fullscreen(&app->page, name, id);
 
-    ui_rect_t back_rect = {8, 6, 50, 28};
-    ui_button_init(&app->btn_back, &back_rect, "<", &font_montserrat_16);
+    ui_rect_t back_rect = {8, 7, 56, 34};
+    ui_button_init(&app->btn_back, &back_rect, "<", &font_montserrat_24);
     ui_button_set_callback(&app->btn_back, app_back_click);
     ui_button_set_colors(&app->btn_back, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
     app->btn_back.radius = 14;
 
-    ui_rect_t title_rect = {68, 8, 300, 24};
-    ui_label_init(&app->lbl_title, &title_rect, name, &font_montserrat_16);
+    ui_rect_t title_rect = {76, 10, 400, 28};
+    ui_label_init(&app->lbl_title, &title_rect, name, &font_montserrat_24);
     ui_label_set_color(&app->lbl_title, UI_COLOR_WHITE);
     app->lbl_title.base.bg_color = UI_COLOR_TRANSPARENT;
 

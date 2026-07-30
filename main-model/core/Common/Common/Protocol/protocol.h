@@ -470,16 +470,21 @@ typedef struct {
     uint8_t fw_minor;   /* DATA[4]: 固件次版本号 */
 } module_identity_t;
 
-/* 接收上下文 */
+/* 接收上下文（双缓冲：ISR 写 frame，完帧后拷贝到 read_frame 供主循环读取，
+ * 主循环消费期间 ISR 可继续解析下一帧，避免背靠背帧顶掉未消费的前帧） */
 typedef struct {
     protocol_state_t state;             /* 当前解析状态 */
-    protocol_frame_t frame;             /* 解析中的帧 */
+    protocol_frame_t frame;             /* ISR 解析中的帧 */
+    protocol_frame_t read_frame;        /* 主循环读取缓冲区（双缓冲） */
     uint16_t data_idx;                  /* 当前数据域接收索引（支持流式帧 >255） */
-    uint8_t  frame_ready;               /* 帧就绪标志 (1=就绪) */
+    volatile uint8_t frame_ready;       /* 帧就绪标志 (1=read_frame 有效) */
+    volatile uint8_t frame_consumed;    /* 主循环已消费 read_frame，ISR 可覆盖 */
+    volatile uint32_t last_rx_tick;     /* 最后收到字节时的协议 tick（帧间超时用） */
     /* 错误统计（调试用，Init 时清零，Reset 不清零） */
     uint16_t err_len_zero;              /* LEN=0 非法帧计数 */
     uint16_t err_overflow;              /* DATA 域溢出计数 */
-    uint16_t err_frame_ready;           /* 帧未取走又收到新帧计数 */
+    uint16_t err_frame_ready;           /* 前帧未消费导致新帧被丢弃计数 */
+    uint16_t err_timeout;               /* 帧间超时强制复位计数 */
 } protocol_rx_ctx_t;
 
 /* ============================================================================
@@ -496,9 +501,30 @@ void Protocol_InitRxCtx(protocol_rx_ctx_t *ctx);
 /**
  * @brief  重置接收上下文
  * @param  ctx 接收上下文指针
- * @note   在取出就绪帧后调用，以准备接收下一帧
+ * @note   在取出就绪帧后调用，仅清除 frame_ready 并标记 read_frame 可覆盖，
+ *         不打断 ISR 正在解析的下一帧。
  */
 void Protocol_ResetRxCtx(protocol_rx_ctx_t *ctx);
+
+/**
+ * @brief  强制中止当前解析（丢弃半帧，回到 WAIT_HEAD）
+ * @param  ctx 接收上下文指针
+ * @note   仅在确认链路空闲/卡死时调用（如帧间超时、状态机卡住检测）。
+ */
+void Protocol_AbortRx(protocol_rx_ctx_t *ctx);
+
+/**
+ * @brief  协议毫秒 tick 递增（主循环每 ~1ms 调用一次，供帧间超时判定）
+ */
+void Protocol_TickInc(void);
+
+/**
+ * @brief  帧间超时巡检：状态机处于半帧状态且超过 timeout_ms 无新字节则复位
+ * @param  ctx        接收上下文指针
+ * @param  timeout_ms 超时阈值（协议 tick 数，约等于 ms）
+ * @note   用于热插拔噪声伪造 LEN 后状态机长时间吞字节的自恢复。
+ */
+void Protocol_RxCheckTimeout(protocol_rx_ctx_t *ctx, uint32_t timeout_ms);
 
 /**
  * @brief  打包协议帧

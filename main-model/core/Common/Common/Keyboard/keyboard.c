@@ -141,6 +141,15 @@ void Keyboard_UART_IRQ_Handler(keyboard_t *keyboard)
         uint8_t byte = (uint8_t)USART_ReceiveData(KEYBOARD_UART);
         Protocol_ParseByte(&keyboard->rx_ctx, byte);
     }
+
+    /* 热插拔噪声防护：ORE/FE/NE 置位时读 STATR+DATAR 清除，
+     * 否则错误标志滞留会导致中断反复触发、RX 永久卡死 */
+    if (USART_GetFlagStatus(KEYBOARD_UART, USART_FLAG_ORE) != RESET ||
+        USART_GetFlagStatus(KEYBOARD_UART, USART_FLAG_FE)  != RESET ||
+        USART_GetFlagStatus(KEYBOARD_UART, USART_FLAG_NE)  != RESET)
+    {
+        (void)USART_ReceiveData(KEYBOARD_UART);
+    }
 }
 
 void Keyboard_Get_Type(keyboard_t *keyboard)
@@ -236,19 +245,25 @@ void Keyboard_Process(keyboard_t *keyboard)
     if (keyboard == NULL || !keyboard->rx_ctx.frame_ready)
         return;
 
-    req = &keyboard->rx_ctx.frame;
+    req = &keyboard->rx_ctx.read_frame;
 
-    /* 0. 处理 Keyboard 返回的 ACK 响应（心跳 GET_TYPE 的回复） */
+    /* 0. 处理 Keyboard 返回的 ACK 响应（心跳 GET_TYPE 的回复）。
+     * 键盘还会用 ACK 回复背光/按键/推子等查询（长度与身份帧不同），
+     * 必须按 GET_TYPE ACK 指纹（len==6 且 type 匹配）门控，
+     * 否则查询数据会污染 type_id 与心跳槽位类型。 */
     if (req->cmd == CMD_ACK)
     {
-        module_identity_t id;
-        if (Protocol_ParseIdentity(req, &id))
+        if (req->len == 6 && req->data[0] == MODULE_TYPE_KEYBOARD)
         {
-            Hardware_Hb_MarkOnline(MODULE_ID_KEYBOARD, id.type, id.subtype);
-            keyboard->type_id = id.subtype;
-            /* Reset game state if keyboard type is not Game */
-            if (id.subtype != MODULE_SUBTYPE_KEYBOARD_GAME)
-                game_active = 0;
+            module_identity_t id;
+            if (Protocol_ParseIdentity(req, &id))
+            {
+                Hardware_Hb_MarkOnline(MODULE_ID_KEYBOARD, id.type, id.subtype);
+                keyboard->type_id = id.subtype;
+                /* Reset game state if keyboard type is not Game */
+                if (id.subtype != MODULE_SUBTYPE_KEYBOARD_GAME)
+                    game_active = 0;
+            }
         }
         handled = 1;
     }

@@ -262,9 +262,9 @@ static void draw_white_key(uint8_t wk_idx, bool pressed)
     /* Draw note name at bottom */
     uint8_t key_id = s_white_keys[wk_idx];
     const char *name = s_note_names[key_id];
-    int16_t tw = ui_text_width(name, &font_montserrat_12);
+    int16_t tw = ui_text_width(name, &font_montserrat_16);
     int16_t tx = r.x + (r.w - tw) / 2;
-    ui_draw_text(tx, r.y + r.h - 18, name, &font_montserrat_12,
+    ui_draw_text(tx, r.y + r.h - 18, name, &font_montserrat_16,
                  pressed ? UI_COLOR_WHITE : EMU_TEXT_DIM);
 }
 
@@ -331,10 +331,10 @@ static void draw_button(uint8_t btn_idx, bool pressed)
     ui_draw_round_rect_border(&r, 6, EMU_BORDER, 1);
 
     const char *label = s_btn_labels[btn_idx];
-    int16_t tw = ui_text_width(label, &font_montserrat_12);
+    int16_t tw = ui_text_width(label, &font_montserrat_16);
     int16_t tx = r.x + (r.w - tw) / 2;
     int16_t ty = r.y + (r.h - 12) / 2;
-    ui_draw_text(tx, ty, label, &font_montserrat_12,
+    ui_draw_text(tx, ty, label, &font_montserrat_16,
                  pressed ? EMU_ACCENT : EMU_TEXT_DIM);
 }
 
@@ -391,16 +391,16 @@ static void draw_fader(uint8_t f_idx, uint16_t value)
     ui_draw_fill_round_rect(&knob, 4, EMU_FADER_KNOB);
 
     /* Label above */
-    int16_t label_x = track.x + (track.w - ui_text_width(s_fader_labels[f_idx], &font_montserrat_12)) / 2;
+    int16_t label_x = track.x + (track.w - ui_text_width(s_fader_labels[f_idx], &font_montserrat_16)) / 2;
     ui_draw_text(label_x, track.y - 18, s_fader_labels[f_idx],
-                 &font_montserrat_12, EMU_TEXT);
+                 &font_montserrat_16, EMU_TEXT);
 
     /* Percentage below */
     char pct_text[8];
     snprintf(pct_text, sizeof(pct_text), "%d%%", pct);
-    int16_t pct_x = track.x + (track.w - ui_text_width(pct_text, &font_montserrat_12)) / 2;
+    int16_t pct_x = track.x + (track.w - ui_text_width(pct_text, &font_montserrat_16)) / 2;
     ui_draw_text(pct_x, track.y + track.h + 6, pct_text,
-                 &font_montserrat_12, EMU_TEXT_DIM);
+                 &font_montserrat_16, EMU_TEXT_DIM);
 }
 
 static void draw_all_faders(void)
@@ -559,7 +559,7 @@ static void emusic_page_draw(ui_page_t *page, ui_rect_t *dirty)
     /* Button section label */
     if (dirty_top < BTN_AREA_Y + 10 && dirty_bot > BTN_AREA_Y - 10) {
         ui_draw_text(BTN_AREA_X, BTN_AREA_Y - 12, "Controls",
-                     &font_montserrat_12, EMU_TEXT_DIM);
+                     &font_montserrat_16, EMU_TEXT_DIM);
     }
 
     /* Buttons */
@@ -570,7 +570,7 @@ static void emusic_page_draw(ui_page_t *page, ui_rect_t *dirty)
     /* Piano section label */
     if (dirty_top < PIANO_Y && dirty_bot > BTN_AREA_Y) {
         ui_draw_text(PIANO_X, PIANO_Y - 2, "Piano (C4-B5)",
-                     &font_montserrat_12, EMU_TEXT_DIM);
+                     &font_montserrat_16, EMU_TEXT_DIM);
     }
 
     /* Piano keys */
@@ -583,7 +583,7 @@ static void emusic_page_draw(ui_page_t *page, ui_rect_t *dirty)
         /* Section label */
         if (dirty_top < FADER_AREA_Y + 10) {
             ui_draw_text(FADER_AREA_X, FADER_AREA_Y - 2, "Faders",
-                         &font_montserrat_12, EMU_TEXT_DIM);
+                         &font_montserrat_16, EMU_TEXT_DIM);
         }
         if (dirty_bot > FADER_AREA_Y && dirty_top < FADER_AREA_Y + FADER_TRACK_H + 30) {
             draw_all_faders();
@@ -595,7 +595,7 @@ static void emusic_page_draw(ui_page_t *page, ui_rect_t *dirty)
         ui_rect_t status_bg = {0, STATUS_Y, UI_SCREEN_WIDTH, STATUS_H};
         ui_draw_fill_rect(&status_bg, EMU_STATUS_BG);
         ui_draw_text(12, STATUS_Y + 8, s_status,
-                     &font_montserrat_12, EMU_STATUS_TEXT);
+                     &font_montserrat_16, EMU_STATUS_TEXT);
     }
 }
 
@@ -621,7 +621,7 @@ void app_emusic_init(void)
     /* Initialize toggle button */
     {
         ui_rect_t btn_rect = { TOGGLE_BTN_X, TOGGLE_BTN_Y, TOGGLE_BTN_W, TOGGLE_BTN_H };
-        ui_button_init(&s_toggle_btn, &btn_rect, "Start", &font_montserrat_16);
+        ui_button_init(&s_toggle_btn, &btn_rect, "Start", &font_montserrat_24);
         ui_button_set_colors(&s_toggle_btn, EMU_START_BG, EMU_START_BG_PRESSED, UI_COLOR_WHITE);
         ui_button_set_radius(&s_toggle_btn, 8);
         ui_button_set_callback(&s_toggle_btn, toggle_btn_on_click);

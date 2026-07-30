@@ -805,7 +805,7 @@ void ui_settings_init(void)
 
     /* Title */
     ui_rect_t title_rect = { cx, 16, 200, 28 };
-    ui_label_init(&lbl_title, &title_rect, "Settings", &font_montserrat_16);
+    ui_label_init(&lbl_title, &title_rect, "Settings", &font_montserrat_24);
     ui_label_set_color(&lbl_title, UI_COLOR_TEXT_PRIMARY);
 
     /* Tab view */
@@ -819,14 +819,14 @@ void ui_settings_init(void)
 
     /* Save button */
     ui_rect_t save_rect = { cx + content_w - 90, 14, 80, 32 };
-    ui_button_init(&btn_save, &save_rect, "Save", &font_montserrat_12);
+    ui_button_init(&btn_save, &save_rect, "Save", &font_montserrat_16);
     ui_button_set_colors(&btn_save, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
     ui_button_set_callback(&btn_save, save_click);
 
     /* Initialize slot widgets */
     for (uint8_t i = 0; i < SETTINGS_MAX_ITEMS; i++) {
         ui_rect_t r = { 0, 0, 0, 0 };
-        ui_list_item_init(&s_items[i], &r, "", &font_montserrat_12);
+        ui_list_item_init(&s_items[i], &r, "", &font_montserrat_16);
         s_items[i].base.flags &= ~UI_WIDGET_FLAG_VISIBLE;
 
         /* Save original event_cb and install our wrapper for swipe scrolling */
@@ -850,12 +850,12 @@ void ui_settings_init(void)
 
     /* About item */
     ui_rect_t about_rect = { 0, 0, 0, 0 };
-    ui_list_item_init(&item_about, &about_rect, "About", &font_montserrat_12);
+    ui_list_item_init(&item_about, &about_rect, "About", &font_montserrat_16);
     item_about.show_divider = false;
     item_about.base.draw_cb = about_item_draw_cb;
     item_about.base.flags &= ~UI_WIDGET_FLAG_VISIBLE;
     ui_rect_t btn_about_rect = { 0, 0, 80, 34 };
-    ui_button_init(&btn_about_info, &btn_about_rect, "Info", &font_montserrat_12);
+    ui_button_init(&btn_about_info, &btn_about_rect, "Info", &font_montserrat_16);
     ui_button_set_callback(&btn_about_info, about_click);
     ui_button_set_colors(&btn_about_info, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
     ui_list_item_set_control(&item_about, (ui_widget_t *)&btn_about_info);

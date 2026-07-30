@@ -31,7 +31,7 @@
 #define FILE_BREADCRUMB_Y   (FILE_TOOLBAR_Y + FILE_TOOLBAR_H)
 #define FILE_LIST_Y         (FILE_BREADCRUMB_Y + FILE_BREADCRUMB_H)
 #define FILE_LIST_H         (UI_SCREEN_HEIGHT - FILE_LIST_Y)
-#define FILE_ITEM_H         36
+#define FILE_ITEM_H         52
 #define FILE_VISIBLE_ITEMS  (FILE_LIST_H / FILE_ITEM_H)
 #define FILE_MAX_ENTRIES    FILE_LIST_MAX_ENTRIES
 #define FILE_PATH_MAX       64
@@ -40,8 +40,8 @@
 #define TB_BTN_Y            (FILE_TOOLBAR_Y + 6)
 
 /* Context menu */
-#define CTX_MENU_W          160
-#define CTX_MENU_ITEM_H     32
+#define CTX_MENU_W          200
+#define CTX_MENU_ITEM_H     40
 #define CTX_MENU_MAX_ITEMS  5
 
 /* Input dialog */
@@ -800,15 +800,15 @@ static void file_draw_breadcrumb(void)
 
     /* Device indicator */
     const char *dev = s_fs.current_device ? "USB" : "SD";
-    ui_draw_text(x, y, dev, &font_montserrat_12, UI_COLOR_PRIMARY);
-    x += ui_text_width(dev, &font_montserrat_12) + 4;
-    ui_draw_text(x, y, "|", &font_montserrat_12, FILE_BREADCRUMB_SEP);
-    x += ui_text_width("|", &font_montserrat_12) + 6;
+    ui_draw_text(x, y, dev, &font_montserrat_16, UI_COLOR_PRIMARY);
+    x += ui_text_width(dev, &font_montserrat_16) + 4;
+    ui_draw_text(x, y, "|", &font_montserrat_16, FILE_BREADCRUMB_SEP);
+    x += ui_text_width("|", &font_montserrat_16) + 6;
 
     /* Root */
-    ui_draw_text(x, y, "\\", &font_montserrat_12,
+    ui_draw_text(x, y, "\\", &font_montserrat_16,
                  s_fs.path[0] == '\0' ? UI_COLOR_TEXT_PRIMARY : FILE_BREADCRUMB_TXT);
-    x += ui_text_width("\\", &font_montserrat_12) + 4;
+    x += ui_text_width("\\", &font_montserrat_16) + 4;
 
     /* Path segments */
     if (s_fs.path[0] != '\0') {
@@ -822,18 +822,18 @@ static void file_draw_breadcrumb(void)
 
         char *token = strtok(seg, "\\");
         while (token != NULL && x < UI_SCREEN_WIDTH - 20) {
-            ui_draw_text(x, y, ">", &font_montserrat_12, FILE_BREADCRUMB_SEP);
-            x += ui_text_width(">", &font_montserrat_12) + 4;
-            ui_draw_text(x, y, token, &font_montserrat_12, UI_COLOR_TEXT_PRIMARY);
-            x += ui_text_width(token, &font_montserrat_12) + 4;
+            ui_draw_text(x, y, ">", &font_montserrat_16, FILE_BREADCRUMB_SEP);
+            x += ui_text_width(">", &font_montserrat_16) + 4;
+            ui_draw_text(x, y, token, &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+            x += ui_text_width(token, &font_montserrat_16) + 4;
             token = strtok(NULL, "\\");
         }
     }
 
     /* Status on the right */
-    int16_t sw = ui_text_width(s_status_text, &font_montserrat_12);
+    int16_t sw = ui_text_width(s_status_text, &font_montserrat_16);
     ui_draw_text(UI_SCREEN_WIDTH - sw - 12, y, s_status_text,
-                 &font_montserrat_12, FILE_SIZE_COLOR);
+                 &font_montserrat_16, FILE_SIZE_COLOR);
 }
 
 static void file_draw_list(void)
@@ -842,12 +842,12 @@ static void file_draw_list(void)
     ui_draw_fill_rect(&list_bg, FILE_BG);
 
     if (s_fs.loading) {
-        ui_draw_text_in_rect(&list_bg, "Loading...", &font_montserrat_16,
+        ui_draw_text_in_rect(&list_bg, "Loading...", &font_montserrat_24,
                              UI_COLOR_TEXT_SECONDARY, 0x11);
         return;
     }
     if (s_fs.count == 0) {
-        ui_draw_text_in_rect(&list_bg, "Empty directory", &font_montserrat_16,
+        ui_draw_text_in_rect(&list_bg, "Empty directory", &font_montserrat_24,
                              UI_COLOR_TEXT_SECONDARY, 0x11);
         return;
     }
@@ -873,20 +873,20 @@ static void file_draw_list(void)
         const char *icon = file_icon_text(e);
 
         /* Icon badge */
-        ui_rect_t badge = {16, y + 8, 20, 20};
-        ui_draw_fill_round_rect(&badge, 4, icon_clr);
-        ui_draw_text(20, y + 10, icon, &font_montserrat_12, UI_COLOR_WHITE);
+        ui_rect_t badge = {16, y + 12, 28, 28};
+        ui_draw_fill_round_rect(&badge, 5, icon_clr);
+        ui_draw_text(24, y + 17, icon, &font_montserrat_16, UI_COLOR_WHITE);
 
         /* File name */
-        ui_draw_text(44, y + 4, e->name, &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+        ui_draw_text(56, y + 4, e->name, &font_montserrat_24, UI_COLOR_TEXT_PRIMARY);
 
         /* Size or type label */
         if (is_dir) {
-            ui_draw_text(44, y + 22, "Folder", &font_montserrat_12, FILE_SIZE_COLOR);
+            ui_draw_text(56, y + 30, "Folder", &font_montserrat_16, FILE_SIZE_COLOR);
         } else if (e->size > 0) {
             char size_buf[16];
             file_format_size(e->size, size_buf, sizeof(size_buf));
-            ui_draw_text(44, y + 22, size_buf, &font_montserrat_12, FILE_SIZE_COLOR);
+            ui_draw_text(56, y + 30, size_buf, &font_montserrat_16, FILE_SIZE_COLOR);
         }
     }
     ui_render_pop_target();
@@ -933,8 +933,8 @@ static void file_draw_context_menu(void)
 
         ui_color_t text_clr = UI_COLOR_TEXT_PRIMARY;
         if (ctx->actions[i] == CTX_DELETE) text_clr = CTX_MENU_DANGER;
-        ui_draw_text(ctx->x + 16, iy + 8, ctx->labels[i],
-                     &font_montserrat_16, text_clr);
+        ui_draw_text(ctx->x + 16, iy + 7, ctx->labels[i],
+                     &font_montserrat_24, text_clr);
 
         if (i < ctx->count - 1)
             ui_draw_hline(ctx->x + 8, iy + CTX_MENU_ITEM_H - 1,
@@ -959,27 +959,27 @@ static void file_draw_input_dialog(void)
     ui_draw_round_rect_border(&dlg_bg, 8, INPUT_DLG_BORDER, 1);
 
     /* Title */
-    ui_draw_text(dx + 20, dy + 14, dlg->title, &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+    ui_draw_text(dx + 20, dy + 14, dlg->title, &font_montserrat_24, UI_COLOR_TEXT_PRIMARY);
 
     /* Input field */
-    ui_rect_t field = {dx + 20, dy + 46, INPUT_DLG_W - 40, 32};
+    ui_rect_t field = {dx + 20, dy + 46, INPUT_DLG_W - 40, 40};
     ui_draw_fill_rect(&field, UI_COLOR_WHITE);
     ui_draw_rect_border(&field, UI_COLOR_PRIMARY, 1);
 
     /* Text in field */
     if (dlg->buf_len > 0) {
-        ui_draw_text(field.x + 8, field.y + 8, dlg->buffer,
-                     &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+        ui_draw_text(field.x + 8, field.y + 6, dlg->buffer,
+                     &font_montserrat_24, UI_COLOR_TEXT_PRIMARY);
     } else {
-        ui_draw_text(field.x + 8, field.y + 8, dlg->hint,
-                     &font_montserrat_12, UI_COLOR_TEXT_DISABLED);
+        ui_draw_text(field.x + 8, field.y + 11, dlg->hint,
+                     &font_montserrat_16, UI_COLOR_TEXT_DISABLED);
     }
 
     /* Cursor */
     {
         int16_t cx = field.x + 8;
         if (dlg->buf_len > 0)
-            cx += ui_text_width(dlg->buffer, &font_montserrat_16);
+            cx += ui_text_width(dlg->buffer, &font_montserrat_24);
         ui_draw_vline(cx, field.y + 4, field.h - 8, UI_COLOR_PRIMARY);
     }
 
@@ -988,12 +988,12 @@ static void file_draw_input_dialog(void)
     ui_rect_t cancel_r = {dx + INPUT_DLG_W - 180, btn_y, 72, 30};
     ui_draw_fill_round_rect(&cancel_r, 6, UI_HEX(0xE0E0E0));
     ui_draw_text(cancel_r.x + 12, cancel_r.y + 6, "Cancel",
-                 &font_montserrat_12, UI_COLOR_TEXT_PRIMARY);
+                 &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
 
     ui_rect_t ok_r = {dx + INPUT_DLG_W - 96, btn_y, 72, 30};
     ui_draw_fill_round_rect(&ok_r, 6, UI_COLOR_PRIMARY);
     ui_draw_text(ok_r.x + 22, ok_r.y + 6, "OK",
-                 &font_montserrat_12, UI_COLOR_WHITE);
+                 &font_montserrat_16, UI_COLOR_WHITE);
 }
 
 static void file_draw_stat_dialog(void)
@@ -1012,7 +1012,7 @@ static void file_draw_stat_dialog(void)
     ui_draw_round_rect_border(&dlg_bg, 8, INPUT_DLG_BORDER, 1);
 
     /* Title */
-    ui_draw_text(dx + 20, dy + 14, "Properties", &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+    ui_draw_text(dx + 20, dy + 14, "Properties", &font_montserrat_24, UI_COLOR_TEXT_PRIMARY);
     ui_draw_hline(dx + 16, dy + 38, dw - 32, FILE_BORDER);
 
     /* Stat text (multi-line) */
@@ -1029,19 +1029,19 @@ static void file_draw_stat_dialog(void)
             if (*p == '\r') p++;
             if (*p == '\n') p++;
             if (li > 0) {
-                ui_draw_text(dx + 20, ly, line_buf, &font_montserrat_12, UI_COLOR_TEXT_PRIMARY);
-                ly += 16;
+                ui_draw_text(dx + 20, ly, line_buf, &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+                ly += 22;
             }
         }
     } else {
-        ui_draw_text(dx + 20, dy + 48, "Loading...", &font_montserrat_12, UI_COLOR_TEXT_SECONDARY);
+        ui_draw_text(dx + 20, dy + 48, "Loading...", &font_montserrat_16, UI_COLOR_TEXT_SECONDARY);
     }
 
     /* Close button */
     ui_rect_t close_r = {dx + dw - 96, dy + dh - 44, 72, 30};
     ui_draw_fill_round_rect(&close_r, 6, UI_COLOR_PRIMARY);
     ui_draw_text(close_r.x + 14, close_r.y + 6, "Close",
-                 &font_montserrat_12, UI_COLOR_WHITE);
+                 &font_montserrat_16, UI_COLOR_WHITE);
 }
 
 /*=============================================================================
@@ -1370,37 +1370,37 @@ void app_file_init(void)
     file_update_status();
 
     ui_rect_t r_up = {10, TB_BTN_Y, TB_BTN_W, TB_BTN_H};
-    ui_button_init(&btn_up, &r_up, "Up", &font_montserrat_12);
+    ui_button_init(&btn_up, &r_up, "Up", &font_montserrat_16);
     ui_button_set_callback(&btn_up, btn_up_click);
     ui_button_set_colors(&btn_up, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
     btn_up.radius = 8;
 
     ui_rect_t r_dev = {74, TB_BTN_Y, TB_BTN_W, TB_BTN_H};
-    ui_button_init(&btn_device, &r_dev, "USB", &font_montserrat_12);
+    ui_button_init(&btn_device, &r_dev, "USB", &font_montserrat_16);
     ui_button_set_callback(&btn_device, btn_device_click);
     ui_button_set_colors(&btn_device, UI_HEX(0xE3F2FD), UI_HEX(0x1565C0), UI_HEX(0x1565C0));
     btn_device.radius = 8;
 
     ui_rect_t r_newf = {138, TB_BTN_Y, TB_BTN_W + 8, TB_BTN_H};
-    ui_button_init(&btn_new_folder, &r_newf, "+Dir", &font_montserrat_12);
+    ui_button_init(&btn_new_folder, &r_newf, "+Dir", &font_montserrat_16);
     ui_button_set_callback(&btn_new_folder, btn_new_folder_click);
     ui_button_set_colors(&btn_new_folder, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
     btn_new_folder.radius = 8;
 
     ui_rect_t r_newfile = {210, TB_BTN_Y, TB_BTN_W + 12, TB_BTN_H};
-    ui_button_init(&btn_new_file, &r_newfile, "+File", &font_montserrat_12);
+    ui_button_init(&btn_new_file, &r_newfile, "+File", &font_montserrat_16);
     ui_button_set_callback(&btn_new_file, btn_new_file_click);
     ui_button_set_colors(&btn_new_file, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
     btn_new_file.radius = 8;
 
     ui_rect_t r_delf = {288, TB_BTN_Y, TB_BTN_W, TB_BTN_H};
-    ui_button_init(&btn_delete, &r_delf, "Del", &font_montserrat_12);
+    ui_button_init(&btn_delete, &r_delf, "Del", &font_montserrat_16);
     ui_button_set_callback(&btn_delete, btn_delete_click);
     ui_button_set_colors(&btn_delete, UI_HEX(0xFFEBEE), UI_COLOR_ACCENT, UI_COLOR_DANGER);
     btn_delete.radius = 8;
 
     ui_rect_t r_ref = {352, TB_BTN_Y, TB_BTN_W, TB_BTN_H};
-    ui_button_init(&btn_refresh, &r_ref, "Ref", &font_montserrat_12);
+    ui_button_init(&btn_refresh, &r_ref, "Ref", &font_montserrat_16);
     ui_button_set_callback(&btn_refresh, btn_refresh_click);
     ui_button_set_colors(&btn_refresh, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
     btn_refresh.radius = 8;

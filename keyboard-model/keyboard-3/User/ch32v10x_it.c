@@ -50,4 +50,10 @@ void USART1_IRQHandler(void)
         uint8_t byte = (uint8_t)USART_ReceiveData(USART1);
         Protocol_ParseByte(&uart_core_rx_ctx, byte);
     }
+
+    /* Handle overrun error: read DR to clear ORE flag */
+    if (USART_GetFlagStatus(USART1, USART_FLAG_ORE) != RESET)
+    {
+        USART_ReceiveData(USART1);
+    }
 }

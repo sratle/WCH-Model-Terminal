@@ -4,8 +4,8 @@ Extract ASCII glyphs and FontAwesome icons from LVGL font files
 to MiniUI font format and bitmap arrays.
 
 Usage:
-    python extract_lvgl_font.py --input LVGL/src/font/lv_font_montserrat_12.c --output-dir Common/Common/MiniUI/font --size 12
     python extract_lvgl_font.py --input LVGL/src/font/lv_font_montserrat_16.c --output-dir Common/Common/MiniUI/font --size 16
+    python extract_lvgl_font.py --input LVGL/src/font/lv_font_montserrat_24.c --output-dir Common/Common/MiniUI/font --size 24
 """
 
 import re
@@ -51,8 +51,10 @@ def parse_glyph_bitmap(content: str) -> List[int]:
     bitmap_str = content[start_pos:end_pos-1]
     # Remove comments
     bitmap_str = re.sub(r'/\*.*?\*/', '', bitmap_str, flags=re.DOTALL)
-    # Extract hex values
-    values = re.findall(r'0x([0-9a-fA-F]{2})', bitmap_str)
+    # Extract hex values. Note: newer LVGL font converters emit
+    # zero-stripped bytes (e.g. "0xf," instead of "0x0f,"), so the
+    # pattern must accept 1 or 2 hex digits per byte.
+    values = re.findall(r'0x([0-9a-fA-F]{1,2})\b', bitmap_str)
     return [int(v, 16) for v in values]
 
 
@@ -576,7 +578,7 @@ def main():
     parser = argparse.ArgumentParser(description='Extract LVGL font to MiniUI format')
     parser.add_argument('--input', required=True, help='Input LVGL font .c file')
     parser.add_argument('--output-dir', required=True, help='Output directory for MiniUI font files')
-    parser.add_argument('--size', type=int, required=True, help='Font size (12 or 16)')
+    parser.add_argument('--size', type=int, required=True, help='Font size (e.g. 16 or 24)')
     
     args = parser.parse_args()
     

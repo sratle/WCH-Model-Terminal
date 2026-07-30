@@ -44,7 +44,7 @@ void ui_main_draw_sidebar(ui_rect_t *dirty)
     ui_draw_fill_rect(&sidebar, UI_COLOR_BG_SIDEBAR);
 
     ui_rect_t title_rect = {0, 20, SIDEBAR_WIDTH, 40};
-    ui_draw_text_in_rect(&title_rect, "ELAB", &font_montserrat_16, UI_COLOR_PRIMARY, 1);
+    ui_draw_text_in_rect(&title_rect, "ELAB", &font_montserrat_24, UI_COLOR_PRIMARY, 1);
 
     for (int i = 0; i < SIDEBAR_ITEM_COUNT; i++) {
         ui_rect_t item_rect = {
@@ -60,9 +60,9 @@ void ui_main_draw_sidebar(ui_rect_t *dirty)
             ui_rect_t indicator = {0, item_rect.y, 4, SIDEBAR_ITEM_HEIGHT};
             ui_draw_fill_rect(&indicator, UI_COLOR_PRIMARY);
 
-            ui_draw_text_in_rect(&item_rect, s_menu_labels[i], &font_montserrat_12, UI_COLOR_TEXT_PRIMARY, 1);
+            ui_draw_text_in_rect(&item_rect, s_menu_labels[i], &font_montserrat_16, UI_COLOR_TEXT_PRIMARY, 1);
         } else {
-            ui_draw_text_in_rect(&item_rect, s_menu_labels[i], &font_montserrat_12, UI_COLOR_TEXT_SECONDARY, 1);
+            ui_draw_text_in_rect(&item_rect, s_menu_labels[i], &font_montserrat_16, UI_COLOR_TEXT_SECONDARY, 1);
         }
     }
 }

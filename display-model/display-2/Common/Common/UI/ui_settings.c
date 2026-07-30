@@ -14,8 +14,8 @@
 #include "ui_main.h"
 #include "../settings.h"
 #include "../UART/uart_module.h"
-#include "../MiniUI/font/font_montserrat_12.h"
 #include "../MiniUI/font/font_montserrat_16.h"
+#include "../MiniUI/font/font_montserrat_24.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -568,7 +568,7 @@ void ui_settings_init(void)
     int16_t content_w = UI_SCREEN_WIDTH - SIDEBAR_WIDTH - 2 * SETTINGS_LEFT;
 
     ui_rect_t title_rect = {cx, 16, 200, 28};
-    ui_label_init(&lbl_title, &title_rect, "Settings", &font_montserrat_16);
+    ui_label_init(&lbl_title, &title_rect, "Settings", &font_montserrat_24);
     ui_label_set_color(&lbl_title, UI_COLOR_TEXT_PRIMARY);
 
     ui_rect_t tv_rect = {cx, SETTINGS_TOP, content_w, TAB_BAR_H};
@@ -580,13 +580,13 @@ void ui_settings_init(void)
     ui_tabview_set_callback(&tab_modules, tab_change_cb);
 
     ui_rect_t save_rect = {cx + content_w - 90, 14, 80, 32};
-    ui_button_init(&btn_save, &save_rect, "Save", &font_montserrat_12);
+    ui_button_init(&btn_save, &save_rect, "Save", &font_montserrat_16);
     ui_button_set_colors(&btn_save, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
     ui_button_set_callback(&btn_save, save_click);
 
     for (uint8_t i = 0; i < SETTINGS_MAX_ITEMS; i++) {
         ui_rect_t r = {0, 0, 0, 0};
-        ui_list_item_init(&s_items[i], &r, "", &font_montserrat_12);
+        ui_list_item_init(&s_items[i], &r, "", &font_montserrat_16);
         s_items[i].base.flags &= ~UI_WIDGET_FLAG_VISIBLE;
         s_items[i].base.user_data = (void*)(uintptr_t)i;
 
@@ -600,11 +600,11 @@ void ui_settings_init(void)
     }
 
     ui_rect_t about_rect = {0, 0, 0, 0};
-    ui_list_item_init(&item_about, &about_rect, "About", &font_montserrat_12);
+    ui_list_item_init(&item_about, &about_rect, "About", &font_montserrat_16);
     item_about.show_divider = false;
     item_about.base.flags &= ~UI_WIDGET_FLAG_VISIBLE;
     ui_rect_t btn_about_rect = {0, 0, 80, 34};
-    ui_button_init(&btn_about_info, &btn_about_rect, "Info", &font_montserrat_12);
+    ui_button_init(&btn_about_info, &btn_about_rect, "Info", &font_montserrat_16);
     ui_button_set_callback(&btn_about_info, about_click);
     ui_button_set_colors(&btn_about_info, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
     ui_list_item_set_control(&item_about, (ui_widget_t *)&btn_about_info);

@@ -20,14 +20,14 @@
  *  Layout Configuration (800x480)
  *=============================================================================*/
 
-#define TERM_LINE_H         16
+#define TERM_LINE_H         20
 #define TERM_MARGIN_X       8
 #define TERM_TEXT_Y         (APP_TITLE_BAR_H)
 #define TERM_TEXT_H         (UI_SCREEN_HEIGHT - APP_TITLE_BAR_H)
 #define TERM_PROMPT_LEN     2   /* "> " */
 #define TERM_INPUT_MAX      128
 #define TERM_HISTORY_MAX    16
-#define TERM_STATUS_H       20
+#define TERM_STATUS_H       24
 #define TERM_CONTENT_H      (TERM_TEXT_H - TERM_STATUS_H)
 
 /* Compact line buffer: 16KB text pool + 256-entry circular index.
@@ -618,15 +618,15 @@ static void term_draw_output(const ui_rect_t *dirty)
 
                 if (len >= 2 && text[0] == '>' && text[1] == ' ') {
                     /* Prompt line: draw "> " in prompt color, rest in input color */
-                    ui_draw_text(TERM_MARGIN_X, y, "> ", &font_montserrat_12, TERM_PROMPT_COLOR);
+                    ui_draw_text(TERM_MARGIN_X, y, "> ", &font_montserrat_16, TERM_PROMPT_COLOR);
                     if (len > 2) {
                         char cmd[TERM_LINE_MAX];
                         uint16_t cmd_len = len - 2;
                         if (cmd_len > sizeof(cmd) - 1) cmd_len = sizeof(cmd) - 1;
                         memcpy(cmd, &text[2], cmd_len);
                         cmd[cmd_len] = '\0';
-                        ui_draw_text(TERM_MARGIN_X + ui_text_width("> ", &font_montserrat_12), y,
-                                     cmd, &font_montserrat_12, TERM_INPUT_COLOR);
+                        ui_draw_text(TERM_MARGIN_X + ui_text_width("> ", &font_montserrat_16), y,
+                                     cmd, &font_montserrat_16, TERM_INPUT_COLOR);
                     }
                 } else {
                     /* Check if it looks like an error */
@@ -635,13 +635,13 @@ static void term_draw_output(const ui_rect_t *dirty)
                         strstr(text, "failed") || strstr(text, "busy")) {
                         color = TERM_ERROR_COLOR;
                     }
-                    ui_draw_text(TERM_MARGIN_X, y, text, &font_montserrat_12, color);
+                    ui_draw_text(TERM_MARGIN_X, y, text, &font_montserrat_16, color);
                 }
             }
         } else if (line_idx == (int16_t)s_term.line_count) {
             /* Input line: draw prompt + input text + cursor */
-            ui_draw_text(TERM_MARGIN_X, y, "> ", &font_montserrat_12, TERM_PROMPT_COLOR);
-            int16_t prompt_w = ui_text_width("> ", &font_montserrat_12);
+            ui_draw_text(TERM_MARGIN_X, y, "> ", &font_montserrat_16, TERM_PROMPT_COLOR);
+            int16_t prompt_w = ui_text_width("> ", &font_montserrat_16);
             int16_t text_x = TERM_MARGIN_X + prompt_w;
 
             if (s_term.input_len > 0) {
@@ -652,8 +652,8 @@ static void term_draw_output(const ui_rect_t *dirty)
                     if (blen > sizeof(before) - 1) blen = sizeof(before) - 1;
                     memcpy(before, s_term.input, blen);
                     before[blen] = '\0';
-                    ui_draw_text(text_x, y, before, &font_montserrat_12, TERM_INPUT_COLOR);
-                    text_x += ui_text_width(before, &font_montserrat_12);
+                    ui_draw_text(text_x, y, before, &font_montserrat_16, TERM_INPUT_COLOR);
+                    text_x += ui_text_width(before, &font_montserrat_16);
                 }
 
                 /* Draw cursor */
@@ -669,7 +669,7 @@ static void term_draw_output(const ui_rect_t *dirty)
                     memcpy(after, &s_term.input[s_term.cursor_pos], alen);
                     after[alen] = '\0';
                     int16_t cursor_w = 2;
-                    ui_draw_text(text_x + cursor_w, y, after, &font_montserrat_12, TERM_INPUT_COLOR);
+                    ui_draw_text(text_x + cursor_w, y, after, &font_montserrat_16, TERM_INPUT_COLOR);
                 }
             } else {
                 /* Empty input: just draw cursor */
@@ -721,7 +721,7 @@ static void term_draw_status(void)
     }
 
     buf[pos] = '\0';
-    ui_draw_text(4, y + 3, buf, &font_montserrat_12, TERM_STATUS_TEXT);
+    ui_draw_text(4, y + 3, buf, &font_montserrat_16, TERM_STATUS_TEXT);
 }
 
 /*=============================================================================

@@ -191,6 +191,28 @@ core/
 
 ---
 
+## 心跳与热插拔管理
+
+`Hardware_Heartbeat()` 在主循环中以约 1ms 周期被调用，统一管理 6 个槽位
+（Display / Keyboard / Power / Submodel1~3）的在线检测与热插拔恢复：
+
+- **心跳**：每 500ms 向全部槽位发送 `CMD_GET_TYPE`；连续 8 次无应答（约 4s）判定 OFFLINE。
+- **身份识别**：仅按指纹 `LEN==6 且 DATA[0]==预期模块类型`（Power 额外允许 LEN==8 带电量）
+  的 ACK 才刷新槽位在线状态与 type/subtype，其他查询 ACK 不参与心跳记账。
+- **接收双缓冲**：`protocol_rx_ctx_t` 采用 ISR 写 `frame` / 主循环读 `read_frame` 双缓冲，
+  背靠背双帧保旧丢新，心跳 ACK 不会被后续事件帧顶掉。
+- **帧间超时**：每 1ms 巡检 6 条 UART 链路，解析器半帧状态下 100ms 无新字节即强制复位
+  （`Protocol_RxCheckTimeout`），抵御插拔噪声伪造 LEN。
+- **反卡死填充**：对非 ONLINE 槽位每轮心跳轮转发送 258 字节 `0x00`，保证模块侧解析器
+  被上电噪声卡住后能在数个心跳周期内重新同步。
+- **OFFLINE 清理**：槽位离线时清空 `hb_slots` 的 type/subtype；Submodel 槽复位 `type_id`；
+  Display 槽复位 `type_received`（重新上线自动重发 `Config_Apply`）；Keyboard 复位
+  `type_id` 并停止音乐/效果器；Power 复位电量缓存。
+- **ISR 错误清理**：所有 UART 接收中断在 RXNE 处理后清除 ORE（读 STATR+DATAR），
+  防止热插拔噪声导致中断风暴或 RX 永久卡死。
+
+---
+
 ## 命名规范
 
 - **文件**：统一采用下划线加小写字母，例如 `hardware.c`、`i2c_soft.h`。

@@ -19,7 +19,7 @@ extern "C" {
  *  Fullscreen Page Configuration
  *=============================================================================*/
 
-#define APP_TITLE_BAR_H     40
+#define APP_TITLE_BAR_H     48
 
 /*=============================================================================
  *  Fullscreen App Page Structure

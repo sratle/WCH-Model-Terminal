@@ -51,16 +51,16 @@ static const char *subtype_name(uint8_t type, uint8_t subtype)
 
 /* Core modules: Display, Keyboard, Power */
 static module_info_t s_core_modules[3] = {
-    {"Display",  icon_image_16_bitmap,     ICON_IMAGE_16_WIDTH,     ICON_IMAGE_16_HEIGHT,     false, 0, 0, "OFFLINE"},
-    {"Keyboard", icon_keyboard_16_bitmap,  ICON_KEYBOARD_16_WIDTH,  ICON_KEYBOARD_16_HEIGHT,  false, 0, 0, "OFFLINE"},
-    {"Power",    icon_power_16_bitmap,     ICON_POWER_16_WIDTH,     ICON_POWER_16_HEIGHT,     false, 0, 0, "OFFLINE"},
+    {"Display",  icon_image_24_bitmap,     ICON_IMAGE_24_WIDTH,     ICON_IMAGE_24_HEIGHT,     false, 0, 0, "OFFLINE"},
+    {"Keyboard", icon_keyboard_24_bitmap,  ICON_KEYBOARD_24_WIDTH,  ICON_KEYBOARD_24_HEIGHT,  false, 0, 0, "OFFLINE"},
+    {"Power",    icon_power_24_bitmap,     ICON_POWER_24_WIDTH,     ICON_POWER_24_HEIGHT,     false, 0, 0, "OFFLINE"},
 };
 
 /* Submodel modules: Slot1, Slot2, Slot3 */
 static module_info_t s_sub_modules[3] = {
-    {"Slot 1",   icon_bars_16_bitmap,      ICON_BARS_16_WIDTH,      ICON_BARS_16_HEIGHT,      false, 0, 0, "OFFLINE"},
-    {"Slot 2",   icon_bars_16_bitmap,      ICON_BARS_16_WIDTH,      ICON_BARS_16_HEIGHT,      false, 0, 0, "OFFLINE"},
-    {"Slot 3",   icon_bars_16_bitmap,      ICON_BARS_16_WIDTH,      ICON_BARS_16_HEIGHT,      false, 0, 0, "OFFLINE"},
+    {"Slot 1",   icon_bars_24_bitmap,      ICON_BARS_24_WIDTH,      ICON_BARS_24_HEIGHT,      false, 0, 0, "OFFLINE"},
+    {"Slot 2",   icon_bars_24_bitmap,      ICON_BARS_24_WIDTH,      ICON_BARS_24_HEIGHT,      false, 0, 0, "OFFLINE"},
+    {"Slot 3",   icon_bars_24_bitmap,      ICON_BARS_24_WIDTH,      ICON_BARS_24_HEIGHT,      false, 0, 0, "OFFLINE"},
 };
 
 /* lsdev slot name to module index mapping:
@@ -322,7 +322,7 @@ static void init_tab_cards(module_info_t *mods, ui_card_t *cards,
         cards[i].radius = 8;
 
         ui_rect_t name_r = {card_rect.x + 10, card_rect.y + 8, 100, 18};
-        ui_label_init(&names[i], &name_r, mods[i].name, &font_montserrat_12);
+        ui_label_init(&names[i], &name_r, mods[i].name, &font_montserrat_16);
         names[i].base.bg_color = UI_COLOR_TRANSPARENT;
         ui_label_set_color(&names[i], UI_COLOR_TEXT_PRIMARY);
 
@@ -330,7 +330,7 @@ static void init_tab_cards(module_info_t *mods, ui_card_t *cards,
         ui_status_dot_init(&dots[i], &dot_r, mods[i].online);
 
         ui_rect_t info_r = {card_rect.x + 10, card_rect.y + 34, 140, 16};
-        ui_label_init(&infos[i], &info_r, mods[i].info, &font_montserrat_12);
+        ui_label_init(&infos[i], &info_r, mods[i].info, &font_montserrat_16);
         infos[i].base.bg_color = UI_COLOR_TRANSPARENT;
         ui_label_set_color(&infos[i], UI_COLOR_TEXT_SECONDARY);
 
@@ -364,7 +364,7 @@ void ui_models_init(void)
     int16_t cx = SIDEBAR_WIDTH + 20;
 
     ui_rect_t title_rect = {cx, 20, 300, 30};
-    ui_label_init(&lbl_title, &title_rect, "Models", &font_montserrat_16);
+    ui_label_init(&lbl_title, &title_rect, "Models", &font_montserrat_24);
     ui_label_set_color(&lbl_title, UI_COLOR_TEXT_PRIMARY);
 
     ui_rect_t tv_rect = {SIDEBAR_WIDTH, 50, UI_SCREEN_WIDTH - SIDEBAR_WIDTH, UI_SCREEN_HEIGHT - 50};

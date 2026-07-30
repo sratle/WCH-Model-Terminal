@@ -39,22 +39,22 @@ typedef struct {
 } app_entry_t;
 
 static const app_entry_t s_apps[APPS_TOTAL] = {
-    {"Music",       icon_audio_16_bitmap,       ICON_AUDIO_16_WIDTH,       ICON_AUDIO_16_HEIGHT,       app_music_get_page},
-    {"Files",       icon_directory_16_bitmap,    ICON_DIRECTORY_16_WIDTH,   ICON_DIRECTORY_16_HEIGHT,   app_file_get_page},
-    {"Editor",      icon_edit_16_bitmap,        ICON_EDIT_16_WIDTH,        ICON_EDIT_16_HEIGHT,        app_editor_get_page},
-    {"Images",      icon_image_16_bitmap,       ICON_IMAGE_16_WIDTH,       ICON_IMAGE_16_HEIGHT,       app_images_get_page},
-    {"USB",         icon_usb_16_bitmap,         ICON_USB_16_WIDTH,         ICON_USB_16_HEIGHT,         app_usb_get_page},
-    {"Power",       icon_power_16_bitmap,       ICON_POWER_16_WIDTH,       ICON_POWER_16_HEIGHT,       app_power_get_page},
-    {"BT",          icon_bluetooth_16_bitmap,   ICON_BLUETOOTH_16_WIDTH,   ICON_BLUETOOTH_16_HEIGHT,   app_bt_get_page},
-    {"NFC",         icon_wifi_16_bitmap,        ICON_WIFI_16_WIDTH,        ICON_WIFI_16_HEIGHT,        app_nfc_get_page},
-    {"Finger",      icon_uf15b_16_bitmap,       ICON_UF15B_16_WIDTH,       ICON_UF15B_16_HEIGHT,       app_fingerprint_get_page},
-    {"Health",      icon_charge_16_bitmap,      ICON_CHARGE_16_WIDTH,      ICON_CHARGE_16_HEIGHT,      app_health_get_page},
-    {"SubDisp",     icon_bars_16_bitmap,        ICON_BARS_16_WIDTH,        ICON_BARS_16_HEIGHT,        app_subdisplay_get_page},
-    {"RGB",         icon_tint_16_bitmap,        ICON_TINT_16_WIDTH,        ICON_TINT_16_HEIGHT,        app_rgb_get_page},
-    {"IRRange",     icon_gps_16_bitmap,         ICON_GPS_16_WIDTH,         ICON_GPS_16_HEIGHT,         app_irrange_get_page},
-    {"EBook",       icon_list_16_bitmap,        ICON_LIST_16_WIDTH,        ICON_LIST_16_HEIGHT,        app_ebook_get_page},
-    {"EMusic",      icon_volume_max_16_bitmap,  ICON_VOLUME_MAX_16_WIDTH,  ICON_VOLUME_MAX_16_HEIGHT,  app_emusic_get_page},
-    {"Terminal",    icon_keyboard_16_bitmap,    ICON_KEYBOARD_16_WIDTH,    ICON_KEYBOARD_16_HEIGHT,    app_terminal_get_page},
+    {"Music",       icon_audio_24_bitmap,       ICON_AUDIO_24_WIDTH,       ICON_AUDIO_24_HEIGHT,       app_music_get_page},
+    {"Files",       icon_directory_24_bitmap,    ICON_DIRECTORY_24_WIDTH,   ICON_DIRECTORY_24_HEIGHT,   app_file_get_page},
+    {"Editor",      icon_edit_24_bitmap,        ICON_EDIT_24_WIDTH,        ICON_EDIT_24_HEIGHT,        app_editor_get_page},
+    {"Images",      icon_image_24_bitmap,       ICON_IMAGE_24_WIDTH,       ICON_IMAGE_24_HEIGHT,       app_images_get_page},
+    {"USB",         icon_usb_24_bitmap,         ICON_USB_24_WIDTH,         ICON_USB_24_HEIGHT,         app_usb_get_page},
+    {"Power",       icon_power_24_bitmap,       ICON_POWER_24_WIDTH,       ICON_POWER_24_HEIGHT,       app_power_get_page},
+    {"BT",          icon_bluetooth_24_bitmap,   ICON_BLUETOOTH_24_WIDTH,   ICON_BLUETOOTH_24_HEIGHT,   app_bt_get_page},
+    {"NFC",         icon_wifi_24_bitmap,        ICON_WIFI_24_WIDTH,        ICON_WIFI_24_HEIGHT,        app_nfc_get_page},
+    {"Finger",      icon_uf15b_24_bitmap,       ICON_UF15B_24_WIDTH,       ICON_UF15B_24_HEIGHT,       app_fingerprint_get_page},
+    {"Health",      icon_charge_24_bitmap,      ICON_CHARGE_24_WIDTH,      ICON_CHARGE_24_HEIGHT,      app_health_get_page},
+    {"SubDisp",     icon_bars_24_bitmap,        ICON_BARS_24_WIDTH,        ICON_BARS_24_HEIGHT,        app_subdisplay_get_page},
+    {"RGB",         icon_tint_24_bitmap,        ICON_TINT_24_WIDTH,        ICON_TINT_24_HEIGHT,        app_rgb_get_page},
+    {"IRRange",     icon_gps_24_bitmap,         ICON_GPS_24_WIDTH,         ICON_GPS_24_HEIGHT,         app_irrange_get_page},
+    {"EBook",       icon_list_24_bitmap,        ICON_LIST_24_WIDTH,        ICON_LIST_24_HEIGHT,        app_ebook_get_page},
+    {"EMusic",      icon_volume_max_24_bitmap,  ICON_VOLUME_MAX_24_WIDTH,  ICON_VOLUME_MAX_24_HEIGHT,  app_emusic_get_page},
+    {"Terminal",    icon_keyboard_24_bitmap,    ICON_KEYBOARD_24_WIDTH,    ICON_KEYBOARD_24_HEIGHT,    app_terminal_get_page},
 };
 
 /*=============================================================================
@@ -267,21 +267,21 @@ void ui_apps_init(void)
     int16_t cx = SIDEBAR_WIDTH + 20;
 
     ui_rect_t title_rect = {cx, 20, 300, 30};
-    ui_label_init(&lbl_title, &title_rect, "Apps", &font_montserrat_16);
+    ui_label_init(&lbl_title, &title_rect, "Apps", &font_montserrat_24);
     ui_label_set_color(&lbl_title, UI_COLOR_TEXT_PRIMARY);
 
     ui_rect_t page_rect = {cx + 400, 24, 60, 20};
-    ui_label_init(&lbl_page, &page_rect, "1/2", &font_montserrat_12);
+    ui_label_init(&lbl_page, &page_rect, "1/2", &font_montserrat_16);
     ui_label_set_color(&lbl_page, UI_COLOR_TEXT_SECONDARY);
 
     ui_rect_t prev_rect = {cx + 350, 20, 40, 28};
-    ui_button_init(&btn_prev, &prev_rect, "<", &font_montserrat_12);
+    ui_button_init(&btn_prev, &prev_rect, "<", &font_montserrat_16);
     ui_button_set_callback(&btn_prev, prev_page_click);
     ui_button_set_colors(&btn_prev, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
     btn_prev.radius = 14;
 
     ui_rect_t next_rect = {cx + 470, 20, 40, 28};
-    ui_button_init(&btn_next, &next_rect, ">", &font_montserrat_12);
+    ui_button_init(&btn_next, &next_rect, ">", &font_montserrat_16);
     ui_button_set_callback(&btn_next, next_page_click);
     ui_button_set_colors(&btn_next, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
     btn_next.radius = 14;
@@ -306,7 +306,7 @@ void ui_apps_init(void)
         };
 
         ui_icon_button_init(&btn_apps[i], &btn_rect,
-                            NULL, 0, 0, "", &font_montserrat_12);
+                            NULL, 0, 0, "", &font_montserrat_16);
         ui_icon_button_set_callback(&btn_apps[i], app_button_click);
 
         s_apps_widgets[4 + i] = (ui_widget_t *)&btn_apps[i];

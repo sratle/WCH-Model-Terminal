@@ -745,11 +745,11 @@ static void ap_draw_hud(void)
     ui_draw_fill_rect(&hud, UI_HEX(0x2C3E50));
 
     ui_draw_text(AP_AREA_X + 12, AP_AREA_Y + 7,
-                 s_ap.buf_time, &font_montserrat_12, UI_COLOR_WHITE);
+                 s_ap.buf_time, &font_montserrat_16, UI_COLOR_WHITE);
 
-    int16_t hp_w = ui_text_width(s_ap.buf_hp, &font_montserrat_12);
+    int16_t hp_w = ui_text_width(s_ap.buf_hp, &font_montserrat_16);
     ui_draw_text(AP_AREA_X + AP_AREA_W/2 - hp_w/2, AP_AREA_Y + 7,
-                 s_ap.buf_hp, &font_montserrat_12,
+                 s_ap.buf_hp, &font_montserrat_16,
                  s_ap.hp <= 30 ? UI_HEX(0xE74C3C) : UI_COLOR_WHITE);
 
     /* Score + phase indicator */
@@ -757,9 +757,9 @@ static void ap_draw_hud(void)
     char buf[24];
     ap_strcpy(buf, s_ap.buf_score);
     ap_strcat(buf, phase);
-    int16_t score_w = ui_text_width(buf, &font_montserrat_12);
+    int16_t score_w = ui_text_width(buf, &font_montserrat_16);
     ui_draw_text(AP_AREA_X + AP_AREA_W - score_w - 12, AP_AREA_Y + 7,
-                 buf, &font_montserrat_12,
+                 buf, &font_montserrat_16,
                  s_ap.score >= AP_PHASE2_SCORE ? UI_HEX(0xE74C3C) : UI_HEX(0xF1C40F));
 }
 
@@ -769,21 +769,21 @@ static void ap_draw_idle_screen(void)
     ui_draw_fill_circle(AP_AREA_W * 2 / 3, AP_AREA_Y + AP_AREA_H * 2 / 3, 45, UI_HEX(0xFADBD8));
 
     ui_rect_t title_rect = {AP_AREA_X, AP_AREA_Y + AP_AREA_H / 4 - 20, AP_AREA_W, 36};
-    ui_draw_text_in_rect(&title_rect, "Airplane", &font_montserrat_16,
+    ui_draw_text_in_rect(&title_rect, "Airplane", &font_montserrat_24,
                          UI_COLOR_PRIMARY, 1);
 
     ui_rect_t inst_rect = {AP_AREA_X, AP_AREA_Y + AP_AREA_H / 4 + 24, AP_AREA_W, 24};
     ui_draw_text_in_rect(&inst_rect, "Shoot down enemy planes! Dodge their bullets!",
-                         &font_montserrat_12, UI_COLOR_TEXT_SECONDARY, 1);
+                         &font_montserrat_16, UI_COLOR_TEXT_SECONDARY, 1);
 
     ui_rect_t hint_rect = {AP_AREA_X, AP_AREA_Y + AP_AREA_H / 2 + 20, AP_AREA_W, 24};
     ui_draw_text_in_rect(&hint_rect, "Touch and drag to move, tap to start",
-                         &font_montserrat_12, UI_COLOR_ACCENT, 1);
+                         &font_montserrat_16, UI_COLOR_ACCENT, 1);
 
     /* Show best score */
     if (s_ap.best > 0) {
         ui_rect_t best_rect = {AP_AREA_X, AP_AREA_Y + AP_AREA_H / 2 + 48, AP_AREA_W, 24};
-        ui_draw_text_in_rect(&best_rect, s_ap.buf_best, &font_montserrat_12,
+        ui_draw_text_in_rect(&best_rect, s_ap.buf_best, &font_montserrat_16,
                              UI_COLOR_ACCENT, 1);
     }
 }
@@ -794,11 +794,11 @@ static void ap_draw_gameover(void)
     ui_draw_fill_rect(&overlay, UI_HEX(0x333333));
 
     ui_rect_t go_rect = {AP_AREA_X, AP_AREA_Y + AP_AREA_H / 2 - 60, AP_AREA_W, 30};
-    ui_draw_text_in_rect(&go_rect, "GAME OVER", &font_montserrat_16,
+    ui_draw_text_in_rect(&go_rect, "GAME OVER", &font_montserrat_24,
                          UI_COLOR_ACCENT, 1);
 
     ui_rect_t score_rect = {AP_AREA_X, AP_AREA_Y + AP_AREA_H / 2 - 22, AP_AREA_W, 24};
-    ui_draw_text_in_rect(&score_rect, s_ap.buf_gameover, &font_montserrat_12,
+    ui_draw_text_in_rect(&score_rect, s_ap.buf_gameover, &font_montserrat_16,
                          UI_COLOR_WHITE, 1);
 
     /* Show remaining HP and time */
@@ -810,16 +810,16 @@ static void ap_draw_gameover(void)
     ap_strcat(buf_info, "  Time: ");
     ap_strcat(buf_info, s_ap.buf_time);
     ui_rect_t info_rect = {AP_AREA_X, AP_AREA_Y + AP_AREA_H / 2 + 8, AP_AREA_W, 24};
-    ui_draw_text_in_rect(&info_rect, buf_info, &font_montserrat_12,
+    ui_draw_text_in_rect(&info_rect, buf_info, &font_montserrat_16,
                          UI_COLOR_SECONDARY, 1);
 
     ui_rect_t hint_rect = {AP_AREA_X, AP_AREA_Y + AP_AREA_H / 2 + 38, AP_AREA_W, 24};
-    ui_draw_text_in_rect(&hint_rect, "Tap to restart", &font_montserrat_12,
+    ui_draw_text_in_rect(&hint_rect, "Tap to restart", &font_montserrat_16,
                          UI_COLOR_SECONDARY, 1);
 
     /* Show best score */
     ui_rect_t best_rect = {AP_AREA_X, AP_AREA_Y + AP_AREA_H / 2 + 64, AP_AREA_W, 24};
-    ui_draw_text_in_rect(&best_rect, s_ap.buf_best, &font_montserrat_12,
+    ui_draw_text_in_rect(&best_rect, s_ap.buf_best, &font_montserrat_16,
                          UI_COLOR_ACCENT, 1);
 }
 
@@ -877,7 +877,7 @@ static void ap_draw_entities_in_clip(const ui_rect_t *clip)
         int16_t dy = AP_AREA_Y + s_ap.dmg_show_y - AP_PLAYER_H/2 - 14;
         ui_rect_t dr = {dx - 24, dy - 10, 48, 24};
         if (ap_rects_overlap(&dr, clip))
-            ui_draw_text(dx - 10, dy, "-10", &font_montserrat_12, UI_HEX(0xE74C3C));
+            ui_draw_text(dx - 10, dy, "-10", &font_montserrat_16, UI_HEX(0xE74C3C));
     }
 }
 

@@ -521,7 +521,7 @@ static void mine_draw_cell_revealed(int row, int col)
         uint8_t num = s_mine.numbers[row][col];
         if (num > 0 && num <= 8) {
             char buf[2] = {'0' + num, '\0'};
-            ui_draw_text_in_rect(&r, buf, &font_montserrat_16,
+            ui_draw_text_in_rect(&r, buf, &font_montserrat_24,
                                  s_num_colors[num - 1], 1);
         }
     }
@@ -556,31 +556,31 @@ static void mine_draw_panel(void)
 {
     /* Mines label */
     ui_rect_t ml = {MINE_PANEL_X, MINE_MINES_LABEL_Y, MINE_PANEL_W, MINE_INFO_LABEL_H};
-    ui_draw_text_in_rect(&ml, "MINES", &font_montserrat_12, UI_COLOR_TEXT_SECONDARY, 1);
+    ui_draw_text_in_rect(&ml, "MINES", &font_montserrat_16, UI_COLOR_TEXT_SECONDARY, 1);
 
     /* Mines box */
     ui_rect_t mb = {MINE_PANEL_X, MINE_MINES_BOX_Y, MINE_PANEL_W, MINE_INFO_BOX_H};
     ui_draw_fill_round_rect(&mb, MINE_INFO_BOX_R, UI_HEX(0x3C3C3C));
-    ui_draw_text_in_rect(&mb, s_mine.buf_mines, &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&mb, s_mine.buf_mines, &font_montserrat_24, UI_COLOR_WHITE, 1);
 
     /* Time label */
     ui_rect_t tl = {MINE_PANEL_X, MINE_TIME_LABEL_Y, MINE_PANEL_W, MINE_INFO_LABEL_H};
-    ui_draw_text_in_rect(&tl, "TIME", &font_montserrat_12, UI_COLOR_TEXT_SECONDARY, 1);
+    ui_draw_text_in_rect(&tl, "TIME", &font_montserrat_16, UI_COLOR_TEXT_SECONDARY, 1);
 
     /* Time box */
     ui_rect_t tb = {MINE_PANEL_X, MINE_TIME_BOX_Y, MINE_PANEL_W, MINE_INFO_BOX_H};
     ui_draw_fill_round_rect(&tb, MINE_INFO_BOX_R, UI_HEX(0x3C3C3C));
-    ui_draw_text_in_rect(&tb, s_mine.buf_time, &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&tb, s_mine.buf_time, &font_montserrat_24, UI_COLOR_WHITE, 1);
 
     /* Mode label */
     ui_rect_t mol = {MINE_PANEL_X, MINE_MODE_LABEL_Y, MINE_PANEL_W, MINE_INFO_LABEL_H};
-    ui_draw_text_in_rect(&mol, "MODE", &font_montserrat_12, UI_COLOR_TEXT_SECONDARY, 1);
+    ui_draw_text_in_rect(&mol, "MODE", &font_montserrat_16, UI_COLOR_TEXT_SECONDARY, 1);
 
     /* Mode box */
     ui_rect_t mob = {MINE_PANEL_X, MINE_MODE_BOX_Y, MINE_PANEL_W, MINE_INFO_BOX_H};
     ui_draw_fill_round_rect(&mob, MINE_INFO_BOX_R, UI_HEX(0x3C3C3C));
     const char *mode_str = (s_mine.mode == MINE_MODE_EASY) ? "9x9" : "16x16";
-    ui_draw_text_in_rect(&mob, mode_str, &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&mob, mode_str, &font_montserrat_24, UI_COLOR_WHITE, 1);
 
     /* Mode buttons */
     mine_draw_mode_btns();
@@ -600,13 +600,13 @@ static void mine_draw_mode_btns(void)
     /* Easy button */
     ui_rect_t er = {MINE_PANEL_X, MINE_MODE_TOP, MINE_MODE_BTN_W, MINE_MODE_BTN_H};
     ui_draw_fill_round_rect(&er, 6, easy_bg);
-    ui_draw_text_in_rect(&er, "9x9 Easy", &font_montserrat_12, easy_text, 1);
+    ui_draw_text_in_rect(&er, "9x9 Easy", &font_montserrat_16, easy_text, 1);
 
     /* Hard button */
     ui_rect_t hr = {MINE_PANEL_X + MINE_MODE_BTN_W + MINE_MODE_GAP, MINE_MODE_TOP,
                     MINE_MODE_BTN_W, MINE_MODE_BTN_H};
     ui_draw_fill_round_rect(&hr, 6, hard_bg);
-    ui_draw_text_in_rect(&hr, "16x16 Hard", &font_montserrat_12, hard_text, 1);
+    ui_draw_text_in_rect(&hr, "16x16 Hard", &font_montserrat_16, hard_text, 1);
 }
 
 /* Draw restart button */
@@ -614,7 +614,7 @@ static void mine_draw_restart_btn(void)
 {
     ui_rect_t r = {MINE_PANEL_X, MINE_RESTART_TOP, MINE_RESTART_W, MINE_RESTART_H};
     ui_draw_fill_round_rect(&r, 6, UI_HEX(0xF5B7B1));
-    ui_draw_text_in_rect(&r, "RESTART", &font_montserrat_16,
+    ui_draw_text_in_rect(&r, "RESTART", &font_montserrat_24,
                          UI_HEX(0x4A4A4A), 1);
 }
 
@@ -631,10 +631,10 @@ static void mine_draw_idle_overlay(void)
     ui_draw_fill_rect(&overlay, overlay_bg);
 
     ui_rect_t title = {gx, gy + gh / 2 - 30, gw, 30};
-    ui_draw_text_in_rect(&title, "MINESWEEPER", &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&title, "MINESWEEPER", &font_montserrat_24, UI_COLOR_WHITE, 1);
 
     ui_rect_t sub = {gx, gy + gh / 2 + 5, gw, 24};
-    ui_draw_text_in_rect(&sub, "Select mode to start", &font_montserrat_12,
+    ui_draw_text_in_rect(&sub, "Select mode to start", &font_montserrat_16,
                          UI_HEX(0xAAAAAA), 1);
 }
 
@@ -651,7 +651,7 @@ static void mine_draw_win_overlay(void)
     ui_draw_fill_rect(&overlay, overlay_bg);
 
     ui_rect_t title = {gx, gy + gh / 2 - 30, gw, 30};
-    ui_draw_text_in_rect(&title, "YOU WIN!", &font_montserrat_16,
+    ui_draw_text_in_rect(&title, "YOU WIN!", &font_montserrat_24,
                          UI_HEX(0x4CAF50), 1);
 
     char buf[32];
@@ -668,10 +668,10 @@ static void mine_draw_win_overlay(void)
     buf[tlen] = '\0';
 
     ui_rect_t sr = {gx, gy + gh / 2 + 5, gw, 24};
-    ui_draw_text_in_rect(&sr, buf, &font_montserrat_12, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&sr, buf, &font_montserrat_16, UI_COLOR_WHITE, 1);
 
     ui_rect_t hr = {gx, gy + gh / 2 + 35, gw, 24};
-    ui_draw_text_in_rect(&hr, "Press RESTART", &font_montserrat_12,
+    ui_draw_text_in_rect(&hr, "Press RESTART", &font_montserrat_16,
                          UI_HEX(0xAAAAAA), 1);
 }
 
@@ -688,11 +688,11 @@ static void mine_draw_lose_overlay(void)
     ui_draw_fill_rect(&overlay, overlay_bg);
 
     ui_rect_t title = {gx, gy + gh / 2 - 30, gw, 30};
-    ui_draw_text_in_rect(&title, "GAME OVER", &font_montserrat_16,
+    ui_draw_text_in_rect(&title, "GAME OVER", &font_montserrat_24,
                          UI_HEX(0xF44336), 1);
 
     ui_rect_t hr = {gx, gy + gh / 2 + 5, gw, 24};
-    ui_draw_text_in_rect(&hr, "Press RESTART", &font_montserrat_12,
+    ui_draw_text_in_rect(&hr, "Press RESTART", &font_montserrat_16,
                          UI_HEX(0xAAAAAA), 1);
 }
 

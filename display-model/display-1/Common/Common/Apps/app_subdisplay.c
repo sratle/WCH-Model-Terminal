@@ -35,11 +35,11 @@
 
 /* BMP file list */
 #define SD_LIST_LABEL_Y     (SD_REFRESH_Y + SD_REFRESH_H + 14)
-#define SD_LIST_Y           (SD_LIST_LABEL_Y + 16)
+#define SD_LIST_Y           (SD_LIST_LABEL_Y + 22)
 #define SD_LIST_H           (UI_SCREEN_HEIGHT - SD_LIST_Y - 70)
 #define SD_LIST_X           8
 #define SD_LIST_W           (SD_LEFT_W - 16)
-#define SD_ITEM_H           30
+#define SD_ITEM_H           34
 #define SD_VISIBLE_ITEMS    (SD_LIST_H / SD_ITEM_H)
 
 /* Send button */
@@ -49,9 +49,9 @@
 
 /* Right panel: status area */
 #define SD_STATUS_LABEL_Y   (APP_TITLE_BAR_H + 10)
-#define SD_STATUS_Y         (SD_STATUS_LABEL_Y + 18)
+#define SD_STATUS_Y         (SD_STATUS_LABEL_Y + 22)
 #define SD_STATUS_H         (UI_SCREEN_HEIGHT - SD_STATUS_Y - 34)
-#define SD_STATUS_LINE_H    16
+#define SD_STATUS_LINE_H    20
 
 /* Status bar */
 #define SD_BAR_Y            (UI_SCREEN_HEIGHT - 30)
@@ -438,8 +438,8 @@ static void sd_page_draw(ui_page_t *page, ui_rect_t *dirty)
     /* Left panel */
     if (dirty_top < UI_SCREEN_HEIGHT - SD_BAR_H && dirty->x < SD_LEFT_W) {
         /* Section labels */
-        ui_draw_text(12, SD_MODE_Y - 2, "Display Mode", &font_montserrat_12, SD_LABEL);
-        ui_draw_text(12, SD_LIST_LABEL_Y, "BMP Files", &font_montserrat_12, SD_LABEL);
+        ui_draw_text(12, SD_MODE_Y - 2, "Display Mode", &font_montserrat_16, SD_LABEL);
+        ui_draw_text(12, SD_LIST_LABEL_Y, "BMP Files", &font_montserrat_16, SD_LABEL);
 
         /* List background */
         if (dirty_bot > SD_LIST_Y) {
@@ -466,19 +466,19 @@ static void sd_page_draw(ui_page_t *page, ui_rect_t *dirty)
                 /* Icon indicator */
                 const char *icon = s_bmp_files[idx].is_dir ? "[D]" : "[F]";
                 ui_color_t icon_color = s_bmp_files[idx].is_dir ? UI_HEX(0xFFA726) : UI_HEX(0x66BB6A);
-                ui_draw_text(SD_LIST_X + 8, item_y + 8, icon, &font_montserrat_12, icon_color);
+                ui_draw_text(SD_LIST_X + 8, item_y + 8, icon, &font_montserrat_16, icon_color);
 
                 /* File name */
                 ui_draw_text(SD_LIST_X + 36, item_y + 8, s_bmp_files[idx].name,
-                             &font_montserrat_12, SD_ITEM_TEXT);
+                             &font_montserrat_16, SD_ITEM_TEXT);
 
                 /* File size */
                 if (!s_bmp_files[idx].is_dir && s_bmp_files[idx].size > 0) {
                     char size_text[16];
                     snprintf(size_text, sizeof(size_text), "%luB", (unsigned long)s_bmp_files[idx].size);
-                    int16_t sw = ui_text_width(size_text, &font_montserrat_12);
+                    int16_t sw = ui_text_width(size_text, &font_montserrat_16);
                     ui_draw_text(SD_LIST_X + SD_LIST_W - sw - 10, item_y + 8,
-                                 size_text, &font_montserrat_12, SD_ITEM_SIZE);
+                                 size_text, &font_montserrat_16, SD_ITEM_SIZE);
                 }
             }
 
@@ -499,7 +499,7 @@ static void sd_page_draw(ui_page_t *page, ui_rect_t *dirty)
     /* Right panel: system status */
     if (dirty_bot > SD_STATUS_Y && dirty->x + dirty->w > SD_RIGHT_X) {
         ui_draw_text(SD_RIGHT_X + 12, SD_STATUS_LABEL_Y, "System Status",
-                     &font_montserrat_12, SD_LABEL);
+                     &font_montserrat_16, SD_LABEL);
 
         ui_rect_t status_bg = {SD_RIGHT_X + 4, SD_STATUS_Y,
                                UI_SCREEN_WIDTH - SD_RIGHT_X - 8, SD_STATUS_H};
@@ -537,7 +537,7 @@ static void sd_page_draw(ui_page_t *page, ui_rect_t *dirty)
                     }
 
                     ui_draw_text(SD_RIGHT_X + 10, ty, line,
-                                 &font_montserrat_12, text_color);
+                                 &font_montserrat_16, text_color);
                     ty += SD_STATUS_LINE_H;
                 } else {
                     /* Skip this line */
@@ -549,7 +549,7 @@ static void sd_page_draw(ui_page_t *page, ui_rect_t *dirty)
             }
         } else {
             ui_draw_text(SD_RIGHT_X + 10, SD_STATUS_Y + 8,
-                         "Loading...", &font_montserrat_12, SD_STATUS_TEXT);
+                         "Loading...", &font_montserrat_16, SD_STATUS_TEXT);
         }
     }
 
@@ -557,7 +557,7 @@ static void sd_page_draw(ui_page_t *page, ui_rect_t *dirty)
     if (dirty_bot > SD_BAR_Y) {
         ui_rect_t bar_bg = {0, SD_BAR_Y, UI_SCREEN_WIDTH, SD_BAR_H};
         ui_draw_fill_rect(&bar_bg, SD_BAR_BG);
-        ui_draw_text(12, SD_BAR_Y + 8, s_bar_msg, &font_montserrat_12, SD_BAR_TEXT);
+        ui_draw_text(12, SD_BAR_Y + 8, s_bar_msg, &font_montserrat_16, SD_BAR_TEXT);
     }
 }
 
@@ -623,14 +623,14 @@ void app_subdisplay_init(void)
     /* Mode buttons */
     {
         ui_rect_t r1 = {12, SD_MODE_Y, SD_MODE_BTN_W, SD_MODE_BTN_H};
-        ui_button_init(&btn_mode_status, &r1, "Status Mode", &font_montserrat_12);
+        ui_button_init(&btn_mode_status, &r1, "Status Mode", &font_montserrat_16);
         ui_button_set_callback(&btn_mode_status, btn_mode_status_click);
         ui_button_set_colors(&btn_mode_status, UI_COLOR_BG_CARD, UI_COLOR_PRIMARY, UI_COLOR_TEXT_PRIMARY);
         btn_mode_status.radius = 8;
         s_sd_widgets[widx++] = (ui_widget_t *)&btn_mode_status;
 
         ui_rect_t r2 = {12 + SD_MODE_BTN_W + SD_MODE_GAP, SD_MODE_Y, SD_MODE_BTN_W, SD_MODE_BTN_H};
-        ui_button_init(&btn_mode_image, &r2, "Image Mode", &font_montserrat_12);
+        ui_button_init(&btn_mode_image, &r2, "Image Mode", &font_montserrat_16);
         ui_button_set_callback(&btn_mode_image, btn_mode_image_click);
         ui_button_set_colors(&btn_mode_image, UI_COLOR_BG_CARD, UI_COLOR_PRIMARY, UI_COLOR_TEXT_PRIMARY);
         btn_mode_image.radius = 8;
@@ -640,7 +640,7 @@ void app_subdisplay_init(void)
     /* Refresh button */
     {
         ui_rect_t r = {12, SD_REFRESH_Y, SD_REFRESH_W, SD_REFRESH_H};
-        ui_button_init(&btn_refresh, &r, "Refresh Status", &font_montserrat_12);
+        ui_button_init(&btn_refresh, &r, "Refresh Status", &font_montserrat_16);
         ui_button_set_callback(&btn_refresh, btn_refresh_click);
         ui_button_set_colors(&btn_refresh, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
         btn_refresh.radius = 8;
@@ -659,7 +659,7 @@ void app_subdisplay_init(void)
     /* Send button */
     {
         ui_rect_t r = {SD_LIST_X, SD_SEND_Y, SD_SEND_W, SD_SEND_H};
-        ui_button_init(&btn_send, &r, "Send to SubDisplay", &font_montserrat_12);
+        ui_button_init(&btn_send, &r, "Send to SubDisplay", &font_montserrat_16);
         ui_button_set_callback(&btn_send, btn_send_click);
         ui_button_set_colors(&btn_send, UI_COLOR_PRIMARY, UI_HEX(0x5BA8A8), UI_COLOR_WHITE);
         btn_send.radius = 8;

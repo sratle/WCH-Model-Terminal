@@ -130,6 +130,15 @@ void Display_UART_IRQ_Handler(display_t *display)
         uint8_t byte = (uint8_t)USART_ReceiveData(DISPLAY_UART);
         Protocol_ParseByte(&display->rx_ctx, byte);
     }
+
+    /* 热插拔噪声防护：ORE/FE/NE 置位时读 STATR+DATAR 清除，
+     * 否则错误标志滞留会导致中断反复触发、RX 永久卡死 */
+    if (USART_GetFlagStatus(DISPLAY_UART, USART_FLAG_ORE) != RESET ||
+        USART_GetFlagStatus(DISPLAY_UART, USART_FLAG_FE)  != RESET ||
+        USART_GetFlagStatus(DISPLAY_UART, USART_FLAG_NE)  != RESET)
+    {
+        (void)USART_ReceiveData(DISPLAY_UART);
+    }
 }
 
 void Display_Get_Type(display_t *display)
@@ -231,31 +240,33 @@ void Display_Process(display_t *display)
     if (display == NULL || !display->rx_ctx.frame_ready)
         return;
 
-    req = &display->rx_ctx.frame;
+    req = &display->rx_ctx.read_frame;
 
-    /* 0. 处理 Display 返回的 ACK 响应（Core 发送请求后 Display 的回复） */
+    /* 0. 处理 Display 返回的 ACK 响应（Core 发送请求后 Display 的回复）。
+     * 仅 GET_TYPE 身份 ACK（len==6 且 type 匹配）参与心跳/类型管理，
+     * 其他查询 ACK（如 GET_STATUS 的 3 字节状态）不得污染槽位类型。 */
     if (req->cmd == CMD_ACK)
     {
-        module_identity_t id;
-        if (Protocol_ParseIdentity(req, &id))
+        if (req->len == 6 && req->data[0] == MODULE_TYPE_DISPLAY)
         {
-            /* 首次 GET_TYPE 响应 */
-            if (display->type_requested && !display->type_received)
+            module_identity_t id;
+            if (Protocol_ParseIdentity(req, &id))
             {
-                display->type_received = 1;
-                display->type_id = id.subtype;
-                display->identity = id;
-                printf("[Display] GET_TYPE ACK: type=0x%02X subtype=0x%02X hw=0x%02X fw=%d.%d\r\n",
-                       id.type, id.subtype, id.hw_ver, id.fw_major, id.fw_minor);
-                /* Display 刚上线，重新下发配置（可能在 Config_Init 时 Display 尚未就绪） */
-                Config_Apply();
+                /* 首次识别 / 热插拔重连 / 换插不同型号屏：重新下发配置
+                 * （type_received 在心跳判定 OFFLINE 时会被复位） */
+                if (!display->type_received || display->type_id != id.subtype)
+                {
+                    display->type_received = 1;
+                    display->type_id = id.subtype;
+                    display->identity = id;
+                    printf("[Display] GET_TYPE ACK: type=0x%02X subtype=0x%02X hw=0x%02X fw=%d.%d\r\n",
+                           id.type, id.subtype, id.hw_ver, id.fw_major, id.fw_minor);
+                    /* Display 刚上线，重新下发配置（可能在 Config_Init 时 Display 尚未就绪） */
+                    Config_Apply();
+                }
+                /* 更新心跳在线状态 */
+                Hardware_Hb_MarkOnline(MODULE_ID_DISPLAY, id.type, id.subtype);
             }
-            /* 更新心跳在线状态 */
-            Hardware_Hb_MarkOnline(MODULE_ID_DISPLAY, id.type, id.subtype);
-        }
-        else if (display->type_requested && !display->type_received)
-        {
-            printf("[Display] GET_TYPE ACK: data too short (len=%d)\r\n", req->len);
         }
         handled = 1;
     }

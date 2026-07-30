@@ -938,7 +938,7 @@ static void tabview_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
         }
         if (tv->tab_labels[i]) {
             ui_color_t tc = (i == tv->active_tab) ? tv->tab_active_text_color : tv->tab_text_color;
-            ui_draw_text_in_rect(&tab_rect, tv->tab_labels[i], &font_montserrat_12, tc, 1);
+            ui_draw_text_in_rect(&tab_rect, tv->tab_labels[i], &font_montserrat_16, tc, 1);
         }
     }
 }
@@ -1113,7 +1113,7 @@ static void dialog_draw_cb(ui_page_t *page, ui_rect_t *dirty)
                 if (len > 63) len = 63;
                 memcpy(buf, line_start, len);
                 buf[len] = '\0';
-                ui_draw_text(x, y, buf, &font_montserrat_12, UI_COLOR_TEXT_PRIMARY);
+                ui_draw_text(x, y, buf, &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
             }
             y += 20;
             if (*p == '\n') p++;
@@ -1150,20 +1150,20 @@ void ui_dialog_init(ui_dialog_t *dlg)
 
     /* Title label */
     ui_rect_t title_rect = {DLG_CARD_X + 24, DLG_CARD_Y + 24, DLG_CARD_W - 48, 28};
-    ui_label_init(&dlg->lbl_title, &title_rect, "", &font_montserrat_16);
+    ui_label_init(&dlg->lbl_title, &title_rect, "", &font_montserrat_24);
     ui_label_set_color(&dlg->lbl_title, UI_COLOR_TEXT_PRIMARY);
     ui_label_set_align(&dlg->lbl_title, 1);
 
     /* Accept button (right) */
     ui_rect_t accept_rect = {DLG_ACCEPT_X, DLG_BTN_Y, DLG_BTN_W, DLG_BTN_H};
-    ui_button_init(&dlg->btn_accept, &accept_rect, "Accept", &font_montserrat_12);
+    ui_button_init(&dlg->btn_accept, &accept_rect, "Accept", &font_montserrat_16);
     dlg->btn_accept.base.user_data = dlg;
     ui_button_set_callback(&dlg->btn_accept, dialog_accept_click);
     ui_button_set_colors(&dlg->btn_accept, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
 
     /* Cancel button (left) */
     ui_rect_t cancel_rect = {DLG_CANCEL_X, DLG_BTN_Y, DLG_BTN_W, DLG_BTN_H};
-    ui_button_init(&dlg->btn_cancel, &cancel_rect, "Cancel", &font_montserrat_12);
+    ui_button_init(&dlg->btn_cancel, &cancel_rect, "Cancel", &font_montserrat_16);
     dlg->btn_cancel.base.user_data = dlg;
     ui_button_set_callback(&dlg->btn_cancel, dialog_cancel_click);
     ui_button_set_colors(&dlg->btn_cancel, UI_COLOR_LIGHT_GRAY, UI_COLOR_GRAY, UI_COLOR_TEXT_PRIMARY);
