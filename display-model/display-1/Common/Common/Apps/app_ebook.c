@@ -119,9 +119,9 @@ typedef struct {
 } eb_font_cfg_t;
 
 static const eb_font_cfg_t s_font_cfgs[] = {
-    { &font_montserrat_16, 22, 10, 8 },   /* Small  */
-    { &font_montserrat_24, 30, 12, 10 },  /* Medium */
-    { &font_montserrat_24, 34, 14, 12 },  /* Large  */
+    { UI_FONT_BODY, 22, 10, 8 },   /* Small  */
+    { UI_FONT_TITLE, 30, 12, 10 },  /* Medium */
+    { UI_FONT_TITLE, 34, 14, 12 },  /* Large  */
 };
 
 #define EB_FONT_COUNT   3
@@ -408,14 +408,8 @@ static int16_t eb_draw_text_line(int16_t x, int16_t y, int16_t max_w,
     char buf[256];
 
     while (p < end) {
-        int16_t char_w = 8;
-        for (uint16_t gi = 0; gi < font->glyph_count; gi++) {
-            if (font->glyphs[gi].unicode == (uint8_t)*p) {
-                char_w = font->glyphs[gi].advance;
-                break;
-            }
-        }
-
+        const ui_glyph_t *g = ui_font_glyph(font, (uint8_t)*p);
+        int16_t char_w = g ? g->advance : font->height / 2;
         if (cx + char_w > x + max_w && p != line_start) {
             if (y + line_h > max_y) return y;
             uint16_t llen = (uint16_t)(p - line_start);
@@ -637,7 +631,7 @@ static void eb_page_draw(ui_page_t *page, ui_rect_t *dirty)
         char hdr_text[24];
         snprintf(hdr_text, sizeof(hdr_text), "Books (%d)", s_file_count);
         ui_draw_text(EB_LIST_X + 10, EB_LIST_Y + 7, hdr_text,
-                     &font_montserrat_16, th->accent);
+                     UI_FONT_BODY, th->accent);
 
         for (int16_t vis = 0; vis < EB_VISIBLE; vis++) {
             int16_t idx = s_file_scroll + vis;
@@ -655,7 +649,7 @@ static void eb_page_draw(ui_page_t *page, ui_rect_t *dirty)
             ui_draw_fill_round_rect(
                 &(ui_rect_t){EB_LIST_X + 6, iy + 6, 48, 24}, 3, th->badge_bg);
             ui_draw_text(EB_LIST_X + 10, iy + 9,
-                         s_files[idx].ext, &font_montserrat_16, th->badge_text);
+                         s_files[idx].ext, UI_FONT_BODY, th->badge_text);
 
             char display_name[EB_MAX_NAME + 1];
             strncpy(display_name, s_files[idx].name, EB_MAX_NAME);
@@ -663,7 +657,7 @@ static void eb_page_draw(ui_page_t *page, ui_rect_t *dirty)
             char *dot = strrchr(display_name, '.');
             if (dot) *dot = '\0';
             ui_draw_text(EB_LIST_X + 60, iy + 9, display_name,
-                         &font_montserrat_16, th->text);
+                         UI_FONT_BODY, th->text);
         }
 
         if (s_file_count > EB_VISIBLE) {
@@ -686,7 +680,7 @@ static void eb_page_draw(ui_page_t *page, ui_rect_t *dirty)
         if (s_viewing) {
             if (s_loading) {
                 ui_draw_text(EB_VIEW_X + 20, EB_VIEW_Y + 20, "Loading...",
-                             &font_montserrat_24, th->text_dim);
+                             UI_FONT_TITLE, th->text_dim);
             } else {
                 const char *cbuf = UART_GetCLIBuf();
                 uint32_t start_in_buf = s_page_starts[s_page] - s_chunk_off;
@@ -703,7 +697,7 @@ static void eb_page_draw(ui_page_t *page, ui_rect_t *dirty)
         } else {
             ui_draw_text(EB_VIEW_X + 20, EB_VIEW_Y + 20,
                          "Select a book on the left",
-                         &font_montserrat_24, th->text_dim);
+                         UI_FONT_TITLE, th->text_dim);
         }
     }
 
@@ -724,10 +718,10 @@ static void eb_page_draw(ui_page_t *page, ui_rect_t *dirty)
             snprintf(page_info, sizeof(page_info), "EBook");
         }
         ui_draw_text(12, EB_TOOLBAR_Y + 14, page_info,
-                     &font_montserrat_16, th->text_dim);
+                     UI_FONT_BODY, th->text_dim);
 
         ui_draw_text(180, EB_TOOLBAR_Y + 14, s_status,
-                     &font_montserrat_16, th->text_dim);
+                     UI_FONT_BODY, th->text_dim);
     }
 }
 
@@ -952,7 +946,7 @@ void app_ebook_init(void)
 
     {
         ui_rect_t r = {UI_SCREEN_WIDTH - 530, tb_y, EB_TB_BTN_W, EB_TB_BTN_H};
-        ui_button_init(&btn_refresh, &r, "Reload", &font_montserrat_16);
+        ui_button_init(&btn_refresh, &r, "Reload", UI_FONT_BODY);
         ui_button_set_callback(&btn_refresh, btn_refresh_click);
         ui_button_set_colors(&btn_refresh, UI_HEX(0x1B5E20), UI_HEX(0x2E7D32), UI_COLOR_WHITE);
         btn_refresh.radius = 6;
@@ -961,7 +955,7 @@ void app_ebook_init(void)
 
     {
         ui_rect_t r = {UI_SCREEN_WIDTH - 440, tb_y, EB_TB_BTN_W, EB_TB_BTN_H};
-        ui_button_init(&btn_prev, &r, "Prev", &font_montserrat_16);
+        ui_button_init(&btn_prev, &r, "Prev", UI_FONT_BODY);
         ui_button_set_callback(&btn_prev, btn_prev_click);
         ui_button_set_colors(&btn_prev, UI_HEX(0x0F3460), UI_HEX(0x1565C0), UI_COLOR_WHITE);
         btn_prev.radius = 6;
@@ -970,7 +964,7 @@ void app_ebook_init(void)
 
     {
         ui_rect_t r = {UI_SCREEN_WIDTH - 350, tb_y, EB_TB_BTN_W, EB_TB_BTN_H};
-        ui_button_init(&btn_next, &r, "Next", &font_montserrat_16);
+        ui_button_init(&btn_next, &r, "Next", UI_FONT_BODY);
         ui_button_set_callback(&btn_next, btn_next_click);
         ui_button_set_colors(&btn_next, UI_HEX(0x0F3460), UI_HEX(0x1565C0), UI_COLOR_WHITE);
         btn_next.radius = 6;
@@ -979,7 +973,7 @@ void app_ebook_init(void)
 
     {
         ui_rect_t r = {UI_SCREEN_WIDTH - 250, tb_y, EB_TB_BTN_W, EB_TB_BTN_H};
-        ui_button_init(&btn_theme, &r, "Theme", &font_montserrat_16);
+        ui_button_init(&btn_theme, &r, "Theme", UI_FONT_BODY);
         ui_button_set_callback(&btn_theme, btn_theme_click);
         ui_button_set_colors(&btn_theme, UI_HEX(0x424242), UI_HEX(0x616161), UI_COLOR_WHITE);
         btn_theme.radius = 6;
@@ -988,7 +982,7 @@ void app_ebook_init(void)
 
     {
         ui_rect_t r = {UI_SCREEN_WIDTH - 160, tb_y, EB_TB_BTN_W, EB_TB_BTN_H};
-        ui_button_init(&btn_font, &r, "Font", &font_montserrat_16);
+        ui_button_init(&btn_font, &r, "Font", UI_FONT_BODY);
         ui_button_set_callback(&btn_font, btn_font_click);
         ui_button_set_colors(&btn_font, UI_HEX(0x424242), UI_HEX(0x616161), UI_COLOR_WHITE);
         btn_font.radius = 6;
@@ -997,7 +991,7 @@ void app_ebook_init(void)
 
     {
         ui_rect_t r = {UI_SCREEN_WIDTH - 80, tb_y, 68, EB_TB_BTN_H};
-        ui_button_init(&btn_back_list, &r, "Back", &font_montserrat_16);
+        ui_button_init(&btn_back_list, &r, "Back", UI_FONT_BODY);
         ui_button_set_callback(&btn_back_list, btn_back_list_click);
         ui_button_set_colors(&btn_back_list, UI_HEX(0x7F1D1D), UI_HEX(0x991B1B), UI_COLOR_WHITE);
         btn_back_list.radius = 6;

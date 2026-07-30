@@ -13,8 +13,7 @@
 #include "ui_games.h"
 #include "ui_models.h"
 #include "ui_settings.h"
-#include "../MiniUI/font/font_montserrat_16.h"
-#include "../MiniUI/font/font_montserrat_24.h"
+#include "../MiniUI/font/ui_font.h"
 #include <string.h>
 
 /*=============================================================================
@@ -57,7 +56,7 @@ void ui_main_draw_sidebar(ui_rect_t *dirty)
 
     /* Title block */
     ui_rect_t title_rect = {0, 20, SIDEBAR_WIDTH, 40};
-    ui_draw_text_in_rect(&title_rect, "ELAB", &font_montserrat_24, UI_COLOR_PRIMARY, 1);
+    ui_draw_text_in_rect(&title_rect, "ELAB", UI_FONT_TITLE, UI_COLOR_PRIMARY, 1);
 
     /* Title underline */
     ui_draw_hline(0, 60, SIDEBAR_WIDTH, UI_COLOR_PRIMARY);
@@ -75,9 +74,9 @@ void ui_main_draw_sidebar(ui_rect_t *dirty)
             ui_rect_t indicator = {0, item_rect.y, 4, SIDEBAR_ITEM_HEIGHT};
             ui_draw_fill_rect(&indicator, UI_COLOR_PRIMARY);
 
-            ui_draw_text_in_rect(&item_rect, s_menu_labels[i], &font_montserrat_16, UI_COLOR_TEXT_PRIMARY, 1);
+            ui_draw_text_in_rect(&item_rect, s_menu_labels[i], UI_FONT_BODY, UI_COLOR_TEXT_PRIMARY, 1);
         } else {
-            ui_draw_text_in_rect(&item_rect, s_menu_labels[i], &font_montserrat_16, UI_COLOR_TEXT_SECONDARY, 1);
+            ui_draw_text_in_rect(&item_rect, s_menu_labels[i], UI_FONT_BODY, UI_COLOR_TEXT_SECONDARY, 1);
         }
 
         /* Separator line below each item (except the last) */

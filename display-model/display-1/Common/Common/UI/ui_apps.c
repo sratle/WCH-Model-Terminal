@@ -86,7 +86,7 @@ static int apps_on_page(void)
 static void apps_clear_focus(void)
 {
     if (s_focus_idx >= 0 && s_focus_idx < APPS_PER_PAGE) {
-        btn_apps[s_focus_idx].base.flags &= ~UI_WIDGET_FLAG_PRESSED;
+        btn_apps[s_focus_idx].base.flags &= ~UI_WIDGET_FLAG_FOCUS;
         ui_widget_invalidate((ui_widget_t *)&btn_apps[s_focus_idx]);
     }
     s_focus_idx = -1;
@@ -97,7 +97,7 @@ static void apps_set_focus(int8_t idx)
     apps_clear_focus();
     if (idx >= 0 && idx < apps_on_page()) {
         s_focus_idx = idx;
-        btn_apps[s_focus_idx].base.flags |= UI_WIDGET_FLAG_PRESSED;
+        btn_apps[s_focus_idx].base.flags |= UI_WIDGET_FLAG_FOCUS;
         ui_widget_invalidate((ui_widget_t *)&btn_apps[s_focus_idx]);
     }
 }
@@ -267,21 +267,21 @@ void ui_apps_init(void)
     int16_t cx = SIDEBAR_WIDTH + 20;
 
     ui_rect_t title_rect = {cx, 20, 300, 30};
-    ui_label_init(&lbl_title, &title_rect, "Apps", &font_montserrat_24);
+    ui_label_init(&lbl_title, &title_rect, "Apps", UI_FONT_TITLE);
     ui_label_set_color(&lbl_title, UI_COLOR_TEXT_PRIMARY);
 
     ui_rect_t page_rect = {cx + 400, 24, 60, 20};
-    ui_label_init(&lbl_page, &page_rect, "1/2", &font_montserrat_16);
+    ui_label_init(&lbl_page, &page_rect, "1/2", UI_FONT_BODY);
     ui_label_set_color(&lbl_page, UI_COLOR_TEXT_SECONDARY);
 
     ui_rect_t prev_rect = {cx + 350, 20, 40, 28};
-    ui_button_init(&btn_prev, &prev_rect, "<", &font_montserrat_16);
+    ui_button_init(&btn_prev, &prev_rect, "<", UI_FONT_BODY);
     ui_button_set_callback(&btn_prev, prev_page_click);
     ui_button_set_colors(&btn_prev, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
     btn_prev.radius = 14;
 
     ui_rect_t next_rect = {cx + 470, 20, 40, 28};
-    ui_button_init(&btn_next, &next_rect, ">", &font_montserrat_16);
+    ui_button_init(&btn_next, &next_rect, ">", UI_FONT_BODY);
     ui_button_set_callback(&btn_next, next_page_click);
     ui_button_set_colors(&btn_next, UI_COLOR_BG_CARD, UI_COLOR_SECONDARY, UI_COLOR_TEXT_PRIMARY);
     btn_next.radius = 14;
@@ -306,7 +306,7 @@ void ui_apps_init(void)
         };
 
         ui_icon_button_init(&btn_apps[i], &btn_rect,
-                            NULL, 0, 0, "", &font_montserrat_16);
+                            NULL, 0, 0, "", UI_FONT_BODY);
         ui_icon_button_set_callback(&btn_apps[i], app_button_click);
 
         s_apps_widgets[4 + i] = (ui_widget_t *)&btn_apps[i];

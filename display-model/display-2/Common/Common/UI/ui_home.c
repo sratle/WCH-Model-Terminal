@@ -12,8 +12,7 @@
 #include "ui_home.h"
 #include "ui_main.h"
 #include "../UART/uart_module.h"
-#include "../MiniUI/font/font_montserrat_16.h"
-#include "../MiniUI/font/font_montserrat_24.h"
+#include "../MiniUI/font/ui_font.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -113,11 +112,11 @@ void ui_home_init(void)
     int16_t cx = SIDEBAR_WIDTH + 20;
 
     ui_rect_t date_rect = {cx, 20, 200, 24};
-    ui_label_init(&lbl_date, &date_rect, "----/--/--", &font_montserrat_16);
+    ui_label_init(&lbl_date, &date_rect, "----/--/--", UI_FONT_BODY);
     ui_label_set_color(&lbl_date, UI_COLOR_TEXT_SECONDARY);
 
     ui_rect_t time_rect = {cx, 48, 300, 36};
-    ui_label_init(&lbl_time, &time_rect, "--:--:--", &font_montserrat_24);
+    ui_label_init(&lbl_time, &time_rect, "--:--:--", UI_FONT_TITLE);
     ui_label_set_color(&lbl_time, UI_COLOR_PRIMARY);
 
     int16_t card_w = 90;
@@ -152,28 +151,28 @@ void ui_home_init(void)
     ui_rect_t name_rect = {0, 0, card_w - 30, 20};
     name_rect.x = cx + 10;
     name_rect.y = card_y + 10;
-    ui_label_init(&lbl_core_name, &name_rect, "MCU", &font_montserrat_16);
+    ui_label_init(&lbl_core_name, &name_rect, "MCU", UI_FONT_BODY);
     lbl_core_name.base.bg_color = UI_COLOR_TRANSPARENT;
     ui_label_set_color(&lbl_core_name, UI_COLOR_TEXT_PRIMARY);
 
     name_rect.x = cx + card_w + card_gap + 10;
-    ui_label_init(&lbl_bt_name, &name_rect, "BT", &font_montserrat_16);
+    ui_label_init(&lbl_bt_name, &name_rect, "BT", UI_FONT_BODY);
     lbl_bt_name.base.bg_color = UI_COLOR_TRANSPARENT;
     ui_label_set_color(&lbl_bt_name, UI_COLOR_TEXT_PRIMARY);
 
     name_rect.x = cx + 2 * (card_w + card_gap) + 10;
-    ui_label_init(&lbl_batt_name, &name_rect, "Batt", &font_montserrat_16);
+    ui_label_init(&lbl_batt_name, &name_rect, "Batt", UI_FONT_BODY);
     lbl_batt_name.base.bg_color = UI_COLOR_TRANSPARENT;
     ui_label_set_color(&lbl_batt_name, UI_COLOR_TEXT_PRIMARY);
 
     name_rect.x = cx + 3 * (card_w + card_gap) + 10;
-    ui_label_init(&lbl_touch_name, &name_rect, "Touch", &font_montserrat_16);
+    ui_label_init(&lbl_touch_name, &name_rect, "Touch", UI_FONT_BODY);
     lbl_touch_name.base.bg_color = UI_COLOR_TRANSPARENT;
     ui_label_set_color(&lbl_touch_name, UI_COLOR_TEXT_PRIMARY);
 
     /* Battery percentage text inside the Batt card */
     ui_rect_t pct_rect = {cx + 2 * (card_w + card_gap) + 10, card_y + 40, card_w - 20, 28};
-    ui_label_init(&lbl_batt_pct, &pct_rect, "--", &font_montserrat_24);
+    ui_label_init(&lbl_batt_pct, &pct_rect, "--", UI_FONT_TITLE);
     lbl_batt_pct.base.bg_color = UI_COLOR_TRANSPARENT;
     ui_label_set_color(&lbl_batt_pct, UI_COLOR_TEXT_PRIMARY);
 

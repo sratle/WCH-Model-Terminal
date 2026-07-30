@@ -9,7 +9,7 @@
 ********************************************************************************/
 #include "app_stub.h"
 #include "../UI/ui_app_common.h"
-#include "../MiniUI/font/font_montserrat_16.h"
+#include "../MiniUI/font/ui_font.h"
 
 typedef struct {
     ui_app_page_t page;
@@ -46,7 +46,7 @@ static void stub_init_one(stub_idx_t idx, uint32_t id)
     ui_app_page_init(&s->page, s_stub_names[idx], id);
 
     ui_rect_t r = {0, 220, UI_SCREEN_WIDTH, 30};
-    ui_label_init(&s->lbl_note, &r, "Not available on E-ink yet", &font_montserrat_16);
+    ui_label_init(&s->lbl_note, &r, "Not available on E-ink yet", UI_FONT_BODY);
     ui_label_set_color(&s->lbl_note, UI_COLOR_BLACK);
     ui_label_set_align(&s->lbl_note, 1);
 

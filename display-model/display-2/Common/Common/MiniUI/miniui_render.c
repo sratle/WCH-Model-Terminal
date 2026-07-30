@@ -540,6 +540,11 @@ static const ui_glyph_t* find_glyph(const ui_font_t *font, uint16_t unicode)
     return NULL;
 }
 
+const ui_glyph_t* ui_font_glyph(const ui_font_t *font, uint16_t unicode)
+{
+    return find_glyph(font, unicode);
+}
+
 static void draw_glyph(int16_t x, int16_t y, const ui_glyph_t *glyph,
                        const ui_font_t *font, ui_color_t color, ui_color_t bg)
 {
@@ -573,23 +578,36 @@ static void draw_glyph(int16_t x, int16_t y, const ui_glyph_t *glyph,
             }
         }
 
-        /* Draw foreground pixels */
-        for (int16_t col = 0; col < glyph->width; col++) {
-            uint16_t bmp_byte = (bit_idx + col) / 8;
-            uint8_t bmp_mask = 0x80 >> ((bit_idx + col) % 8);
-            if (glyph->bitmap[bmp_byte] & bmp_mask) {
-                int16_t px = gx + col;
-                if (px >= g_target.x && px < g_target.x + g_target.w) {
-                    int16_t src_row = row - g_target.y;
-                    if (src_row >= 0 && src_row < COMPOSE_BATCH) {
-                        uint16_t byte_idx = (uint16_t)src_row * LINE_BUF_BYTES + (px / 8);
-                        uint8_t bit_mask = 0x80 >> (px % 8);
+        /* Draw foreground pixels: rolling bit offset (no per-pixel div/mod),
+         * and skip fully-transparent bitmap bytes (8 blank pixels at once) —
+         * a large win for sparse glyph interiors at 16/24 px. */
+        {
+            const uint8_t *bm = glyph->bitmap;
+            uint16_t bo = bit_idx;
+            int16_t col = 0;
+            int16_t gw = glyph->width;
+            int16_t src_row = row - g_target.y;
+            uint8_t *line = (src_row >= 0 && src_row < COMPOSE_BATCH)
+                          ? &g_compose_buf[(uint16_t)src_row * LINE_BUF_BYTES] : NULL;
+            while (line && col < gw) {
+                if ((bo & 7) == 0 && (gw - col) >= 8 && bm[bo >> 3] == 0) {
+                    col += 8;
+                    bo += 8;
+                    continue;
+                }
+                if (bm[bo >> 3] & (0x80 >> (bo & 7))) {
+                    int16_t px = gx + col;
+                    if (px >= g_target.x && px < g_target.x + g_target.w) {
+                        uint16_t byte_idx = (uint16_t)(px >> 3);
+                        uint8_t bit_mask = 0x80 >> (px & 7);
                         if (color == UI_COLOR_BLACK)
-                            g_compose_buf[byte_idx] |= bit_mask;
+                            line[byte_idx] |= bit_mask;
                         else
-                            g_compose_buf[byte_idx] &= ~bit_mask;
+                            line[byte_idx] &= ~bit_mask;
                     }
                 }
+                col++;
+                bo++;
             }
         }
     }

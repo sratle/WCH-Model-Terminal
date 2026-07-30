@@ -49,10 +49,10 @@ static void usb_draw_row(int16_t y, const char *label, uint8_t connected)
 
     /* Device label + status text */
     ui_draw_text(USB_ROW_X + 66, y + 20, label,
-                 &font_montserrat_24, UI_COLOR_TEXT_PRIMARY);
+                 UI_FONT_TITLE, UI_COLOR_TEXT_PRIMARY);
     ui_draw_text(USB_ROW_X + 66, y + 50,
                  connected ? "Connected" : "Not connected",
-                 &font_montserrat_16,
+                 UI_FONT_BODY,
                  connected ? UI_COLOR_TEXT_PRIMARY : UI_COLOR_TEXT_SECONDARY);
 }
 
@@ -102,7 +102,7 @@ static void usb_page_draw(ui_page_t *page, ui_rect_t *dirty)
     /* Section header (only when its band is dirty) */
     if (dtop < USB_ROW_KBD_Y) {
         ui_draw_text(USB_ROW_X, USB_HDR_Y, "External USB HID Devices",
-                     &font_montserrat_16, UI_COLOR_TEXT_SECONDARY);
+                     UI_FONT_BODY, UI_COLOR_TEXT_SECONDARY);
     }
 
     if (dbot > USB_ROW_KBD_Y && dtop < USB_ROW_KBD_Y + USB_ROW_H)

@@ -846,12 +846,12 @@ static void editor_draw_gutter(void)
         char nb[8];
         snprintf(nb, sizeof(nb), "%d", ln);
         int16_t y = EDIT_TEXT_Y - off + i * EDIT_LINE_H + 2;
-        int16_t nw = ui_text_width(nb, &font_montserrat_16);
+        int16_t nw = ui_text_width(nb, UI_FONT_BODY);
         ui_color_t num_clr = EDIT_GUTTER_TEXT;
         /* Highlight current line number */
         if (s_ed.has_content && li == s_ed.cursor_line)
             num_clr = UI_COLOR_PRIMARY;
-        ui_draw_text(EDIT_GUTTER_W - nw - 8, y, nb, &font_montserrat_16, num_clr);
+        ui_draw_text(EDIT_GUTTER_W - nw - 8, y, nb, UI_FONT_BODY, num_clr);
     }
     ui_render_pop_target();
 }
@@ -864,7 +864,7 @@ static void editor_draw_text_area(void)
     if (!s_ed.has_content) {
         ui_draw_text_in_rect(&tbg,
             s_ed.is_loading ? "Loading file..." : "No file loaded",
-            &font_montserrat_16, UI_COLOR_TEXT_SECONDARY, 0x11);
+            UI_FONT_BODY, UI_COLOR_TEXT_SECONDARY, 0x11);
         return;
     }
 
@@ -918,20 +918,20 @@ static void editor_draw_text_area(void)
                 if (before_len > sizeof(tmp) - 1) before_len = sizeof(tmp) - 1;
                 memcpy(tmp, lb, before_len);
                 tmp[before_len] = '\0';
-                sel_x_start += ui_text_width(tmp, &font_montserrat_16);
+                sel_x_start += ui_text_width(tmp, UI_FONT_BODY);
 
                 uint16_t sel_len = line_sel_end - start;
                 if (sel_len > sizeof(tmp) - 1) sel_len = sizeof(tmp) - 1;
                 memcpy(tmp, lb, sel_len);
                 tmp[sel_len] = '\0';
-                sel_x_end += ui_text_width(tmp, &font_montserrat_16);
+                sel_x_end += ui_text_width(tmp, UI_FONT_BODY);
 
                 ui_rect_t sel_rect = {sel_x_start, y - 1, sel_x_end - sel_x_start, EDIT_LINE_H - 2};
                 ui_draw_fill_rect(&sel_rect, EDIT_SELECTION_BG);
             }
         }
 
-        ui_draw_text(EDIT_TEXT_X + 8, y, lb, &font_montserrat_16, EDIT_TEXT_COLOR);
+        ui_draw_text(EDIT_TEXT_X + 8, y, lb, UI_FONT_BODY, EDIT_TEXT_COLOR);
     }
 
     /* Draw cursor */
@@ -945,7 +945,7 @@ static void editor_draw_text_area(void)
             if (bclen > sizeof(before_cursor) - 1) bclen = sizeof(before_cursor) - 1;
             memcpy(before_cursor, &s_ed.content[line_start], bclen);
             before_cursor[bclen] = '\0';
-            int16_t cur_x = EDIT_TEXT_X + 8 + ui_text_width(before_cursor, &font_montserrat_16);
+            int16_t cur_x = EDIT_TEXT_X + 8 + ui_text_width(before_cursor, UI_FONT_BODY);
 
             /* Draw cursor as a thin vertical bar */
             ui_draw_vline(cur_x, cur_y + 1, EDIT_LINE_H - 2, EDIT_CURSOR_COLOR);
@@ -972,12 +972,12 @@ static void editor_draw_status(void)
         name_clr = EDIT_SAVED_COLOR;
 
     ui_draw_text(12, EDIT_STATUS_Y + 6, s_ed.file_name,
-                 &font_montserrat_16, name_clr);
+                 UI_FONT_BODY, name_clr);
 
     /* Status info on the right */
-    int16_t sw = ui_text_width(s_status_buf, &font_montserrat_16);
+    int16_t sw = ui_text_width(s_status_buf, UI_FONT_BODY);
     ui_draw_text(UI_SCREEN_WIDTH - sw - 12, EDIT_STATUS_Y + 6,
-                 s_status_buf, &font_montserrat_16, EDIT_STATUS_TEXT);
+                 s_status_buf, UI_FONT_BODY, EDIT_STATUS_TEXT);
 }
 
 /*=============================================================================
@@ -1057,7 +1057,7 @@ static void text_touch_event(ui_widget_t *w, ui_event_t *e)
 
         for (uint16_t ci = 0; ci < line_len; ci++) {
             char tmp[2] = {line_buf[ci], '\0'};
-            int16_t char_w = ui_text_width(tmp, &font_montserrat_16);
+            int16_t char_w = ui_text_width(tmp, UI_FONT_BODY);
             int16_t mid = acc_width + char_w / 2;
             int16_t dist = rel_x - mid;
             if (dist < 0) dist = -dist;
@@ -1287,7 +1287,7 @@ void app_editor_init(void)
     editor_update_status();
 
     ui_rect_t r_save = {UI_SCREEN_WIDTH - 80, 6, 64, 28};
-    ui_button_init(&btn_save, &r_save, "Save", &font_montserrat_16);
+    ui_button_init(&btn_save, &r_save, "Save", UI_FONT_BODY);
     ui_button_set_callback(&btn_save, btn_save_click);
     ui_button_set_colors(&btn_save, UI_COLOR_WHITE, UI_COLOR_SECONDARY, UI_COLOR_PRIMARY);
     btn_save.radius = 8;

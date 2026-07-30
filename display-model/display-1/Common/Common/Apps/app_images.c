@@ -454,10 +454,10 @@ static void img_render_preview(ui_rect_t *dirty)
     if (!s_bmp_loaded) {
         /* Placeholder text */
         const char *msg = s_bmp_data_len > 0 ? "Decode error" : "Select an image";
-        int16_t tw = ui_text_width(msg, &font_montserrat_24);
+        int16_t tw = ui_text_width(msg, UI_FONT_TITLE);
         ui_draw_text(IMG_PREVIEW_X + (IMG_PREVIEW_W - tw) / 2,
                      IMG_PREVIEW_Y + IMG_PREVIEW_H / 2 - 8,
-                     msg, &font_montserrat_24, IMG_PLACEHOLDER);
+                     msg, UI_FONT_TITLE, IMG_PLACEHOLDER);
         return;
     }
 
@@ -642,7 +642,7 @@ static void img_page_draw(ui_page_t *page, ui_rect_t *dirty)
         char hdr_text[24];
         snprintf(hdr_text, sizeof(hdr_text), "BMP Files (%d)", s_file_count);
         ui_draw_text(IMG_LIST_X + 10, IMG_LIST_Y + 10, hdr_text,
-                     &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+                     UI_FONT_BODY, UI_COLOR_TEXT_PRIMARY);
 
         /* File items */
         for (int16_t vis = 0; vis < IMG_VISIBLE_ITEMS; vis++) {
@@ -665,11 +665,11 @@ static void img_page_draw(ui_page_t *page, ui_rect_t *dirty)
                 &(ui_rect_t){IMG_LIST_X + 8, item_y + 5, 24, 24},
                 3, UI_HEX(0x66BB6A));
             ui_draw_text(IMG_LIST_X + 14, item_y + 8, "B",
-                         &font_montserrat_16, UI_COLOR_WHITE);
+                         UI_FONT_BODY, UI_COLOR_WHITE);
 
             /* File name */
             ui_draw_text(IMG_LIST_X + 40, item_y + 8, s_files[idx].name,
-                         &font_montserrat_16, IMG_FILE_TEXT);
+                         UI_FONT_BODY, IMG_FILE_TEXT);
         }
 
         /* Scroll indicator */
@@ -694,7 +694,7 @@ static void img_page_draw(ui_page_t *page, ui_rect_t *dirty)
     if (dirty_bot > IMG_BAR_Y) {
         ui_rect_t bar_bg = {0, IMG_BAR_Y, UI_SCREEN_WIDTH, IMG_BAR_H};
         ui_draw_fill_rect(&bar_bg, IMG_BAR_BG);
-        ui_draw_text(12, IMG_BAR_Y + 8, s_bar_msg, &font_montserrat_16, IMG_BAR_TEXT);
+        ui_draw_text(12, IMG_BAR_Y + 8, s_bar_msg, UI_FONT_BODY, IMG_BAR_TEXT);
     }
 }
 

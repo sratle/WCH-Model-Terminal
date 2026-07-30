@@ -37,6 +37,12 @@ extern "C" {
 #include "miniui_widget.h"
 #include "miniui_input.h"
 
+/*=============================================================================
+ *  Fonts (semantic slots)
+ *=============================================================================*/
+
+#include "font/ui_font.h"
+
 #ifdef __cplusplus
 }
 #endif

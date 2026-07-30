@@ -131,6 +131,11 @@ void ui_draw_text_in_rect(const ui_rect_t *rect, const char *text, const ui_font
 void ui_draw_text_in_rect_bg(const ui_rect_t *rect, const char *text, const ui_font_t *font, ui_color_t color, ui_color_t bg, uint8_t align);
 int16_t ui_text_width(const char *text, const ui_font_t *font);
 
+/* Binary-search glyph lookup (NULL if the codepoint is not in the font).
+ * Exposed for text-layout code (e.g. ebook line wrapping) so it does not
+ * have to linearly scan the glyph table per character. */
+const ui_glyph_t* ui_font_glyph(const ui_font_t *font, uint16_t unicode);
+
 /* Mouse Cursor Drawing */
 void ui_draw_mouse_cursor(int16_t x, int16_t y);
 

@@ -34,13 +34,14 @@ static ui_sidebar_event_cb_t s_sidebar_event = NULL;
  *  Helper Functions
  *=============================================================================*/
 
-/* Clear PRESSED flag on all widgets of a page to avoid stuck visual state */
+/* Clear PRESSED/FOCUS flags on all widgets of a page to avoid stuck
+ * visual state (touch press or keyboard focus ring) across page switches */
 static void page_reset_widget_states(ui_page_t *page)
 {
     if (!page) return;
     for (uint16_t i = 0; i < page->widget_count; i++) {
         if (page->widgets[i]) {
-            page->widgets[i]->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            page->widgets[i]->flags &= ~(UI_WIDGET_FLAG_PRESSED | UI_WIDGET_FLAG_FOCUS);
         }
     }
 }

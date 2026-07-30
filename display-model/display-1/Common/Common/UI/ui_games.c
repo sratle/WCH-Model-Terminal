@@ -63,7 +63,7 @@ static ui_widget_t *s_games_widgets[1 + GAME_TOTAL];
 static void games_clear_focus(void)
 {
     if (s_focus_idx >= 0 && s_focus_idx < GAME_TOTAL) {
-        btn_games[s_focus_idx].base.flags &= ~UI_WIDGET_FLAG_PRESSED;
+        btn_games[s_focus_idx].base.flags &= ~UI_WIDGET_FLAG_FOCUS;
         ui_widget_invalidate((ui_widget_t *)&btn_games[s_focus_idx]);
     }
     s_focus_idx = -1;
@@ -74,7 +74,7 @@ static void games_set_focus(int8_t idx)
     games_clear_focus();
     if (idx >= 0 && idx < GAME_TOTAL) {
         s_focus_idx = idx;
-        btn_games[s_focus_idx].base.flags |= UI_WIDGET_FLAG_PRESSED;
+        btn_games[s_focus_idx].base.flags |= UI_WIDGET_FLAG_FOCUS;
         ui_widget_invalidate((ui_widget_t *)&btn_games[s_focus_idx]);
     }
 }
@@ -170,7 +170,7 @@ void ui_games_init(void)
     int16_t cx = SIDEBAR_WIDTH + 30;
 
     ui_rect_t title_rect = {cx - 10, 20, 300, 30};
-    ui_label_init(&lbl_title, &title_rect, "Games", &font_montserrat_24);
+    ui_label_init(&lbl_title, &title_rect, "Games", UI_FONT_TITLE);
     ui_label_set_color(&lbl_title, UI_COLOR_TEXT_PRIMARY);
 
     s_games_widgets[0] = (ui_widget_t *)&lbl_title;
@@ -191,7 +191,7 @@ void ui_games_init(void)
 
         ui_icon_button_init(&btn_games[i], &btn_rect,
                             s_games[i].icon, s_games[i].icon_w, s_games[i].icon_h,
-                            s_games[i].name, &font_montserrat_16);
+                            s_games[i].name, UI_FONT_BODY);
         ui_icon_button_set_callback(&btn_games[i], game_button_click);
         btn_games[i].base.user_data = (void *)(intptr_t)i;
 

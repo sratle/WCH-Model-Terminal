@@ -47,7 +47,7 @@ static void page_reset_widget_states(ui_page_t *page)
     if (!page) return;
     for (uint16_t i = 0; i < page->widget_count; i++) {
         if (page->widgets[i]) {
-            page->widgets[i]->flags &= ~UI_WIDGET_FLAG_PRESSED;
+            page->widgets[i]->flags &= ~(UI_WIDGET_FLAG_PRESSED | UI_WIDGET_FLAG_FOCUS);
         }
     }
 }
@@ -69,6 +69,19 @@ static void rect_merge(const ui_rect_t *a, const ui_rect_t *b, ui_rect_t *out)
     out->y = y1;
     out->w = x2 - x1;
     out->h = y2 - y1;
+}
+
+/* E-paper partial refresh cost scales with area: only merge two overlapping
+ * regions when the merged bounding box does not inflate the refreshed area
+ * by more than 50% (merged <= 1.5 * (a + b)). Otherwise keeping them as
+ * separate regions is cheaper, even if the overlap is refreshed twice. */
+static bool rect_merge_worthwhile(const ui_rect_t *a, const ui_rect_t *b)
+{
+    ui_rect_t m;
+    rect_merge(a, b, &m);
+    int32_t area_m = (int32_t)m.w * m.h;
+    int32_t area_ab = (int32_t)a->w * a->h + (int32_t)b->w * b->h;
+    return area_m * 2 <= area_ab * 3;
 }
 
 static void rect_clamp_screen(ui_rect_t *r)
@@ -227,7 +240,7 @@ void ui_page_invalidate(const ui_rect_t *rect)
     /* Fast-path: try merging with the last region first */
     if (s_dirty_list.count > 0) {
         ui_rect_t *last = &s_dirty_list.regions[s_dirty_list.count - 1];
-        if (rects_overlap(&r, last)) {
+        if (rects_overlap(&r, last) && rect_merge_worthwhile(&r, last)) {
             rect_merge(&r, last, last);
             rect_clamp_screen(last);
             return;
@@ -237,7 +250,8 @@ void ui_page_invalidate(const ui_rect_t *rect)
     int16_t merge_target = -1;
 
     for (uint16_t i = 0; i < s_dirty_list.count; i++) {
-        if (rects_overlap(&r, &s_dirty_list.regions[i])) {
+        if (rects_overlap(&r, &s_dirty_list.regions[i]) &&
+            rect_merge_worthwhile(&r, &s_dirty_list.regions[i])) {
             if (merge_target < 0) {
                 rect_merge(&r, &s_dirty_list.regions[i], &s_dirty_list.regions[i]);
                 rect_clamp_screen(&s_dirty_list.regions[i]);

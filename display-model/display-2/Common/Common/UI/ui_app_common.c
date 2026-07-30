@@ -8,8 +8,7 @@
 *                      Adapted from Display-1 for E-ink display.
 ********************************************************************************/
 #include "ui_app_common.h"
-#include "../MiniUI/font/font_montserrat_16.h"
-#include "../MiniUI/font/font_montserrat_24.h"
+#include "../MiniUI/font/ui_font.h"
 #include <string.h>
 
 /*=============================================================================
@@ -79,14 +78,14 @@ void ui_app_page_init(ui_app_page_t *app, const char *name, uint32_t id)
 
     /* Back button */
     ui_rect_t back_rect = {8, 7, 76, 34};
-    ui_button_init(&app->btn_back, &back_rect, "< Back", &font_montserrat_16);
+    ui_button_init(&app->btn_back, &back_rect, "< Back", UI_FONT_BODY);
     ui_button_set_callback(&app->btn_back, app_back_click);
     ui_button_set_colors(&app->btn_back, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
     app->btn_back.radius = 4;
 
     /* Title label */
     ui_rect_t title_rect = {96, 10, UI_SCREEN_WIDTH - 106, 28};
-    ui_label_init(&app->lbl_title, &title_rect, name, &font_montserrat_24);
+    ui_label_init(&app->lbl_title, &title_rect, name, UI_FONT_TITLE);
     ui_label_set_color(&app->lbl_title, UI_COLOR_WHITE);
     app->lbl_title.base.bg_color = UI_COLOR_PRIMARY;
 

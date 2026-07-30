@@ -243,9 +243,10 @@ void UI_Tick(void)
             }
 
             /* Handle TAB globally: cycle keyboard focus among the current
-             * page's focusable widgets using the PRESSED highlight.  Shift+TAB
-             * reverses.  Activation is per-widget: KEY_OK fires a button /
-             * toggles a switch; arrow keys adjust the focused slider.
+             * page's focusable widgets using the FOCUS flag (rendered as a
+             * focus ring by the widgets).  Shift+TAB reverses.  Activation is
+             * per-widget: KEY_OK fires a button / toggles a switch; arrow
+             * keys adjust the focused slider.
              * Keyed off the raw Tab KEY_DOWN so the Shift modifier is visible. */
             if (!handled && e->type == UI_EVENT_KEY_DOWN && e->char_code == 0x09) {
                 ui_page_t *pg = ui_page_current();
@@ -255,7 +256,7 @@ void UI_Tick(void)
                     int16_t dir = reverse ? -1 : 1;
                     int16_t cur = -1;
                     for (int16_t i = 0; i < n; i++) {
-                        if (pg->widgets[i] && (pg->widgets[i]->flags & UI_WIDGET_FLAG_PRESSED)) {
+                        if (pg->widgets[i] && (pg->widgets[i]->flags & UI_WIDGET_FLAG_FOCUS)) {
                             cur = i; break;
                         }
                     }
@@ -267,10 +268,10 @@ void UI_Tick(void)
                             (cand->flags & UI_WIDGET_FLAG_VISIBLE) &&
                             (cand->flags & UI_WIDGET_FLAG_ENABLED)) {
                             if (cur >= 0 && pg->widgets[cur]) {
-                                pg->widgets[cur]->flags &= ~UI_WIDGET_FLAG_PRESSED;
+                                pg->widgets[cur]->flags &= ~UI_WIDGET_FLAG_FOCUS;
                                 ui_widget_invalidate(pg->widgets[cur]);
                             }
-                            cand->flags |= UI_WIDGET_FLAG_PRESSED;
+                            cand->flags |= UI_WIDGET_FLAG_FOCUS;
                             ui_widget_invalidate(cand);
                             break;
                         }

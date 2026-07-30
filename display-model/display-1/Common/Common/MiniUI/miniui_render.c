@@ -510,6 +510,11 @@ static const ui_glyph_t* find_glyph(const ui_font_t *font, uint16_t unicode)
     return NULL;
 }
 
+const ui_glyph_t* ui_font_glyph(const ui_font_t *font, uint16_t unicode)
+{
+    return find_glyph(font, unicode);
+}
+
 /* Draw a single glyph into the line buffer (current target row only) */
 static void draw_glyph(int16_t x, int16_t y, const ui_glyph_t *glyph,
                        const ui_font_t *font, ui_color_t color, ui_color_t bg)
@@ -535,24 +540,45 @@ static void draw_glyph(int16_t x, int16_t y, const ui_glyph_t *glyph,
             for (int16_t col = x1; col < x2; col++) {
                 line[col] = bg;
             }
-            /* Blend foreground pixels */
+        }
+
+        if (bpp == 1) {
+            /* Fast path: rolling bit offset (no per-pixel mul/div/mod) and
+             * whole-byte skip of 8 transparent pixels — the hot path for the
+             * 1bpp montserrat fonts. */
+            const uint8_t *bm = glyph->bitmap;
+            uint32_t bo = bit_idx;
+            int16_t col = 0;
+            int16_t gw = glyph->width;
+            while (col < gw) {
+                if ((bo & 7) == 0 && (gw - col) >= 8 && bm[bo >> 3] == 0) {
+                    col += 8;
+                    bo += 8;
+                    continue;
+                }
+                if (bm[bo >> 3] & (0x80 >> (bo & 7))) {
+                    int16_t px = gx + col;
+                    if (px >= g_target.x && px < g_target.x + g_target.w)
+                        line[px] = color;
+                }
+                col++;
+                bo++;
+            }
+        } else if (bg != UI_COLOR_TRANSPARENT) {
+            /* Anti-aliased glyph over opaque background: blend */
             for (int16_t col = 0; col < glyph->width; col++) {
                 uint32_t byte_idx = (bit_idx + (uint32_t)col * bpp) / 8;
                 uint32_t shift = 8 - bpp - ((bit_idx + (uint32_t)col * bpp) % 8);
                 uint8_t alpha = (glyph->bitmap[byte_idx] >> shift) & mask;
                 int16_t px = gx + col;
                 if (px < g_target.x || px >= g_target.x + g_target.w) continue;
-                if (bpp == 1) {
-                    if (alpha) line[px] = color;
-                } else {
-                    if (alpha > 0) {
-                        uint8_t a8 = (uint16_t)alpha * 255 / mask;
-                        line[px] = ui_color_blend(color, bg, a8);
-                    }
+                if (alpha > 0) {
+                    uint8_t a8 = (uint16_t)alpha * 255 / mask;
+                    line[px] = ui_color_blend(color, bg, a8);
                 }
             }
         } else {
-            /* Transparent background: only draw foreground pixels */
+            /* Anti-aliased glyph, transparent background */
             for (int16_t col = 0; col < glyph->width; col++) {
                 uint32_t byte_idx = (bit_idx + (uint32_t)col * bpp) / 8;
                 uint32_t shift = 8 - bpp - ((bit_idx + (uint32_t)col * bpp) % 8);

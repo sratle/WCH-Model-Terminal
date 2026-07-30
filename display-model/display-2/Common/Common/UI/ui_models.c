@@ -11,8 +11,7 @@
 #include "ui_models.h"
 #include "ui_main.h"
 #include "../UART/uart_module.h"
-#include "../MiniUI/font/font_montserrat_16.h"
-#include "../MiniUI/font/font_montserrat_24.h"
+#include "../MiniUI/font/ui_font.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -259,7 +258,7 @@ static void init_tab_cards(module_info_t *mods, ui_card_t *cards,
         cards[i].radius = 8;
 
         ui_rect_t name_r = {card_rect.x + 10, card_rect.y + 8, 100, 18};
-        ui_label_init(&names[i], &name_r, mods[i].name, &font_montserrat_16);
+        ui_label_init(&names[i], &name_r, mods[i].name, UI_FONT_BODY);
         names[i].base.bg_color = UI_COLOR_TRANSPARENT;
         ui_label_set_color(&names[i], UI_COLOR_TEXT_PRIMARY);
 
@@ -267,7 +266,7 @@ static void init_tab_cards(module_info_t *mods, ui_card_t *cards,
         ui_status_dot_init(&dots[i], &dot_r, mods[i].online);
 
         ui_rect_t info_r = {card_rect.x + 10, card_rect.y + 34, 140, 16};
-        ui_label_init(&infos[i], &info_r, mods[i].info, &font_montserrat_16);
+        ui_label_init(&infos[i], &info_r, mods[i].info, UI_FONT_BODY);
         infos[i].base.bg_color = UI_COLOR_TRANSPARENT;
         ui_label_set_color(&infos[i], UI_COLOR_TEXT_SECONDARY);
 
@@ -300,7 +299,7 @@ void ui_models_init(void)
     int16_t cx = SIDEBAR_WIDTH + 20;
 
     ui_rect_t title_rect = {cx, 20, 300, 30};
-    ui_label_init(&lbl_title, &title_rect, "Models", &font_montserrat_24);
+    ui_label_init(&lbl_title, &title_rect, "Models", UI_FONT_TITLE);
     ui_label_set_color(&lbl_title, UI_COLOR_TEXT_PRIMARY);
 
     ui_rect_t tv_rect = {SIDEBAR_WIDTH, 50, UI_SCREEN_WIDTH - SIDEBAR_WIDTH, UI_SCREEN_HEIGHT - 50};

@@ -14,8 +14,7 @@
 #include "app_images.h"
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
-#include "../MiniUI/font/font_montserrat_16.h"
-#include "../MiniUI/font/font_montserrat_24.h"
+#include "../MiniUI/font/ui_font.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -313,10 +312,10 @@ static void img_render_preview(ui_rect_t *dirty)
 
     if (!s_bmp_loaded) {
         const char *msg = (s_bmp_len > 0 || s_cli_phase == 1) ? "Loading..." : "Select an image";
-        int16_t tw = ui_text_width(msg, &font_montserrat_24);
+        int16_t tw = ui_text_width(msg, UI_FONT_TITLE);
         ui_draw_text(IMG_PREVIEW_X + (IMG_PREVIEW_W - tw) / 2,
                      IMG_PREVIEW_Y + IMG_PREVIEW_H / 2 - 8,
-                     msg, &font_montserrat_24, UI_COLOR_BLACK);
+                     msg, UI_FONT_TITLE, UI_COLOR_BLACK);
         return;
     }
 
@@ -513,7 +512,7 @@ static void img_page_draw(ui_page_t *page, ui_rect_t *dirty)
         char hdr_text[24];
         snprintf(hdr_text, sizeof(hdr_text), "BMP (%d)", s_file_count);
         ui_draw_text(IMG_LIST_X + 10, IMG_LIST_Y + 10, hdr_text,
-                     &font_montserrat_16, UI_COLOR_BLACK);
+                     UI_FONT_BODY, UI_COLOR_BLACK);
         ui_draw_hline(IMG_LIST_X, IMG_LIST_Y + IMG_ITEM_H, IMG_LIST_W, UI_COLOR_BLACK);
 
         /* File items */
@@ -530,9 +529,9 @@ static void img_page_draw(ui_page_t *page, ui_rect_t *dirty)
             ui_color_t fg = sel ? UI_COLOR_WHITE : UI_COLOR_BLACK;
 
             ui_draw_text(IMG_LIST_X + 8, item_y + 10, "B",
-                         &font_montserrat_16, fg);
+                         UI_FONT_BODY, fg);
             ui_draw_text(IMG_LIST_X + 28, item_y + 10, s_files[idx].name,
-                         &font_montserrat_16, fg);
+                         UI_FONT_BODY, fg);
         }
 
         /* Scroll indicator */
@@ -558,7 +557,7 @@ static void img_page_draw(ui_page_t *page, ui_rect_t *dirty)
         ui_rect_t bar_bg = {0, IMG_BAR_Y, UI_SCREEN_WIDTH, IMG_BAR_H};
         ui_draw_fill_rect(&bar_bg, UI_COLOR_WHITE);
         ui_draw_hline(0, IMG_BAR_Y, UI_SCREEN_WIDTH, UI_COLOR_BLACK);
-        ui_draw_text(12, IMG_BAR_Y + 8, s_bar_msg, &font_montserrat_16, UI_COLOR_BLACK);
+        ui_draw_text(12, IMG_BAR_Y + 8, s_bar_msg, UI_FONT_BODY, UI_COLOR_BLACK);
     }
 }
 

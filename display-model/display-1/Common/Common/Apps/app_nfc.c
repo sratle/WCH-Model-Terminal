@@ -453,7 +453,7 @@ static void nfc_page_draw(ui_page_t *page, ui_rect_t *dirty)
             char line1[48];
             snprintf(line1, sizeof(line1), "Card #%d detected", s_detect_card_id);
             ui_draw_text(NFC_LIST_X + 16, NFC_DETECT_Y + 6, line1,
-                         &font_montserrat_24, NFC_ACCENT);
+                         UI_FONT_TITLE, NFC_ACCENT);
 
             char *name = NULL;
             for (uint8_t i = 0; i < s_nfc_count; i++) {
@@ -469,13 +469,13 @@ static void nfc_page_draw(ui_page_t *page, ui_rect_t *dirty)
             else
                 snprintf(line2, sizeof(line2), "%s", s_detect_hex);
             ui_draw_text(NFC_LIST_X + 16, NFC_DETECT_Y + 38, line2,
-                         &font_montserrat_16, NFC_TEXT);
+                         UI_FONT_BODY, NFC_TEXT);
         } else {
             ui_draw_fill_round_rect(&det_r, 8, NFC_DETECT_BG);
             ui_draw_round_rect_border(&det_r, 8, NFC_BORDER, 1);
             ui_draw_text(NFC_LIST_X + 16, NFC_DETECT_Y + 23,
                          "Waiting for NFC card...",
-                         &font_montserrat_16, NFC_TEXT_DIM);
+                         UI_FONT_BODY, NFC_TEXT_DIM);
         }
     }
 
@@ -491,7 +491,7 @@ static void nfc_page_draw(ui_page_t *page, ui_rect_t *dirty)
         char hdr_text[32];
         snprintf(hdr_text, sizeof(hdr_text), "NFC Cards (%d)", s_nfc_count);
         ui_draw_text(NFC_LIST_X + 14, NFC_LIST_Y + 9, hdr_text,
-                     &font_montserrat_16, NFC_ACCENT);
+                     UI_FONT_BODY, NFC_ACCENT);
 
         /* Items */
         for (int16_t vis = 0; vis < NFC_VISIBLE; vis++) {
@@ -512,11 +512,11 @@ static void nfc_page_draw(ui_page_t *page, ui_rect_t *dirty)
             ui_draw_fill_round_rect(
                 &(ui_rect_t){NFC_LIST_X + 10, iy + 8, 110, 22}, 4, NFC_BADGE_BG);
             ui_draw_text(NFC_LIST_X + 16, iy + 11, s_nfc_list[idx].hex_id,
-                         &font_montserrat_16, NFC_BADGE_TEXT);
+                         UI_FONT_BODY, NFC_BADGE_TEXT);
 
             /* Name */
             ui_draw_text(NFC_LIST_X + 130, iy + 11, s_nfc_list[idx].name,
-                         &font_montserrat_16, NFC_TEXT);
+                         UI_FONT_BODY, NFC_TEXT);
         }
 
         /* Scroll indicator */
@@ -551,49 +551,44 @@ static void nfc_page_draw(ui_page_t *page, ui_rect_t *dirty)
 
             ui_draw_text(NFC_RIGHT_X + 28, input_y + 10,
                          s_adding ? "Add New NFC Card" : "Edit Card Name",
-                         &font_montserrat_16, NFC_ACCENT);
+                         UI_FONT_BODY, NFC_ACCENT);
+
+            ui_textfield_style_t tf_st = {
+                .bg = NFC_INPUT_FIELD, .border = NFC_BORDER,
+                .text = NFC_TEXT, .hint = NFC_TEXT_DIM,
+                .cursor = NFC_ACCENT,
+                .font = UI_FONT_BODY, .hint_font = UI_FONT_BODY,
+                .radius = 4, .border_w = 1,
+            };
 
             if (s_adding) {
+                /* Typed chars fill the hex ID first, then the name — the
+                 * caret is shown on whichever field is receiving input. */
+                bool hex_active = (strlen(s_edit_hex_id) < NFC_HEX_ID_LEN);
+
                 ui_draw_text(NFC_RIGHT_X + 28, input_y + 30, "Hex ID (10 chars):",
-                             &font_montserrat_16, NFC_TEXT_DIM);
+                             UI_FONT_BODY, NFC_TEXT_DIM);
                 ui_rect_t field1 = {NFC_RIGHT_X + 28, input_y + 46, NFC_RIGHT_W - 56, 26};
-                ui_draw_fill_round_rect(&field1, 4, NFC_INPUT_FIELD);
-                ui_draw_round_rect_border(&field1, 4, NFC_BORDER, 1);
-                char hex_disp[NFC_HEX_ID_LEN + 2];
-                memcpy(hex_disp, s_edit_hex_id, strlen(s_edit_hex_id));
-                hex_disp[strlen(s_edit_hex_id)] = '|';
-                hex_disp[strlen(s_edit_hex_id) + 1] = '\0';
-                ui_draw_text(NFC_RIGHT_X + 34, input_y + 51, hex_disp,
-                             &font_montserrat_16, NFC_TEXT);
+                ui_textfield_draw(&field1, s_edit_hex_id,
+                                  (uint16_t)strlen(s_edit_hex_id),
+                                  NULL, hex_active, &tf_st);
 
                 ui_draw_text(NFC_RIGHT_X + 28, input_y + 80, "Name:",
-                             &font_montserrat_16, NFC_TEXT_DIM);
+                             UI_FONT_BODY, NFC_TEXT_DIM);
                 ui_rect_t field2 = {NFC_RIGHT_X + 28, input_y + 96, NFC_RIGHT_W - 56, 26};
-                ui_draw_fill_round_rect(&field2, 4, NFC_INPUT_FIELD);
-                ui_draw_round_rect_border(&field2, 4, NFC_BORDER, 1);
-                char name_disp[NFC_INPUT_MAX + 2];
-                memcpy(name_disp, s_input, s_input_len);
-                name_disp[s_input_len] = '|';
-                name_disp[s_input_len + 1] = '\0';
-                ui_draw_text(NFC_RIGHT_X + 34, input_y + 101, name_disp,
-                             &font_montserrat_16, NFC_TEXT);
+                ui_textfield_draw(&field2, s_input, s_input_len,
+                                  NULL, !hex_active, &tf_st);
             } else {
                 ui_draw_text(NFC_RIGHT_X + 28, input_y + 30, "Name:",
-                             &font_montserrat_16, NFC_TEXT_DIM);
+                             UI_FONT_BODY, NFC_TEXT_DIM);
                 ui_rect_t field = {NFC_RIGHT_X + 28, input_y + 46, NFC_RIGHT_W - 56, 26};
-                ui_draw_fill_round_rect(&field, 4, NFC_INPUT_FIELD);
-                ui_draw_round_rect_border(&field, 4, NFC_BORDER, 1);
-                char disp[NFC_INPUT_MAX + 2];
-                memcpy(disp, s_input, s_input_len);
-                disp[s_input_len] = '|';
-                disp[s_input_len + 1] = '\0';
-                ui_draw_text(NFC_RIGHT_X + 34, input_y + 51, disp,
-                             &font_montserrat_16, NFC_TEXT);
+                ui_textfield_draw(&field, s_input, s_input_len,
+                                  NULL, true, &tf_st);
             }
 
             ui_draw_text(NFC_RIGHT_X + 28, input_y + 130,
                          "Enter=Save  Esc=Cancel",
-                         &font_montserrat_16, NFC_TEXT_DIM);
+                         UI_FONT_BODY, NFC_TEXT_DIM);
         }
     }
 
@@ -602,7 +597,7 @@ static void nfc_page_draw(ui_page_t *page, ui_rect_t *dirty)
         ui_rect_t sb = {0, NFC_STATUS_Y, UI_SCREEN_WIDTH, NFC_STATUS_H};
         ui_draw_fill_rect(&sb, NFC_STATUS_BG);
         ui_draw_text(16, NFC_STATUS_Y + 9, s_status,
-                     &font_montserrat_16, NFC_STATUS_TEXT);
+                     UI_FONT_BODY, NFC_STATUS_TEXT);
     }
 }
 
@@ -718,7 +713,7 @@ void app_nfc_init(void)
     /* Row 1: Refresh, Add Card */
     {
         ui_rect_t r = {bx_l, by, NFC_BTN_W, NFC_BTN_H};
-        ui_button_init(&btn_refresh, &r, "Refresh", &font_montserrat_16);
+        ui_button_init(&btn_refresh, &r, "Refresh", UI_FONT_BODY);
         ui_button_set_callback(&btn_refresh, btn_refresh_click);
         ui_button_set_colors(&btn_refresh, UI_HEX(0x0F3460), UI_HEX(0x1565C0), UI_COLOR_WHITE);
         btn_refresh.radius = 6;
@@ -727,7 +722,7 @@ void app_nfc_init(void)
 
     {
         ui_rect_t r = {bx_r, by, NFC_BTN_W, NFC_BTN_H};
-        ui_button_init(&btn_add, &r, "Add Card", &font_montserrat_16);
+        ui_button_init(&btn_add, &r, "Add Card", UI_FONT_BODY);
         ui_button_set_callback(&btn_add, btn_add_click);
         ui_button_set_colors(&btn_add, UI_HEX(0x1B5E20), UI_HEX(0x2E7D32), UI_COLOR_WHITE);
         btn_add.radius = 6;
@@ -739,7 +734,7 @@ void app_nfc_init(void)
     /* Row 2: Edit Name, Save */
     {
         ui_rect_t r = {bx_l, by, NFC_BTN_W, NFC_BTN_H};
-        ui_button_init(&btn_edit, &r, "Edit Name", &font_montserrat_16);
+        ui_button_init(&btn_edit, &r, "Edit Name", UI_FONT_BODY);
         ui_button_set_callback(&btn_edit, btn_edit_click);
         ui_button_set_colors(&btn_edit, UI_HEX(0xE65100), UI_HEX(0xFF9800), UI_COLOR_WHITE);
         btn_edit.radius = 6;
@@ -748,7 +743,7 @@ void app_nfc_init(void)
 
     {
         ui_rect_t r = {bx_r, by, NFC_BTN_W, NFC_BTN_H};
-        ui_button_init(&btn_save, &r, "Save", &font_montserrat_16);
+        ui_button_init(&btn_save, &r, "Save", UI_FONT_BODY);
         ui_button_set_callback(&btn_save, btn_save_click);
         ui_button_set_colors(&btn_save, UI_HEX(0x0F3460), UI_HEX(0x1565C0), UI_COLOR_WHITE);
         btn_save.radius = 6;
@@ -760,7 +755,7 @@ void app_nfc_init(void)
     /* Row 3: Cancel */
     {
         ui_rect_t r = {bx_l, by, NFC_BTN_W, NFC_BTN_H};
-        ui_button_init(&btn_cancel, &r, "Cancel", &font_montserrat_16);
+        ui_button_init(&btn_cancel, &r, "Cancel", UI_FONT_BODY);
         ui_button_set_callback(&btn_cancel, btn_cancel_click);
         ui_button_set_colors(&btn_cancel, UI_HEX(0x424242), UI_HEX(0x616161), NFC_TEXT);
         btn_cancel.radius = 6;

@@ -243,6 +243,38 @@ void ui_status_dot_init(ui_status_dot_t *dot, const ui_rect_t *rect, bool online
 void ui_status_dot_set_state(ui_status_dot_t *dot, bool online);
 
 /*=============================================================================
+ *  Text Field Helpers (shared single-line input box)
+ *
+ *  Converges the hand-drawn input fields (app_file / app_nfc /
+ *  app_fingerprint): box + text-or-hint + caret rendering, and the common
+ *  append/backspace editing.
+ *=============================================================================*/
+
+typedef struct {
+    ui_color_t bg;              /* field background */
+    ui_color_t border;          /* field border */
+    ui_color_t text;            /* input text color */
+    ui_color_t hint;            /* hint text color */
+    ui_color_t cursor;          /* caret color */
+    const ui_font_t *font;      /* input text font */
+    const ui_font_t *hint_font; /* hint font (NULL = same as font) */
+    int16_t radius;             /* corner radius (0 = square) */
+    int16_t border_w;           /* border thickness */
+} ui_textfield_style_t;
+
+/* Draw a single-line input field. `cursor_pos` is the caret character index
+ * (clamped to strlen(text)); pass strlen for append-only fields. */
+void ui_textfield_draw(const ui_rect_t *rect, const char *text,
+                       uint16_t cursor_pos, const char *hint,
+                       bool show_cursor, const ui_textfield_style_t *st);
+
+/* Append-only editing: printable chars (0x20-0x7E) append, 0x08 backspaces.
+ * Accepts KEY_DOWN and KEY_LONG_REPEAT. Keeps buf NUL-terminated (buf must
+ * hold max_len + 1 bytes). Returns true if the buffer changed. */
+bool ui_textfield_edit(char *buf, uint8_t *len, uint8_t max_len,
+                       const ui_event_t *e);
+
+/*=============================================================================
  *  Dialog Widget (Modal Popup)
  *=============================================================================*/
 

@@ -630,3 +630,93 @@ void SSD1963_WaitVSync(void)
 | 13 | 禁止在 on_update 轮询事件 | 用 `on_page_event` 拦截键盘，不要用 `ui_input_poll()` |
 | 14 | 字符输入用 char_code | 不要用 `key_code` 当字符，始终检查 `e->char_code` |
 | 15 | HID 码是标准 US QWERTY | `hid_to_ascii` 与 `CH9350_KeyCode_Name` 一致，键盘布局不影响 HID 码 |
+
+---
+
+## 9. 字体系统（语义槽位）
+
+### 字体资源
+
+MiniUI 字体资源为 `font_montserrat_16`（height=18, baseline=15）与
+`font_montserrat_24`（height=27, baseline=22），均为 1bpp 位图字体，
+由 `docs/extract_lvgl_font.py` 从 LVGL 字体源提取生成（12 号字体已删除）。
+同批提取的还有 `ui_icons_16` / `ui_icons_24` 图标位图。
+
+> 脚本注意：新版 LVGL 字体源使用去零十六进制字节（`0xf,`），提取正则必须
+> 接受 1~2 位十六进制（`0x([0-9a-fA-F]{1,2})\b`），否则位图整体错位。
+
+### 语义槽位（强制规范）
+
+**应用/UI 代码禁止直接引用 `font_montserrat_*` 符号**，必须使用
+`MiniUI/font/ui_font.h` 中的语义槽位：
+
+| 槽位 | 当前映射 | 用途 |
+|------|---------|------|
+| `UI_FONT_TITLE` | 24px | 页面/应用标题、主列表文本 |
+| `UI_FONT_BODY` | 16px | 默认控件/正文文本 |
+| `UI_FONT_CAPTION` | 16px | 次要/注释文本 |
+
+槽位是宏（非全局变量），因此可以作为静态表的初始化器
+（如 ebook 的字体档位表、2048 的按位数选字体表）。
+未来更换字号只需改 `ui_font.h` 中的槽位映射。
+
+### 文本布局 API
+
+- `ui_text_width(text, font)`：整串宽度（右对齐/居中用）。
+- `ui_font_glyph(font, unicode)`：二分查找单字形（NULL=缺字形）。
+  逐字符换行计算（如 ebook 软换行）必须用它，禁止线性扫描字形表。
+- `ui_draw_text_in_rect` 的垂直居中公式 `y = rect.y + (h - font->height)/2`
+  已经过验证是光学居中的（Montserrat 满足 cap 高 = 2*baseline - height，
+  大写字区中心恰好等于 height/2），**不要**改成 baseline 公式。
+
+---
+
+## 10. 键盘焦点系统（FOCUS 标志）
+
+- 焦点状态使用独立的 `UI_WIDGET_FLAG_FOCUS`，与触摸按压态
+  `UI_WIDGET_FLAG_PRESSED` 完全分离。
+- TAB / Shift+TAB 在页面 focusable 控件间循环焦点（display-1 在
+  `ui_system.c`，display-2 在 `miniui_input.c`）；Apps/Games 网格页的
+  方向键导航同样设置 FOCUS 标志。
+- 控件渲染焦点环：display-1 为 2px `UI_COLOR_ACCENT` 内缩描边；
+  display-2（1bpp）为黑外环 + 白内环双环，黑白背景均可见。
+- 激活语义：`KEY_OK` 只作用于持有 FOCUS 的 button/switch；方向键只调节
+  持有 FOCUS 的 slider（防止广播事件同时触发所有控件）。
+- 页面切换时 `page_reset_widget_states` 会同时清除 PRESSED 与 FOCUS。
+
+---
+
+## 11. 文本输入框助手（ui_textfield）
+
+单行输入框的绘制与编辑统一由 `miniui_widget.h` 的助手完成，
+禁止再手绘"框 + 手拼 `'|'` 光标"：
+
+```c
+ui_textfield_style_t st = {
+    .bg = ..., .border = ..., .text = ..., .hint = ..., .cursor = ...,
+    .font = UI_FONT_TITLE, .hint_font = UI_FONT_BODY,
+    .radius = 4, .border_w = 1,
+};
+/* cursor_pos 为插入符字符索引（追加式字段传 strlen） */
+ui_textfield_draw(&rect, buf, cursor_pos, hint, show_cursor, &st);
+
+/* 追加式编辑：可打印字符 + 退格，接受 KEY_DOWN / KEY_LONG_REPEAT */
+if (ui_textfield_edit(buf, &len, MAX_LEN, e)) invalidate();
+```
+
+现有接入点：app_file 输入对话框（d1/d2，插入符跟随 cursor_pos）、
+app_nfc 三个字段（d1，插入符只显示在当前接收输入的字段）、
+app_fingerprint（d1，绘制+编辑均用助手）。带过滤的输入（如 NFC 十六进制
+字段）保留自定义按键处理，仅复用绘制。
+
+---
+
+## 12. 渲染性能与墨水屏局刷策略
+
+- **draw_glyph 1bpp 快速路径**（两套 render）：滚动位偏移代替逐像素
+  乘/除/取模，且在字节对齐处一次跳过 8 个空白像素；bpp>1 的抗锯齿
+  路径保持不变（display-1）。
+- **display-2 脏矩形合并启发式**：仅当合并后包围盒面积 ≤ 1.5×两矩形
+  面积之和才合并（`rect_merge_worthwhile`），否则保留为独立局刷区域——
+  墨水屏局刷代价与面积成正比，远距离小脏区合并成大矩形反而更慢、
+  更易触发大面积欠驱动发灰。

@@ -74,8 +74,11 @@ static bool s_submodel_cb_valid = false;
 
 #define CLI_RESP_BUF_SIZE   8192
 static char s_cli_resp_buf[CLI_RESP_BUF_SIZE];
-static uint16_t s_cli_resp_len = 0;
-static bool s_cli_resp_accumulating = false;
+/* Shared between the RX ISR (cli_chunk_isr appends) and the main loop
+ * (UART_SendCLI resets, cli_resp_dispatch reads): must be volatile. The tag
+ * array is protected by a brief RX-IRQ critical section in UART_SendCLI. */
+static volatile uint16_t s_cli_resp_len = 0;
+static volatile bool s_cli_resp_accumulating = false;
 
 #define CLI_CMD_TAG_SIZE   32
 static char s_cli_cmd_tag[CLI_CMD_TAG_SIZE];
@@ -215,20 +218,23 @@ static volatile uint16_t s_ring_tail = 0;
 /*=============================================================================
  *  CLI Chunk Handling in ISR context
  *
- *  CLI responses (especially multi-KB `ls` / `cat` / `read` transfers of
- *  14+ frames back-to-back) overflow the 2KB main-loop ring when the loop
- *  is blocked by an e-paper refresh — dropped frames lose EOF and the
- *  transfer hangs forever.  CLI chunk frames are therefore consumed
- *  DIRECTLY in the RX ISR (append + incremental ls parse + stream cb);
- *  only the final dispatch is deferred to the main loop via a flag.
- *  Note: on_cli_stream handlers must tolerate ISR context (they only
- *  touch app-side RAM buffers and are gated by their is_loading flags).
+ *  On e-paper the main loop is blocked for SECONDS by a refresh. A CLI
+ *  response (`ls`/`cat`/`read`, up to ~8 KB, e.g. an image BMP) that arrives
+ *  during that window must NOT be dropped. Routing it through the small ISR
+ *  ring would either overflow the ring or require a second ≥8 KB buffer that
+ *  does not fit in RAM. CLI chunk frames are therefore appended DIRECTLY to
+ *  the 8 KB assembly buffer here in the RX ISR; only the final dispatch is
+ *  deferred to the main loop via s_cli_dispatch_pending.
+ *
+ *  ISR-time cost is bounded: per frame it is a ~250-byte memcpy (~1 us at
+ *  144 MHz, well under the 10.8 us byte interval at 921600). The incremental
+ *  ls parse and on_cli_stream callback only run for the `ls`/streaming apps
+ *  and touch app RAM buffers gated by their loading flags.
+ *
+ *  The shared CLI-assembly state (len/accumulating/tag) is volatile, and
+ *  UART_SendCLI resets it inside a brief RX-IRQ critical section so a late
+ *  frame from a previous command cannot tear a new command's state.
  *===========================================================================*/
-
-static void cli_resp_append(const char *data, uint16_t len);
-static void cli_resp_dispatch(void);
-static void cli_ls_feed(const char *data, uint16_t len);
-static void cli_ls_reset(void);
 
 static void cli_chunk_isr(const uint8_t *data, uint8_t len)
 {
@@ -426,9 +432,10 @@ void USART1_IRQHandler(void)
     case RX_TAIL3:
         if (b == PROTO_FRAME_TAIL3) {
             uint8_t dlen = (s_rx_idx < PROTO_MAX_DATA_LEN) ? s_rx_idx : 0;
-            /* CLI chunk frames bypass the ring: they are consumed inline so
-             * multi-KB transfers cannot overflow the 2KB main-loop ring
-             * while the loop is blocked by an e-paper refresh. */
+            /* CLI chunk frames are consumed inline (appended to the 8 KB
+             * assembly buffer) so a multi-KB transfer survives a seconds-long
+             * e-paper refresh without needing a large ring. All other frames
+             * go through the small ring and are processed in the main loop. */
             if (s_rx_cmd == CMD_DISP_EXT && dlen >= 1 && s_rx_data[0] == DISP_EXT_CLI) {
                 cli_chunk_isr(s_rx_data, dlen);
             } else {
@@ -472,7 +479,7 @@ void USART1_IRQHandler(void)
                                 (uint8_t)(s_stream_idx - 1) : PROTO_MAX_DATA_LEN;
                 for (uint8_t i = 0; i < dlen; i++)
                     s_rx_data[i] = s_stream_buf[1 + i];
-                /* CLI chunk frames bypass the ring (see RX_TAIL3 note) */
+                /* CLI chunk frames consumed inline (see RX_TAIL3 note) */
                 if (s_rx_cmd == CMD_DISP_EXT && dlen >= 1 && s_rx_data[0] == DISP_EXT_CLI) {
                     cli_chunk_isr(s_rx_data, dlen);
                 } else {
@@ -1087,7 +1094,9 @@ static void process_frame(uint8_t src, uint8_t dst, uint8_t cmd,
 
 void UART_Module_Poll(void)
 {
-    /* Deferred CLI dispatch (the chunks themselves are consumed in the ISR) */
+    /* Deferred CLI dispatch (the chunks themselves are consumed in the ISR
+     * into the 8 KB assembly buffer; only the final parse/callback runs here
+     * in the main loop, off the ISR). */
     if (s_cli_dispatch_pending) {
         s_cli_dispatch_pending = 0;
         cli_resp_dispatch();
@@ -1103,8 +1112,10 @@ void UART_Module_Poll(void)
         uint8_t dlen = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
 
         if (s_ring_head - s_ring_tail < dlen) {
-            if (s_ring_tail >= 4) s_ring_tail -= 4;
-            else s_ring_tail = UART_RX_BUF_SIZE - (4 - s_ring_tail);
+            /* Rewind 4 bytes: uint16_t subtraction wraps naturally.
+             * (Do NOT branch on tail>=4 — that breaks the free-running
+             * head/tail counter semantics and reads out of bounds.) */
+            s_ring_tail -= 4;
             break;
         }
 
@@ -1310,6 +1321,11 @@ const char *UART_GetLastCLITag(void)
 
 void UART_SendCLI(const char *cmd)
 {
+    /* Reset the CLI-assembly state atomically w.r.t. the RX ISR: a late frame
+     * from a previous command must not tear the new command's tag/len/flags.
+     * The window is a few memsets (<2 us) and no CLI frame is in flight yet
+     * (we have not sent the command), so briefly masking the RX IRQ is safe. */
+    NVIC_DisableIRQ(USART1_IRQn);
     {
         uint8_t i = 0;
         while (i < CLI_CMD_TAG_SIZE - 1 && cmd[i] && cmd[i] != ' ') {
@@ -1325,7 +1341,9 @@ void UART_SendCLI(const char *cmd)
     }
 
     cli_resp_reset();
+    s_cli_dispatch_pending = 0;
     g_pending_req = PENDING_CLI;
+    NVIC_EnableIRQ(USART1_IRQn);
 
     uint8_t buf[PROTO_MAX_DATA_LEN];
     buf[0] = DISP_EXT_CLI;

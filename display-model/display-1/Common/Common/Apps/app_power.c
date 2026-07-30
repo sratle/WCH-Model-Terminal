@@ -66,24 +66,24 @@ static void pwr_draw_status(void)
     ui_draw_fill_circle(PWR_ROW_X + 32, PWR_STATUS_Y + PWR_STATUS_H / 2, 13, dot);
 
     ui_draw_text(PWR_ROW_X + 62, PWR_STATUS_Y + 14, "Power Module",
-                 &font_montserrat_24, UI_COLOR_TEXT_PRIMARY);
+                 UI_FONT_TITLE, UI_COLOR_TEXT_PRIMARY);
     ui_draw_text(PWR_ROW_X + 62, PWR_STATUS_Y + 42,
                  online ? "Connected" : "Not connected",
-                 &font_montserrat_16,
+                 UI_FONT_BODY,
                  online ? UI_COLOR_TEXT_PRIMARY : UI_COLOR_TEXT_SECONDARY);
 
     /* 右侧充电状态徐章 */
     if (online) {
         const char *txt = charging ? "Charging" : "Discharging";
         ui_color_t  col = charging ? UI_COLOR_STATUS_ON : UI_COLOR_TEXT_SECONDARY;
-        int16_t tw = ui_text_width(txt, &font_montserrat_24);
+        int16_t tw = ui_text_width(txt, UI_FONT_TITLE);
         int16_t pill_w = tw + 40;
         int16_t pill_x = PWR_ROW_X + PWR_ROW_W - pill_w - 16;
         int16_t pill_y = PWR_STATUS_Y + (PWR_STATUS_H - 40) / 2;
         ui_rect_t pill = {pill_x, pill_y, pill_w, 40};
         ui_draw_round_rect_border(&pill, 20, col, 2);
         ui_draw_fill_circle(pill_x + 16, pill_y + 20, 5, col);
-        ui_draw_text(pill_x + 28, pill_y + 7, txt, &font_montserrat_24, col);
+        ui_draw_text(pill_x + 28, pill_y + 7, txt, UI_FONT_TITLE, col);
     }
 }
 
@@ -100,7 +100,7 @@ static void pwr_draw_battery(void)
     if (!online) {
         ui_draw_text(PWR_ROW_X + 24, PWR_BATT_Y + PWR_BATT_H / 2 - 13,
                      "-- no power module --",
-                     &font_montserrat_24, UI_COLOR_TEXT_SECONDARY);
+                     UI_FONT_TITLE, UI_COLOR_TEXT_SECONDARY);
         return;
     }
 
@@ -130,14 +130,14 @@ static void pwr_draw_battery(void)
     /* Percentage text centered in the battery */
     char pct_str[8];
     snprintf(pct_str, sizeof(pct_str), "%u%%", pct);
-    int16_t tw = ui_text_width(pct_str, &font_montserrat_24);
+    int16_t tw = ui_text_width(pct_str, UI_FONT_TITLE);
     ui_draw_text(bx + (BATT_W - tw) / 2, by + BATT_H / 2 - 13,
-                 pct_str, &font_montserrat_24, UI_COLOR_TEXT_PRIMARY);
+                 pct_str, UI_FONT_TITLE, UI_COLOR_TEXT_PRIMARY);
 
     /* 充电状态 */
     ui_draw_text(bx, by + BATT_H + 14,
                  charging ? "Charging" : "On battery (discharging)",
-                 &font_montserrat_24,
+                 UI_FONT_TITLE,
                  charging ? UI_COLOR_STATUS_ON : UI_COLOR_TEXT_SECONDARY);
 }
 
@@ -194,7 +194,7 @@ static void pwr_page_draw(ui_page_t *page, ui_rect_t *dirty)
 
     if (dtop < PWR_STATUS_Y) {
         ui_draw_text(PWR_ROW_X, PWR_HDR_Y, "Power",
-                     &font_montserrat_16, UI_COLOR_TEXT_SECONDARY);
+                     UI_FONT_BODY, UI_COLOR_TEXT_SECONDARY);
     }
     if (dbot > PWR_STATUS_Y && dtop < PWR_STATUS_Y + PWR_STATUS_H)
         pwr_draw_status();

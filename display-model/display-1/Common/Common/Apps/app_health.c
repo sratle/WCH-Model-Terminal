@@ -253,7 +253,7 @@ static void hlth_draw_chart(const ui_rect_t *rect, const hlth_history_t *hist,
     if (n < 2) {
         /* No data yet */
         ui_draw_text(rect->x + rect->w / 2 - 30, rect->y + rect->h / 2 - 6,
-                     "No data", &font_montserrat_16, HLTH_TEXT_DIM);
+                     "No data", UI_FONT_BODY, HLTH_TEXT_DIM);
         return;
     }
 
@@ -387,7 +387,7 @@ static void hlth_page_draw(ui_page_t *page, ui_rect_t *dirty)
 
             /* Label */
             ui_draw_text(cx + 10, HLTH_CARD_Y + 6, cols[c].label,
-                         &font_montserrat_16, cols[c].accent);
+                         UI_FONT_BODY, cols[c].accent);
 
             /* Current value */
             if (s_data_valid) {
@@ -398,15 +398,15 @@ static void hlth_page_draw(ui_page_t *page, ui_rect_t *dirty)
                     snprintf(val_str, sizeof(val_str), "%d", cols[c].cur_val);
                 }
                 ui_draw_text(cx + 10, HLTH_CARD_Y + 24, val_str,
-                             &font_montserrat_24, HLTH_TEXT);
+                             UI_FONT_TITLE, HLTH_TEXT);
 
                 /* Unit */
-                ui_draw_text(cx + 10 + ui_text_width(val_str, &font_montserrat_24) + 4,
+                ui_draw_text(cx + 10 + ui_text_width(val_str, UI_FONT_TITLE) + 4,
                              HLTH_CARD_Y + 30, cols[c].unit,
-                             &font_montserrat_16, HLTH_TEXT_DIM);
+                             UI_FONT_BODY, HLTH_TEXT_DIM);
             } else {
                 ui_draw_text(cx + 10, HLTH_CARD_Y + 28, "--",
-                             &font_montserrat_24, HLTH_TEXT_DIM);
+                             UI_FONT_TITLE, HLTH_TEXT_DIM);
             }
 
             /* Average */
@@ -415,7 +415,7 @@ static void hlth_page_draw(ui_page_t *page, ui_rect_t *dirty)
                 snprintf(avg_str, sizeof(avg_str), "Avg: %d",
                          hlth_history_avg(cols[c].hist));
                 ui_draw_text(cx + 10, HLTH_CARD_Y + 54, avg_str,
-                             &font_montserrat_16, HLTH_TEXT_DIM);
+                             UI_FONT_BODY, HLTH_TEXT_DIM);
             }
         }
 
@@ -429,11 +429,11 @@ static void hlth_page_draw(ui_page_t *page, ui_rect_t *dirty)
             char label[8];
             snprintf(label, sizeof(label), "%d", cols[c].y_max);
             ui_draw_text(cx + HLTH_CHART_PAD_X + 2, HLTH_CHART_Y + HLTH_CHART_PAD_Y,
-                         label, &font_montserrat_16, HLTH_TEXT_DIM);
+                         label, UI_FONT_BODY, HLTH_TEXT_DIM);
             snprintf(label, sizeof(label), "%d", cols[c].y_min);
             ui_draw_text(cx + HLTH_CHART_PAD_X + 2,
                          HLTH_CHART_Y + HLTH_CHART_H - HLTH_CHART_PAD_Y - 12,
-                         label, &font_montserrat_16, HLTH_TEXT_DIM);
+                         label, UI_FONT_BODY, HLTH_TEXT_DIM);
         }
 
         /* Stats */
@@ -450,12 +450,12 @@ static void hlth_page_draw(ui_page_t *page, ui_rect_t *dirty)
                 snprintf(line2, sizeof(line2), "Samples: %d",
                          cols[c].hist->count);
                 ui_draw_text(cx + 8, HLTH_STATS_Y + 6, line1,
-                             &font_montserrat_16, HLTH_TEXT);
+                             UI_FONT_BODY, HLTH_TEXT);
                 ui_draw_text(cx + 8, HLTH_STATS_Y + 26, line2,
-                             &font_montserrat_16, HLTH_TEXT_DIM);
+                             UI_FONT_BODY, HLTH_TEXT_DIM);
             } else {
                 ui_draw_text(cx + 8, HLTH_STATS_Y + 20, "No data",
-                             &font_montserrat_16, HLTH_TEXT_DIM);
+                             UI_FONT_BODY, HLTH_TEXT_DIM);
             }
         }
     }
@@ -470,10 +470,10 @@ static void hlth_page_draw(ui_page_t *page, ui_rect_t *dirty)
             ui_draw_fill_circle(16, HLTH_CTRL_Y + HLTH_CTRL_H / 2, 5,
                                 HLTH_HR_COLOR);
             ui_draw_text(28, HLTH_CTRL_Y + HLTH_CTRL_H / 2 - 6,
-                         "Receiving data", &font_montserrat_16, HLTH_TEXT);
+                         "Receiving data", UI_FONT_BODY, HLTH_TEXT);
         } else {
             ui_draw_text(12, HLTH_CTRL_Y + HLTH_CTRL_H / 2 - 6,
-                         "Waiting for data...", &font_montserrat_16, HLTH_TEXT_DIM);
+                         "Waiting for data...", UI_FONT_BODY, HLTH_TEXT_DIM);
         }
     }
 }

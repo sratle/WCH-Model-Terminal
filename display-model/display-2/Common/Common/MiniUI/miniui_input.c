@@ -547,16 +547,17 @@ static void deliver_key_event(ui_event_t *e)
         if (page->on_page_event(page, e)) return;
     }
 
-    /* TAB cycles keyboard focus (PRESSED highlight) among the page's focusable
-     * widgets; Shift+TAB reverses.  KEY_OK then activates the focused button /
-     * toggles a switch, arrow keys adjust the focused slider. */
+    /* TAB cycles keyboard focus (FOCUS flag, rendered as a focus ring) among
+     * the page's focusable widgets; Shift+TAB reverses.  KEY_OK then activates
+     * the focused button / toggles a switch, arrow keys adjust the focused
+     * slider. */
     if (e->type == UI_EVENT_KEY_DOWN && e->key.code == UI_KEY_TAB) {
         bool reverse = (e->key.modifiers & (UI_MOD_LSHIFT | UI_MOD_RSHIFT)) != 0;
         int16_t n = (int16_t)page->widget_count;
         int16_t dir = reverse ? -1 : 1;
         int16_t cur = -1;
         for (int16_t i = 0; i < n; i++) {
-            if (page->widgets[i] && (page->widgets[i]->flags & UI_WIDGET_FLAG_PRESSED)) {
+            if (page->widgets[i] && (page->widgets[i]->flags & UI_WIDGET_FLAG_FOCUS)) {
                 cur = i; break;
             }
         }
@@ -568,10 +569,10 @@ static void deliver_key_event(ui_event_t *e)
                 (cand->flags & UI_WIDGET_FLAG_VISIBLE) &&
                 (cand->flags & UI_WIDGET_FLAG_ENABLED)) {
                 if (cur >= 0 && page->widgets[cur]) {
-                    page->widgets[cur]->flags &= ~UI_WIDGET_FLAG_PRESSED;
+                    page->widgets[cur]->flags &= ~UI_WIDGET_FLAG_FOCUS;
                     ui_widget_invalidate(page->widgets[cur]);
                 }
-                cand->flags |= UI_WIDGET_FLAG_PRESSED;
+                cand->flags |= UI_WIDGET_FLAG_FOCUS;
                 ui_widget_invalidate(cand);
                 break;
             }

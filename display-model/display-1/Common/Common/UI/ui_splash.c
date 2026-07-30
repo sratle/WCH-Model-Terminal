@@ -39,18 +39,18 @@ static void splash_on_draw(ui_page_t *page, ui_rect_t *batch)
 
     /* Logo: "ELAB" centered, large (use 16pt font, drawn at center) */
     {
-        int16_t logo_w = ui_text_width("ELAB", &font_montserrat_24);
+        int16_t logo_w = ui_text_width("ELAB", UI_FONT_TITLE);
         int16_t logo_x = (UI_SCREEN_WIDTH - logo_w) / 2;
         int16_t logo_y = UI_SCREEN_HEIGHT / 2 - 40;
-        ui_draw_text(logo_x, logo_y, "ELAB", &font_montserrat_24, UI_COLOR_PRIMARY);
+        ui_draw_text(logo_x, logo_y, "ELAB", UI_FONT_TITLE, UI_COLOR_PRIMARY);
     }
 
     /* Subtitle: "Modular Terminal" below logo */
     {
-        int16_t sub_w = ui_text_width("Modular Terminal", &font_montserrat_16);
+        int16_t sub_w = ui_text_width("Modular Terminal", UI_FONT_BODY);
         int16_t sub_x = (UI_SCREEN_WIDTH - sub_w) / 2;
         int16_t sub_y = UI_SCREEN_HEIGHT / 2 - 10;
-        ui_draw_text(sub_x, sub_y, "Modular Terminal", &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+        ui_draw_text(sub_x, sub_y, "Modular Terminal", UI_FONT_BODY, UI_COLOR_TEXT_PRIMARY);
     }
 
     /* Init status: "initing" + animated dots */
@@ -62,10 +62,10 @@ static void splash_on_draw(ui_page_t *page, ui_rect_t *batch)
         }
         init_text[n] = '\0';
 
-        int16_t init_w = ui_text_width(init_text, &font_montserrat_16);
+        int16_t init_w = ui_text_width(init_text, UI_FONT_BODY);
         int16_t init_x = (UI_SCREEN_WIDTH - init_w) / 2;
         int16_t init_y = UI_SCREEN_HEIGHT / 2 + 30;
-        ui_draw_text(init_x, init_y, init_text, &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+        ui_draw_text(init_x, init_y, init_text, UI_FONT_BODY, UI_COLOR_TEXT_PRIMARY);
     }
 }
 

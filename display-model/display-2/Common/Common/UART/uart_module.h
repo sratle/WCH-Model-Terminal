@@ -373,6 +373,15 @@ void UART_ClearEMusicCallbacks(void);
  *  UART Configuration
  *=============================================================================*/
 
+/* ISR->poll ring buffer. CLI response frames do NOT use this ring — they are
+ * consumed directly in the RX ISR into the 8 KB assembly buffer (see
+ * cli_chunk_isr), which is required on e-paper: a refresh blocks the main
+ * loop for SECONDS, and a full `cat`/`read` (up to the 8 KB cap, e.g. an
+ * image BMP) must be buffered during that window. Routing CLI through the
+ * ring would need a second ≥8 KB buffer that does not fit in the 128 KB RAM
+ * budget (two 38 KB frame buffers dominate). This ring therefore only holds
+ * small non-CLI frames (heartbeat/status/ACK/input); 2048 is ample.
+ * MUST stay a power of two (free-running uint16 index wraps at 65536). */
 #define UART_RX_BUF_SIZE    2048
 
 /*=============================================================================

@@ -169,6 +169,18 @@ void ui_label_set_align(ui_label_t *label, uint8_t align)
  *  Button Widget Implementation
  *=============================================================================*/
 
+/* Draw a 2px focus ring just inside the widget rect when it holds keyboard
+ * focus (UI_WIDGET_FLAG_FOCUS — set by TAB traversal or grid navigation).
+ * Gives BLE/USB keyboard users a consistent visual focus indicator that is
+ * independent of the touch PRESSED state. */
+static void draw_focus_ring(ui_widget_t *w, int16_t radius)
+{
+    if (!(w->flags & UI_WIDGET_FLAG_FOCUS)) return;
+    ui_rect_t r = {w->rect.x + 1, w->rect.y + 1,
+                   (int16_t)(w->rect.w - 2), (int16_t)(w->rect.h - 2)};
+    ui_draw_round_rect_border(&r, radius, UI_COLOR_ACCENT, 2);
+}
+
 static void button_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
 {
     ui_button_t *btn = (ui_button_t *)w;
@@ -184,6 +196,8 @@ static void button_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
     if (btn->text && btn->font) {
         ui_draw_text_in_rect(&w->rect, btn->text, btn->font, btn->text_color, 1);
     }
+
+    draw_focus_ring(w, btn->radius);
 }
 
 static void button_event_cb(ui_widget_t *w, ui_event_t *e)
@@ -230,12 +244,10 @@ static void button_event_cb(ui_widget_t *w, ui_event_t *e)
         if (btn->on_click) btn->on_click(w);
         break;
     case UI_EVENT_KEY_OK:
-        /* Only activate if this button has focus (PRESSED flag set by page
-         * keyboard handler). Prevents KEY_OK broadcast from activating
-         * all buttons simultaneously. */
-        if ((w->flags & UI_WIDGET_FLAG_PRESSED) && btn->on_click) {
-            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
-            ui_widget_invalidate(w);
+        /* Only activate if this button holds keyboard focus (FOCUS flag set
+         * by TAB traversal / grid navigation). Prevents KEY_OK broadcast
+         * from activating all buttons simultaneously. */
+        if ((w->flags & UI_WIDGET_FLAG_FOCUS) && btn->on_click) {
             btn->on_click(w);
         }
         break;
@@ -334,6 +346,8 @@ static void icon_button_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
         };
         ui_draw_text_in_rect(&text_rect, btn->text, btn->font, btn->text_color, 1);
     }
+
+    draw_focus_ring(w, btn->radius);
 }
 
 static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
@@ -378,12 +392,10 @@ static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
         if (btn->on_click) btn->on_click(w);
         break;
     case UI_EVENT_KEY_OK:
-        /* Only activate if this button has focus (PRESSED flag set by page
-         * keyboard handler). Prevents KEY_OK broadcast from activating
-         * all buttons simultaneously. */
-        if ((w->flags & UI_WIDGET_FLAG_PRESSED) && btn->on_click) {
-            w->flags &= ~UI_WIDGET_FLAG_PRESSED;
-            ui_widget_invalidate(w);
+        /* Only activate if this button holds keyboard focus (FOCUS flag set
+         * by TAB traversal / grid navigation). Prevents KEY_OK broadcast
+         * from activating all buttons simultaneously. */
+        if ((w->flags & UI_WIDGET_FLAG_FOCUS) && btn->on_click) {
             btn->on_click(w);
         }
         break;
@@ -455,8 +467,8 @@ static void slider_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
     int16_t knob_r = 6;
     ui_draw_fill_circle(knob_x, track_y + track_h / 2, knob_r, slider->knob_color);
 
-    /* Keyboard focus outline (set by TAB traversal via PRESSED). */
-    if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+    /* Keyboard focus outline (UI_WIDGET_FLAG_FOCUS, set by TAB traversal). */
+    if (w->flags & UI_WIDGET_FLAG_FOCUS) {
         ui_draw_rect_border(&w->rect, UI_COLOR_ACCENT, 1);
     }
 }
@@ -503,7 +515,7 @@ static void slider_event_cb(ui_widget_t *w, ui_event_t *e)
     case UI_EVENT_KEY_LEFT_ARROW:
     case UI_EVENT_KEY_RIGHT_ARROW:
         /* Arrow keys adjust the value while the slider is TAB-focused. */
-        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+        if (w->flags & UI_WIDGET_FLAG_FOCUS) {
             int16_t range = slider->max - slider->min;
             int16_t step = range / 20;
             if (step < 1) step = 1;
@@ -583,8 +595,8 @@ static void switch_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
     int16_t knob_y = w->rect.y + w->rect.h / 2;
     ui_draw_fill_circle(knob_x, knob_y, knob_r, sw->knob_color);
 
-    /* Keyboard focus outline (set by TAB traversal via PRESSED). */
-    if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+    /* Keyboard focus outline (UI_WIDGET_FLAG_FOCUS, set by TAB traversal). */
+    if (w->flags & UI_WIDGET_FLAG_FOCUS) {
         ui_draw_rect_border(&w->rect, UI_COLOR_ACCENT, 1);
     }
 }
@@ -613,7 +625,7 @@ static void switch_event_cb(ui_widget_t *w, ui_event_t *e)
     case UI_EVENT_KEY_OK:
         /* Toggle only when TAB-focused, so a broadcast KEY_OK does not flip
          * every switch on the page. */
-        if (w->flags & UI_WIDGET_FLAG_PRESSED) {
+        if (w->flags & UI_WIDGET_FLAG_FOCUS) {
             sw->state = !sw->state;
             ui_widget_invalidate(w);
             if (sw->on_toggle) sw->on_toggle(w, sw->state);
@@ -938,7 +950,7 @@ static void tabview_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
         }
         if (tv->tab_labels[i]) {
             ui_color_t tc = (i == tv->active_tab) ? tv->tab_active_text_color : tv->tab_text_color;
-            ui_draw_text_in_rect(&tab_rect, tv->tab_labels[i], &font_montserrat_16, tc, 1);
+            ui_draw_text_in_rect(&tab_rect, tv->tab_labels[i], UI_FONT_BODY, tc, 1);
         }
     }
 }
@@ -1061,6 +1073,77 @@ void ui_status_dot_set_state(ui_status_dot_t *dot, bool online)
 }
 
 /*=============================================================================
+ *  Text Field Helpers
+ *=============================================================================*/
+
+/* Advance-sum of the first n characters (caret x position) */
+static int16_t textfield_prefix_width(const char *text, uint16_t n,
+                                      const ui_font_t *font)
+{
+    int16_t w = 0;
+    for (uint16_t i = 0; i < n && text[i]; i++) {
+        const ui_glyph_t *g = ui_font_glyph(font, (uint8_t)text[i]);
+        w += g ? g->advance : (int16_t)(font->height * 2 / 3 + 1);
+    }
+    return w;
+}
+
+void ui_textfield_draw(const ui_rect_t *rect, const char *text,
+                       uint16_t cursor_pos, const char *hint,
+                       bool show_cursor, const ui_textfield_style_t *st)
+{
+    if (!rect || !st || !st->font) return;
+    const ui_font_t *hint_font = st->hint_font ? st->hint_font : st->font;
+
+    if (st->radius > 0) {
+        ui_draw_fill_round_rect(rect, st->radius, st->bg);
+        ui_draw_round_rect_border(rect, st->radius, st->border, st->border_w);
+    } else {
+        ui_draw_fill_rect(rect, st->bg);
+        ui_draw_rect_border(rect, st->border, st->border_w);
+    }
+
+    uint16_t len = text ? (uint16_t)strlen(text) : 0;
+    if (len > 0) {
+        int16_t ty = rect->y + (rect->h - st->font->height) / 2;
+        ui_draw_text(rect->x + 8, ty, text, st->font, st->text);
+    } else if (hint && hint[0]) {
+        int16_t ty = rect->y + (rect->h - hint_font->height) / 2;
+        ui_draw_text(rect->x + 8, ty, hint, hint_font, st->hint);
+    }
+
+    if (show_cursor) {
+        if (cursor_pos > len) cursor_pos = len;
+        int16_t cx = rect->x + 8 + textfield_prefix_width(text ? text : "",
+                                                          cursor_pos, st->font);
+        if (cx > rect->x + rect->w - 4) cx = rect->x + rect->w - 4;
+        ui_draw_vline(cx, rect->y + 4, rect->h - 8, st->cursor);
+    }
+}
+
+bool ui_textfield_edit(char *buf, uint8_t *len, uint8_t max_len,
+                       const ui_event_t *e)
+{
+    if (!buf || !len || !e) return false;
+    if (e->type != UI_EVENT_KEY_DOWN && e->type != UI_EVENT_KEY_LONG_REPEAT)
+        return false;
+
+    if (e->char_code >= 0x20 && e->char_code <= 0x7E) {
+        if (*len < max_len) {
+            buf[(*len)++] = (char)e->char_code;
+            buf[*len] = '\0';
+            return true;
+        }
+        return false;
+    }
+    if (e->char_code == 0x08 && *len > 0) {
+        buf[--(*len)] = '\0';
+        return true;
+    }
+    return false;
+}
+
+/*=============================================================================
  *  Dialog Widget Implementation (Modal Popup)
  *=============================================================================*/
 
@@ -1113,7 +1196,7 @@ static void dialog_draw_cb(ui_page_t *page, ui_rect_t *dirty)
                 if (len > 63) len = 63;
                 memcpy(buf, line_start, len);
                 buf[len] = '\0';
-                ui_draw_text(x, y, buf, &font_montserrat_16, UI_COLOR_TEXT_PRIMARY);
+                ui_draw_text(x, y, buf, UI_FONT_BODY, UI_COLOR_TEXT_PRIMARY);
             }
             y += 20;
             if (*p == '\n') p++;
@@ -1150,20 +1233,20 @@ void ui_dialog_init(ui_dialog_t *dlg)
 
     /* Title label */
     ui_rect_t title_rect = {DLG_CARD_X + 24, DLG_CARD_Y + 24, DLG_CARD_W - 48, 28};
-    ui_label_init(&dlg->lbl_title, &title_rect, "", &font_montserrat_24);
+    ui_label_init(&dlg->lbl_title, &title_rect, "", UI_FONT_TITLE);
     ui_label_set_color(&dlg->lbl_title, UI_COLOR_TEXT_PRIMARY);
     ui_label_set_align(&dlg->lbl_title, 1);
 
     /* Accept button (right) */
     ui_rect_t accept_rect = {DLG_ACCEPT_X, DLG_BTN_Y, DLG_BTN_W, DLG_BTN_H};
-    ui_button_init(&dlg->btn_accept, &accept_rect, "Accept", &font_montserrat_16);
+    ui_button_init(&dlg->btn_accept, &accept_rect, "Accept", UI_FONT_BODY);
     dlg->btn_accept.base.user_data = dlg;
     ui_button_set_callback(&dlg->btn_accept, dialog_accept_click);
     ui_button_set_colors(&dlg->btn_accept, UI_COLOR_PRIMARY, UI_COLOR_SECONDARY, UI_COLOR_WHITE);
 
     /* Cancel button (left) */
     ui_rect_t cancel_rect = {DLG_CANCEL_X, DLG_BTN_Y, DLG_BTN_W, DLG_BTN_H};
-    ui_button_init(&dlg->btn_cancel, &cancel_rect, "Cancel", &font_montserrat_16);
+    ui_button_init(&dlg->btn_cancel, &cancel_rect, "Cancel", UI_FONT_BODY);
     dlg->btn_cancel.base.user_data = dlg;
     ui_button_set_callback(&dlg->btn_cancel, dialog_cancel_click);
     ui_button_set_colors(&dlg->btn_cancel, UI_COLOR_LIGHT_GRAY, UI_COLOR_GRAY, UI_COLOR_TEXT_PRIMARY);

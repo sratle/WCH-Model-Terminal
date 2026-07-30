@@ -664,31 +664,31 @@ static void tet_draw_preview(void)
 static void tet_draw_panel(void)
 {
     /* Score */
-    ui_draw_text(TET_PANEL_X, TET_SCORE_LABEL_Y, "SCORE", &font_montserrat_16, UI_HEX(0xAAAAAA));
+    ui_draw_text(TET_PANEL_X, TET_SCORE_LABEL_Y, "SCORE", UI_FONT_BODY, UI_HEX(0xAAAAAA));
     ui_rect_t score_bg = {TET_PANEL_X, TET_SCORE_BOX_Y, TET_PANEL_W, TET_INFO_BOX_H};
     ui_draw_fill_round_rect(&score_bg, TET_INFO_BOX_R, UI_HEX(0x3C3C3C));
-    ui_draw_text_in_rect(&score_bg, s_tet.buf_score, &font_montserrat_24, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&score_bg, s_tet.buf_score, UI_FONT_TITLE, UI_COLOR_WHITE, 1);
 
     /* Level */
-    ui_draw_text(TET_PANEL_X, TET_LEVEL_LABEL_Y, "LEVEL", &font_montserrat_16, UI_HEX(0xAAAAAA));
+    ui_draw_text(TET_PANEL_X, TET_LEVEL_LABEL_Y, "LEVEL", UI_FONT_BODY, UI_HEX(0xAAAAAA));
     ui_rect_t level_bg = {TET_PANEL_X, TET_LEVEL_BOX_Y, TET_PANEL_W, TET_INFO_BOX_H};
     ui_draw_fill_round_rect(&level_bg, TET_INFO_BOX_R, UI_HEX(0x3C3C3C));
-    ui_draw_text_in_rect(&level_bg, s_tet.buf_level, &font_montserrat_24, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&level_bg, s_tet.buf_level, UI_FONT_TITLE, UI_COLOR_WHITE, 1);
 
     /* Lines */
-    ui_draw_text(TET_PANEL_X, TET_LINES_LABEL_Y, "LINES", &font_montserrat_16, UI_HEX(0xAAAAAA));
+    ui_draw_text(TET_PANEL_X, TET_LINES_LABEL_Y, "LINES", UI_FONT_BODY, UI_HEX(0xAAAAAA));
     ui_rect_t lines_bg = {TET_PANEL_X, TET_LINES_BOX_Y, TET_PANEL_W, TET_INFO_BOX_H};
     ui_draw_fill_round_rect(&lines_bg, TET_INFO_BOX_R, UI_HEX(0x3C3C3C));
-    ui_draw_text_in_rect(&lines_bg, s_tet.buf_lines, &font_montserrat_24, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&lines_bg, s_tet.buf_lines, UI_FONT_TITLE, UI_COLOR_WHITE, 1);
 
     /* Best */
-    ui_draw_text(TET_PANEL_X, TET_BEST_LABEL_Y, "BEST", &font_montserrat_16, UI_HEX(0xAAAAAA));
+    ui_draw_text(TET_PANEL_X, TET_BEST_LABEL_Y, "BEST", UI_FONT_BODY, UI_HEX(0xAAAAAA));
     ui_rect_t best_bg = {TET_PANEL_X, TET_BEST_BOX_Y, TET_PANEL_W, TET_INFO_BOX_H};
     ui_draw_fill_round_rect(&best_bg, TET_INFO_BOX_R, UI_HEX(0x3C3C3C));
-    ui_draw_text_in_rect(&best_bg, s_tet.buf_best, &font_montserrat_24, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&best_bg, s_tet.buf_best, UI_FONT_TITLE, UI_COLOR_WHITE, 1);
 
     /* Next label */
-    ui_draw_text(TET_PANEL_X, TET_NEXT_LABEL_Y, "NEXT", &font_montserrat_16, UI_HEX(0xAAAAAA));
+    ui_draw_text(TET_PANEL_X, TET_NEXT_LABEL_Y, "NEXT", UI_FONT_BODY, UI_HEX(0xAAAAAA));
     tet_draw_preview();
 
     /* D-pad */
@@ -705,26 +705,26 @@ static void tet_draw_dpad(void)
 
     ui_rect_t up_r = {TET_DPAD_UP_X, TET_DPAD_UP_Y, TET_DPAD_BTN, TET_DPAD_BTN};
     ui_draw_fill_round_rect(&up_r, 6, bg);
-    ui_draw_text_in_rect(&up_r, "^", &font_montserrat_24, fg, 1);
+    ui_draw_text_in_rect(&up_r, "^", UI_FONT_TITLE, fg, 1);
 
     ui_rect_t dn_r = {TET_DPAD_DOWN_X, TET_DPAD_DOWN_Y, TET_DPAD_BTN, TET_DPAD_BTN};
     ui_draw_fill_round_rect(&dn_r, 6, bg);
-    ui_draw_text_in_rect(&dn_r, "v", &font_montserrat_24, fg, 1);
+    ui_draw_text_in_rect(&dn_r, "v", UI_FONT_TITLE, fg, 1);
 
     ui_rect_t lt_r = {TET_DPAD_LEFT_X, TET_DPAD_LEFT_Y, TET_DPAD_BTN, TET_DPAD_BTN};
     ui_draw_fill_round_rect(&lt_r, 6, bg);
-    ui_draw_text_in_rect(&lt_r, "<", &font_montserrat_24, fg, 1);
+    ui_draw_text_in_rect(&lt_r, "<", UI_FONT_TITLE, fg, 1);
 
     ui_rect_t rt_r = {TET_DPAD_RIGHT_X, TET_DPAD_RIGHT_Y, TET_DPAD_BTN, TET_DPAD_BTN};
     ui_draw_fill_round_rect(&rt_r, 6, bg);
-    ui_draw_text_in_rect(&rt_r, ">", &font_montserrat_24, fg, 1);
+    ui_draw_text_in_rect(&rt_r, ">", UI_FONT_TITLE, fg, 1);
 }
 
 static void tet_draw_drop_btn(void)
 {
     ui_rect_t r = {TET_DROP_X, TET_DROP_Y, TET_DROP_W, TET_DROP_H};
     ui_draw_fill_round_rect(&r, 6, UI_HEX(0x00BCD4));
-    ui_draw_text_in_rect(&r, "DROP", &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&r, "DROP", UI_FONT_BODY, UI_COLOR_WHITE, 1);
 }
 
 /* Draw idle screen with overlay */
@@ -745,11 +745,11 @@ static void tet_draw_idle_screen(void)
 
     ui_rect_t title = {TET_GRID_X, TET_GRID_Y + TET_ROWS * TET_CELL / 2 - 30,
                        TET_COLS * TET_CELL, 30};
-    ui_draw_text_in_rect(&title, "TETRIS", &font_montserrat_24, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&title, "TETRIS", UI_FONT_TITLE, UI_COLOR_WHITE, 1);
 
     ui_rect_t sub = {TET_GRID_X, TET_GRID_Y + TET_ROWS * TET_CELL / 2 + 5,
                      TET_COLS * TET_CELL, 24};
-    ui_draw_text_in_rect(&sub, "Press to start", &font_montserrat_16,
+    ui_draw_text_in_rect(&sub, "Press to start", UI_FONT_BODY,
                          UI_HEX(0xAAAAAA), 1);
 }
 
@@ -763,17 +763,17 @@ static void tet_draw_gameover_overlay(void)
 
     ui_rect_t title = {TET_GRID_X, TET_GRID_Y + TET_ROWS * TET_CELL / 2 - 30,
                        TET_COLS * TET_CELL, 30};
-    ui_draw_text_in_rect(&title, "GAME OVER", &font_montserrat_24, UI_HEX(0xF44336), 1);
+    ui_draw_text_in_rect(&title, "GAME OVER", UI_FONT_TITLE, UI_HEX(0xF44336), 1);
 
     char buf[16];
     tet_itoa(s_tet.score, buf);
     ui_rect_t sr = {TET_GRID_X, TET_GRID_Y + TET_ROWS * TET_CELL / 2 + 5,
                     TET_COLS * TET_CELL, 24};
-    ui_draw_text_in_rect(&sr, buf, &font_montserrat_16, UI_COLOR_WHITE, 1);
+    ui_draw_text_in_rect(&sr, buf, UI_FONT_BODY, UI_COLOR_WHITE, 1);
 
     ui_rect_t hr = {TET_GRID_X, TET_GRID_Y + TET_ROWS * TET_CELL / 2 + 35,
                     TET_COLS * TET_CELL, 24};
-    ui_draw_text_in_rect(&hr, "Press to restart", &font_montserrat_16,
+    ui_draw_text_in_rect(&hr, "Press to restart", UI_FONT_BODY,
                          UI_HEX(0xAAAAAA), 1);
 }
 
