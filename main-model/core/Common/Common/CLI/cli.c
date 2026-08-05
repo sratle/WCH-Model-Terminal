@@ -10,6 +10,7 @@
 #include "Protocol/protocol.h"
 #include "Config/config.h"
 #include "Config/config_app.h"
+#include "Auth/auth.h"
 #include "CJSON/cJSON.h"
 #include "hardware.h"
 #include "Submodels/submodels.h"
@@ -71,6 +72,42 @@ static void CLI_RmCollectCallback(const char *name, uint8_t is_dir, uint32_t siz
         g_cli_entries.size[g_cli_entries.count] = size;
         g_cli_entries.count++;
     }
+}
+
+/* ------------------------------------------------------------------------ */
+/* 私密文件夹访问检查（Auth 用户系统）                                       */
+/* CLI_AuthAllow* 命中私密文件夹且当前用户无权限时输出固定标记                */
+/* "AUTH_REQUIRED: <path>"，Display 解析该标记弹认证界面。                   */
+/* ------------------------------------------------------------------------ */
+
+/* 检查参数路径（相对/绝对均可），返回 1=允许，0=拒绝（已打印标记） */
+static uint8_t CLI_AuthAllow(const char *path_arg)
+{
+    char full_path[CH378_MAX_PATH_LEN];
+
+    CH378_Path_Join(ch378_current_path_sfn, path_arg, full_path, sizeof(full_path));
+    if (Auth_CheckPath(full_path))
+        return 1;
+    printf("AUTH_REQUIRED: %s\r\n", full_path);
+    return 0;
+}
+
+/* 同上，但拒绝时不打印（供 tree/du/find 递归静默跳过） */
+static uint8_t CLI_AuthAllowQuiet(const char *path_arg)
+{
+    char full_path[CH378_MAX_PATH_LEN];
+
+    CH378_Path_Join(ch378_current_path_sfn, path_arg, full_path, sizeof(full_path));
+    return Auth_CheckPath(full_path);
+}
+
+/* 检查当前工作目录（ls/tree/du/find 无参数时使用） */
+static uint8_t CLI_AuthAllowCwd(void)
+{
+    if (Auth_CheckPath(ch378_current_path_sfn))
+        return 1;
+    printf("AUTH_REQUIRED: %s\r\n", ch378_current_path_sfn);
+    return 0;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -179,6 +216,9 @@ static void CLI_Cmd_Ls(void)
     uint8_t i;
     char display_name[256];
 
+    if (!CLI_AuthAllowCwd())
+        return;
+
     printf("--- %s ---\r\n", CH378_Dir_Get_Path());
 
     g_cli_entries.count = 0;
@@ -247,10 +287,32 @@ static void CLI_Cmd_Cd(uint8_t argc, char **argv)
 
     dir = argv[1];
     if (strcmp(dir, "..") == 0) {
+        /* 计算父目录绝对路径用于私密文件夹检查 */
+        char parent[CH378_MAX_PATH_LEN];
+        uint16_t len;
+        char *sep;
+
+        strncpy(parent, ch378_current_path_sfn, sizeof(parent) - 1);
+        parent[sizeof(parent) - 1] = '\0';
+        len = strlen(parent);
+        while (len > 1 && parent[len - 1] == '\\') parent[--len] = '\0';
+        sep = strrchr(parent, '\\');
+        if (sep == NULL || sep == parent) {
+            parent[0] = '\\';
+            parent[1] = '\0';
+        } else {
+            *sep = '\0';
+        }
+        if (!Auth_CheckPath(parent)) {
+            printf("AUTH_REQUIRED: %s\r\n", parent);
+            return;
+        }
         status = CH378_Dir_Go_Parent(&ch378_g);
     } else if (strcmp(dir, "/") == 0 || strcmp(dir, "\\") == 0) {
         status = CH378_Dir_Go_Root(&ch378_g);
     } else {
+        if (!CLI_AuthAllow(dir))
+            return;
         status = CH378_Dir_Enter(&ch378_g, dir);
     }
 
@@ -283,6 +345,9 @@ static void CLI_Cmd_Mkdir(uint8_t argc, char **argv)
         return;
     }
 
+    if (!CLI_AuthAllow(argv[1]))
+        return;
+
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
@@ -307,6 +372,9 @@ static void CLI_Cmd_Touch(uint8_t argc, char **argv)
         printf("Usage: touch <file>\r\n");
         return;
     }
+
+    if (!CLI_AuthAllow(argv[1]))
+        return;
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
@@ -341,6 +409,9 @@ static void CLI_Cmd_Cat(uint8_t argc, char **argv)
         printf("Usage: cat <file>\r\n");
         return;
     }
+
+    if (!CLI_AuthAllow(argv[1]))
+        return;
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
@@ -432,6 +503,9 @@ static void CLI_Cmd_Echo(uint8_t argc, char **argv)
         uint16_t pos = 0;
         uint8_t first = 1;
         uint8_t status;
+
+        if (!CLI_AuthAllow(argv[redirect_idx + 1]))
+            return;
 
         for (i = text_start; i < text_end; i++) {
             uint16_t arg_len = strlen(argv[i]);
@@ -590,6 +664,8 @@ static void CLI_Cmd_Write(uint8_t argc, char **argv, char *raw_buf, uint8_t raw_
             printf("write: cannot parse path\r\n");
             return;
         }
+        if (!CLI_AuthAllow(path))
+            return;
         /* Save path for subsequent -a/-e frames */
         strncpy(s_write_path, path, sizeof(s_write_path) - 1);
         s_write_path[sizeof(s_write_path) - 1] = '\0';
@@ -631,6 +707,10 @@ static void CLI_Cmd_Write(uint8_t argc, char **argv, char *raw_buf, uint8_t raw_
             printf("write: no active write session\r\n");
             return;
         }
+        if (!CLI_AuthAllow(s_write_path)) {
+            s_write_file_open = 0;
+            return;
+        }
         prefix_len = 9;  /* "write -a " */
         if (raw_len > prefix_len && s_write_total_bytes < WRITE_MAX_FILE_SIZE) {
             uint16_t data_len = raw_len - prefix_len;
@@ -663,6 +743,10 @@ static void CLI_Cmd_Write(uint8_t argc, char **argv, char *raw_buf, uint8_t raw_
     if (strcmp(argv[1], "-e") == 0) {
         if (!s_write_file_open) {
             printf("write: no active write session\r\n");
+            return;
+        }
+        if (!CLI_AuthAllow(s_write_path)) {
+            s_write_file_open = 0;
             return;
         }
         prefix_len = 9;  /* "write -e " */
@@ -699,6 +783,8 @@ static void CLI_Cmd_Write(uint8_t argc, char **argv, char *raw_buf, uint8_t raw_
             printf("write: cannot parse path\r\n");
             return;
         }
+        if (!CLI_AuthAllow(path))
+            return;
         CH378_Path_Join(ch378_current_path_sfn, path, full_path, sizeof(full_path));
         status = CH378FileCreate((uint8_t*)full_path);
         if (status != ERR_SUCCESS) {
@@ -736,6 +822,9 @@ static void CLI_Cmd_Rm(uint8_t argc, char **argv)
         char full_path[CH378_MAX_PATH_LEN];
         const char *dir = argv[2];
 
+        if (!CLI_AuthAllow(dir))
+            return;
+
         CH378_Path_Join(ch378_current_path_sfn, dir, full_path, sizeof(full_path));
 
         /* 递归清空目录内所有文件（包括子目录中的文件） */
@@ -752,6 +841,10 @@ static void CLI_Cmd_Rm(uint8_t argc, char **argv)
         }
     } else {
         char full_path[CH378_MAX_PATH_LEN];
+
+        if (!CLI_AuthAllow(argv[1]))
+            return;
+
         CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
         if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
@@ -840,6 +933,11 @@ static void CLI_Cmd_Bmp(uint8_t argc, char **argv)
         char saved_sfn[CH378_MAX_PATH_LEN];
         uint8_t i;
 
+        if (!Auth_CheckPath("\\BMP")) {
+            printf("AUTH_REQUIRED: \\BMP\r\n");
+            return;
+        }
+
         /* 保存当前工作目录 */
         strncpy(saved_path, ch378_current_path, CH378_MAX_PATH_LEN);
         saved_path[CH378_MAX_PATH_LEN - 1] = '\0';
@@ -891,6 +989,11 @@ static void CLI_Cmd_Bmp(uint8_t argc, char **argv)
     }
 
     snprintf(path, sizeof(path), "\\BMP\\%s.BMP", argv[2]);
+
+    if (!Auth_CheckPath(path)) {
+        printf("AUTH_REQUIRED: %s\r\n", path);
+        return;
+    }
 
     status = CH378FileOpen((uint8_t *)path);
     if (status != ERR_SUCCESS) {
@@ -1382,13 +1485,21 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  fp count        Query fingerprint count\r\n");
         printf("  fp config led <func> <color> [speed]  Set LED effect\r\n");
         printf("  fp config sec <level:1-3>  Set security level\r\n");
-        printf("  fp set <id> <name>  Set fingerprint name (id=decimal, fp.json)\r\n");
-        printf("  fp get <id>     Get fingerprint name\r\n");
-        printf("  fp names        List all fingerprint names\r\n");
-        printf("  nfc set <hex_id> <name>  Set NFC card name (10-hex-digit id, nfc.json)\r\n");
-        printf("  nfc get <hex_id>  Get NFC card name\r\n");
-        printf("  nfc ls          List all NFC card names\r\n");
         printf("  nfc st          Query current card status from NFC module\r\n");
+        printf("  user add <name> <pin>  Create user\r\n");
+        printf("  user del <name>        Delete user\r\n");
+        printf("  user ls                List users and credentials\r\n");
+        printf("  user passwd <name> <pin>  Change PIN\r\n");
+        printf("  user bind fp <name> <id>    Bind fingerprint ID to user\r\n");
+        printf("  user unbind fp <name> <id>  Unbind fingerprint ID\r\n");
+        printf("  user bind nfc <name> <hex10>    Bind NFC card to user\r\n");
+        printf("  user unbind nfc <name> <hex10>  Unbind NFC card\r\n");
+        printf("  login <name> <pin>  Login (PIN only)\r\n");
+        printf("  logout          Logout current user\r\n");
+        printf("  whoami          Show current user\r\n");
+        printf("  private add <path> [user...]  Mark folder private (default: current user)\r\n");
+        printf("  private rm <path>   Unmark private folder\r\n");
+        printf("  private ls          List private folders and ACL\r\n");
         printf("  ir start        Start IR ranging (submodel-6)\r\n");
         printf("  ir stop         Stop IR ranging (submodel-6)\r\n");
         printf("  clear           Clear screen\r\n");
@@ -1414,8 +1525,11 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  config get|set|addkey|newfile|save|backup|rollback|reset|ls|rm\r\n");
         printf("  speaker <on|off> [left|right]\r\n");
         printf("  rgb mode|refresh|status\r\n");
-        printf("  fp register|del <ID>|ls|count|config [led|sec]|set|get|names\r\n");
-        printf("  nfc set <hex_id> <name>|get <hex_id>|ls|st\r\n");
+        printf("  fp register|del <ID>|ls|count|config [led|sec]\r\n");
+        printf("  nfc st\r\n");
+        printf("  user add|del|ls|passwd|bind|unbind\r\n");
+        printf("  login <name> <pin>, logout, whoami\r\n");
+        printf("  private add <path> [user...]|rm <path>|ls\r\n");
         printf("  ir start|stop\r\n");
         printf("  clear, help [d]\r\n");
     }
@@ -1574,6 +1688,9 @@ static void CLI_Cmd_Hexdump(uint8_t argc, char **argv)
         return;
     }
 
+    if (!CLI_AuthAllow(argv[1]))
+        return;
+
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
@@ -1627,6 +1744,9 @@ static void CLI_Cmd_Head(uint8_t argc, char **argv)
         if (n == 0) n = 256;
     }
 
+    if (!CLI_AuthAllow(argv[1]))
+        return;
+
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
@@ -1673,6 +1793,9 @@ static void CLI_Cmd_Tail(uint8_t argc, char **argv)
         n = (uint32_t)atoi(argv[2]);
         if (n == 0) n = 256;
     }
+
+    if (!CLI_AuthAllow(argv[1]))
+        return;
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
@@ -1748,6 +1871,9 @@ static void CLI_Cmd_Read(uint8_t argc, char **argv)
     }
     if (maxlen > 8192) maxlen = 8192;
 
+    if (!CLI_AuthAllow(argv[1]))
+        return;
+
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
     if (CLI_IsShortName(CLI_ExtractFilename(argv[1]))) {
@@ -1804,6 +1930,9 @@ static void CLI_Cmd_Cp(uint8_t argc, char **argv)
         printf("Usage: cp <src> <dst>\r\n");
         return;
     }
+
+    if (!CLI_AuthAllow(argv[1]) || !CLI_AuthAllow(argv[2]))
+        return;
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], src_path, sizeof(src_path));
     CH378_Path_Join(ch378_current_path_sfn, argv[2], dst_path, sizeof(dst_path));
@@ -1940,7 +2069,8 @@ static void CLI_TreeRecursive(const char *dir, uint8_t depth)
     }
 
     for (i = 0; i < subdir_cnt; i++) {
-        CLI_TreeRecursive(subdirs[i], depth + 1);
+        if (CLI_AuthAllowQuiet(subdirs[i]))
+            CLI_TreeRecursive(subdirs[i], depth + 1);
     }
 
     CH378_Dir_Go_Parent(&ch378_g);
@@ -1954,6 +2084,14 @@ static void CLI_Cmd_Tree(uint8_t argc, char **argv)
     uint8_t subdir_cnt = 0;
 
     if (argc >= 2) dir = argv[1];
+
+    if (strcmp(dir, ".") == 0) {
+        if (!CLI_AuthAllowCwd())
+            return;
+    } else {
+        if (!CLI_AuthAllow(dir))
+            return;
+    }
 
     printf("%s\r\n", CH378_Dir_Get_Path());
     if (strcmp(dir, ".") == 0) {
@@ -1972,7 +2110,8 @@ static void CLI_Cmd_Tree(uint8_t argc, char **argv)
             }
         }
         for (i = 0; i < subdir_cnt; i++) {
-            CLI_TreeRecursive(subdirs[i], 1);
+            if (CLI_AuthAllowQuiet(subdirs[i]))
+                CLI_TreeRecursive(subdirs[i], 1);
         }
     } else {
         CLI_TreeRecursive(dir, 0);
@@ -2013,7 +2152,8 @@ static uint32_t CLI_DuRecursive(const char *dir)
     }
 
     for (i = 0; i < subdir_cnt; i++) {
-        total += CLI_DuRecursive(subdirs[i]);
+        if (CLI_AuthAllowQuiet(subdirs[i]))
+            total += CLI_DuRecursive(subdirs[i]);
     }
 
     if (entered) {
@@ -2030,8 +2170,12 @@ static void CLI_Cmd_Du(uint8_t argc, char **argv)
     if (argc >= 2) dir = argv[1];
 
     if (strcmp(dir, ".") == 0) {
+        if (!CLI_AuthAllowCwd())
+            return;
         total = CLI_DuRecursive(".");
     } else {
+        if (!CLI_AuthAllow(dir))
+            return;
         total = CLI_DuRecursive(dir);
     }
 
@@ -2081,7 +2225,8 @@ static void CLI_FindRecursive(const char *dir)
     }
 
     for (i = 0; i < subdir_cnt; i++) {
-        CLI_FindRecursive(subdirs[i]);
+        if (CLI_AuthAllowQuiet(subdirs[i]))
+            CLI_FindRecursive(subdirs[i]);
     }
 
     if (entered) {
@@ -2095,6 +2240,9 @@ static void CLI_Cmd_Find(uint8_t argc, char **argv)
         printf("Usage: find <pattern>\r\n");
         return;
     }
+
+    if (!CLI_AuthAllowCwd())
+        return;
 
     g_find_pattern = argv[1];
     g_find_found = 0;
@@ -2133,6 +2281,9 @@ static void CLI_Cmd_Stat(uint8_t argc, char **argv)
         printf("Usage: stat <file>\r\n");
         return;
     }
+
+    if (!CLI_AuthAllow(argv[1]))
+        return;
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
@@ -2206,6 +2357,9 @@ static void CLI_Cmd_Mv(uint8_t argc, char **argv)
         return;
     }
 
+    if (!CLI_AuthAllow(argv[1]))
+        return;
+
     CH378_Path_Join(ch378_current_path_sfn, argv[1], src_path, sizeof(src_path));
 
     /* 打开源文件/目录 */
@@ -2274,6 +2428,9 @@ static void CLI_Cmd_Chmod(uint8_t argc, char **argv)
     }
 
     attr = (uint8_t)strtol(argv[2], NULL, 16);
+
+    if (!CLI_AuthAllow(argv[1]))
+        return;
 
     CH378_Path_Join(ch378_current_path_sfn, argv[1], full_path, sizeof(full_path));
 
@@ -2684,23 +2841,18 @@ static void CLI_Cmd_Ir(uint8_t argc, char **argv)
     }
 }
 
-/* ---- NFC 名称管理与状态查询命令 ----
- * nfc set <hex_id> <name>   设置 NFC 卡名称 (ID 为 10 位十六进制，写入 nfc.json)
- * nfc get <hex_id>          获取 NFC 卡名称
- * nfc ls                    列出所有已存储的 NFC 卡
- * nfc st                    查询 NFC 模块当前卡状态（异步，响应由 ACK 打印）
+/* ---- NFC 状态查询命令 ----
+ * nfc st   查询 NFC 模块当前卡状态（异步，响应由 ACK 打印）
+ * 卡号与用户的绑定已迁移至 user.json（user bind nfc / user unbind nfc）
  */
 static void CLI_Cmd_Nfc(uint8_t argc, char **argv)
 {
-    if (argc < 2) {
-        printf("Usage: nfc set <hex_id> <name>\r\n");
-        printf("       nfc get <hex_id>\r\n");
-        printf("       nfc ls\r\n");
-        printf("       nfc st\r\n");
+    if (argc < 2 || strcmp(argv[1], "st") != 0) {
+        printf("Usage: nfc st\r\n");
         return;
     }
 
-    if (strcmp(argv[1], "st") == 0) {
+    {
         submodels_t *nfc = Submodels_FindNfcSlot();
         if (nfc == NULL) {
             printf("nfc: no NFC submodel online\r\n");
@@ -2710,95 +2862,7 @@ static void CLI_Cmd_Nfc(uint8_t argc, char **argv)
             printf("nfc: status query sent\r\n");
         else
             printf("nfc: failed to send query\r\n");
-        return;
     }
-
-    if (!Config_IsDeviceMatch()) {
-        printf("Error: current device != config target (%s)\r\n", Config_GetTargetDeviceName());
-        return;
-    }
-
-    if (strcmp(argv[1], "set") == 0) {
-        cJSON *json;
-        cJSON *item;
-        uint8_t status;
-
-        if (argc < 4) {
-            printf("Usage: nfc set <hex_id> <name>\r\n");
-            printf("  hex_id: 10 hex digits (e.g. 0A1A3BAC20)\r\n");
-            return;
-        }
-
-        /* 校验 hex_id 长度 (5 字节 = 10 个十六进制字符) */
-        if (strlen(argv[2]) != 10) {
-            printf("Error: ID must be 10 hex digits\r\n");
-            return;
-        }
-
-        json = (cJSON*)Config_LoadFile("nfc.json");
-        if (!json) {
-            /* 文件不存在，创建新的 */
-            json = cJSON_CreateObject();
-            if (!json) { printf("Error: malloc failed\r\n"); return; }
-        }
-
-        item = cJSON_GetObjectItem(json, argv[2]);
-        if (item) {
-            /* 已存在：更新 */
-            cJSON_SetValuestring(item, argv[3]);
-        } else {
-            /* 不存在：新增 */
-            item = cJSON_CreateString(argv[3]);
-            if (!item) { cJSON_Delete(json); printf("Error: malloc failed\r\n"); return; }
-            cJSON_AddItemToObject(json, argv[2], item);
-        }
-
-        status = Config_SaveFile("nfc.json", json);
-        cJSON_Delete(json);
-
-        if (status == ERR_SUCCESS) printf("OK\r\n");
-        else printf("Error: save failed (status=%02X)\r\n", status);
-        return;
-    }
-
-    if (strcmp(argv[1], "get") == 0) {
-        cJSON *json;
-        cJSON *item;
-
-        if (argc < 3) {
-            printf("Usage: nfc get <hex_id>\r\n");
-            return;
-        }
-
-        json = (cJSON*)Config_LoadFile("nfc.json");
-        if (!json) { printf("Error: nfc.json not found\r\n"); return; }
-
-        item = cJSON_GetObjectItem(json, argv[2]);
-        if (item && cJSON_IsString(item)) {
-            printf("%s\r\n", item->valuestring);
-        } else {
-            printf("Not found\r\n");
-        }
-        cJSON_Delete(json);
-        return;
-    }
-
-    if (strcmp(argv[1], "ls") == 0) {
-        cJSON *json;
-        cJSON *item;
-
-        json = (cJSON*)Config_LoadFile("nfc.json");
-        if (!json) { printf("nfc.json not found\r\n"); return; }
-
-        cJSON_ArrayForEach(item, json) {
-            if (cJSON_IsString(item))
-                printf("%s: %s\r\n", item->string, item->valuestring);
-        }
-        cJSON_Delete(json);
-        return;
-    }
-
-    printf("Unknown nfc subcommand: %s\r\n", argv[1]);
 }
 
 
@@ -2829,6 +2893,10 @@ static void CLI_Cmd_Play(uint8_t argc, char **argv)
         }
         ch = (uint8_t)parsed;
     }
+
+    /* 私密文件夹检查需在停止当前播放之前，避免无权访问时误停音乐 */
+    if (!CLI_AuthAllow(argv[1]))
+        return;
 
     /* Default (no channel arg): stop all channels first */
     if (argc < 3) {
@@ -3012,9 +3080,253 @@ static void CLI_Cmd_Speaker(uint8_t argc, char **argv)
 }
 
 /* ------------------------------------------------------------------------ */
-/*  RGB Submodel Commands                                                   */
-/*  Note: CLI runs on V5F, but submodel UART is on V3F.                    */
-/*  Commands write to shared memory (hardware_g) and V3F picks them up.    */
+/*  用户系统命令（user.json：用户/凭据/私密文件夹 ACL）                      */
+/* ------------------------------------------------------------------------ */
+
+static void CLI_PrintAuthResult(int rc)
+{
+    if (rc >= 0) {
+        printf("OK\r\n");
+        return;
+    }
+    switch (rc) {
+        case AUTH_ERR_NOT_FOUND: printf("Error: not found\r\n"); break;
+        case AUTH_ERR_EXISTS:    printf("Error: already exists\r\n"); break;
+        case AUTH_ERR_FULL:      printf("Error: capacity full\r\n"); break;
+        case AUTH_ERR_BAD_PARAM: printf("Error: invalid parameter\r\n"); break;
+        case AUTH_ERR_SAVE:      printf("Error: save failed\r\n"); break;
+        case AUTH_ERR_CONFLICT:  printf("Error: credential bound to another user\r\n"); break;
+        default:                 printf("Error: %d\r\n", rc); break;
+    }
+}
+
+/* user add <name> <pin>            创建用户
+ * user del <name>                  删除用户（连带清除凭据与 ACL 引用）
+ * user ls                          列出用户及凭据（PIN 不显示）
+ * user passwd <name> <pin>         修改 PIN
+ * user bind fp <name> <id>         绑定指纹 ID（十进制）
+ * user unbind fp <name> <id>
+ * user bind nfc <name> <hex10>     绑定 NFC 卡号（10 位十六进制）
+ * user unbind nfc <name> <hex10>
+ */
+static void CLI_Cmd_User(uint8_t argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Usage: user add <name> <pin>\r\n");
+        printf("       user del <name>\r\n");
+        printf("       user ls\r\n");
+        printf("       user passwd <name> <pin>\r\n");
+        printf("       user bind fp <name> <id>\r\n");
+        printf("       user unbind fp <name> <id>\r\n");
+        printf("       user bind nfc <name> <hex10>\r\n");
+        printf("       user unbind nfc <name> <hex10>\r\n");
+        return;
+    }
+
+    if (strcmp(argv[1], "ls") == 0) {
+        uint8_t i, j;
+        uint8_t n = Auth_UserCount();
+        if (n == 0) {
+            printf("no users\r\n");
+            return;
+        }
+        for (i = 0; i < n; i++) {
+            uint8_t first = 1;
+            printf("USER %s fp=[", Auth_UserName(i));
+            for (j = 0; j < Auth_UserFpCount(i); j++) {
+                printf("%s%d", first ? "" : ",", Auth_UserFpId(i, j));
+                first = 0;
+            }
+            printf("] nfc=[");
+            first = 1;
+            for (j = 0; j < Auth_UserNfcCount(i); j++) {
+                char hex[11];
+                Auth_UserNfcHex(i, j, hex);
+                printf("%s%s", first ? "" : ",", hex);
+                first = 0;
+            }
+            printf("]\r\n");
+        }
+        return;
+    }
+
+    /* 变更操作需要存储设备匹配 */
+    if (!Config_IsDeviceMatch()) {
+        printf("Error: current device != config target (%s)\r\n", Config_GetTargetDeviceName());
+        return;
+    }
+
+    if (strcmp(argv[1], "add") == 0) {
+        if (argc < 4) {
+            printf("Usage: user add <name> <pin>\r\n");
+            return;
+        }
+        CLI_PrintAuthResult(Auth_UserAdd(argv[2], argv[3]));
+        return;
+    }
+
+    if (strcmp(argv[1], "del") == 0) {
+        if (argc < 3) {
+            printf("Usage: user del <name>\r\n");
+            return;
+        }
+        CLI_PrintAuthResult(Auth_UserDel(argv[2]));
+        return;
+    }
+
+    if (strcmp(argv[1], "passwd") == 0) {
+        if (argc < 4) {
+            printf("Usage: user passwd <name> <pin>\r\n");
+            return;
+        }
+        CLI_PrintAuthResult(Auth_UserSetPin(argv[2], argv[3]));
+        return;
+    }
+
+    if (strcmp(argv[1], "bind") == 0 || strcmp(argv[1], "unbind") == 0) {
+        uint8_t bind = (argv[1][0] == 'b');
+
+        if (argc < 5) {
+            printf("Usage: user %s fp <name> <id>\r\n", argv[1]);
+            printf("       user %s nfc <name> <hex10>\r\n", argv[1]);
+            return;
+        }
+        if (strcmp(argv[2], "fp") == 0) {
+            CLI_PrintAuthResult(Auth_BindFp(argv[3], (uint8_t)atoi(argv[4]), bind));
+        } else if (strcmp(argv[2], "nfc") == 0) {
+            CLI_PrintAuthResult(Auth_BindNfc(argv[3], argv[4], bind));
+        } else {
+            printf("user: unknown credential type '%s' (fp/nfc)\r\n", argv[2]);
+        }
+        return;
+    }
+
+    printf("user: unknown subcommand '%s'\r\n", argv[1]);
+}
+
+static void CLI_Cmd_Login(uint8_t argc, char **argv)
+{
+    int rc;
+
+    if (argc < 3) {
+        printf("Usage: login <name> <pin>\r\n");
+        return;
+    }
+    rc = Auth_Login(argv[1], argv[2]);
+    if (rc >= 0)
+        printf("Login OK: %s\r\n", Auth_CurrentUserName());
+    else if (rc == AUTH_ERR_NOT_FOUND)
+        printf("login: user not found\r\n");
+    else
+        printf("login: invalid PIN\r\n");
+}
+
+static void CLI_Cmd_Logout(void)
+{
+    if (Auth_CurrentUser() < 0) {
+        printf("not logged in\r\n");
+        return;
+    }
+    Auth_Logout();
+    printf("Logged out\r\n");
+}
+
+static void CLI_Cmd_Whoami(void)
+{
+    if (Auth_CurrentUser() < 0)
+        printf("guest (not logged in)\r\n");
+    else
+        printf("%s\r\n", Auth_CurrentUserName());
+}
+
+/* private add <path> [user...]   标记私密文件夹（缺省 ACL=当前登录用户）
+ * private rm <path>              取消保护
+ * private ls                     列出私密文件夹及 ACL
+ */
+static void CLI_Cmd_Private(uint8_t argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Usage: private add <path> [user...]\r\n");
+        printf("       private rm <path>\r\n");
+        printf("       private ls\r\n");
+        return;
+    }
+
+    if (strcmp(argv[1], "ls") == 0) {
+        uint8_t i, j;
+        uint8_t n = Auth_FolderCount();
+        if (n == 0) {
+            printf("no private folders\r\n");
+            return;
+        }
+        for (i = 0; i < n; i++) {
+            uint32_t mask = Auth_FolderAclMask(i);
+            uint8_t first = 1;
+            printf("PRIVATE %s acl=[", Auth_FolderPath(i));
+            for (j = 0; j < Auth_UserCount(); j++) {
+                if (mask & (1u << j)) {
+                    printf("%s%s", first ? "" : ",", Auth_UserName(j));
+                    first = 0;
+                }
+            }
+            printf("]\r\n");
+        }
+        return;
+    }
+
+    if (!Config_IsDeviceMatch()) {
+        printf("Error: current device != config target (%s)\r\n", Config_GetTargetDeviceName());
+        return;
+    }
+
+    if (strcmp(argv[1], "add") == 0) {
+        char full_path[CH378_MAX_PATH_LEN];
+        uint32_t mask = 0;
+        uint8_t k;
+
+        if (argc < 3) {
+            printf("Usage: private add <path> [user...]\r\n");
+            return;
+        }
+        if (argc >= 4) {
+            for (k = 3; k < argc; k++) {
+                int idx = Auth_FindUser(argv[k]);
+                if (idx < 0) {
+                    printf("private: user '%s' not found\r\n", argv[k]);
+                    return;
+                }
+                mask |= (1u << idx);
+            }
+        } else {
+            int8_t cur = Auth_CurrentUser();
+            if (cur < 0) {
+                printf("private: login first or specify users\r\n");
+                return;
+            }
+            mask = 1u << (uint8_t)cur;
+        }
+        CH378_Path_Join(ch378_current_path_sfn, argv[2], full_path, sizeof(full_path));
+        CLI_PrintAuthResult(Auth_PrivateAdd(full_path, mask));
+        return;
+    }
+
+    if (strcmp(argv[1], "rm") == 0) {
+        char full_path[CH378_MAX_PATH_LEN];
+
+        if (argc < 3) {
+            printf("Usage: private rm <path>\r\n");
+            return;
+        }
+        CH378_Path_Join(ch378_current_path_sfn, argv[2], full_path, sizeof(full_path));
+        CLI_PrintAuthResult(Auth_PrivateRemove(full_path));
+        return;
+    }
+
+    printf("private: unknown subcommand '%s'\r\n", argv[1]);
+}
+
+/* ------------------------------------------------------------------------ */
+/*  RGB/FP 等配件命令                                                        */
 /* ------------------------------------------------------------------------ */
 
 static void CLI_Cmd_Fp(uint8_t argc, char **argv)
@@ -3022,91 +3334,12 @@ static void CLI_Cmd_Fp(uint8_t argc, char **argv)
     submodels_t *fp;
 
     if (argc < 2) {
-        printf("Usage: fp <register|del|ls|count|config|set|get|names> [args]\r\n");
+        printf("Usage: fp <register|del|ls|count|config> [args]\r\n");
         return;
     }
 
-    /* ---- fp.json 名称管理（不依赖硬件模块在线） ---- */
+    /* 指纹 ID 与用户的绑定已迁移至 user.json（user bind fp / user unbind fp） */
 
-    /* fp set <id> <name> — 设置指纹名称 (ID 为十进制序号) */
-    if (strcmp(argv[1], "set") == 0) {
-        cJSON *json;
-        cJSON *item;
-        uint8_t status;
-
-        if (!Config_IsDeviceMatch()) {
-            printf("Error: current device != config target (%s)\r\n", Config_GetTargetDeviceName());
-            return;
-        }
-        if (argc < 4) {
-            printf("Usage: fp set <id> <name>\r\n");
-            printf("  id: decimal index (e.g. 0, 1, 5)\r\n");
-            return;
-        }
-
-        json = (cJSON*)Config_LoadFile("fp.json");
-        if (!json) {
-            json = cJSON_CreateObject();
-            if (!json) { printf("Error: malloc failed\r\n"); return; }
-        }
-
-        item = cJSON_GetObjectItem(json, argv[2]);
-        if (item) {
-            cJSON_SetValuestring(item, argv[3]);
-        } else {
-            item = cJSON_CreateString(argv[3]);
-            if (!item) { cJSON_Delete(json); printf("Error: malloc failed\r\n"); return; }
-            cJSON_AddItemToObject(json, argv[2], item);
-        }
-
-        status = Config_SaveFile("fp.json", json);
-        cJSON_Delete(json);
-
-        if (status == ERR_SUCCESS) printf("OK\r\n");
-        else printf("Error: save failed (status=%02X)\r\n", status);
-        return;
-    }
-
-    /* fp get <id> — 获取指纹名称 */
-    if (strcmp(argv[1], "get") == 0) {
-        cJSON *json;
-        cJSON *item;
-
-        if (argc < 3) {
-            printf("Usage: fp get <id>\r\n");
-            return;
-        }
-
-        json = (cJSON*)Config_LoadFile("fp.json");
-        if (!json) { printf("Error: fp.json not found\r\n"); return; }
-
-        item = cJSON_GetObjectItem(json, argv[2]);
-        if (item && cJSON_IsString(item)) {
-            printf("%s\r\n", item->valuestring);
-        } else {
-            printf("Not found\r\n");
-        }
-        cJSON_Delete(json);
-        return;
-    }
-
-    /* fp names — 列出所有指纹名称 */
-    if (strcmp(argv[1], "names") == 0) {
-        cJSON *json;
-        cJSON *item;
-
-        json = (cJSON*)Config_LoadFile("fp.json");
-        if (!json) { printf("fp.json not found\r\n"); return; }
-
-        cJSON_ArrayForEach(item, json) {
-            if (cJSON_IsString(item))
-                printf("%s: %s\r\n", item->string, item->valuestring);
-        }
-        cJSON_Delete(json);
-        return;
-    }
-
-    /* ---- 以下命令需要指纹硬件模块在线 ---- */
     fp = Submodels_FindFpSlot();
     if (fp == NULL) {
         printf("fp: fingerprint module not found\r\n");
@@ -3552,6 +3785,16 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Nfc(argc, argv);
     } else if (strcmp(argv[0], "ir") == 0) {
         CLI_Cmd_Ir(argc, argv);
+    } else if (strcmp(argv[0], "user") == 0) {
+        CLI_Cmd_User(argc, argv);
+    } else if (strcmp(argv[0], "login") == 0) {
+        CLI_Cmd_Login(argc, argv);
+    } else if (strcmp(argv[0], "logout") == 0) {
+        CLI_Cmd_Logout();
+    } else if (strcmp(argv[0], "whoami") == 0) {
+        CLI_Cmd_Whoami();
+    } else if (strcmp(argv[0], "private") == 0) {
+        CLI_Cmd_Private(argc, argv);
     } else if (strcmp(argv[0], "appcfg") == 0) {
         CLI_Cmd_AppCfg(argc, argv);
     } else {

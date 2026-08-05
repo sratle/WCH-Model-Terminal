@@ -1,8 +1,8 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : app_fingerprint.c
 * Description        : Fingerprint manager app (V2.0 — dark theme UI).
-*                      List fingerprints with names from fp.json.
-*                      Add/edit names via keyboard input.
+*                      List fingerprints with bound users from user.json.
+*                      Bind/unbind fp IDs to users via CLI passthrough.
 *                      Register/delete via CLI passthrough.
 ********************************************************************************/
 #include "app_fingerprint.h"
@@ -96,6 +96,11 @@ static int16_t    s_fp_selected;
 /* CLI state removed — uses global assembly buffer */
 static uint8_t  s_cli_phase;
 
+/* 绑定操作链状态：0=无, 1=已发unbind待bind, 2=已发bind/unbind待刷新, 3=已发fp del待unbind */
+static uint8_t  s_pending_op;
+static char     s_pending_name[FP_INPUT_MAX + 1];
+static uint8_t  s_pending_id;
+
 /* Editing state */
 static bool     s_editing;
 static bool     s_adding;
@@ -180,7 +185,7 @@ static void fp_start_edit(uint8_t id, const char *existing_name)
     }
     s_input_len = (uint8_t)strlen(s_input);
     fp_invalidate_input();
-    fp_set_status("Type name, Enter to save, Esc to cancel");
+    fp_set_status("Type user name, Enter to bind, Esc to cancel");
 }
 
 static void fp_start_add(void)
@@ -191,7 +196,7 @@ static void fp_start_add(void)
     s_input[0] = '\0';
     s_input_len = 0;
     fp_invalidate_input();
-    fp_set_status("Type name for new fingerprint, Enter to save");
+    fp_set_status("Type user name for next fingerprint ID, Enter to bind");
 }
 
 static void fp_cancel_edit(void)
@@ -205,30 +210,42 @@ static void fp_cancel_edit(void)
 static void fp_save(void)
 {
     if (s_input_len == 0) {
-        fp_set_status("Name cannot be empty");
+        fp_set_status("User name cannot be empty");
         return;
     }
 
-    char cmd[64];
+    char cmd[80];
     if (s_adding) {
+        /* 绑定到下一个空闲 ID（预绑定，注册后生效） */
         uint8_t next_id = 0;
         for (uint8_t i = 0; i < s_fp_count; i++) {
             if (s_fp_list[i].id >= next_id)
                 next_id = s_fp_list[i].id + 1;
         }
-        snprintf(cmd, sizeof(cmd), "fp set %d %s", next_id, s_input);
+        snprintf(cmd, sizeof(cmd), "user bind fp %s %d", s_input, next_id);
+        s_pending_op = 2;
     } else {
-        snprintf(cmd, sizeof(cmd), "fp set %d %s", s_edit_id, s_input);
+        /* 重新绑定：先从旧用户解绑，再绑定到新用户 */
+        if (s_fp_selected >= 0 && s_fp_selected < s_fp_count &&
+            s_fp_list[s_fp_selected].name[0] != '\0' &&
+            strcmp(s_fp_list[s_fp_selected].name, "(unbound)") != 0) {
+            snprintf(cmd, sizeof(cmd), "user unbind fp %s %d",
+                     s_fp_list[s_fp_selected].name, s_edit_id);
+            strncpy(s_pending_name, s_input, FP_INPUT_MAX);
+            s_pending_name[FP_INPUT_MAX] = '\0';
+            s_pending_id = s_edit_id;
+            s_pending_op = 1;
+        } else {
+            snprintf(cmd, sizeof(cmd), "user bind fp %s %d", s_input, s_edit_id);
+            s_pending_op = 2;
+        }
     }
     UART_SendCLI(cmd);
 
     s_editing = false;
     s_adding = false;
     fp_invalidate_input();
-    fp_set_status("Saved, refreshing...");
-
-    s_cli_phase = 1;
-    UART_SendCLI("fp names");
+    fp_set_status("Saving binding...");
 }
 
 static void fp_refresh(void)
@@ -237,8 +254,8 @@ static void fp_refresh(void)
     s_fp_scroll = 0;
     s_fp_selected = -1;
     s_cli_phase = 1;
-    fp_set_status("Loading names...");
-    UART_SendCLI("fp names");
+    fp_set_status("Loading users...");
+    UART_SendCLI("user ls");
 }
 
 /*=============================================================================
@@ -256,8 +273,13 @@ static void fp_on_submodel_event(uint8_t sub_type, uint8_t sub_cmd,
         uint8_t fp_id = (evt_data && evt_len >= 2) ? evt_data[1] : 0;
         s_id_result = 1;
         s_id_fp_id = fp_id;
-        char msg[48];
-        snprintf(msg, sizeof(msg), "Identify OK: ID #%d", fp_id);
+        char msg[64];
+        /* USER_STATUS 推送先于本事件到达，可直接取当前登录用户 */
+        if (g_disp_state.user_logged_in && g_disp_state.user_name[0] != '\0')
+            snprintf(msg, sizeof(msg), "Identify OK: #%d (%s)",
+                     fp_id, g_disp_state.user_name);
+        else
+            snprintf(msg, sizeof(msg), "Identify OK: ID #%d", fp_id);
         fp_set_status(msg);
         fp_invalidate_all();
         break;
@@ -275,7 +297,9 @@ static void fp_on_submodel_event(uint8_t sub_type, uint8_t sub_cmd,
  *  CLI response parsing
  *=============================================================================*/
 
-static void fp_parse_names(const char *text, uint16_t len)
+/* 解析 user ls 输出：行格式 "USER <name> fp=[1,2] nfc=[...]"，
+ * 为每个绑定的指纹 ID 生成一条列表项（name=用户名）。 */
+static void fp_parse_users(const char *text, uint16_t len)
 {
     const char *p = text;
     const char *end = text + len;
@@ -284,38 +308,47 @@ static void fp_parse_names(const char *text, uint16_t len)
         const char *eol = p;
         while (eol < end && *eol != '\r' && *eol != '\n') eol++;
 
-        uint16_t line_len = (uint16_t)(eol - p);
-        if (line_len > 0) {
-            char line[128];
-            uint16_t cpy = (line_len < 127) ? line_len : 127;
-            memcpy(line, p, cpy);
-            line[cpy] = '\0';
+        if ((eol - p) > 5 && memcmp(p, "USER ", 5) == 0) {
+            const char *name = p + 5;
+            const char *sp = name;
+            char uname[FP_NAME_MAX + 1];
+            uint16_t nlen;
 
-            const char *colon = strchr(line, ':');
-            if (colon) {
-                int id_val = atoi(line);
-                if (id_val >= 0 && id_val <= 255) {
-                    bool found = false;
-                    for (uint8_t i = 0; i < s_fp_count; i++) {
-                        if (s_fp_list[i].id == (uint8_t)id_val) {
-                            found = true;
-                            break;
+            while (sp < eol && *sp != ' ') sp++;
+            nlen = (uint16_t)(sp - name);
+            if (nlen > FP_NAME_MAX) nlen = FP_NAME_MAX;
+            memcpy(uname, name, nlen);
+            uname[nlen] = '\0';
+
+            /* 找 fp=[...] 段 */
+            const char *fp_seg = strstr(p, "fp=[");
+            if (fp_seg && fp_seg < eol) {
+                const char *q = fp_seg + 4;
+                while (q < eol && *q != ']' && s_fp_count < FP_MAX_ENTRIES) {
+                    int id_val = 0;
+                    bool has = false;
+                    while (q < eol && *q >= '0' && *q <= '9') {
+                        id_val = id_val * 10 + (*q - '0');
+                        has = true;
+                        q++;
+                    }
+                    if (has && id_val >= 0 && id_val <= 255) {
+                        bool found = false;
+                        for (uint8_t i = 0; i < s_fp_count; i++) {
+                            if (s_fp_list[i].id == (uint8_t)id_val) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            s_fp_list[s_fp_count].id = (uint8_t)id_val;
+                            s_fp_list[s_fp_count].from_hw = 0;
+                            strncpy(s_fp_list[s_fp_count].name, uname, FP_NAME_MAX);
+                            s_fp_list[s_fp_count].name[FP_NAME_MAX] = '\0';
+                            s_fp_count++;
                         }
                     }
-                    if (!found) {
-                        s_fp_list[s_fp_count].id = (uint8_t)id_val;
-                        s_fp_list[s_fp_count].from_hw = 0;
-                        const char *name = colon + 1;
-                        while (*name == ' ') name++;
-                        strncpy(s_fp_list[s_fp_count].name, name, FP_NAME_MAX);
-                        s_fp_list[s_fp_count].name[FP_NAME_MAX] = '\0';
-                        int nlen = (int)strlen(s_fp_list[s_fp_count].name) - 1;
-                        while (nlen >= 0 && (s_fp_list[s_fp_count].name[nlen] == ' ' ||
-                               s_fp_list[s_fp_count].name[nlen] == '\r' ||
-                               s_fp_list[s_fp_count].name[nlen] == '\n'))
-                            s_fp_list[s_fp_count].name[nlen--] = '\0';
-                        s_fp_count++;
-                    }
+                    while (q < eol && *q != ']' && (*q < '0' || *q > '9')) q++;
                 }
             }
         }
@@ -360,7 +393,7 @@ static void fp_parse_ls(const char *text, uint16_t len)
                         s_fp_list[s_fp_count].id = (uint8_t)id_val;
                         s_fp_list[s_fp_count].from_hw = 1;
                         snprintf(s_fp_list[s_fp_count].name, FP_NAME_MAX + 1,
-                                 "Finger_%d", id_val);
+                                 "(unbound)");
                         s_fp_count++;
                     }
                 }
@@ -376,8 +409,31 @@ static void fp_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
     (void)tag;
 
+    /* 绑定操作链：unbind → bind → 刷新 */
+    if (s_pending_op == 1) {
+        char cmd[80];
+        snprintf(cmd, sizeof(cmd), "user bind fp %s %d", s_pending_name, s_pending_id);
+        s_pending_op = 2;
+        UART_SendCLI(cmd);
+        return;
+    }
+    if (s_pending_op == 2) {
+        s_pending_op = 0;
+        fp_set_status("Saved, refreshing...");
+        fp_refresh();
+        return;
+    }
+    if (s_pending_op == 3) {
+        /* fp del 已发送，继续解绑 */
+        char cmd[80];
+        snprintf(cmd, sizeof(cmd), "user unbind fp %s %d", s_pending_name, s_pending_id);
+        s_pending_op = 2;
+        UART_SendCLI(cmd);
+        return;
+    }
+
     if (s_cli_phase == 1) {
-        fp_parse_names(buf, len);
+        fp_parse_users(buf, len);
         s_cli_phase = 2;
         UART_SendCLI("fp ls");
         return;
@@ -452,8 +508,18 @@ static void btn_delete_click(ui_widget_t *w)
         fp_set_status("Select a fingerprint first");
         return;
     }
-    char cmd[32];
+    char cmd[80];
     snprintf(cmd, sizeof(cmd), "fp del %d", s_fp_list[s_fp_selected].id);
+
+    /* 若该指纹已绑定用户，删除模板后链式解绑并刷新 */
+    if (s_fp_list[s_fp_selected].name[0] != '\0' &&
+        strcmp(s_fp_list[s_fp_selected].name, "(unbound)") != 0) {
+        strncpy(s_pending_name, s_fp_list[s_fp_selected].name, FP_INPUT_MAX);
+        s_pending_name[FP_INPUT_MAX] = '\0';
+        s_pending_id = s_fp_list[s_fp_selected].id;
+        s_pending_op = 3;
+    }
+
     UART_SendCLI(cmd);
     fp_set_status("Delete request sent");
 }

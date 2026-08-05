@@ -1,8 +1,8 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : app_nfc.c
 * Description        : NFC card manager app (V2.0 — dark theme UI).
-*                      List stored NFC cards from nfc.json.
-*                      Add/edit names via keyboard input.
+*                      List NFC cards bound to users from user.json.
+*                      Bind/unbind cards to users via keyboard input.
 *                      Display real-time card detection events from Core.
 ********************************************************************************/
 #include "app_nfc.h"
@@ -96,6 +96,11 @@ static int16_t     s_nfc_selected;
 
 /* CLI response */
 /* CLI state removed — uses global assembly buffer */
+
+/* 绑定操作链状态：0=无, 1=已发unbind待bind, 2=已发bind/unbind待刷新 */
+static uint8_t  s_pending_op;
+static char     s_pending_name[NFC_INPUT_MAX + 1];
+static char     s_pending_hex[NFC_HEX_ID_LEN + 1];
 
 /* Editing state */
 static bool     s_editing;
@@ -194,7 +199,7 @@ static void nfc_start_edit(const char *hex_id, const char *existing_name)
     }
     s_input_len = (uint8_t)strlen(s_input);
     nfc_invalidate_input();
-    nfc_set_status("Type name, Enter to save, Esc to cancel");
+    nfc_set_status("Type user name, Enter to bind, Esc to cancel");
 }
 
 static void nfc_start_add(void)
@@ -205,7 +210,7 @@ static void nfc_start_add(void)
     s_input[0] = '\0';
     s_input_len = 0;
     nfc_invalidate_input();
-    nfc_set_status("Enter hex ID (10 chars) then name, Tab to switch, Enter to save");
+    nfc_set_status("Enter hex ID (10 chars) then user name, Tab to switch, Enter to bind");
 }
 
 static void nfc_cancel(void)
@@ -219,27 +224,40 @@ static void nfc_cancel(void)
 static void nfc_save(void)
 {
     if (s_input_len == 0) {
-        nfc_set_status("Name cannot be empty");
+        nfc_set_status("User name cannot be empty");
         return;
     }
 
-    char cmd[80];
+    char cmd[96];
     if (s_adding) {
         if (strlen(s_edit_hex_id) != NFC_HEX_ID_LEN) {
             nfc_set_status("Hex ID must be 10 characters");
             return;
         }
-        snprintf(cmd, sizeof(cmd), "nfc set %s %s", s_edit_hex_id, s_input);
+        snprintf(cmd, sizeof(cmd), "user bind nfc %s %s", s_input, s_edit_hex_id);
+        s_pending_op = 2;
     } else {
-        snprintf(cmd, sizeof(cmd), "nfc set %s %s", s_edit_hex_id, s_input);
+        /* 重新绑定：先从旧用户解绑，再绑定到新用户 */
+        if (s_nfc_selected >= 0 && s_nfc_selected < s_nfc_count &&
+            s_nfc_list[s_nfc_selected].name[0] != '\0') {
+            snprintf(cmd, sizeof(cmd), "user unbind nfc %s %s",
+                     s_nfc_list[s_nfc_selected].name, s_edit_hex_id);
+            strncpy(s_pending_name, s_input, NFC_INPUT_MAX);
+            s_pending_name[NFC_INPUT_MAX] = '\0';
+            strncpy(s_pending_hex, s_edit_hex_id, NFC_HEX_ID_LEN);
+            s_pending_hex[NFC_HEX_ID_LEN] = '\0';
+            s_pending_op = 1;
+        } else {
+            snprintf(cmd, sizeof(cmd), "user bind nfc %s %s", s_input, s_edit_hex_id);
+            s_pending_op = 2;
+        }
     }
     UART_SendCLI(cmd);
 
     s_editing = false;
     s_adding = false;
     nfc_invalidate_input();
-    nfc_set_status("Saved, refreshing...");
-    UART_SendCLI("nfc ls");
+    nfc_set_status("Saving binding...");
 }
 
 static void nfc_refresh(void)
@@ -247,8 +265,8 @@ static void nfc_refresh(void)
     s_nfc_count = 0;
     s_nfc_scroll = 0;
     s_nfc_selected = -1;
-    nfc_set_status("Loading NFC cards...");
-    UART_SendCLI("nfc ls");
+    nfc_set_status("Loading users...");
+    UART_SendCLI("user ls");
 }
 
 /*=============================================================================
@@ -289,7 +307,9 @@ static void nfc_on_submodel_event(uint8_t sub_type, uint8_t sub_cmd,
  *  CLI response parsing
  *=============================================================================*/
 
-static void nfc_parse_ls(const char *text, uint16_t len)
+/* 解析 user ls 输出：行格式 "USER <name> fp=[...] nfc=[0A1A3BAC20,...]"，
+ * 为每张绑定的 NFC 卡生成一条列表项（name=用户名）。 */
+static void nfc_parse_users(const char *text, uint16_t len)
 {
     const char *p = text;
     const char *end = text + len;
@@ -299,31 +319,46 @@ static void nfc_parse_ls(const char *text, uint16_t len)
         const char *eol = p;
         while (eol < end && *eol != '\r' && *eol != '\n') eol++;
 
-        uint16_t line_len = (uint16_t)(eol - p);
-        if (line_len > 0) {
-            char line[128];
-            uint16_t cpy = (line_len < 127) ? line_len : 127;
-            memcpy(line, p, cpy);
-            line[cpy] = '\0';
+        if ((eol - p) > 5 && memcmp(p, "USER ", 5) == 0) {
+            const char *name = p + 5;
+            const char *sp = name;
+            char uname[NFC_NAME_MAX + 1];
+            uint16_t nlen;
 
-            const char *colon = strchr(line, ':');
-            if (colon) {
-                uint16_t hex_len = (uint16_t)(colon - line);
-                if (hex_len == NFC_HEX_ID_LEN) {
-                    memcpy(s_nfc_list[s_nfc_count].hex_id, line, NFC_HEX_ID_LEN);
-                    s_nfc_list[s_nfc_count].hex_id[NFC_HEX_ID_LEN] = '\0';
+            while (sp < eol && *sp != ' ') sp++;
+            nlen = (uint16_t)(sp - name);
+            if (nlen > NFC_NAME_MAX) nlen = NFC_NAME_MAX;
+            memcpy(uname, name, nlen);
+            uname[nlen] = '\0';
 
-                    const char *name = colon + 1;
-                    while (*name == ' ') name++;
-                    strncpy(s_nfc_list[s_nfc_count].name, name, NFC_NAME_MAX);
-                    s_nfc_list[s_nfc_count].name[NFC_NAME_MAX] = '\0';
-                    int nlen = (int)strlen(s_nfc_list[s_nfc_count].name) - 1;
-                    while (nlen >= 0 && (s_nfc_list[s_nfc_count].name[nlen] == ' ' ||
-                           s_nfc_list[s_nfc_count].name[nlen] == '\r' ||
-                           s_nfc_list[s_nfc_count].name[nlen] == '\n'))
-                        s_nfc_list[s_nfc_count].name[nlen--] = '\0';
-
-                    s_nfc_count++;
+            /* 找 nfc=[...] 段 */
+            const char *nfc_seg = strstr(p, "nfc=[");
+            if (nfc_seg && nfc_seg < eol) {
+                const char *q = nfc_seg + 5;
+                while (q < eol && *q != ']' && s_nfc_count < NFC_MAX_ENTRIES) {
+                    if ((eol - q) >= NFC_HEX_ID_LEN) {
+                        bool valid = true;
+                        uint8_t k;
+                        for (k = 0; k < NFC_HEX_ID_LEN; k++) {
+                            char c = q[k];
+                            if (!((c >= '0' && c <= '9') ||
+                                  (c >= 'A' && c <= 'F') ||
+                                  (c >= 'a' && c <= 'f'))) {
+                                valid = false;
+                                break;
+                            }
+                        }
+                        if (valid) {
+                            memcpy(s_nfc_list[s_nfc_count].hex_id, q, NFC_HEX_ID_LEN);
+                            s_nfc_list[s_nfc_count].hex_id[NFC_HEX_ID_LEN] = '\0';
+                            strncpy(s_nfc_list[s_nfc_count].name, uname, NFC_NAME_MAX);
+                            s_nfc_list[s_nfc_count].name[NFC_NAME_MAX] = '\0';
+                            s_nfc_count++;
+                            q += NFC_HEX_ID_LEN;
+                            continue;
+                        }
+                    }
+                    q++;
                 }
             }
         }
@@ -341,8 +376,24 @@ static void nfc_parse_ls(const char *text, uint16_t len)
 static void nfc_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
     (void)tag;
-    if (strstr(buf, ":") != NULL && len > 12) {
-        nfc_parse_ls(buf, len);
+
+    /* 绑定操作链：unbind → bind → 刷新 */
+    if (s_pending_op == 1) {
+        char cmd[96];
+        snprintf(cmd, sizeof(cmd), "user bind nfc %s %s", s_pending_name, s_pending_hex);
+        s_pending_op = 2;
+        UART_SendCLI(cmd);
+        return;
+    }
+    if (s_pending_op == 2) {
+        s_pending_op = 0;
+        nfc_set_status("Saved, refreshing...");
+        nfc_refresh();
+        return;
+    }
+
+    if (strstr(buf, "USER ") != NULL) {
+        nfc_parse_users(buf, len);
     } else {
         char msg[78];
         uint16_t slen = len;

@@ -260,6 +260,37 @@ void ui_dialog_show(ui_dialog_t *dlg, const char *title, const char *message,
 void ui_dialog_close(ui_dialog_t *dlg);
 
 /*=============================================================================
+ *  PIN Pad Widget (3x4 on-screen numeric keypad)
+ *
+ *  Layout:  [1][2][3]
+ *           [4][5][6]
+ *           [7][8][9]
+ *           [<-][0][OK]
+ *  Touch-only input for devices without a keyboard. The parent supplies the
+ *  editing logic via on_key callback (append digit / backspace / confirm).
+ *=============================================================================*/
+
+#define UI_PINPAD_KEY_BACKSPACE   0x0E
+#define UI_PINPAD_KEY_OK          0x0F
+
+typedef struct {
+    ui_widget_t base;
+    ui_color_t key_bg;
+    ui_color_t key_bg_pressed;
+    ui_color_t key_border;
+    ui_color_t text_color;
+    int16_t radius;
+    int8_t pressed_key;         /* -1 = none, 0-9 = digit, UI_PINPAD_KEY_* */
+    void (*on_key)(ui_widget_t *w, uint8_t key);
+} ui_pinpad_t;
+
+void ui_pinpad_init(ui_pinpad_t *pp, const ui_rect_t *rect);
+void ui_pinpad_set_colors(ui_pinpad_t *pp, ui_color_t bg, ui_color_t pressed,
+                          ui_color_t border, ui_color_t text);
+void ui_pinpad_set_callback(ui_pinpad_t *pp,
+                            void (*on_key)(ui_widget_t *w, uint8_t key));
+
+/*=============================================================================
  *  Text Field Helpers (shared single-line input box)
  *
  *  Converges the hand-drawn input fields (e.g. app_file rename dialog):

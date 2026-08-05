@@ -28,12 +28,44 @@ CH378 下挂存储介质根目录下的 `\CONFIG` 目录为持久化根路径：
 ```
 \CONFIG\
 ├── config.json           # 系统配置（启动时加载）
+├── user.json             # 用户系统（用户/凭据/私密文件夹 ACL，Auth 模块管理）
 ├── rgb.json              # RGB 自定义帧动画数据（按需加载）
 ├── game.json             # 游戏数据（按需加载）
 ├── ebook.json            # 电子书进度（按需加载）
 ├── piano.json            # 电子琴数据（按需加载）
 └── ...                   # 其他应用数据文件
 ```
+
+### 2.1.1 user.json 结构（用户系统）
+
+`user.json` 由 Core 的 **Auth 模块**（`Common/Common/Auth/`）管理，是用户系统的唯一数据源
+（已废弃早期的 `fp.json` / `nfc.json` 凭据-名字映射文件）：
+
+```json
+{
+  "users": [
+    {
+      "name": "Alice",
+      "pin": "8F3A2C1D",
+      "fp": [1, 2],
+      "nfc": ["0A1A3BAC20"]
+    }
+  ],
+  "private": [
+    { "path": "\\PRIVATE\\DIARY", "acl": ["Alice", "Bob"] }
+  ]
+}
+```
+
+- **用户**：`name` 为主键（最长 16 字节）；`pin` 为 FNV-1a 32bit + 固定盐的哈希（8 位大写 hex）；
+  `fp` 为绑定的指纹 ID 列表，`nfc` 为绑定的 5 字节卡号（10 位大写 hex）
+- **private**：私密文件夹绝对路径 + ACL（允许访问的用户名列表）
+- **登录会话**：持久保持（无超时），仅 `logout` 或其他用户登录时切换；guest 无法访问任何私密文件夹
+- **登录途径**：CLI `login <name> <pin>`（仅 PIN）；指纹 `IDENTIFY_OK` / NFC `CARD_DETECT`
+  事件命中凭据时自动登录（任何时候生效，相当于快速切换用户）
+- **访问控制**：CLI 文件类命令统一拦截，命中私密路径且无权时输出 `AUTH_REQUIRED: <path>`
+- **管理命令**：`user add/del/ls/passwd/bind/unbind`、`login/logout/whoami`、`private add/rm/ls`
+- 上限：8 用户、每用户 8 指纹 ID + 4 NFC 卡、8 个私密文件夹（路径最长 96 字节）
 
 ### 2.2 config.json 结构
 
@@ -806,29 +838,17 @@ Hardware_V5F_Init()
   → CH378_File_Write 写回 config.json
 ```
 
-### 8.2 V3F 侧变更
+### 8.2 模块侧配置变更（V5F 统一管理）
 
-V3F 无法直接访问 CH378，需通过跨核机制通知 V5F：
+当前架构下所有模块 UART 与配置系统均由 V5F 统一管理，不再存在跨核配置请求机制
+（早期 V3F→V5F 的 `config_request` 共享标志已随双核架构移除，见 `Core.md` 架构演进章节）。
+模块侧（如 Keyboard/Submodel 状态变化）触发的配置变更与 V5F 侧走同一路径：
 
 ```
-V3F 收到模块配置变更事件
-  → 设置共享标志位（hardware_g 中的 config_request）
-  → V5F 主循环检测到标志位
-  → V5F 执行 Config_Set*()
-     → 成功 → Config_Save()，清除标志位
-     → 失败（模块/键不存在）→ 清除标志位，printf 警告
-```
-
-共享标志位定义在 `hardware.h` 的 `hardware_t` 中扩展：
-
-```c
-typedef struct {
-    /* ... 已有字段 ... */
-    volatile uint8_t config_request;    /* V3F 请求 V5F 保存配置的标志 */
-    uint8_t  config_module_key[5];      /* 请求保存的模块键名 "TTSS\0" */
-    uint8_t  config_key[16];            /* 请求保存的配置项键名 */
-    int32_t  config_value;              /* 请求保存的配置值 */
-} hardware_t;
+模块事件 / V5F 业务逻辑
+  → Config_SetInt() / Config_SetString()
+  → 成功时 config_dirty = 1
+  → 主循环 Config_Process() 检查 dirty，调用 Config_Save()
 ```
 
 ### 8.3 CH378 互斥
@@ -858,7 +878,7 @@ while (1) {
     Hardware_Heartbeat();
 
     /* 定期检查配置保存需求 */
-    if (config_dirty || hardware_g.config_request) {
+    if (config_dirty) {
         Config_Save();
     }
 

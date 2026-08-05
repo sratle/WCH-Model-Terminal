@@ -15,6 +15,7 @@
 #include "../UI/ui_settings.h"
 #include "../UI/ui_games.h"
 #include "../UI/ui_splash.h"
+#include "../UI/ui_userdlg.h"
 #include "../Apps/apps.h"
 #include "../Games/games.h"
 #include "../FMC/fmc_driver.h"
@@ -86,6 +87,8 @@ void UI_Init(void)
     ui_settings_init();
     printf("[UI_Init] -> ui_games_init()\r\n");
     ui_games_init();
+    printf("[UI_Init] -> ui_userdlg_init()\r\n");
+    ui_userdlg_init();
     printf("[UI_Init] -> ui_splash_init()\r\n");
     ui_splash_init();
 
@@ -288,9 +291,14 @@ void UI_Tick(void)
                 }
 
                 if (is_pointer_event(e->type)) {
-                    /* Pointer events: hit-test widgets in reverse Z-order */
+                    /* Pointer events: hit-test widgets in reverse Z-order.
+                     * 跳过不可见/禁用的 widget：否则隐藏但占位的事件型组件
+                     * （如认证对话框的 PIN Pad）会吞掉其矩形区域内的点击，
+                     * 导致下方按钮/列表无响应。 */
                     for (int16_t i = page->widget_count - 1; i >= 0; i--) {
                         if (page->widgets[i] &&
+                            (page->widgets[i]->flags & UI_WIDGET_FLAG_VISIBLE) &&
+                            (page->widgets[i]->flags & UI_WIDGET_FLAG_ENABLED) &&
                             ui_widget_hit_test(page->widgets[i], e->pos.x, e->pos.y)) {
                             ui_widget_event(page->widgets[i], e);
 
@@ -310,6 +318,8 @@ void UI_Tick(void)
                     ui_point_t mpos = ui_input_get_mouse_pos();
                     for (int16_t i = page->widget_count - 1; i >= 0; i--) {
                         if (page->widgets[i] &&
+                            (page->widgets[i]->flags & UI_WIDGET_FLAG_VISIBLE) &&
+                            (page->widgets[i]->flags & UI_WIDGET_FLAG_ENABLED) &&
                             ui_widget_hit_test(page->widgets[i], mpos.x, mpos.y)) {
                             ui_widget_event(page->widgets[i], e);
                             handled = true;

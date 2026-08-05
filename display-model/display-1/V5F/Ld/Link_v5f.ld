@@ -8,11 +8,14 @@ PROVIDE( _stack_size = __stack_size );
 MEMORY
 {
 	/* 896KB total: ITCM(128K) + DTCM(256K) + SRAM(512K)
-	   V3F occupies last 32K of SRAM (0x20178000-0x20180000) */
-	FLASH (rx) : ORIGIN = 0x00010000, LENGTH = 512K                    /* zero_wait flash, loaded into RAM_CODE for running */
-	RAM_CODE (xrw) : ORIGIN = 0x200A0000, LENGTH = 144K                /* ITCM RAM for running code (128K was tight, +16K headroom) */
-	RAM (xrw) : ORIGIN = (0x200C4000+256), LENGTH = (0x20178000 - 0x200C4000 - 256) /* DTCM(256K)+SRAM for .data/.bss, V5F up to V3F boundary */
-	RAM_LOAD (xrw) : ORIGIN = 0x200C4000, LENGTH = 256                /* RAM for .load section */
+	   V3F occupies last 32K of SRAM (0x20178000-0x20180000)
+	   注意：ITCM 物理上只有 128K，DTCM 不能取指，RAM_CODE 严禁超过 128K；
+	   超出部分一旦执行即崩溃（历史上"删 Game 才能跑"的根因）。
+	   代码放不下的低热度模块应放入 .flashcode 段（FLASH XIP 执行）。 */
+	FLASH (rx) : ORIGIN = 0x00010000, LENGTH = 512K                    /* zero_wait flash, XIP for .flashcode + load source */
+	RAM_CODE (xrw) : ORIGIN = 0x200A0000, LENGTH = 128K                /* ITCM 128K for V5F code execution (physical limit!) */
+	RAM (xrw) : ORIGIN = (0x200C0000+256), LENGTH = (0x20178000 - 0x200C0000 - 256) /* DTCM(256K)+SRAM for .data/.bss, V5F up to V3F boundary */
+	RAM_LOAD (xrw) : ORIGIN = 0x200C0000, LENGTH = 256                /* RAM for .load section */
 }
 
 SECTIONS
@@ -54,7 +57,7 @@ SECTIONS
         *(.vector);
 		KEEP(*(SORT_NONE(.vector_handler)))
 		*(.text)
-		*(.text.*)
+		*(EXCLUDE_FILE (*/game_*.o) .text.*)
 		*(.glue_7)
 		*(.glue_7t)
 		*(.gnu.linkonce.t.*)
@@ -62,12 +65,22 @@ SECTIONS
         PROVIDE(_highcode_vma_end = .);
     } >RAM_CODE AT>FLASH
 
+	/* 低热度代码直接在 FLASH 执行（XIP），不占用物理 ITCM 128K。
+	 * 游戏等帧率驱动、非中断路径的模块放这里；
+	 * ISR、渲染、协议解析、驱动等热路径必须留在 .highcode(ITCM)。 */
+	.flashcode :
+	{
+		. = ALIGN(4);
+		*/game_*.o(.text.*)
+		. = ALIGN(4);
+	} >FLASH AT>FLASH
+
 	.text :
 	{
 		. = ALIGN(4);
 		KEEP(*(SORT_NONE(.handle_reset)))
 		. = ALIGN(4);
-	} >FLASH AT>FLASH 
+	} >FLASH AT>FLASH
 
     .highcodelalign1 : 
     {       

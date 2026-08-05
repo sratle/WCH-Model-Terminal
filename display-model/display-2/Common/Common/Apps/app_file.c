@@ -54,6 +54,17 @@
 #define INPUT_DLG_W         360
 #define INPUT_DLG_H         140
 
+/* Auth dialog (私密文件夹认证) */
+#define AUTH_DLG_W          620
+#define AUTH_DLG_H          300
+#define AUTH_LEFT_W         380
+#define AUTH_PAD_X          400
+#define AUTH_PAD_Y          16
+#define AUTH_PAD_W          (AUTH_DLG_W - AUTH_PAD_X - 16)
+#define AUTH_PAD_H          (AUTH_DLG_H - 32)
+#define AUTH_MAX_USERS      8
+#define AUTH_PIN_MAX        8
+
 /*=============================================================================
  *  Context Menu State
  *=============================================================================*/
@@ -99,6 +110,22 @@ typedef struct {
 } input_dlg_t;
 
 /*=============================================================================
+ *  Auth Dialog State (私密文件夹认证)
+ *=============================================================================*/
+
+typedef struct {
+    bool visible;
+    char pending_dir[FILE_NAME_MAX_LEN + 1]; /* 待重试进入的目录名 */
+    char pin[AUTH_PIN_MAX + 1];
+    uint8_t pin_len;
+    char users[AUTH_MAX_USERS][17];          /* 来自 user ls */
+    uint8_t user_count;
+    int8_t  user_sel;
+    char message[48];
+    bool fetching_users;
+} auth_dlg_t;
+
+/*=============================================================================
  *  File Manager State
  *=============================================================================*/
 
@@ -125,8 +152,12 @@ typedef struct {
 static ui_app_page_t s_app_file;
 static ui_widget_t s_list_touch;
 static ui_button_t btn_up, btn_new_folder, btn_new_file, btn_delete, btn_refresh, btn_device, btn_menu;
-static ui_widget_t *s_file_widgets[10];
+static ui_widget_t *s_file_widgets[11];
 static file_state_t s_fs;
+static auth_dlg_t s_auth;
+static ui_pinpad_t s_auth_pinpad;
+static char s_pending_enter[FILE_NAME_MAX_LEN + 1]; /* 最近尝试进入的目录（cd 被拦截时重试用） */
+static bool s_pending_enter_valid;
 static char s_status_text[80];
 static char s_path_display[FILE_PATH_MAX + 16];
 
@@ -157,6 +188,13 @@ static void file_show_input_dialog(input_dlg_type_t type, const char *title, con
 static void file_hide_input_dialog(void);
 static void file_input_dialog_confirm(void);
 static void file_ctx_menu_execute(void);
+static void file_show_auth_dialog(void);
+static void file_hide_auth_dialog(void);
+static void file_auth_confirm(void);
+static void file_auth_retry(void);
+static void file_auth_parse_users(const char *buf, uint16_t len);
+static void file_draw_auth_dialog(void);
+static void file_invalidate_auth_dialog(void);
 
 /*=============================================================================
  *  Dirty Region Helpers
@@ -361,6 +399,7 @@ static void on_file_list_received(uint8_t status, const file_entry_t *entries, u
         s_fs.count = (count > FILE_MAX_ENTRIES) ? FILE_MAX_ENTRIES : count;
         memcpy(s_fs.entries, entries, s_fs.count * sizeof(file_entry_t));
         file_sort_entries();
+        s_pending_enter_valid = false;  /* 成功进入目录，清除拦截重试记录 */
     } else {
         s_fs.count = 0;
     }
@@ -391,6 +430,33 @@ static void file_on_cli_complete(const char *buf, uint16_t len, const char *tag)
     printf("[FILE] complete: tag='%s' len=%d\r\n", tag ? tag : "(null)", len);
     if (!tag) return;
 
+    /* 私密文件夹拦截：弹出认证对话框（标记固定为响应首行，防止文件内容误判） */
+    if (strncmp(buf, "AUTH_REQUIRED", 13) == 0) {
+        if (!s_auth.visible)
+            file_show_auth_dialog();
+        return;
+    }
+
+    /* 认证对话框开启期间的用户列表/登录响应 */
+    if (s_auth.visible) {
+        if (s_auth.fetching_users && strcmp(tag, "user") == 0) {
+            file_auth_parse_users(buf, len);
+            return;
+        }
+        if (strcmp(tag, "login") == 0) {
+            if (strstr(buf, "Login OK") != NULL) {
+                file_auth_retry();
+            } else {
+                s_auth.pin_len = 0;
+                s_auth.pin[0] = '\0';
+                snprintf(s_auth.message, sizeof(s_auth.message),
+                         "Wrong PIN or user");
+                file_invalidate_auth_dialog();
+            }
+            return;
+        }
+    }
+
     /* Handle stat response */
     if (strcmp(tag, "stat") == 0 && s_fs.stat_visible) {
         uint16_t copy = len;
@@ -414,6 +480,7 @@ static void file_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 
 static void file_request_list(void)
 {
+    s_pending_enter_valid = false;
     s_fs.loading = true;
     s_fs.data_ready = false;
     UART_SetCLICallbacks(&s_file_cb);
@@ -424,6 +491,11 @@ static void file_request_list(void)
 
 static void file_enter_path(const char *name)
 {
+    /* 记录尝试进入的目录：若被私密文件夹拦截，认证后重试 */
+    strncpy(s_pending_enter, name, sizeof(s_pending_enter) - 1);
+    s_pending_enter[sizeof(s_pending_enter) - 1] = '\0';
+    s_pending_enter_valid = true;
+
     s_fs.loading = true;
     s_fs.data_ready = false;
     UART_SetCLICallbacks(&s_file_cb);
@@ -434,6 +506,7 @@ static void file_enter_path(const char *name)
 
 static void file_go_up(void)
 {
+    s_pending_enter_valid = false;
     s_fs.loading = true;
     s_fs.data_ready = false;
     UART_SetCLICallbacks(&s_file_cb);
@@ -444,6 +517,7 @@ static void file_go_up(void)
 
 static void file_go_root(void)
 {
+    s_pending_enter_valid = false;
     s_fs.loading = true;
     s_fs.data_ready = false;
     UART_SetCLICallbacks(&s_file_cb);
@@ -716,6 +790,162 @@ static void file_input_dialog_confirm(void)
 }
 
 /*=============================================================================
+ *  Auth Dialog (私密文件夹认证：PIN / 指纹 / NFC)
+ *=============================================================================*/
+
+static void file_invalidate_auth_dialog(void)
+{
+    ui_page_invalidate_all();
+}
+
+static void file_show_auth_dialog(void)
+{
+    memset(&s_auth, 0, sizeof(s_auth));
+    s_auth.visible = true;
+    s_auth.user_sel = -1;
+    if (s_pending_enter_valid) {
+        strncpy(s_auth.pending_dir, s_pending_enter, sizeof(s_auth.pending_dir) - 1);
+    }
+
+    /* PIN Pad 组件启用 */
+    ui_widget_set_visible((ui_widget_t *)&s_auth_pinpad, true);
+    ui_widget_set_enabled((ui_widget_t *)&s_auth_pinpad, true);
+
+    /* 拉取用户列表供选择 */
+    s_auth.fetching_users = true;
+    UART_SetCLICallbacks(&s_file_cb);
+    UART_SendCLI("user ls");
+
+    s_fs.loading = false;
+    file_update_status();
+    file_invalidate_auth_dialog();
+}
+
+static void file_hide_auth_dialog(void)
+{
+    s_auth.visible = false;
+    s_pending_enter_valid = false;
+    ui_widget_set_visible((ui_widget_t *)&s_auth_pinpad, false);
+    ui_widget_set_enabled((ui_widget_t *)&s_auth_pinpad, false);
+    file_invalidate_auth_dialog();
+}
+
+/* 登录成功后的重试：重新进入被拦截的目录 */
+static void file_auth_retry(void)
+{
+    char dir[FILE_NAME_MAX_LEN + 1];
+
+    strncpy(dir, s_auth.pending_dir, sizeof(dir) - 1);
+    dir[sizeof(dir) - 1] = '\0';
+
+    s_auth.visible = false;
+    s_pending_enter_valid = false;
+    ui_widget_set_visible((ui_widget_t *)&s_auth_pinpad, false);
+    ui_widget_set_enabled((ui_widget_t *)&s_auth_pinpad, false);
+
+    if (dir[0] != '\0')
+        file_enter_path(dir);
+    else
+        file_request_list();
+}
+
+static void file_auth_confirm(void)
+{
+    char cmd[64];
+
+    if (s_auth.user_sel < 0 || s_auth.user_sel >= s_auth.user_count) {
+        snprintf(s_auth.message, sizeof(s_auth.message), "No user selected");
+        file_invalidate_auth_dialog();
+        return;
+    }
+    if (s_auth.pin_len == 0) {
+        snprintf(s_auth.message, sizeof(s_auth.message), "Enter PIN");
+        file_invalidate_auth_dialog();
+        return;
+    }
+    snprintf(cmd, sizeof(cmd), "login %s %s",
+             s_auth.users[s_auth.user_sel], s_auth.pin);
+    UART_SetCLICallbacks(&s_file_cb);
+    UART_SendCLI(cmd);
+    snprintf(s_auth.message, sizeof(s_auth.message), "Verifying...");
+    file_invalidate_auth_dialog();
+}
+
+/* 解析 user ls 输出：行格式 "USER <name> fp=[...] nfc=[...]" */
+static void file_auth_parse_users(const char *buf, uint16_t len)
+{
+    const char *p = buf;
+    const char *end = buf + len;
+
+    s_auth.user_count = 0;
+    while (p < end && s_auth.user_count < AUTH_MAX_USERS) {
+        const char *eol = p;
+        while (eol < end && *eol != '\r' && *eol != '\n') eol++;
+
+        if ((eol - p) > 5 && memcmp(p, "USER ", 5) == 0) {
+            const char *name = p + 5;
+            const char *sp = name;
+            uint16_t nlen;
+
+            while (sp < eol && *sp != ' ') sp++;
+            nlen = (uint16_t)(sp - name);
+            if (nlen > 0) {
+                if (nlen > 16) nlen = 16;
+                memcpy(s_auth.users[s_auth.user_count], name, nlen);
+                s_auth.users[s_auth.user_count][nlen] = '\0';
+                s_auth.user_count++;
+            }
+        }
+
+        p = eol;
+        while (p < end && (*p == '\r' || *p == '\n')) p++;
+    }
+
+    s_auth.fetching_users = false;
+    if (s_auth.user_count > 0)
+        s_auth.user_sel = 0;
+    else
+        snprintf(s_auth.message, sizeof(s_auth.message),
+                 "No users. Use CLI: user add");
+    file_invalidate_auth_dialog();
+}
+
+/* USER_STATUS 推送回调：指纹/NFC 登录成功时自动重试 */
+static void file_on_user_status(uint8_t logged_in, const char *name)
+{
+    (void)name;
+    if (s_auth.visible && logged_in)
+        file_auth_retry();
+}
+
+static uart_user_cb_t s_file_user_cb = {
+    .on_user_status = file_on_user_status,
+};
+
+/* PIN Pad 按键：数字追加 / <- 删除 / OK 确认 */
+static void file_on_auth_pinpad_key(ui_widget_t *w, uint8_t key)
+{
+    (void)w;
+
+    if (!s_auth.visible)
+        return;
+
+    if (key == UI_PINPAD_KEY_BACKSPACE) {
+        if (s_auth.pin_len > 0)
+            s_auth.pin[--s_auth.pin_len] = '\0';
+        file_invalidate_auth_dialog();
+    } else if (key == UI_PINPAD_KEY_OK) {
+        file_auth_confirm();
+    } else {
+        if (s_auth.pin_len < AUTH_PIN_MAX) {
+            s_auth.pin[s_auth.pin_len++] = (char)key;
+            s_auth.pin[s_auth.pin_len] = '\0';
+            file_invalidate_auth_dialog();
+        }
+    }
+}
+
+/*=============================================================================
  *  Drawing (1bpp)
  *=============================================================================*/
 
@@ -911,6 +1141,92 @@ static void file_draw_input_dialog(void)
                  UI_FONT_BODY, UI_COLOR_WHITE);
 }
 
+static void file_draw_auth_dialog(void)
+{
+    if (!s_auth.visible) return;
+
+    /* White overlay (e-ink) */
+    ui_rect_t screen = {0, 0, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT};
+    ui_draw_fill_rect(&screen, UI_COLOR_WHITE);
+
+    /* Dialog box centered */
+    int16_t dx = (UI_SCREEN_WIDTH - AUTH_DLG_W) / 2;
+    int16_t dy = (UI_SCREEN_HEIGHT - AUTH_DLG_H) / 2;
+    ui_rect_t dlg_bg = {dx, dy, AUTH_DLG_W, AUTH_DLG_H};
+    ui_draw_fill_round_rect(&dlg_bg, 8, UI_COLOR_WHITE);
+    ui_draw_round_rect_border(&dlg_bg, 8, UI_COLOR_BLACK, 2);
+
+    /* Title */
+    ui_draw_text(dx + 20, dy + 14, "Private Folder", UI_FONT_TITLE, UI_COLOR_BLACK);
+
+    /* Target path */
+    {
+        char path_line[96];
+        if (s_auth.pending_dir[0] != '\0')
+            snprintf(path_line, sizeof(path_line), "Folder: %s", s_auth.pending_dir);
+        else
+            snprintf(path_line, sizeof(path_line), "Folder: %s", s_fs.path);
+        ui_draw_text(dx + 20, dy + 42, path_line, UI_FONT_BODY, UI_COLOR_BLACK);
+    }
+
+    /* User selector: [<] [   Name   ] [>] */
+    {
+        int16_t uy = dy + 66;
+        ui_rect_t prev_r = {dx + 20, uy, 44, 36};
+        ui_draw_round_rect(&prev_r, 6, UI_COLOR_WHITE, UI_COLOR_BLACK, 1);
+        ui_draw_text(prev_r.x + 18, uy + 10, "<", UI_FONT_BODY, UI_COLOR_BLACK);
+
+        ui_rect_t name_r = {dx + 74, uy, 220, 36};
+        ui_draw_fill_rect(&name_r, UI_COLOR_WHITE);
+        ui_draw_rect_border(&name_r, UI_COLOR_BLACK, 1);
+        const char *uname = (s_auth.user_sel >= 0 &&
+                             s_auth.user_sel < s_auth.user_count)
+                            ? s_auth.users[s_auth.user_sel] : "(no user)";
+        ui_draw_text_in_rect(&name_r, uname, UI_FONT_TITLE, UI_COLOR_BLACK, 0x11);
+
+        ui_rect_t next_r = {dx + 304, uy, 44, 36};
+        ui_draw_round_rect(&next_r, 6, UI_COLOR_WHITE, UI_COLOR_BLACK, 1);
+        ui_draw_text(next_r.x + 18, uy + 10, ">", UI_FONT_BODY, UI_COLOR_BLACK);
+    }
+
+    /* PIN field (masked) */
+    {
+        char masked[AUTH_PIN_MAX + 1];
+        uint8_t i;
+        for (i = 0; i < s_auth.pin_len; i++) masked[i] = '*';
+        masked[i] = '\0';
+
+        ui_rect_t field = {dx + 20, dy + 114, AUTH_LEFT_W - 40, 40};
+        ui_textfield_style_t tf_st = {
+            .bg = UI_COLOR_WHITE, .border = UI_COLOR_BLACK,
+            .text = UI_COLOR_BLACK, .hint = UI_COLOR_BLACK,
+            .cursor = UI_COLOR_BLACK,
+            .font = UI_FONT_TITLE, .hint_font = UI_FONT_BODY,
+            .radius = 0, .border_w = 1,
+        };
+        ui_textfield_draw(&field, masked, (uint16_t)s_auth.pin_len,
+                          "PIN", true, &tf_st);
+    }
+
+    /* Message / hint */
+    if (s_auth.message[0] != '\0') {
+        ui_draw_text(dx + 20, dy + 162, s_auth.message, UI_FONT_BODY, UI_COLOR_BLACK);
+    } else {
+        ui_draw_text(dx + 20, dy + 162, "Fingerprint / NFC card also works",
+                     UI_FONT_BODY, UI_COLOR_BLACK);
+    }
+
+    /* Buttons: Cancel | Unlock（左列底部；右侧为 PIN Pad 组件） */
+    int16_t btn_y = dy + AUTH_DLG_H - 50;
+    ui_rect_t cancel_r = {dx + 20, btn_y, 96, 36};
+    ui_draw_round_rect(&cancel_r, 6, UI_COLOR_WHITE, UI_COLOR_BLACK, 1);
+    ui_draw_text(cancel_r.x + 18, btn_y + 10, "Cancel", UI_FONT_BODY, UI_COLOR_BLACK);
+
+    ui_rect_t ok_r = {dx + 128, btn_y, 96, 36};
+    ui_draw_fill_round_rect(&ok_r, 6, UI_COLOR_BLACK);
+    ui_draw_text(ok_r.x + 18, btn_y + 10, "Unlock", UI_FONT_BODY, UI_COLOR_WHITE);
+}
+
 static void file_draw_stat_dialog(void)
 {
     if (!s_fs.stat_visible) return;
@@ -966,6 +1282,7 @@ static void file_page_enter(ui_page_t *page)
 {
     (void)page;
     UART_SetCLICallbacks(&s_file_cb);
+    UART_SetUserCallbacks(&s_file_user_cb);
     if (!s_fs.data_ready && !s_fs.loading) {
         printf("[FILE] enter, requesting root\r\n");
         UART_RequestFileList("\\");
@@ -984,6 +1301,7 @@ static void file_page_draw(ui_page_t *page, ui_rect_t *dirty)
     file_draw_context_menu();
     file_draw_input_dialog();
     file_draw_stat_dialog();
+    file_draw_auth_dialog();
 }
 
 /*=============================================================================
@@ -993,6 +1311,50 @@ static void file_page_draw(ui_page_t *page, ui_rect_t *dirty)
 static void list_touch_event(ui_widget_t *w, ui_event_t *e)
 {
     (void)w;
+
+    /* If auth dialog is open, handle dialog events (topmost) */
+    if (s_auth.visible) {
+        if (e->type == UI_EVENT_CLICK) {
+            int16_t dx = (UI_SCREEN_WIDTH - AUTH_DLG_W) / 2;
+            int16_t dy = (UI_SCREEN_HEIGHT - AUTH_DLG_H) / 2;
+            int16_t uy = dy + 66;
+            int16_t btn_y = dy + AUTH_DLG_H - 50;
+
+            /* User prev */
+            ui_rect_t prev_r = {dx + 20, uy, 44, 36};
+            if (ui_widget_hit_test((ui_widget_t *)&prev_r, e->touch.x, e->touch.y)) {
+                if (s_auth.user_count > 0) {
+                    s_auth.user_sel--;
+                    if (s_auth.user_sel < 0) s_auth.user_sel = s_auth.user_count - 1;
+                    file_invalidate_auth_dialog();
+                }
+                return;
+            }
+            /* User next */
+            ui_rect_t next_r = {dx + 304, uy, 44, 36};
+            if (ui_widget_hit_test((ui_widget_t *)&next_r, e->touch.x, e->touch.y)) {
+                if (s_auth.user_count > 0) {
+                    s_auth.user_sel++;
+                    if (s_auth.user_sel >= s_auth.user_count) s_auth.user_sel = 0;
+                    file_invalidate_auth_dialog();
+                }
+                return;
+            }
+            /* Cancel */
+            ui_rect_t cancel_r = {dx + 20, btn_y, 96, 36};
+            if (ui_widget_hit_test((ui_widget_t *)&cancel_r, e->touch.x, e->touch.y)) {
+                file_hide_auth_dialog();
+                return;
+            }
+            /* Unlock */
+            ui_rect_t ok_r = {dx + 128, btn_y, 96, 36};
+            if (ui_widget_hit_test((ui_widget_t *)&ok_r, e->touch.x, e->touch.y)) {
+                file_auth_confirm();
+                return;
+            }
+        }
+        return;
+    }
 
     /* If input dialog is open, handle dialog events */
     if (s_fs.input.visible) {
@@ -1132,6 +1494,53 @@ static bool file_page_event(ui_page_t *page, ui_event_t *e)
     /* Only handle keyboard and core-key events */
     if (e->source != UI_INPUT_KEYBOARD && e->source != UI_INPUT_CORE_KEY)
         return false;
+
+    /* --- Auth dialog is open: consume ALL key events (topmost) --- */
+    if (s_auth.visible) {
+        /* ESC/Back: cancel dialog */
+        if (e->type == UI_EVENT_KEY_DOWN && e->key.code == UI_KEY_BACK) {
+            file_hide_auth_dialog();
+            return true;
+        }
+        /* Enter: confirm */
+        if (e->type == UI_EVENT_KEY_DOWN && e->key.code == UI_KEY_OK) {
+            file_auth_confirm();
+            return true;
+        }
+        /* Left/Right: switch user */
+        if (e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) {
+            if (e->key.code == UI_KEY_LEFT && s_auth.user_count > 0) {
+                s_auth.user_sel--;
+                if (s_auth.user_sel < 0) s_auth.user_sel = s_auth.user_count - 1;
+                file_invalidate_auth_dialog();
+                return true;
+            }
+            if (e->key.code == UI_KEY_RIGHT && s_auth.user_count > 0) {
+                s_auth.user_sel++;
+                if (s_auth.user_sel >= s_auth.user_count) s_auth.user_sel = 0;
+                file_invalidate_auth_dialog();
+                return true;
+            }
+        }
+        /* PIN digit/char input */
+        if ((e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) &&
+            e->char_code >= 0x20 && e->char_code <= 0x7E &&
+            s_auth.pin_len < AUTH_PIN_MAX) {
+            s_auth.pin[s_auth.pin_len++] = (char)e->char_code;
+            s_auth.pin[s_auth.pin_len] = '\0';
+            file_invalidate_auth_dialog();
+            return true;
+        }
+        /* Backspace */
+        if ((e->type == UI_EVENT_KEY_DOWN || e->type == UI_EVENT_KEY_LONG_REPEAT) &&
+            e->char_code == 0x08) {
+            if (s_auth.pin_len > 0)
+                s_auth.pin[--s_auth.pin_len] = '\0';
+            file_invalidate_auth_dialog();
+            return true;
+        }
+        return true;
+    }
 
     /* --- Input dialog is open: consume ALL key events --- */
     if (s_fs.input.visible) {
@@ -1337,6 +1746,17 @@ void app_file_init(void)
     s_list_touch.bg_color = UI_COLOR_TRANSPARENT;
     s_list_touch.event_cb = list_touch_event;
 
+    /* 认证对话框 PIN Pad 组件（默认隐藏，AUTH_REQUIRED 弹窗时启用） */
+    {
+        int16_t dx = (UI_SCREEN_WIDTH - AUTH_DLG_W) / 2;
+        int16_t dy = (UI_SCREEN_HEIGHT - AUTH_DLG_H) / 2;
+        ui_rect_t pad_r = {dx + AUTH_PAD_X, dy + AUTH_PAD_Y, AUTH_PAD_W, AUTH_PAD_H};
+        ui_pinpad_init(&s_auth_pinpad, &pad_r);
+        ui_pinpad_set_callback(&s_auth_pinpad, file_on_auth_pinpad_key);
+        ui_widget_set_visible((ui_widget_t *)&s_auth_pinpad, false);
+        ui_widget_set_enabled((ui_widget_t *)&s_auth_pinpad, false);
+    }
+
     s_file_widgets[0] = (ui_widget_t *)&s_app_file.btn_back;
     s_file_widgets[1] = (ui_widget_t *)&s_app_file.lbl_title;
     s_file_widgets[2] = (ui_widget_t *)&btn_up;
@@ -1347,8 +1767,9 @@ void app_file_init(void)
     s_file_widgets[7] = (ui_widget_t *)&btn_menu;
     s_file_widgets[8] = (ui_widget_t *)&btn_refresh;
     s_file_widgets[9] = &s_list_touch;
+    s_file_widgets[10] = (ui_widget_t *)&s_auth_pinpad;
 
-    ui_page_set_widgets(&s_app_file.page, s_file_widgets, 10);
+    ui_page_set_widgets(&s_app_file.page, s_file_widgets, 11);
     ui_page_set_callbacks(&s_app_file.page, file_page_enter, NULL, file_page_draw, NULL);
     ui_page_set_event_cb(&s_app_file.page, file_page_event);
     ui_page_register(&s_app_file.page);

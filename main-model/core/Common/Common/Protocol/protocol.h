@@ -77,6 +77,7 @@
 #define CMD_DISP_EXT_CLI                0x1A    /* CLI 命令直通 (Display→Core) */
 #define CMD_DISP_EXT_CWD_NOTIFY         0x1B    /* CWD 变更通知 (Core→Display) */
 #define CMD_DISP_EXT_GET_SYS_STATUS     0x1C    /* 请求重发全部系统状态 (Display→Core)：模块/电量/BT/HID/流量 */
+#define CMD_DISP_EXT_USER_STATUS        0x1D    /* 当前登录用户变更 (Core→Display)：DATA[1]=logged_in, DATA[2..]=用户名 */
 
 /* ---- HID 设备类型 (CMD_DISP_EXT_HID_STATUS DATA[2]) ---- */
 #define HID_DEV_KEYBOARD                0x01    /* 外接键盘 */

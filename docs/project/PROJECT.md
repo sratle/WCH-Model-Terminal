@@ -141,6 +141,10 @@ CLI 是一个**独立模块**，源码位于 `Common/Common/CLI/`，与 CH378 �
 | `stat <file>`           | 显示文件详细信息（支持长文件名）         | `stat file.txt`        |
 | `chmod <file> <attr>`   | 修改文件属性（支持长文件名）           | `chmod file.txt 01`    |
 | `ver`                   | 显示 CH378 固件版本            | `ver`                  |
+| `user add/del/ls/passwd/bind/unbind` | 用户与凭据管理（user.json） | `user bind fp Alice 3` |
+| `login <name> <pin>`    | 用户登录（仅 PIN）             | `login Alice 1234`     |
+| `logout` / `whoami`     | 登出 / 查看当前用户            | `logout`               |
+| `private add/rm/ls`     | 私密文件夹与 ACL 管理          | `private add \PRIVATE\DIARY Alice` |
 | `clear`                 | 清屏                       | `clear`                |
 | `help`                  | 显示帮助信息                   | `help`                 |
 
@@ -159,6 +163,9 @@ CLI 已实现完整的长文件名支持：
 
 #### 注意事项
 
+- **用户系统与私密文件夹**：`\CONFIG\user.json` 管理用户、指纹/NFC 凭据绑定与私密文件夹 ACL。
+  文件类 CLI 命令命中私密文件夹且当前用户无权限时输出固定标记 `AUTH_REQUIRED: <path>`，
+  Display 文件管理器据此弹认证界面（PIN/指纹/NFC）。详见 `config.md` 用户系统章节。
 - **CH378 目录删除限制**：CH378 固件的 `CMD0H_FILE_ERASE` 命令官方注释明确为"对目录则等待"，即不支持删除目录。`rm -rf` 会递归清空目录树内所有文件，但空目录会保留。
 - **mv 限制**：`mv` 命令目前仅支持短文件名重命名，且不能跨目录移动。长文件名重命名建议用 `cp` + `rm` 替代。
 - **终端换行**：MCU 中断仅在收到 `

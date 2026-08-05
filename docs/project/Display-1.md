@@ -157,6 +157,27 @@ display-model/display-1/
 5. **MiniUI 输入注入**：V3F 收到的触摸 / 键盘 / 鼠标事件需统一转换为 MiniUI 输入事件（`ui_input_touch_raw()` / `ui_input_mouse_raw()` / `ui_input_keyboard_raw()`），确保本地触摸与 Core 模拟触摸走同一套路径。
 6. **错误上报**：SSD1963 通信失败、触摸屏失联、UART 帧错误等应通过 `CMD_DISP_EXT_ERROR_REPORT` 及时上报 Core，便于 Core 侧诊断。
 
+## ITCM 128K 物理上限与 .flashcode（重要，血泪教训）
+
+**问题**：CH32H417 的 ITCM 物理容量为 **128K**（`0x200A0000~0x200C0000`），
+与 DTCM（`0x200C0000` 起）不联动，**DTCM 区域不能取指**。早期曾把链接脚本
+`RAM_CODE` 扩到 144K/192K（越界借用 DTCM），链接器不再报错，但越过
+`0x200C0000` 的函数一旦执行即取指异常、MCU 死机重启。典型现象是
+Display 与 Core 指令交互时死机；删除 Game 后"恢复"，本质是把 `.highcode`
+压回 128K 以内。
+
+**修复（现行链接布局）**：
+
+1. `RAM_CODE` 严格收回物理上限 **128K**（与 main-model Core 一致）；
+2. 低热度代码（当前为 `game_*.o`）经 `.flashcode` 输出段直接放在
+   **FLASH XIP 执行**（启动代码本就 XIP，可行性已证），`.highcode` 用
+   `EXCLUDE_FILE (*/game_*.o)` 排除；
+3. ISR、渲染、协议解析、驱动等热路径必须留在 `.highcode`（ITCM）。
+
+**后续代码增长时**：在 `.flashcode` 段的通配符中追加低热度模块
+（如 `*/app_xxx.o(.text.*)`）即可，不要扩大 `RAM_CODE`。
+游戏若有可感帧率下降，说明 Flash 存在等待周期，可将该游戏单独换回 ITCM。
+
 ## 鼠标与滚轮体验（V4.1）
 
 - **右键点击**：`ui_input_feed_mouse()` 在右键抬起时产生携带 `UI_MOUSE_BTN_RIGHT` 的

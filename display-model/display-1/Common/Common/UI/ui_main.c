@@ -7,6 +7,8 @@
 *                      Sidebar navigation and page container.
 ********************************************************************************/
 #include "ui_main.h"
+#include "ui_userdlg.h"
+#include "../UART/uart_module.h"
 #include <string.h>
 
 /*=============================================================================
@@ -64,6 +66,17 @@ void ui_main_draw_sidebar(ui_rect_t *dirty)
         } else {
             ui_draw_text_in_rect(&item_rect, s_menu_labels[i], UI_FONT_BODY, UI_COLOR_TEXT_SECONDARY, 1);
         }
+    }
+
+    /* 底部：当前登录用户（未登录显示 Guest） */
+    {
+        ui_rect_t user_rect = {0, UI_SCREEN_HEIGHT - 36, SIDEBAR_WIDTH, 30};
+        ui_draw_hline(0, UI_SCREEN_HEIGHT - 38, SIDEBAR_WIDTH, UI_COLOR_SECONDARY);
+        ui_draw_text_in_rect(&user_rect,
+                             g_disp_state.user_logged_in ? g_disp_state.user_name : "Guest",
+                             UI_FONT_BODY,
+                             g_disp_state.user_logged_in ? UI_COLOR_PRIMARY : UI_COLOR_TEXT_SECONDARY,
+                             1);
     }
 }
 
@@ -135,6 +148,11 @@ bool ui_main_handle_event(ui_event_t *e)
 
     if (e->type == UI_EVENT_CLICK) {
         if (e->pos.x < SIDEBAR_WIDTH) {
+            /* 底部用户区域：弹出登录/用户信息对话框 */
+            if (e->pos.y >= UI_SCREEN_HEIGHT - 38) {
+                ui_page_push(ui_userdlg_get_page());
+                return true;
+            }
             int item_idx = (e->pos.y - 80) / SIDEBAR_ITEM_HEIGHT;
             if (item_idx >= 0 && item_idx < SIDEBAR_ITEM_COUNT) {
                 ui_main_set_menu((menu_item_t)item_idx);

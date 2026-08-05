@@ -5,7 +5,7 @@
 - **模块类型编号**：`0x05`
 - **模块 ID**：`0x40` ~ `0x42`（对应 UART6/7/8 三个配件槽）
 
-Submodels 为可热插拔的配件模块，通过 UART 与 Core（V3F）通信。整机最多同时插入 **2 ~ 3** 个 Submodel（Submodel-7 副屏占用两个物理位置）。Core 通过 `CMD_GET_TYPE` 识别每个槽位实际插入的子类型。
+Submodels 为可热插拔的配件模块，通过 UART 与 Core（V5F）通信。整机最多同时插入 **2 ~ 3** 个 Submodel（Submodel-7 副屏占用两个物理位置）。Core 通过 `CMD_GET_TYPE` 识别每个槽位实际插入的子类型。
 
 | 子类型 | 名称 | 功能 |
 |--------|------|------|
@@ -19,7 +19,7 @@ Submodels 为可热插拔的配件模块，通过 UART 与 Core（V3F）通信�
 
 ### 1.1 帧格式速查
 
-Submodels 通过 **UART6/7/8** 与 Core（V3F）通信，物理层参数：
+Submodels 通过 **UART6/7/8** 与 Core（V5F）通信，物理层参数：
 
 | 参数 | 值 |
 |------|-----|

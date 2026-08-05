@@ -8,6 +8,7 @@
 #include "../Config/config.h"
 #include "../Power/power.h"
 #include "../CH9350/CH9350.h"
+#include "../Auth/auth.h"
 #include "../hardware.h"
 #include <string.h>
 
@@ -263,6 +264,8 @@ void Display_Process(display_t *display)
                            id.type, id.subtype, id.hw_ver, id.fw_major, id.fw_minor);
                     /* Display 刚上线，重新下发配置（可能在 Config_Init 时 Display 尚未就绪） */
                     Config_Apply();
+                    /* 同步当前登录用户（Core 重启后 Display 侧缓存的用户名可能过期） */
+                    Auth_ReportStatusToDisplay();
                 }
                 /* 更新心跳在线状态 */
                 Hardware_Hb_MarkOnline(MODULE_ID_DISPLAY, id.type, id.subtype);
@@ -380,6 +383,7 @@ void Display_Process(display_t *display)
                     Power_ReportStatusToDisplay(&power_g);    /* 电量/充电 */
                     CH585F_BT_ReportStatusToDisplay();        /* 无线在线/连接/流量 */
                     CH9350_ReportHidStatusToDisplay(&ch9350_g); /* 外接 HID(USB) */
+                    Auth_ReportStatusToDisplay();     /* 当前登录用户 */
                     handled = 1;
                     break;
 

@@ -18,6 +18,7 @@
 #include "Key/key.h"
 #include "CLI/CLI.h"
 #include "Config/config.h"
+#include "Auth/auth.h"
 #include "Protocol/protocol.h"
 
 /**
@@ -425,6 +426,9 @@ void Hardware_Init(void)
 
     /* 配置系统 */
     Config_Init();
+
+    /* 用户系统（依赖 Config 数据文件机制） */
+    Auth_Init();
 
     /* 命令行接口 */
     CLI_Init();

@@ -2,6 +2,7 @@
 #include "../Protocol/protocol_common.h"
 #include "../hardware.h"
 #include "../Display/display.h"
+#include "../Auth/auth.h"
 #include "../CS43131/cs43131.h"
 #include "../Config/config.h"
 #include "../CH378/CH378.h"
@@ -462,6 +463,13 @@ static uint8_t submodels_fp_dispatch(submodels_t *submodel, const protocol_frame
                     uint8_t fp_id = (req->len >= 2) ? req->data[1] : 0;
                     printf("[FP] Identify OK: ID=%d\r\n", fp_id);
 
+                    /* 凭据登录：命中用户则切换当前登录用户并推送 Display */
+                    {
+                        int uidx = Auth_LoginByFp(fp_id);
+                        if (uidx >= 0)
+                            printf("[Auth] FP login: %s\r\n", Auth_CurrentUserName());
+                    }
+
                     /* Forward to Display if online */
                     {
                         uint8_t i;
@@ -699,6 +707,13 @@ static uint8_t submodels_nfc_dispatch(submodels_t *submodel, const protocol_fram
                                card_id,
                                req->data[2], req->data[3], req->data[4],
                                req->data[5], req->data[6]);
+
+                        /* 凭据登录：命中用户则切换当前登录用户并推送 Display */
+                        {
+                            int uidx = Auth_LoginByNfc(&req->data[2]);
+                            if (uidx >= 0)
+                                printf("[Auth] NFC login: %s\r\n", Auth_CurrentUserName());
+                        }
 
                         /* Forward to Display if online */
                         {

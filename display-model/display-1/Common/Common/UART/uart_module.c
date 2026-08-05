@@ -41,6 +41,10 @@ static bool s_emusic_cb_valid = false;
 static uart_submodel_cb_t s_submodel_cb;
 static bool s_submodel_cb_valid = false;
 
+/* User status callbacks (login/logout/switch push from Core) */
+static uart_user_cb_t s_user_cb;
+static bool s_user_cb_valid = false;
+
 /*=============================================================================
  *  CLI Response Assembly Engine (V3.1 — unified, single global buffer)
  *=============================================================================*/
@@ -104,6 +108,23 @@ void UART_ClearSubmodelCallbacks(void)
 {
     memset(&s_submodel_cb, 0, sizeof(uart_submodel_cb_t));
     s_submodel_cb_valid = false;
+}
+
+void UART_SetUserCallbacks(const uart_user_cb_t *cb)
+{
+    if (cb) {
+        memcpy(&s_user_cb, cb, sizeof(uart_user_cb_t));
+        s_user_cb_valid = true;
+    } else {
+        memset(&s_user_cb, 0, sizeof(uart_user_cb_t));
+        s_user_cb_valid = false;
+    }
+}
+
+void UART_ClearUserCallbacks(void)
+{
+    memset(&s_user_cb, 0, sizeof(uart_user_cb_t));
+    s_user_cb_valid = false;
 }
 
 void UART_SetEMusicCallbacks(const uart_emusic_callbacks_t *cb)
@@ -730,6 +751,33 @@ static void handle_ext_config_result(const uint8_t *data, uint8_t len)
     /* TODO: show config save/load result to user */
 }
 
+static void handle_ext_user_status(const uint8_t *data, uint8_t len)
+{
+    if (len < 2) return;  /* ext_code(1) + logged_in(1) + name... */
+
+    g_disp_state.user_logged_in = data[1] ? 1 : 0;
+    if (g_disp_state.user_logged_in && len > 2) {
+        uint8_t nlen = len - 2;
+        if (nlen > sizeof(g_disp_state.user_name) - 1)
+            nlen = sizeof(g_disp_state.user_name) - 1;
+        memcpy(g_disp_state.user_name, &data[2], nlen);
+        g_disp_state.user_name[nlen] = '\0';
+    } else {
+        g_disp_state.user_name[0] = '\0';
+    }
+
+    printf("[USER] %s (%s)\r\n",
+           g_disp_state.user_logged_in ? "login" : "logout",
+           g_disp_state.user_name);
+
+    /* Sidebar 显示当前用户，需要重绘 */
+    ui_page_invalidate_all();
+
+    if (s_user_cb_valid && s_user_cb.on_user_status)
+        s_user_cb.on_user_status(g_disp_state.user_logged_in,
+                                 g_disp_state.user_name);
+}
+
 static void handle_ext_hid_status(const uint8_t *data, uint8_t len)
 {
     if (len < 3) return;  /* ext_code(1) + evt(1) + dev_type(1) */
@@ -774,6 +822,9 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
         break;
     case DISP_EXT_HID_STATUS:
         handle_ext_hid_status(data, len);
+        break;
+    case DISP_EXT_USER_STATUS:
+        handle_ext_user_status(data, len);
         break;
     case DISP_EXT_CLI:
         /* CLI response from Core (text output).
@@ -1133,16 +1184,27 @@ static void cli_resp_dispatch(void)
     /* After "cd" response, auto-send "ls" if pending */
     if (strcmp(s_cli_cmd_tag, "cd") == 0 && s_pending_ls_after_cd) {
         s_pending_ls_after_cd = false;
-        printf("[CLI] cd done, sending ls\r\n");
-        /* CH378 状态稳定延时：cd 改变了 CH378 目录状态，
-         * 需要等待 CH378 内部状态稳定后再发 ls */
-        Delay_Ms(20);
-        UART_SendCLI("ls");
-        return;
+        if (strncmp(s_cli_resp_buf, "AUTH_REQUIRED", 13) == 0) {
+            /* cd 被私密文件夹拦截：不跟发 ls，走 on_cli_complete 通知应用层 */
+        } else {
+            printf("[CLI] cd done, sending ls\r\n");
+            /* CH378 状态稳定延时：cd 改变了 CH378 目录状态，
+             * 需要等待 CH378 内部状态稳定后再发 ls */
+            Delay_Ms(20);
+            UART_SendCLI("ls");
+            return;
+        }
     }
 
     /* Priority 1: ls parsing (if callback set and command was "ls") */
     if (s_cli_cb.on_file_list && strcmp(s_cli_cmd_tag, "ls") == 0) {
+        if (strncmp(s_cli_resp_buf, "AUTH_REQUIRED", 13) == 0) {
+            /* ls 被私密文件夹拦截：不做条目解析，走 on_cli_complete */
+            if (s_cli_cb.on_cli_complete) {
+                s_cli_cb.on_cli_complete(s_cli_resp_buf, s_cli_resp_len, s_cli_cmd_tag);
+            }
+            return;
+        }
         printf("[CLI] parsing ls output\r\n");
         cli_parse_ls_output();
         printf("[CLI] ls parse done\r\n");

@@ -111,6 +111,7 @@ extern "C" {
 #define DISP_EXT_CLI                0x1A
 #define DISP_EXT_CWD_NOTIFY         0x1B
 #define DISP_EXT_GET_SYS_STATUS     0x1C    /* 请求重发全部系统状态 (Display→Core) */
+#define DISP_EXT_USER_STATUS        0x1D    /* 当前登录用户变更 (Core→Display)：DATA[1]=logged_in, DATA[2..]=用户名 */
 
 /* HID device types */
 #define HID_DEV_KEYBOARD            0x01
@@ -268,6 +269,19 @@ void UART_SetSubmodelCallbacks(const uart_submodel_cb_t *cb);
 void UART_ClearSubmodelCallbacks(void);
 
 /*=============================================================================
+ *  User Status Callback (Core USER_STATUS push)
+ *=============================================================================*/
+
+typedef struct {
+    /* 'logged_in' = 1 when a user just logged in, 0 on logout.
+     * 'name' = current user name (null-terminated, "" when logged out). */
+    void (*on_user_status)(uint8_t logged_in, const char *name);
+} uart_user_cb_t;
+
+void UART_SetUserCallbacks(const uart_user_cb_t *cb);
+void UART_ClearUserCallbacks(void);
+
+/*=============================================================================
  *  Unified CLI Callback Interface (V3.1)
  *=============================================================================*/
 
@@ -344,6 +358,10 @@ typedef struct {
     uint8_t  music_volume;
     uint8_t  music_speaker;       /* 外放状态位掩码 (0=关, 非0=开) */
     char     music_track[64];
+
+    /* Current logged-in user (from Core USER_STATUS push; empty = guest) */
+    uint8_t  user_logged_in;
+    char     user_name[17];
 } uart_disp_state_t;
 
 extern uart_disp_state_t g_disp_state;

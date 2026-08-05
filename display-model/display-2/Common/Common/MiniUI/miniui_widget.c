@@ -1123,3 +1123,134 @@ bool ui_textfield_edit(char *buf, uint8_t *len, uint8_t max_len,
     }
     return false;
 }
+
+/*=============================================================================
+ *  PIN Pad Widget Implementation
+ *=============================================================================*/
+
+#define PINPAD_GAP      6
+
+/* idx: 0-8 = digits 1-9, 9 = backspace, 10 = digit 0, 11 = OK */
+static void pinpad_key_rect(ui_pinpad_t *pp, uint8_t idx, ui_rect_t *out)
+{
+    int16_t cw = (pp->base.rect.w - 2 * PINPAD_GAP) / 3;
+    int16_t ch = (pp->base.rect.h - 3 * PINPAD_GAP) / 4;
+    int16_t col = idx % 3;
+    int16_t row = idx / 3;
+
+    out->x = pp->base.rect.x + col * (cw + PINPAD_GAP);
+    out->y = pp->base.rect.y + row * (ch + PINPAD_GAP);
+    out->w = cw;
+    out->h = ch;
+}
+
+static int8_t pinpad_hit_key(ui_pinpad_t *pp, int16_t x, int16_t y)
+{
+    uint8_t i;
+    ui_rect_t r;
+
+    for (i = 0; i < 12; i++) {
+        pinpad_key_rect(pp, i, &r);
+        if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
+            return (int8_t)i;
+    }
+    return -1;
+}
+
+static uint8_t pinpad_key_code(uint8_t idx)
+{
+    if (idx <= 8)  return (uint8_t)('1' + idx);
+    if (idx == 9)  return UI_PINPAD_KEY_BACKSPACE;
+    if (idx == 10) return (uint8_t)'0';
+    return UI_PINPAD_KEY_OK;
+}
+
+static const char *pinpad_key_label(uint8_t idx)
+{
+    static const char *labels[12] = {
+        "1", "2", "3", "4", "5", "6", "7", "8", "9", "<-", "0", "OK"
+    };
+    return labels[idx];
+}
+
+static void pinpad_draw_cb(ui_widget_t *w, ui_rect_t *dirty)
+{
+    ui_pinpad_t *pp = (ui_pinpad_t *)w;
+    uint8_t i;
+
+    ui_render_push_target(dirty);
+
+    for (i = 0; i < 12; i++) {
+        ui_rect_t r;
+        ui_color_t bg;
+        const char *label;
+
+        pinpad_key_rect(pp, i, &r);
+        bg = ((int8_t)i == pp->pressed_key) ? pp->key_bg_pressed : pp->key_bg;
+        label = pinpad_key_label(i);
+
+        ui_draw_round_rect(&r, pp->radius, bg, pp->key_border, 1);
+        ui_draw_text_in_rect_bg(&r, label, UI_FONT_TITLE,
+                                (bg == UI_COLOR_BLACK) ? UI_COLOR_WHITE : pp->text_color,
+                                bg, 1);
+    }
+
+    ui_render_pop_target();
+}
+
+static void pinpad_event_cb(ui_widget_t *w, ui_event_t *e)
+{
+    ui_pinpad_t *pp = (ui_pinpad_t *)w;
+
+    if (e->type == UI_EVENT_TOUCH_DOWN) {
+        pp->pressed_key = pinpad_hit_key(pp, e->touch.x, e->touch.y);
+        if (pp->pressed_key >= 0)
+            ui_widget_invalidate(w);
+    } else if (e->type == UI_EVENT_TOUCH_UP) {
+        int8_t hit = pinpad_hit_key(pp, e->touch.x, e->touch.y);
+        if (pp->pressed_key >= 0 && hit == pp->pressed_key && pp->on_key)
+            pp->on_key(w, pinpad_key_code((uint8_t)hit));
+        if (pp->pressed_key >= 0) {
+            pp->pressed_key = -1;
+            ui_widget_invalidate(w);
+        }
+    } else if (e->type == UI_EVENT_TOUCH_CANCEL) {
+        if (pp->pressed_key >= 0) {
+            pp->pressed_key = -1;
+            ui_widget_invalidate(w);
+        }
+    }
+}
+
+void ui_pinpad_init(ui_pinpad_t *pp, const ui_rect_t *rect)
+{
+    if (!pp) return;
+    ui_widget_init(&pp->base, rect);
+    pp->base.draw_cb = pinpad_draw_cb;
+    pp->base.event_cb = pinpad_event_cb;
+    pp->key_bg = UI_COLOR_WHITE;
+    pp->key_bg_pressed = UI_COLOR_BLACK;
+    pp->key_border = UI_COLOR_BLACK;
+    pp->text_color = UI_COLOR_BLACK;
+    pp->radius = 4;
+    pp->pressed_key = -1;
+    pp->on_key = NULL;
+}
+
+void ui_pinpad_set_colors(ui_pinpad_t *pp, ui_color_t bg, ui_color_t pressed,
+                          ui_color_t border, ui_color_t text)
+{
+    if (!pp) return;
+    pp->key_bg = bg;
+    pp->key_bg_pressed = pressed;
+    pp->key_border = border;
+    pp->text_color = text;
+    ui_widget_invalidate(&pp->base);
+}
+
+void ui_pinpad_set_callback(ui_pinpad_t *pp,
+                            void (*on_key)(ui_widget_t *w, uint8_t key))
+{
+    if (!pp) return;
+    pp->on_key = on_key;
+}

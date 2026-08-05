@@ -13,7 +13,9 @@
 #include "ui_games.h"
 #include "ui_models.h"
 #include "ui_settings.h"
+#include "ui_userdlg.h"
 #include "../MiniUI/font/ui_font.h"
+#include "../UART/uart_module.h"
 #include <string.h>
 
 /*=============================================================================
@@ -85,6 +87,17 @@ void ui_main_draw_sidebar(ui_rect_t *dirty)
                           SIDEBAR_WIDTH - 16, UI_COLOR_PRIMARY);
         }
     }
+
+    /* 底部：当前登录用户（未登录显示 Guest） */
+    {
+        ui_rect_t user_rect = {0, UI_SCREEN_HEIGHT - 36, SIDEBAR_WIDTH, 30};
+        ui_draw_hline(8, UI_SCREEN_HEIGHT - 38, SIDEBAR_WIDTH - 16, UI_COLOR_PRIMARY);
+        ui_draw_text_in_rect(&user_rect,
+                             g_disp_state.user_logged_in ? g_disp_state.user_name : "Guest",
+                             UI_FONT_BODY,
+                             g_disp_state.user_logged_in ? UI_COLOR_TEXT_PRIMARY : UI_COLOR_TEXT_SECONDARY,
+                             1);
+    }
 }
 
 /*=============================================================================
@@ -115,6 +128,7 @@ void ui_main_init(void)
     ui_games_init();
     ui_models_init();
     ui_settings_init();
+    ui_userdlg_init();
 
     s_active_menu = MENU_HOME;
     ui_page_switch(&page_home);
@@ -173,6 +187,11 @@ bool ui_main_handle_event(ui_event_t *e)
      * sidebar when the finger is lifted, even after a long drag. */
     if (e->type == UI_EVENT_CLICK) {
         if (ex < SIDEBAR_WIDTH) {
+            /* 底部用户区域：弹出登录/用户信息对话框 */
+            if (ey >= UI_SCREEN_HEIGHT - 38) {
+                ui_page_push(ui_userdlg_get_page());
+                return true;
+            }
             int item_idx = (ey - 80) / SIDEBAR_ITEM_HEIGHT;
             if (item_idx >= 0 && item_idx < SIDEBAR_ITEM_COUNT) {
                 ui_main_set_menu((menu_item_t)item_idx);

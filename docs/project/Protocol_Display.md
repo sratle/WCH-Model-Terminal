@@ -142,8 +142,22 @@ Display 模块操作码分为两类：
 | `0x19` | — | — | **已废弃**（V3.0 CLI 直通 `cd` 替代） | — |
 | `0x1A` | `CMD_DISP_EXT_CLI` | 双向 | **CLI 命令直通**（Display→Core 发命令，Core 执行后通过同扩展码返回文本） | §4 |
 | `0x1B` | `CMD_DISP_EXT_CWD_NOTIFY` | Core→Display | **CWD 变更通知**（Core 主动推送当前工作目录，用于三方路径同步） | §4.8 |
-| `0x1C` | `CMD_DISP_EXT_GET_SYS_STATUS` | Display→Core | **系统状态拉取**（进页一次）：Core 重发模块在线/电量/BT在线连接/HID/BT流量 | 无 |
-| `0x1D~0x3F` | — | — | 预留 | — |
+| `0x1C` | `CMD_DISP_EXT_GET_SYS_STATUS` | Display→Core | **系统状态拉取**（进页一次）：Core 重发模块在线/电量/BT在线连接/HID/BT流量/当前用户 | 无 |
+| `0x1D` | `CMD_DISP_EXT_USER_STATUS` | Core→Display | **当前登录用户变更**（登录/登出/切换时推送；GET_SYS_STATUS 时重发） | `[登录状态:1][用户名:变长]` |
+| `0x1E~0x3F` | — | — | 预留 | — |
+
+> **USER_STATUS 数据格式**（扩展码 `0x1D`）：
+> ```
+> DATA[0] = 0x1D（扩展码）
+> DATA[1] = 登录状态（0=未登录 guest, 1=已登录）
+> DATA[2..N] = 用户名（UTF-8，最长 16 字节，仅登录时携带）
+> ```
+> 用户系统见 `config.md` 的 user.json 章节。CLI 登录命令为 `login <name> <pin>`，
+> 指纹/NFC 凭据命中时 Core 自动登录并推送本帧。
+>
+> **私密文件夹拦截标记**：CLI 文件类命令（`cd`/`ls`/`cat`/`read` 等）命中私密文件夹
+> 且当前用户无权限时，Core 输出固定标记行 `AUTH_REQUIRED: <path>`。Display 文件管理器
+> 解析该标记弹认证界面；认证成功（收到 USER_STATUS 或 `login` 返回 `Login OK`）后自动重试。
 
 > **V3.0 已废弃（Core 回复 NACK）**：`0x06~0x0B`（FILE_LIST/READ/SAVE/OP/PLAY_MUSIC）、`0x14`（BULK_TRANSFER）、`0x19`（CD）、基础码 `0x1B`（MUSIC_CONTROL）、`0x1D`（VOLUME_CONTROL）。全部由 CLI 直通替代。
 
@@ -494,13 +508,13 @@ Core 将所有输入源的事件统一打包后发送给 Display。输入源包�
 
 | 来源 | 硬件 | 说明 |
 |------|------|------|
-| CH9350 键盘 | USB-A 口外接 HID 键盘 | 通过 UART1 接收，V3F 解析后转发 |
-| CH9350 鼠标 | USB-A 口外接 HID 鼠标 | 通过 UART1 接收，V3F 解析后转发 |
+| CH9350 键盘 | USB-A 口外接 HID 键盘 | 通过 UART1 接收，V5F 解析后转发 |
+| CH9350 鼠标 | USB-A 口外接 HID 鼠标 | 通过 UART1 接收，V5F 解析后转发 |
 | BLE HID 键盘 | CH585F 连接的 BLE 键盘 | CH585F 通过 SPI 上报 `CMD_BT_HID_REPORT`，V5F 转发 |
 | BLE HID 鼠标 | CH585F 连接的 BLE 鼠标 | CH585F 通过 SPI 上报 `CMD_BT_HID_REPORT`，V5F 转发 |
-| Core 按键 | 板载 `+`/`-`/`Enter` 三键 | V3F GPIO 扫描，V3F/V5F 转发 |
+| Core 按键 | 板载 `+`/`-`/`Enter` 三键 | V5F GPIO 扫描，V5F 转发 |
 | 触摸屏 | Display 模块触摸控制器 | Display 自行处理，不经过此通道 |
-| Keyboard 模块 | Keyboard-1/2/3 | 通过 UART3 接收，V3F 转发 |
+| Keyboard 模块 | Keyboard-1/2/3 | 通过 UART3 接收，V5F 转发 |
 
 > **说明**：BLE HID 事件由 CH585F 通过 `CMD_BT_HID_REPORT`（0x56）上报给 Core，Core 统一转换为 `CMD_DISP_INPUT_EVENT`（0x15）格式后转发给 Display。Display 无需感知蓝牙层。
 
@@ -574,7 +588,7 @@ DATA[2]: 按键标识（1字节）
   - 0x03: `Enter` 键（短按=确认/进入，长按=系统唤醒）
 ```
 
-> Core 按键由 V3F 通过 GPIO 扫描获取（`Key_Scan()`），V3F/V5F 将按键事件打包为输入事件发送给 Display。长按检测由 Core 固件实现，Display 只需响应按下/长按/释放事件。
+> Core 按键由 V5F 通过 GPIO 扫描获取（`Key_Scan()`），V5F 将按键事件打包为输入事件发送给 Display。长按检测由 Core 固件实现，Display 只需响应按下/长按/释放事件。
 
 ---
 
@@ -941,3 +955,4 @@ Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | V3.2 | 2026-05-25 | CLI 多帧传输协议：CLI 响应帧新增 `DATA[1]=FLAGS` 字段（`CLI_FLAG_SOF=0x01`, `CLI_FLAG_EOF=0x02`），支持长输出分帧传输；Display 侧基于 SOF/EOF 标记累积多帧响应，仅在收到 EOF 后解析分发；up 按钮和刷新按钮不再受 loading 状态阻塞 |
 | V3.3 | 2026-07-21 | 输入链路完善：Display-2 完整支持 Core 转发的键鼠 HID 输入（共享光标/左右键/滚轮/键盘自动重复，Core 按键 ID 修正）；Core 将触摸圆环（Submodel-4）旋转映射为标准鼠标滚轮报告经 0x15 转发；Display-1 滚轮事件队列合并 + 应用层像素级平滑滚动 |
 | V3.4 | 2026-07-27 | 热插拔可靠性加固：身份 ACK 指纹约束（LEN 固定 6，废弃扩展字节）；Display OFFLINE 重连或换插不同子类型屏时 Core 自动重发 Config_Apply；Core/Display 侧 USART ISR 增加 ORE 清除 |
+| V3.5 | 2026-08-05 | 用户系统：新增扩展码 0x1D `CMD_DISP_EXT_USER_STATUS`（Core→Display 推送当前登录用户）；CLI 私密文件夹拦截标记 `AUTH_REQUIRED: <path>`；Display 文件管理器认证对话框（PIN/指纹/NFC） |
