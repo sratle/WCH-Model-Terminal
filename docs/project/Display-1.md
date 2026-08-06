@@ -169,14 +169,45 @@ Display 与 Core 指令交互时死机；删除 Game 后"恢复"，本质是把 
 **修复（现行链接布局）**：
 
 1. `RAM_CODE` 严格收回物理上限 **128K**（与 main-model Core 一致）；
-2. 低热度代码（当前为 `game_*.o`）经 `.flashcode` 输出段直接放在
-   **FLASH XIP 执行**（启动代码本就 XIP，可行性已证），`.highcode` 用
-   `EXCLUDE_FILE (*/game_*.o)` 排除；
-3. ISR、渲染、协议解析、驱动等热路径必须留在 `.highcode`（ITCM）。
+2. 低热度代码经 `.flashcode` 输出段直接放在 **FLASH XIP 执行**
+   （启动代码本就 XIP，可行性已证），`.highcode` 用 `EXCLUDE_FILE` 排除；
+3. ISR、渲染、协议解析、驱动、**游戏**等帧率敏感热路径必须留在 `.highcode`（ITCM）。
 
-**后续代码增长时**：在 `.flashcode` 段的通配符中追加低热度模块
-（如 `*/app_xxx.o(.text.*)`）即可，不要扩大 `RAM_CODE`。
-游戏若有可感帧率下降，说明 Flash 存在等待周期，可将该游戏单独换回 ITCM。
+**当前 .flashcode 内容（V4.2 调整）**：
+
+- 曾把 `game_*.o` 放入 `.flashcode`，结果游戏动画明显变慢（Flash XIP 存在
+  等待周期），游戏对刷新速度要求高，**已整体移回 ITCM**；
+- 取而代之的是 7 个无动画/低频交互的 APP：`app_usb.o`、`app_power.o`、
+  `app_bt.o`、`app_nfc.o`、`app_fingerprint.o`、`app_subdisplay.o`、
+  `app_irrange.o`——这些页面刷新慢几拍无感知。
+
+**内存预算（2026-08-06 实测，来自 lcd_V5F.map）**：
+
+| 段 | 大小 | 说明 |
+|----|------|------|
+| `.highcode`（ITCM） | 121,000 B / 131,072 B（余量 ~10 KB，7.7%） | 含全部 `game_*.o`（~22 KB） |
+| `.flashcode`（FLASH XIP） | 17,264 B | 7 个低热度 APP |
+| FLASH 总量 | text+data ≈ 162 KB / 512 KB | 余量充足 |
+
+**后续代码增长时**：优先把低热度 APP（非帧率驱动）追加到 `.flashcode` 段，
+不要扩大 `RAM_CODE`，也不要把游戏/MiniUI 渲染/协议解析移出 ITCM。
+
+## RGB 游戏联动（V4.2）
+
+Games 通过 `DISP_EXT_RGB_EFFECT`（0x1E，见 Protocol_Display.md）经 Core 转发
+触发 RGB Submodel 的一次性动画（发送即忘）：
+
+| 游戏 | 触发时机 | 效果 | 速度档位 |
+|------|---------|------|---------|
+| 俄罗斯方块 | 左右移动/软降生效、旋转、硬降 | wave（方向匹配输入） | 8 |
+| 2048 | 方向移动生效（键盘/WASD/滑动） | wave（方向匹配输入） | 8 |
+| 贪吃蛇 | 转向生效（键盘/滑动/方向按钮） | wave（方向匹配输入） | 8 |
+| 飞机大战 | 子弹击中敌机 | ripple | 10 |
+| 扫雷 | 挖开格子 | ripple | 6 |
+
+入口统一封装在 `Games/games.c`：`games_rgb_wave_dir()`（逻辑方向→波浪方向映射，
+向左输入 = 波浪从右向左传播）与 `games_rgb_ripple()`，底层走
+`UART_SendRgbWave()` / `UART_SendRgbRipple()`（UART/uart_module.c）。
 
 ## 鼠标与滚轮体验（V4.1）
 

@@ -10,6 +10,7 @@
 *                      Optimized dirty-rect partial refresh.
 ********************************************************************************/
 #include "game_minesweeper.h"
+#include "games.h"
 #include "../UI/ui_app_common.h"
 #include <string.h>
 
@@ -346,6 +347,9 @@ static bool mine_reveal_cell(int row, int col)
         mine_place_mines(row, col);
         s_mine.frame_count = 0;
     }
+
+    /* RGB 联动：挖雷触发中心波纹 */
+    games_rgb_ripple(GAMES_RGB_RIPPLE_SPEED_DIG);
 
     /* Hit a mine */
     if (s_mine.flags[row][col] & CELL_MINE) {

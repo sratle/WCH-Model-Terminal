@@ -8,6 +8,7 @@
 *                      Optimized dirty-rect partial refresh.
 ********************************************************************************/
 #include "game_snake.h"
+#include "games.h"
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
 #include <string.h>
@@ -345,6 +346,14 @@ static void snk_set_direction(snk_dir_t new_dir)
     if (s_snk.dir == SNK_DIR_LEFT && new_dir == SNK_DIR_RIGHT) return;
     if (s_snk.dir == SNK_DIR_RIGHT && new_dir == SNK_DIR_LEFT) return;
     s_snk.next_dir = new_dir;
+
+    /* RGB 联动：转向生效时按方向触发波浪 */
+    if (s_snk.state == SNK_STATE_PLAYING) {
+        static const games_dir_t dir_map[4] = {
+            GAMES_DIR_UP, GAMES_DIR_DOWN, GAMES_DIR_LEFT, GAMES_DIR_RIGHT
+        };
+        games_rgb_wave_dir(dir_map[new_dir], GAMES_RGB_WAVE_SPEED);
+    }
 }
 
 static void snk_game_tick(void)

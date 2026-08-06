@@ -8,6 +8,7 @@
 #include "../Config/config.h"
 #include "../Power/power.h"
 #include "../CH9350/CH9350.h"
+#include "../Submodels/submodels.h"
 #include "../Auth/auth.h"
 #include "../hardware.h"
 #include <string.h>
@@ -70,6 +71,7 @@ static void Display_HandleSubmodelEvent(const protocol_frame_t *req);
 static void Display_HandlePowerEvent(const protocol_frame_t *req);
 static void Display_HandleConfigResult(const protocol_frame_t *req);
 static void Display_HandleErrorReport(const protocol_frame_t *req);
+static void Display_HandleRgbEffect(const protocol_frame_t *req);
 
 /* ============================================================================
  * UART 初始化与数据收发
@@ -374,6 +376,11 @@ void Display_Process(display_t *display)
                     break;
                 case CMD_DISP_EXT_ERROR_REPORT:
                     Display_HandleErrorReport(req);
+                    handled = 1;
+                    break;
+                /* ---- RGB 一次性动画事件（Display -> Core，发送即忘） ---- */
+                case CMD_DISP_EXT_RGB_EFFECT:
+                    Display_HandleRgbEffect(req);
                     handled = 1;
                     break;
 
@@ -804,6 +811,34 @@ static void Display_HandleErrorReport(const protocol_frame_t *req)
 {
     (void)req;
     /* TODO: 记录 Display 上报的错误 */
+}
+
+/* ---- RGB 一次性动画事件（Display -> Core，发送即忘） ----
+ * DATA: [0x1E][effect:1][direction:1][speed:1]
+ *   effect: 0=ripple(中心波纹，忽略 direction), 1=wave(边缘波浪)
+ *   direction: 0=左→右, 1=右→左, 2=上→下, 3=下→上（仅 wave）
+ *   speed: 档位 1~10（非法值由 RGB 模块按 8 档处理）
+ * 转发给 RGB Submodel（CMD_SUB_SET_MODE SUB=0x04/0x05）。 */
+static void Display_HandleRgbEffect(const protocol_frame_t *req)
+{
+    submodels_t *rgb;
+    uint8_t effect, direction, speed;
+
+    if (PROTO_DATA_LEN(*req) < 4)
+        return;
+
+    effect    = req->data[1];
+    direction = req->data[2];
+    speed     = req->data[3];
+
+    rgb = Submodels_FindRgbSlot();
+    if (rgb == NULL)
+        return;
+
+    if (effect == RGB_EFFECT_RIPPLE)
+        Submodels_RGB_StartRipple(rgb, speed);
+    else if (effect == RGB_EFFECT_WAVE && direction <= RGB_WAVE_DIR_B2T)
+        Submodels_RGB_StartWave(rgb, direction, speed);
 }
 
 /* ============================================================================

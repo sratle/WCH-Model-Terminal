@@ -72,7 +72,7 @@ const config_default_entry_t config_defaults[] = {
     { "0505", "rgb_color_g",     255 },
     { "0505", "rgb_color_b",     0   },
     { "0505", "rgb_brightness",  80  },
-    { "0505", "rgb_speed",       50  },
+    { "0505", "rgb_speed",       8   },
 
     /* Submodel-TouchRing (0504) */
     { "0504", "sensitivity",     50  },
@@ -1273,8 +1273,12 @@ void Config_Apply(void)
             hardware_g.rgb_config.b = (uint8_t)val;
         if (Config_GetInt("0505", "rgb_brightness", &val) == 0)
             hardware_g.rgb_config.brightness = (uint8_t)val;
-        if (Config_GetInt("0505", "rgb_speed", &val) == 0)
+        if (Config_GetInt("0505", "rgb_speed", &val) == 0) {
+            /* speed 为档位 1~10（V1.6），旧配置越界值按 8 档处理 */
+            if (val < 1 || val > 10)
+                val = 8;
             hardware_g.rgb_config.speed = (uint8_t)val;
+        }
         hardware_g.rgb_config.pending = 1;
 
         printf("[Config] RGB: mode=%d R=%d G=%d B=%d bright=%d speed=%d\r\n",

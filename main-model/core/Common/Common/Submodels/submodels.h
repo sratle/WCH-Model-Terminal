@@ -125,6 +125,30 @@ uint8_t Submodels_RGB_PlayAnimation(submodels_t *submodel, uint8_t frame_count,
 uint8_t Submodels_RGB_QueryStatus(submodels_t *submodel);
 
 /**
+ * @brief  触发一次性中心波纹动画
+ *         发送 CMD_SUB_SET_MODE SUB=0x04（动画事件，非模式切换）。
+ *         亮度波纹从中心扩散到边缘一次后结束，模块自动回到原模式。
+ *         颜色/基准亮度沿用模式1（常亮）配置。
+ * @param  submodel   目标 submodel 实例指针（需为 RGB 类型）
+ * @param  speed      动画速度 0-255
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_RGB_StartRipple(submodels_t *submodel, uint8_t speed);
+
+/**
+ * @brief  触发一次性边缘波浪动画
+ *         发送 CMD_SUB_SET_MODE SUB=0x05（动画事件，非模式切换）。
+ *         亮度波浪从一侧传播到另一侧一次后结束，模块自动回到原模式。
+ *         颜色/基准亮度沿用模式1（常亮）配置。
+ * @param  submodel   目标 submodel 实例指针（需为 RGB 类型）
+ * @param  direction  方向: 0=左→右, 1=右→左, 2=上→下, 3=下→上
+ * @param  speed      动画速度 0-255
+ * @return 1=发送成功, 0=失败
+ */
+uint8_t Submodels_RGB_StartWave(submodels_t *submodel, uint8_t direction,
+                                uint8_t speed);
+
+/**
  * @brief  向 submodel 发送通用命令（fire-and-forget）
  * @param  submodel  目标 submodel 实例指针
  * @param  cmd       操作码

@@ -1650,6 +1650,48 @@ uint8_t Submodels_RGB_QueryStatus(submodels_t *submodel)
 }
 
 /*********************************************************************
+ * @fn      Submodels_RGB_StartRipple
+ *
+ * @brief   触发一次性中心波纹动画。
+ *          发送 CMD_SUB_SET_MODE SUB=0x04（动画事件，非模式切换）。
+ *          亮度波纹从中心扩散到边缘一次后结束，模块自动回到原模式。
+ *          颜色/基准亮度沿用模式1（常亮）配置。
+ *
+ * @param   submodel - 目标 RGB submodel
+ * @param   speed    - 动画速度 0-255
+ *
+ * @return  1=发送成功, 0=失败
+ *********************************************************************/
+uint8_t Submodels_RGB_StartRipple(submodels_t *submodel, uint8_t speed)
+{
+    /* DATA: [SUB=0x04][speed:1] */
+    uint8_t data[2] = { 0x04, speed };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 2);
+}
+
+/*********************************************************************
+ * @fn      Submodels_RGB_StartWave
+ *
+ * @brief   触发一次性边缘波浪动画。
+ *          发送 CMD_SUB_SET_MODE SUB=0x05（动画事件，非模式切换）。
+ *          亮度波浪从一侧传播到另一侧一次后结束，模块自动回到原模式。
+ *          颜色/基准亮度沿用模式1（常亮）配置。
+ *
+ * @param   submodel  - 目标 RGB submodel
+ * @param   direction - 方向: 0=左→右, 1=右→左, 2=上→下, 3=下→上
+ * @param   speed     - 动画速度 0-255
+ *
+ * @return  1=发送成功, 0=失败
+ *********************************************************************/
+uint8_t Submodels_RGB_StartWave(submodels_t *submodel, uint8_t direction,
+                                uint8_t speed)
+{
+    /* DATA: [SUB=0x05][direction:1][speed:1] */
+    uint8_t data[3] = { 0x05, direction, speed };
+    return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 3);
+}
+
+/*********************************************************************
  * @fn      Submodels_FindRgbSlot
  *
  * @brief   在 submodels_g[0..2] 中查找已识别为 RGB 类型的 submodel。

@@ -144,7 +144,26 @@ Display 模块操作码分为两类：
 | `0x1B` | `CMD_DISP_EXT_CWD_NOTIFY` | Core→Display | **CWD 变更通知**（Core 主动推送当前工作目录，用于三方路径同步） | §4.8 |
 | `0x1C` | `CMD_DISP_EXT_GET_SYS_STATUS` | Display→Core | **系统状态拉取**（进页一次）：Core 重发模块在线/电量/BT在线连接/HID/BT流量/当前用户 | 无 |
 | `0x1D` | `CMD_DISP_EXT_USER_STATUS` | Core→Display | **当前登录用户变更**（登录/登出/切换时推送；GET_SYS_STATUS 时重发） | `[登录状态:1][用户名:变长]` |
-| `0x1E~0x3F` | — | — | 预留 | — |
+| `0x1E` | `CMD_DISP_EXT_RGB_EFFECT` | Display→Core | **RGB 一次性动画事件**（游戏联动等，发送即忘） | `[效果:1][方向:1][速度:1]` |
+| `0x1F~0x3F` | — | — | 预留 | — |
+
+> **RGB_EFFECT 数据格式**（扩展码 `0x1E`）：
+> ```
+> DATA[0] = 0x1E（扩展码）
+> DATA[1] = 效果类型：0x00=中心波纹(ripple)，0x01=边缘波浪(wave)
+> DATA[2] = 方向（仅 wave）：0x00=左→右, 0x01=右→左, 0x02=上→下, 0x03=下→上
+> DATA[3] = 速度档位 1~10（见 Protocol_Submodels.md 速度档位定义）
+> ```
+> Core 收到后查找 RGB Submodel 槽位，转发为 `CMD_SUB_SET_MODE SUB=0x04`（ripple）
+> 或 `SUB=0x05`（wave）。**事件语义，发送即忘，Core 不回复 ACK**；RGB 模块未在线时静默丢弃。
+> 颜色与基准亮度沿用 RGB 模块模式 1（常亮）配置。
+>
+> **游戏联动约定**（Display-1 Games）：
+> | 游戏 | 触发时机 | 效果 | 速度 |
+> |------|---------|------|------|
+> | 俄罗斯方块 / 2048 / 贪吃蛇 | 上下左右输入生效（键盘/滑动/按钮） | wave（方向与输入匹配） | 8 |
+> | 飞机大战 | 子弹击中敌机 | ripple | 10 |
+> | 扫雷 | 挖开格子 | ripple | 6 |
 
 > **USER_STATUS 数据格式**（扩展码 `0x1D`）：
 > ```
@@ -224,6 +243,7 @@ ACK/NACK 由**命令语义**决定，而非发送方向：
 | `0x19` | — | — | **已废弃**，Core 回复 NACK |
 | `0x1A` | CLI | 动作 | Core 通过 DISP_EXT_CLI 返回文本，不发送独立 ACK |
 | `0x1B` | CWD_NOTIFY | 事件 | Display 不回复（Core 主动推送） |
+| `0x1E` | RGB_EFFECT | 事件 | Core 不回复（发送即忘，转发 RGB Submodel） |
 
 ### 3.4 ACK / NACK 帧格式
 
@@ -956,3 +976,4 @@ Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | V3.3 | 2026-07-21 | 输入链路完善：Display-2 完整支持 Core 转发的键鼠 HID 输入（共享光标/左右键/滚轮/键盘自动重复，Core 按键 ID 修正）；Core 将触摸圆环（Submodel-4）旋转映射为标准鼠标滚轮报告经 0x15 转发；Display-1 滚轮事件队列合并 + 应用层像素级平滑滚动 |
 | V3.4 | 2026-07-27 | 热插拔可靠性加固：身份 ACK 指纹约束（LEN 固定 6，废弃扩展字节）；Display OFFLINE 重连或换插不同子类型屏时 Core 自动重发 Config_Apply；Core/Display 侧 USART ISR 增加 ORE 清除 |
 | V3.5 | 2026-08-05 | 用户系统：新增扩展码 0x1D `CMD_DISP_EXT_USER_STATUS`（Core→Display 推送当前登录用户）；CLI 私密文件夹拦截标记 `AUTH_REQUIRED: <path>`；Display 文件管理器认证对话框（PIN/指纹/NFC） |
+| V3.6 | 2026-08-06 | RGB 游戏联动：新增扩展码 0x1E `CMD_DISP_EXT_RGB_EFFECT`（Display→Core 触发 RGB 一次性动画：中心波纹/边缘波浪，事件语义发送即忘）；Games（tetris/2048/snake 方向 wave 速度 8，airplane 击中 ripple 速度 10，minesweeper 挖雷 ripple 速度 6） |

@@ -1377,6 +1377,26 @@ void UART_SendGetSysStatus(void)
     UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, &d, 1);
 }
 
+void UART_SendRgbRipple(uint8_t speed)
+{
+    uint8_t buf[4];
+    buf[0] = DISP_EXT_RGB_EFFECT;
+    buf[1] = RGB_EFFECT_RIPPLE;
+    buf[2] = 0;
+    buf[3] = speed;
+    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 4);
+}
+
+void UART_SendRgbWave(uint8_t direction, uint8_t speed)
+{
+    uint8_t buf[4];
+    buf[0] = DISP_EXT_RGB_EFFECT;
+    buf[1] = RGB_EFFECT_WAVE;
+    buf[2] = direction;
+    buf[3] = speed;
+    UART_SendFrame(MODULE_ID_CORE, CMD_DISP_EXT, buf, 4);
+}
+
 void UART_SendErrorReport(uint8_t error_code, const char *msg)
 {
     uint8_t buf[PROTO_MAX_DATA_LEN];

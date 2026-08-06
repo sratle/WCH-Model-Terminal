@@ -208,6 +208,32 @@ static void HandleSetMode(const protocol_frame_t *frame)
             }
             break;
 
+        case 0x04: /* 中心波纹动画事件: [SUB=0x04][speed]
+                    * 一次性动画：亮暗波纹从中心扩散到边缘一次后回到原模式。
+                    * 颜色/基准亮度沿用模式1(SOLID)配置。 */
+            if (frame->len >= 2) {
+                Effect_TriggerRipple(frame->data[1]);
+                App_SendAck(NULL, 0);
+            } else {
+                App_SendNack(PROTO_ERR_LEN_MISMATCH);
+            }
+            break;
+
+        case 0x05: /* 边缘波浪动画事件: [SUB=0x05][direction][speed]
+                    * 一次性动画：波浪从一侧传播到另一侧一次后回到原模式。
+                    * direction: 0=左→右 1=右→左 2=上→下 3=下→上 */
+            if (frame->len >= 3) {
+                if (frame->data[1] > 0x03) {
+                    App_SendNack(PROTO_ERR_INVALID_PARAM);
+                    return;
+                }
+                Effect_TriggerWave(frame->data[1], frame->data[2]);
+                App_SendAck(NULL, 0);
+            } else {
+                App_SendNack(PROTO_ERR_LEN_MISMATCH);
+            }
+            break;
+
         default:
             App_SendNack(PROTO_ERR_INVALID_PARAM);
             break;

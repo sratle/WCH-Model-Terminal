@@ -222,7 +222,7 @@ static void rgb_on_cli_complete(const char *buf, uint16_t len, const char *tag)
                 s_g = (uint8_t)g;
                 s_b = (uint8_t)b;
                 s_brightness = (uint8_t)bright;
-                s_speed = (uint8_t)speed;
+                s_speed = (speed < 1 || speed > 10) ? 8 : (uint8_t)speed;
 
                 ui_slider_set_value(&s_slider_r, s_r);
                 ui_slider_set_value(&s_slider_g, s_g);
@@ -533,7 +533,7 @@ void app_rgb_init(void)
     s_mode = 1;       /* Solid */
     s_r = 0; s_g = 128; s_b = 255;
     s_brightness = 200;
-    s_speed = 128;
+    s_speed = 8;      /* 速度档位 1~10，默认 8 档 */
     s_info[0] = '\0';
     strcpy(s_status, "Ready");
 
@@ -587,10 +587,10 @@ void app_rgb_init(void)
         s_rgb_widgets[widx++] = (ui_widget_t *)&s_slider_bright;
     }
 
-    /* Speed slider */
+    /* Speed slider（档位 1~10） */
     {
         ui_rect_t r = {RGB_RIGHT_SLIDER_X, RGB_SPEED_Y, RGB_RIGHT_SLIDER_W, RGB_SLIDER_H};
-        ui_slider_init(&s_slider_speed, &r, 0, 255, s_speed);
+        ui_slider_init(&s_slider_speed, &r, 1, 10, s_speed);
         ui_slider_set_callback(&s_slider_speed, slider_speed_change);
         s_rgb_widgets[widx++] = (ui_widget_t *)&s_slider_speed;
     }

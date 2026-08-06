@@ -8,6 +8,7 @@
 *                      One undo opportunity per game.
 ********************************************************************************/
 #include "game_2048.h"
+#include "games.h"
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
 #include <string.h>
@@ -37,19 +38,19 @@
 #define G4_UNDO_X           (G4_PANEL_X + (G4_PANEL_W - G4_UNDO_W) / 2)
 #define G4_UNDO_Y           (G4_GRID_Y + G4_GRID_TOTAL - G4_UNDO_H)
 
-/* D-pad buttons (between MOVES and UNDO) */
-#define G4_DPAD_BTN         44      /* D-pad button size */
-#define G4_DPAD_GAP         4       /* Gap between buttons */
+/* D-pad buttons ("上"字形：上键居顶，左/下/右横排在下，位于 BEST 框与 UNDO 之间) */
+#define G4_DPAD_BTN         56      /* D-pad button size */
+#define G4_DPAD_GAP         6       /* Gap between buttons */
 #define G4_DPAD_CX          (G4_PANEL_X + G4_PANEL_W / 2)
-#define G4_DPAD_CY          (G4_PANEL_Y + 18 + 50 + 18 + 50 + 18 + 50 + 30 + G4_DPAD_BTN / 2)
+#define G4_DPAD_TOP_Y       (G4_PANEL_Y + 18 + 50 + 18 + 50 + 18 + 50 + 16)  /* BEST 框下方 */
 #define G4_DPAD_UP_X        (G4_DPAD_CX - G4_DPAD_BTN / 2)
-#define G4_DPAD_UP_Y        (G4_DPAD_CY - G4_DPAD_BTN - G4_DPAD_GAP - G4_DPAD_BTN / 2)
+#define G4_DPAD_UP_Y        (G4_DPAD_TOP_Y)
 #define G4_DPAD_DOWN_X      (G4_DPAD_CX - G4_DPAD_BTN / 2)
-#define G4_DPAD_DOWN_Y      (G4_DPAD_CY + G4_DPAD_BTN / 2 + G4_DPAD_GAP)
-#define G4_DPAD_LEFT_X      (G4_DPAD_CX - G4_DPAD_BTN / 2 - G4_DPAD_GAP - G4_DPAD_BTN)
-#define G4_DPAD_LEFT_Y      (G4_DPAD_CY - G4_DPAD_BTN / 2)
+#define G4_DPAD_DOWN_Y      (G4_DPAD_TOP_Y + G4_DPAD_BTN + G4_DPAD_GAP)
+#define G4_DPAD_LEFT_X      (G4_DPAD_CX - G4_DPAD_BTN / 2 - G4_DPAD_BTN - G4_DPAD_GAP)
+#define G4_DPAD_LEFT_Y      (G4_DPAD_TOP_Y + G4_DPAD_BTN + G4_DPAD_GAP)
 #define G4_DPAD_RIGHT_X     (G4_DPAD_CX + G4_DPAD_BTN / 2 + G4_DPAD_GAP)
-#define G4_DPAD_RIGHT_Y     (G4_DPAD_CY - G4_DPAD_BTN / 2)
+#define G4_DPAD_RIGHT_Y     (G4_DPAD_TOP_Y + G4_DPAD_BTN + G4_DPAD_GAP)
 
 /*=============================================================================
  *  Types
@@ -514,6 +515,7 @@ static void g4_dpad_event(ui_widget_t *w, ui_event_t *e)
     }
     if (s_g4.state == G4_STATE_PLAYING) {
         if (g4_do_move(dir)) {
+            games_rgb_wave_dir((games_dir_t)dir, GAMES_RGB_WAVE_SPEED);
             g4_inv_changed_tiles();
             g4_inv_score();
             g4_inv_moves();
@@ -647,6 +649,7 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
             else if (e->type == UI_EVENT_KEY_UP_ARROW)     dir = G4_DIR_UP;
             else                                            dir = G4_DIR_DOWN;
             if (g4_do_move(dir)) {
+                games_rgb_wave_dir((games_dir_t)dir, GAMES_RGB_WAVE_SPEED);
                 g4_inv_changed_tiles();
                 g4_inv_score();
                 g4_inv_moves();
@@ -670,6 +673,7 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
                 else if (c == 'a') dir = G4_DIR_LEFT;
                 else               dir = G4_DIR_RIGHT;
                 if (g4_do_move(dir)) {
+                    games_rgb_wave_dir((games_dir_t)dir, GAMES_RGB_WAVE_SPEED);
                     g4_inv_changed_tiles();
                     g4_inv_score();
                     g4_inv_moves();
@@ -704,6 +708,7 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
             else                                       dir = G4_DIR_DOWN;
 
             if (g4_do_move(dir)) {
+                games_rgb_wave_dir((games_dir_t)dir, GAMES_RGB_WAVE_SPEED);
                 g4_inv_changed_tiles();
                 g4_inv_score();
                 g4_inv_moves();

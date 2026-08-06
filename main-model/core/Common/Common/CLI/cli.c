@@ -1476,7 +1476,9 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  config ls       List CONFIG directory\r\n");
         printf("  config rm <file.json>  Remove data file\r\n");
         printf("  speaker <on|off> [left|right]  Control speaker output\r\n");
-        printf("  rgb mode <mode> <r> <g> <b> <brightness> <speed>  Set RGB mode\r\n");
+        printf("  rgb mode <mode> <r> <g> <b> <brightness> <speed 1-10>  Set RGB mode\r\n");
+        printf("  rgb ripple [speed 1-10]  One-shot center ripple (uses mode-1 color)\r\n");
+        printf("  rgb wave <dir> [speed 1-10]  One-shot edge wave (dir: 0=L2R 1=R2L 2=T2B 3=B2T)\r\n");
         printf("  rgb refresh json  Load rgb.json and queue custom frames\r\n");
         printf("  rgb status      Show RGB status\r\n");
         printf("  fp register     Start fingerprint enrollment\r\n");
@@ -1524,7 +1526,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  mouse <L/R/none> <dx> <dy>, roll <delta>, keyboard <key>\r\n");
         printf("  config get|set|addkey|newfile|save|backup|rollback|reset|ls|rm\r\n");
         printf("  speaker <on|off> [left|right]\r\n");
-        printf("  rgb mode|refresh|status\r\n");
+        printf("  rgb mode|ripple [speed]|wave <dir> [speed]|refresh|status\r\n");
         printf("  fp register|del <ID>|ls|count|config [led|sec]\r\n");
         printf("  nfc st\r\n");
         printf("  user add|del|ls|passwd|bind|unbind\r\n");
@@ -3425,19 +3427,25 @@ static void CLI_Cmd_Rgb(uint8_t argc, char **argv)
 {
     if (argc < 2) {
         printf("Usage:\r\n");
-        printf("  rgb mode <mode> <r> <g> <b> <brightness> <speed>\r\n");
+        printf("  rgb mode <mode> <r> <g> <b> <brightness> <speed 1-10>\r\n");
+        printf("  rgb ripple [speed 1-10]\r\n");
+        printf("  rgb wave <dir> [speed 1-10]\r\n");
         printf("  rgb refresh json\r\n");
         printf("  rgb status\r\n");
         printf("Modes: 0=custom, 1=solid, 2=breathing, 3=marquee\r\n");
+        printf("Speed: level 1-10 (8=10ms/step, each level up x0.8)\r\n");
+        printf("Wave dir: 0=L->R, 1=R->L, 2=T->B, 3=B->T\r\n");
+        printf("Note: ripple/wave are one-shot events using mode-1 color, mode unchanged\r\n");
         return;
     }
 
     if (strcmp(argv[1], "mode") == 0) {
-        /* rgb mode <mode> <r> <g> <b> <brightness> <speed> */
+        /* rgb mode <mode> <r> <g> <b> <brightness> <speed>
+         * speed 为档位 1~10（8 档 = 10ms/步，升档 × 0.8） */
         uint8_t mode, r, g, b, brightness, speed;
 
         if (argc < 8) {
-            printf("Usage: rgb mode <mode> <r> <g> <b> <brightness> <speed>\r\n");
+            printf("Usage: rgb mode <mode> <r> <g> <b> <brightness> <speed 1-10>\r\n");
             return;
         }
 
@@ -3452,6 +3460,10 @@ static void CLI_Cmd_Rgb(uint8_t argc, char **argv)
             printf("rgb: invalid mode %d (0-3)\r\n", mode);
             return;
         }
+        if (speed < 1 || speed > 10) {
+            printf("rgb: invalid speed %d (1-10)\r\n", speed);
+            return;
+        }
 
         /* Write to shared memory; V3F heartbeat will send to submodel */
         hardware_g.rgb_config.mode = mode;
@@ -3464,6 +3476,56 @@ static void CLI_Cmd_Rgb(uint8_t argc, char **argv)
 
         printf("rgb: mode=%d R=%d G=%d B=%d bright=%d speed=%d (pending)\r\n",
                mode, r, g, b, brightness, speed);
+    }
+    else if (strcmp(argv[1], "ripple") == 0) {
+        /* rgb ripple [speed 1-10] - 一次性中心波纹动画 */
+        submodels_t *rgb = Submodels_FindRgbSlot();
+        uint8_t speed = (argc >= 3) ? (uint8_t)atoi(argv[2]) : 8;
+
+        if (speed < 1 || speed > 10) {
+            printf("rgb: invalid speed %d (1-10)\r\n", speed);
+            return;
+        }
+        if (rgb == NULL) {
+            printf("rgb: no RGB submodel online\r\n");
+            return;
+        }
+        if (Submodels_RGB_StartRipple(rgb, speed))
+            printf("rgb: ripple started (speed=%d)\r\n", speed);
+        else
+            printf("rgb: failed to start ripple\r\n");
+    }
+    else if (strcmp(argv[1], "wave") == 0) {
+        /* rgb wave <dir> [speed] - 边缘波浪动画（颜色/亮度沿用模式1配置） */
+        submodels_t *rgb;
+        uint8_t direction, speed;
+
+        if (argc < 3) {
+            printf("Usage: rgb wave <dir> [speed]\r\n");
+            printf("  dir: 0=L->R, 1=R->L, 2=T->B, 3=B->T\r\n");
+            return;
+        }
+        direction = (uint8_t)atoi(argv[2]);
+        speed = (argc >= 4) ? (uint8_t)atoi(argv[3]) : 8;
+
+        if (direction > 3) {
+            printf("rgb: invalid direction %d (0-3)\r\n", direction);
+            return;
+        }
+        if (speed < 1 || speed > 10) {
+            printf("rgb: invalid speed %d (1-10)\r\n", speed);
+            return;
+        }
+
+        rgb = Submodels_FindRgbSlot();
+        if (rgb == NULL) {
+            printf("rgb: no RGB submodel online\r\n");
+            return;
+        }
+        if (Submodels_RGB_StartWave(rgb, direction, speed))
+            printf("rgb: wave started (dir=%d speed=%d)\r\n", direction, speed);
+        else
+            printf("rgb: failed to start wave\r\n");
     }
     else if (strcmp(argv[1], "refresh") == 0) {
         /* rgb refresh json - load rgb.json and queue custom frames for V3F */

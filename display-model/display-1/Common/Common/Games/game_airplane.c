@@ -8,6 +8,7 @@
 *                      3-minute time limit. Dodge enemy bullets for points.
 ********************************************************************************/
 #include "game_airplane.h"
+#include "games.h"
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
 #include "../utils/utils.h"
@@ -542,8 +543,12 @@ static void ap_update(void)
                 int32_t ady = dy > 0 ? dy : -dy;
                 int32_t idist = (adx > ady) ? adx + (ady * 3 / 8) : ady + (adx * 3 / 8);
                 if (idist > 0) {
-                    s_ap.player_x += (int16_t)((int32_t)dx * AP_PLAYER_SPEED / idist);
-                    s_ap.player_y += (int16_t)((int32_t)dy * AP_PLAYER_SPEED / idist);
+                    /* 自适应步进：距离远时按比例加速（max(16, dist/2)），
+                     * 快速滑屏/甩鼠标时飞机能及时跟上，近处仍平滑减速 */
+                    int32_t step = idist / 2;
+                    if (step < AP_PLAYER_SPEED) step = AP_PLAYER_SPEED;
+                    s_ap.player_x += (int16_t)((int32_t)dx * step / idist);
+                    s_ap.player_y += (int16_t)((int32_t)dy * step / idist);
                 }
             } else {
                 s_ap.player_x = s_ap.target_x;
@@ -621,6 +626,7 @@ static void ap_update(void)
                                    e->x, e->y, AP_ENEMY_W, AP_ENEMY_H)) {
                 e->hp -= AP_BULLET_DAMAGE;
                 b->active = false;
+                games_rgb_ripple(GAMES_RGB_RIPPLE_SPEED_HIT);
                 if (e->hp <= 0) {
                     e->active = false;
                     s_ap.score += AP_SCORE_KILL;
@@ -691,31 +697,72 @@ static void ap_update(void)
  *  Drawing
  *=============================================================================*/
 
+/* Scanline-filled triangle (hard-edged jet shapes) */
+static void ap_fill_tri(int16_t x1, int16_t y1, int16_t x2, int16_t y2,
+                        int16_t x3, int16_t y3, ui_color_t color)
+{
+    int16_t t;
+    if (y1 > y2) { t = y1; y1 = y2; y2 = t; t = x1; x1 = x2; x2 = t; }
+    if (y1 > y3) { t = y1; y1 = y3; y3 = t; t = x1; x1 = x3; x3 = t; }
+    if (y2 > y3) { t = y2; y2 = y3; y3 = t; t = x2; x2 = x3; x3 = t; }
+    if (y3 == y1) {
+        int16_t lo = x1, hi = x1;
+        if (x2 < lo) lo = x2; if (x2 > hi) hi = x2;
+        if (x3 < lo) lo = x3; if (x3 > hi) hi = x3;
+        ui_draw_hline(lo, y1, hi - lo + 1, color);
+        return;
+    }
+    for (int16_t y = y1; y <= y3; y++) {
+        int32_t xa = x1 + (int32_t)(x3 - x1) * (y - y1) / (y3 - y1);
+        int32_t xb;
+        if (y <= y2)
+            xb = (y2 == y1) ? x2 : x1 + (int32_t)(x2 - x1) * (y - y1) / (y2 - y1);
+        else
+            xb = (y3 == y2) ? x2 : x2 + (int32_t)(x3 - x2) * (y - y2) / (y3 - y2);
+        if (xa > xb) { int32_t tt = xa; xa = xb; xb = tt; }
+        ui_draw_hline((int16_t)xa, y, (int16_t)(xb - xa + 1), color);
+    }
+}
+
 static void ap_draw_player(int16_t cx, int16_t cy)
 {
     int16_t x = AP_AREA_X + cx;
     int16_t y = AP_AREA_Y + cy;
-    ui_color_t body = UI_HEX(0x4A90D9);
-    ui_color_t wing = UI_HEX(0x357ABD);
-    ui_draw_fill_circle(x, y - 7, 6, body);
-    ui_draw_fill_circle(x, y, 8, body);
-    ui_draw_fill_circle(x - 9, y + 5, 5, wing);
-    ui_draw_fill_circle(x + 9, y + 5, 5, wing);
-    ui_draw_fill_circle(x, y - 15, 4, UI_HEX(0x5BA3E6));
-    ui_draw_fill_circle(x, y + 12, 4, wing);
+    ui_color_t body   = UI_HEX(0x4A90D9);
+    ui_color_t wing   = UI_HEX(0x2C5F8A);
+    ui_color_t canopy = UI_HEX(0xBFE3FF);
+    ui_color_t flame  = UI_HEX(0xF39C12);
+
+    /* 后掠主翼（大三角） */
+    ap_fill_tri(x, y - 4, x - 17, y + 12, x + 17, y + 12, wing);
+    /* 尾翼 */
+    ap_fill_tri(x - 5, y + 10, x - 11, y + 17, x - 3, y + 15, wing);
+    ap_fill_tri(x + 5, y + 10, x + 11, y + 17, x + 3, y + 15, wing);
+    /* 机身（细长梭形，机头朝上） */
+    ap_fill_tri(x, y - 17, x - 4, y + 14, x + 4, y + 14, body);
+    /* 座舱盖 */
+    ap_fill_tri(x, y - 11, x - 2, y - 3, x + 2, y - 3, canopy);
+    /* 尾焰 */
+    ap_fill_tri(x - 2, y + 14, x + 2, y + 14, x, y + 17, flame);
 }
 
 static void ap_draw_enemy(int16_t cx, int16_t cy, int16_t hp, int16_t max_hp)
 {
     int16_t x = AP_AREA_X + cx;
     int16_t y = AP_AREA_Y + cy;
-    ui_color_t body = UI_HEX(0xE74C3C);
-    ui_color_t wing = UI_HEX(0xC0392B);
-    ui_draw_fill_circle(x, y + 6, 5, body);
-    ui_draw_fill_circle(x, y, 6, body);
-    ui_draw_fill_circle(x - 7, y - 4, 4, wing);
-    ui_draw_fill_circle(x + 7, y - 4, 4, wing);
-    ui_draw_fill_circle(x, y + 12, 3, UI_HEX(0xF5B7B1));
+    ui_color_t body   = UI_HEX(0xE74C3C);
+    ui_color_t wing   = UI_HEX(0x922B21);
+    ui_color_t canopy = UI_HEX(0xF5B7B1);
+
+    /* 后掠主翼（机头朝下，翼尖向后/上） */
+    ap_fill_tri(x, y + 4, x - 13, y - 9, x + 13, y - 9, wing);
+    /* 尾翼 */
+    ap_fill_tri(x - 4, y - 6, x - 8, y - 12, x - 2, y - 10, wing);
+    ap_fill_tri(x + 4, y - 6, x + 8, y - 12, x + 2, y - 10, wing);
+    /* 机身（机头朝下） */
+    ap_fill_tri(x, y + 13, x - 3, y - 9, x + 3, y - 9, body);
+    /* 座舱盖 */
+    ap_fill_tri(x, y + 8, x - 2, y + 1, x + 2, y + 1, canopy);
     /* HP bar */
     int16_t bar_x = x - AP_HP_BAR_W / 2;
     int16_t bar_y = y - AP_ENEMY_H / 2 - AP_HP_BAR_H - 3;

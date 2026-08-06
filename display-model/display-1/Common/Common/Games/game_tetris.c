@@ -9,6 +9,7 @@
 *                      Optimized dirty-rect partial refresh.
 ********************************************************************************/
 #include "game_tetris.h"
+#include "games.h"
 #include "../UI/ui_app_common.h"
 #include "../UART/uart_module.h"
 #include <string.h>
@@ -832,6 +833,10 @@ static void tet_do_move_action(int dcol, int drow)
         if (drow > 0) s_tet.score += 1;  /* Soft drop bonus */
         tet_update_texts();
         tet_inv_score();
+        /* RGB 联动：按移动方向触发波浪 */
+        if (dcol < 0)      games_rgb_wave_dir(GAMES_DIR_LEFT, GAMES_RGB_WAVE_SPEED);
+        else if (dcol > 0) games_rgb_wave_dir(GAMES_DIR_RIGHT, GAMES_RGB_WAVE_SPEED);
+        else if (drow > 0) games_rgb_wave_dir(GAMES_DIR_DOWN, GAMES_RGB_WAVE_SPEED);
     }
 
     /* Invalidate new position */
@@ -847,6 +852,7 @@ static void tet_do_rotate(void)
     tet_inv_ghost();
 
     tet_rotate();
+    games_rgb_wave_dir(GAMES_DIR_UP, GAMES_RGB_WAVE_SPEED);
 
     tet_inv_cur_piece();
     tet_inv_ghost();
@@ -860,6 +866,7 @@ static void tet_do_hard_drop(void)
     tet_inv_ghost();
 
     tet_hard_drop();
+    games_rgb_wave_dir(GAMES_DIR_UP, GAMES_RGB_WAVE_SPEED);
     tet_lock_piece();
 
     int cleared = tet_clear_lines();

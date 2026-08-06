@@ -117,6 +117,17 @@ extern "C" {
 #define DISP_EXT_CWD_NOTIFY         0x1B    /* CWD 变更通知 (Core→Display) */
 #define DISP_EXT_GET_SYS_STATUS     0x1C    /* 请求重发全部系统状态 (Display→Core) */
 #define DISP_EXT_USER_STATUS        0x1D    /* 当前登录用户变更 (Core→Display)：DATA[1]=logged_in, DATA[2..]=用户名 */
+#define DISP_EXT_RGB_EFFECT         0x1E    /* RGB 一次性动画事件 (Display→Core，发送即忘) */
+
+/* RGB 一次性动画效果类型 (DISP_EXT_RGB_EFFECT DATA[1]) */
+#define RGB_EFFECT_RIPPLE             0x00    /* 中心波纹 */
+#define RGB_EFFECT_WAVE               0x01    /* 边缘波浪 */
+
+/* RGB 波浪方向 (DISP_EXT_RGB_EFFECT DATA[2]) */
+#define RGB_WAVE_DIR_L2R              0x00    /* 左→右 */
+#define RGB_WAVE_DIR_R2L              0x01    /* 右→左 */
+#define RGB_WAVE_DIR_T2B              0x02    /* 上→下 */
+#define RGB_WAVE_DIR_B2T              0x03    /* 下→上 */
 
 /* HID 设备类型 (DISP_EXT_HID_STATUS DATA[2]) */
 #define HID_DEV_KEYBOARD            0x01    /* 外接键盘 */
@@ -525,6 +536,11 @@ void UART_SendBTControl(uint8_t ctrl_type, const uint8_t *param, uint8_t param_l
 
 /* 请求 Core 重发全部系统状态（模块/电量/BT/HID/流量），供进页拉取一次 */
 void UART_SendGetSysStatus(void);
+
+/* RGB 一次性动画联动（发送即忘，Core 转发给 RGB Submodel）
+ * speed 为档位 1~10；wave 方向见 RGB_WAVE_DIR_* */
+void UART_SendRgbRipple(uint8_t speed);
+void UART_SendRgbWave(uint8_t direction, uint8_t speed);
 
 /* Report error to Core (still uses DISP_EXT_ERROR_REPORT) */
 void UART_SendErrorReport(uint8_t error_code, const char *msg);
