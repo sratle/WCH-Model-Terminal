@@ -26,7 +26,7 @@ typedef enum {
     STUB_HEALTH,
     STUB_SUBDISP,
     STUB_RGB,
-    STUB_IRRANGE,
+    STUB_LRANGE,
     STUB_EMUSIC,
     STUB_TERMINAL,
     STUB_COUNT
@@ -34,7 +34,7 @@ typedef enum {
 
 static const char *s_stub_names[STUB_COUNT] = {
     "USB", "Power", "BT", "NFC", "Finger", "Health",
-    "SubDisp", "RGB", "IRRange", "EMusic", "Terminal"
+    "SubDisp", "RGB", "L-Range", "EMusic", "Terminal"
 };
 
 static app_stub_page_t s_stubs[STUB_COUNT];
@@ -68,7 +68,7 @@ void app_stub_init_all(void)
     stub_init_one(STUB_HEALTH,   0x109);
     stub_init_one(STUB_SUBDISP,  0x10A);
     stub_init_one(STUB_RGB,      0x10B);
-    stub_init_one(STUB_IRRANGE,  0x10C);
+    stub_init_one(STUB_LRANGE,   0x10C);
     stub_init_one(STUB_EMUSIC,   0x10E);
     stub_init_one(STUB_TERMINAL, 0x110);
 }
@@ -81,6 +81,6 @@ ui_page_t *app_fingerprint_get_page(void) { return &s_stubs[STUB_FINGER].page.pa
 ui_page_t *app_health_get_page(void)      { return &s_stubs[STUB_HEALTH].page.page; }
 ui_page_t *app_subdisplay_get_page(void)  { return &s_stubs[STUB_SUBDISP].page.page; }
 ui_page_t *app_rgb_get_page(void)         { return &s_stubs[STUB_RGB].page.page; }
-ui_page_t *app_irrange_get_page(void)     { return &s_stubs[STUB_IRRANGE].page.page; }
+ui_page_t *app_lrange_get_page(void)      { return &s_stubs[STUB_LRANGE].page.page; }
 ui_page_t *app_emusic_get_page(void)      { return &s_stubs[STUB_EMUSIC].page.page; }
 ui_page_t *app_terminal_get_page(void)    { return &s_stubs[STUB_TERMINAL].page.page; }

@@ -28,7 +28,7 @@ ui_page_t *app_fingerprint_get_page(void);
 ui_page_t *app_health_get_page(void);
 ui_page_t *app_subdisplay_get_page(void);
 ui_page_t *app_rgb_get_page(void);
-ui_page_t *app_irrange_get_page(void);
+ui_page_t *app_lrange_get_page(void);
 ui_page_t *app_ebook_get_page(void);
 ui_page_t *app_emusic_get_page(void);
 ui_page_t *app_terminal_get_page(void);

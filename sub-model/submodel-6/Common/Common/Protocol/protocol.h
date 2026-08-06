@@ -43,18 +43,18 @@
 
 /* Module type / subtype */
 #define MODULE_TYPE_SUBMODEL    0x05
-#define MODULE_SUBTYPE_IR       0x06
+#define MODULE_SUBTYPE_LASER    0x06
 
-/* IR subcommand IDs */
-#define IR_SUB_START_RANGING    0x01
-#define IR_SUB_STOP_RANGING     0x02
-#define IR_SUB_RESULT_OK        0x01
-#define IR_SUB_RESULT_FAIL      0x02
+/* Laser ranging subcommand IDs */
+#define LR_SUB_START_RANGING    0x01
+#define LR_SUB_STOP_RANGING     0x02
+#define LR_SUB_RESULT_OK        0x01
+#define LR_SUB_RESULT_FAIL      0x02
 
-/* IR error codes */
-#define IR_ERR_NOT_INIT        0x01
-#define IR_ERR_TIMEOUT         0x02
-#define IR_ERR_OUT_OF_RANGE    0x03
+/* Laser ranging error codes */
+#define LR_ERR_NOT_INIT        0x01
+#define LR_ERR_TIMEOUT         0x02
+#define LR_ERR_OUT_OF_RANGE    0x03
 
 /* Error codes */
 #define PROTO_ERR_UNSUPPORTED_CMD   0x01

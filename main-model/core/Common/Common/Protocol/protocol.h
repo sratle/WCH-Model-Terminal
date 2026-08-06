@@ -162,7 +162,7 @@
 #define SUBMODEL_TYPE_NFC               0x03
 #define SUBMODEL_TYPE_TOUCH_RING        0x04
 #define SUBMODEL_TYPE_RGB               0x05
-#define SUBMODEL_TYPE_INFRARED          0x06
+#define SUBMODEL_TYPE_LASER             0x06
 #define SUBMODEL_TYPE_SUB_DISPLAY       0x07
 
 /* ---- 电源事件类型 (CMD_DISP_EXT_POWER_EVENT DATA[1]) ---- */
@@ -301,7 +301,7 @@
 #define MODULE_SUBTYPE_SUBMODEL_NFC         0x03
 #define MODULE_SUBTYPE_SUBMODEL_TOUCH_RING  0x04
 #define MODULE_SUBTYPE_SUBMODEL_RGB         0x05
-#define MODULE_SUBTYPE_SUBMODEL_INFRARED    0x06
+#define MODULE_SUBTYPE_SUBMODEL_LASER       0x06
 #define MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY 0x07
 
 /* ---- Fingerprint (0x01) 子命令 ---- */
@@ -377,19 +377,19 @@
 /* CMD_SUB_GET_STATUS (0x42) sub-commands */
 #define NFC_SUB_QUERY_STATUS        0x00    /* 查询卡状态 → ACK [card_id:1][card_number:5] */
 
-/* ---- Infrared/IR (0x06) 子命令 ---- */
+/* ---- Laser Ranging (0x06) 子命令 ---- */
 /* CMD_SUB_SET_MODE (0x41) sub-commands */
-#define IR_SUB_START_RANGING        0x01    /* 开始测距（发送即忘） */
-#define IR_SUB_STOP_RANGING         0x02    /* 停止测距（发送即忘） */
+#define LR_SUB_START_RANGING        0x01    /* 开始测距（发送即忘） */
+#define LR_SUB_STOP_RANGING         0x02    /* 停止测距（发送即忘） */
 
 /* CMD_SUB_ACTION_RESULT (0x45) sub-commands */
-#define IR_SUB_RESULT_OK            0x01    /* 测距结果 [distance_mm:2(BE)] */
-#define IR_SUB_RESULT_FAIL          0x02    /* 测距失败 [error_code:1] */
+#define LR_SUB_RESULT_OK            0x01    /* 测距结果 [distance_mm:2(BE)] */
+#define LR_SUB_RESULT_FAIL          0x02    /* 测距失败 [error_code:1] */
 
-/* IR error codes (IR_SUB_RESULT_FAIL data[1]) */
-#define IR_ERR_NOT_INIT             0x01    /* 传感器未初始化 */
-#define IR_ERR_TIMEOUT              0x02    /* 测量超时 */
-#define IR_ERR_OUT_OF_RANGE         0x03    /* 超出有效量程 */
+/* Laser ranging error codes (LR_SUB_RESULT_FAIL data[1]) */
+#define LR_ERR_NOT_INIT             0x01    /* 传感器未初始化 */
+#define LR_ERR_TIMEOUT              0x02    /* 测量超时 */
+#define LR_ERR_OUT_OF_RANGE         0x03    /* 超出有效量程 */
 
 /* ---- SubDisplay (0x07) 子命令 ---- */
 /* CMD_SUB_SET_MODE (0x41) sub-commands */

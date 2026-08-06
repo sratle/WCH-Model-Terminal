@@ -246,7 +246,7 @@ PON（若已 POF）→ PDTM1(0x14) 写区域 OLD → PDTM2(0x15) 写区域 NEW
 | Editor | ✅ 完整移植 | 4KB 编辑缓冲、32 级 undo、行号、光标、`write -s/-a/-e` 分帧保存 |
 | Images | ✅ 完整移植 | \BMP 列表、1/8/24bpp BMP 解码（零拷贝解析 CLI 缓冲）、缩放+平移 |
 | EBook | ✅ 分页字节流 | \BOOK 列表、`read <file> <off> <len>` 按块（4KB）流式阅读，页偏移栈记录每页起始字节，RAM 占用与书长无关；txt/md/json 渲染、明/暗主题、3 档字号 |
-| USB/Power/BT/NFC/Finger/Health/SubDisp/RGB/IRRange/EMusic/Terminal | ⏳ Stub | 标题栏 + 提示页，保留入口 |
+| USB/Power/BT/NFC/Finger/Health/SubDisp/RGB/L-Range/EMusic/Terminal | ⏳ Stub | 标题栏 + 提示页，保留入口 |
 
 RAM 纪律：CLI 应答缓冲 8KB（EBook/Images 零拷贝解析源）；Editor 4KB 编辑缓冲；Music 播放列表 32×64B；Files 条目 32 项；无应用持有 >10KB 私有缓冲。
 

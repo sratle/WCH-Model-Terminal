@@ -77,7 +77,7 @@ const config_default_entry_t config_defaults[] = {
     /* Submodel-TouchRing (0504) */
     { "0504", "sensitivity",     50  },
 
-    /* Submodel-Infrared (0506) */
+    /* Submodel-Laser (0506) */
     { "0506", "detect_threshold", 50  },
 
     /* Submodel-SubDisplay (0507) */

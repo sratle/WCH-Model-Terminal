@@ -179,7 +179,7 @@ Display 与 Core 指令交互时死机；删除 Game 后"恢复"，本质是把 
   等待周期），游戏对刷新速度要求高，**已整体移回 ITCM**；
 - 取而代之的是 7 个无动画/低频交互的 APP：`app_usb.o`、`app_power.o`、
   `app_bt.o`、`app_nfc.o`、`app_fingerprint.o`、`app_subdisplay.o`、
-  `app_irrange.o`——这些页面刷新慢几拍无感知。
+  `app_lrange.o`——这些页面刷新慢几拍无感知。
 
 **内存预算（2026-08-06 实测，来自 lcd_V5F.map）**：
 

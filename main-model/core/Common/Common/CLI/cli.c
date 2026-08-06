@@ -1502,8 +1502,8 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  private add <path> [user...]  Mark folder private (default: current user)\r\n");
         printf("  private rm <path>   Unmark private folder\r\n");
         printf("  private ls          List private folders and ACL\r\n");
-        printf("  ir start        Start IR ranging (submodel-6)\r\n");
-        printf("  ir stop         Stop IR ranging (submodel-6)\r\n");
+        printf("  lr start        Start laser ranging (submodel-6, 50ms report)\r\n");
+        printf("  lr stop         Stop laser ranging (submodel-6, back to 1s report)\r\n");
         printf("  clear           Clear screen\r\n");
         printf("  help            Show command list\r\n");
         printf("  help d          Show detailed help\r\n");
@@ -1532,7 +1532,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  user add|del|ls|passwd|bind|unbind\r\n");
         printf("  login <name> <pin>, logout, whoami\r\n");
         printf("  private add <path> [user...]|rm <path>|ls\r\n");
-        printf("  ir start|stop\r\n");
+        printf("  lr start|stop\r\n");
         printf("  clear, help [d]\r\n");
     }
 }
@@ -2809,37 +2809,37 @@ static void CLI_Cmd_Config(uint8_t argc, char **argv)
     }
 }
 
-/* ---- IR 激光测距命令 ----
- * ir start   开始测距（发送 CMD_SUB_SET_MODE SUB=0x01 到 submodel-6）
- * ir stop    停止测距（发送 CMD_SUB_SET_MODE SUB=0x02 到 submodel-6）
+/* ---- LR 激光测距命令 ----
+ * lr start   开始测距（发送 CMD_SUB_SET_MODE SUB=0x01 到 submodel-6，50ms 上报）
+ * lr stop    停止测距（发送 CMD_SUB_SET_MODE SUB=0x02 到 submodel-6，回到 1s 待机上报）
  */
-static void CLI_Cmd_Ir(uint8_t argc, char **argv)
+static void CLI_Cmd_Lr(uint8_t argc, char **argv)
 {
-    submodels_t *ir;
+    submodels_t *lr;
 
     if (argc < 2) {
-        printf("Usage: ir <start|stop>\r\n");
+        printf("Usage: lr <start|stop>\r\n");
         return;
     }
 
-    ir = Submodels_FindIRSlot();
-    if (ir == NULL) {
-        printf("ir: no IR submodel online\r\n");
+    lr = Submodels_FindLaserSlot();
+    if (lr == NULL) {
+        printf("lr: no laser submodel online\r\n");
         return;
     }
 
     if (strcmp(argv[1], "start") == 0) {
-        if (Submodels_IR_StartRanging(ir))
-            printf("ir: start ranging sent\r\n");
+        if (Submodels_LR_StartRanging(lr))
+            printf("lr: start ranging sent\r\n");
         else
-            printf("ir: failed to send start command\r\n");
+            printf("lr: failed to send start command\r\n");
     } else if (strcmp(argv[1], "stop") == 0) {
-        if (Submodels_IR_StopRanging(ir))
-            printf("ir: stop ranging sent\r\n");
+        if (Submodels_LR_StopRanging(lr))
+            printf("lr: stop ranging sent\r\n");
         else
-            printf("ir: failed to send stop command\r\n");
+            printf("lr: failed to send stop command\r\n");
     } else {
-        printf("ir: unknown subcommand '%s' (start|stop)\r\n", argv[1]);
+        printf("lr: unknown subcommand '%s' (start|stop)\r\n", argv[1]);
     }
 }
 
@@ -3845,8 +3845,8 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
         CLI_Cmd_Fp(argc, argv);
     } else if (strcmp(argv[0], "nfc") == 0) {
         CLI_Cmd_Nfc(argc, argv);
-    } else if (strcmp(argv[0], "ir") == 0) {
-        CLI_Cmd_Ir(argc, argv);
+    } else if (strcmp(argv[0], "lr") == 0) {
+        CLI_Cmd_Lr(argc, argv);
     } else if (strcmp(argv[0], "user") == 0) {
         CLI_Cmd_User(argc, argv);
     } else if (strcmp(argv[0], "login") == 0) {

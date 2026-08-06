@@ -2,15 +2,40 @@
 #include "Uart/uart_core.h"
 #include "Protocol/protocol.h"
 #include "VL53L0X/vl53l0x.h"
-#include <stdio.h>
+#include "Filter/filter.h"
 
 /* Module ID: initially 0x00 (unknown), learned from GET_TYPE DST field */
 uint8_t g_my_module_id = 0x00;
 
+/* ---- Reporting states ----
+ * STANDBY: sensor ranges continuously, report averaged distance every 1s.
+ * RANGING: entered on Core SET_MODE SUB=0x01, report every 50ms. */
+typedef enum {
+    LR_REPORT_STANDBY = 0,
+    LR_REPORT_RANGING
+} lr_report_state_t;
+
+#define LR_REPORT_PERIOD_STANDBY_MS    1000
+#define LR_REPORT_PERIOD_RANGING_MS    50
+
+static lr_report_state_t s_report_state = LR_REPORT_STANDBY;
+static uint32_t          s_last_report_ms = 0;
+static filter_avg_t      s_dist_filter;
+
 void Hardware_Init(void)
 {
     UartCore_Init();
+
+    Filter_Init(&s_dist_filter);
+    s_report_state = LR_REPORT_STANDBY;
+    s_last_report_ms = 0;
+
     VL53L0X_Init();
+
+    /* Start continuous ranging right away: standby state reports
+     * averaged distance every 1s without waiting for a Core command. */
+    if (VL53L0X_IsInitialized())
+        VL53L0X_StartContinuous();
 }
 
 static void SendGetTypeResponse(const protocol_frame_t *req)
@@ -18,7 +43,7 @@ static void SendGetTypeResponse(const protocol_frame_t *req)
     uint8_t data[5];
 
     data[0] = MODULE_TYPE_SUBMODEL;
-    data[1] = MODULE_SUBTYPE_IR;
+    data[1] = MODULE_SUBTYPE_LASER;
     data[2] = 0x01;  /* hw_ver */
     data[3] = 0x01;  /* fw_major */
     data[4] = 0x00;  /* fw_minor */
@@ -35,7 +60,7 @@ static void SendRangingResult(uint16_t distance_mm)
 {
     uint8_t data[3];
 
-    data[0] = IR_SUB_RESULT_OK;
+    data[0] = LR_SUB_RESULT_OK;
     data[1] = (uint8_t)(distance_mm >> 8);
     data[2] = (uint8_t)(distance_mm & 0xFF);
 
@@ -46,7 +71,7 @@ static void SendRangingError(uint8_t err_code)
 {
     uint8_t data[2];
 
-    data[0] = IR_SUB_RESULT_FAIL;
+    data[0] = LR_SUB_RESULT_FAIL;
     data[1] = err_code;
 
     UartCore_PackAndSend(MODULE_ID_CORE, CMD_SUB_ACTION_RESULT, data, 2);
@@ -62,28 +87,26 @@ static void HandleSubSetMode(const protocol_frame_t *frame)
 
     switch (frame->data[0])
     {
-        case IR_SUB_START_RANGING:
+        case LR_SUB_START_RANGING:
         {
-            printf("[HW] SET_MODE: start ranging (init=%d)\r\n", VL53L0X_IsInitialized());
             if (!VL53L0X_IsInitialized())
             {
-                SendRangingError(IR_ERR_NOT_INIT);
+                SendRangingError(LR_ERR_NOT_INIT);
                 return;
             }
-            VL53L0X_StartContinuous();
+            s_report_state = LR_REPORT_RANGING;
             break;
         }
 
-        case IR_SUB_STOP_RANGING:
+        case LR_SUB_STOP_RANGING:
         {
-            printf("[HW] SET_MODE: stop ranging\r\n");
-            VL53L0X_StopContinuous();
+            /* Back to standby: keep ranging, report once per second */
+            s_report_state = LR_REPORT_STANDBY;
             break;
         }
 
         default:
         {
-            printf("[HW] SET_MODE: unknown subcmd 0x%02X\r\n", frame->data[0]);
             SendNACK(frame, PROTO_ERR_INVALID_PARAM);
             break;
         }
@@ -114,19 +137,6 @@ void Hardware_ProcessCoreFrame(void)
         case CMD_GET_TYPE:
         {
             SendGetTypeResponse(frame);
-
-            /* If ranging is active, send distance result right after ACK */
-            if (vl53l0x_ctx.state == VL53L0X_STATE_RANGING)
-            {
-                if (VL53L0X_IsDataReady())
-                {
-                    uint16_t dist = VL53L0X_ReadDistance();
-                    if (dist == 0xFFFF)
-                        SendRangingError(IR_ERR_OUT_OF_RANGE);
-                    else
-                        SendRangingResult(dist);
-                }
-            }
             break;
         }
 
@@ -150,4 +160,38 @@ void Hardware_ProcessCoreFrame(void)
     }
 
     Protocol_ResetRxCtx(&uart_core_rx_ctx);
+}
+
+/* Called from main loop with the current millisecond tick.
+ * Samples the sensor as fast as data becomes ready and pushes valid
+ * readings into the moving average filter; reports the averaged
+ * distance to Core at the state-dependent period. */
+void Hardware_ProcessRanging(uint32_t now_ms)
+{
+    uint32_t period;
+
+    if (!VL53L0X_IsInitialized())
+        return;
+
+    /* Drain all pending samples (continuous mode, ~33ms timing budget) */
+    while (VL53L0X_IsDataReady())
+    {
+        uint16_t d = VL53L0X_ReadDistance();
+        if (d != VL53L0X_DISTANCE_INVALID)
+            Filter_Push(&s_dist_filter, d);
+    }
+
+    period = (s_report_state == LR_REPORT_RANGING)
+                 ? LR_REPORT_PERIOD_RANGING_MS
+                 : LR_REPORT_PERIOD_STANDBY_MS;
+
+    if (now_ms - s_last_report_ms >= period)
+    {
+        s_last_report_ms = now_ms;
+
+        if (Filter_Count(&s_dist_filter) > 0)
+            SendRangingResult(Filter_Average(&s_dist_filter));
+        else
+            SendRangingError(LR_ERR_OUT_OF_RANGE);
+    }
 }

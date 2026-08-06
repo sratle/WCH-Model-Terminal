@@ -14,7 +14,7 @@ Submodels 为可热插拔的配件模块，通过 UART 与 Core（V5F）通信�
 | `0x03` | NFC | NFC 读卡（被动接收卡号） |
 | `0x04` | Touch Ring | 触摸圆环 |
 | `0x05` | RGB | RGB 灯效控制 |
-| `0x06` | Infrared | 红外测距 |
+| `0x06` | Laser | 激光测距 |
 | `0x07` | Sub-Display | 副屏（反射屏，黑白低分辨率） |
 
 ### 1.1 帧格式速查
@@ -481,63 +481,71 @@ Submodel-6 上电后不知道自身所处的配件槽位（模块 ID），需通
 
 | 操作码 | 子命令 | 方向 | 说明 | DATA 格式 |
 |--------|--------|------|------|----------|
-| `0x41` | `0x01` | Core→IR | 开始测距 | `[子命令:1]` |
-| `0x41` | `0x02` | Core→IR | 停止测距 | `[子命令:1]` |
-| `0x45` | `0x01` | IR→Core | 测距结果（测距激活时，紧跟 GET_TYPE ACK 后发送） | `[子命令:1][距离mm:2(uint16大端)]` |
-| `0x45` | `0x02` | IR→Core | 测距失败（测距激活时，紧跟 GET_TYPE ACK 后发送） | `[子命令:1][错误码:1]` |
+| `0x41` | `0x01` | Core→Laser | 开始测距（切换到 50ms 上报周期） | `[子命令:1]` |
+| `0x41` | `0x02` | Core→Laser | 停止测距（回到待机 1s 上报周期） | `[子命令:1]` |
+| `0x45` | `0x01` | Laser→Core | 测距结果（按当前周期主动上报） | `[子命令:1][距离mm:2(uint16大端)]` |
+| `0x45` | `0x02` | Laser→Core | 测距失败（按当前周期主动上报） | `[子命令:1][错误码:1]` |
 
-> **距离**：0~65535 mm（2 字节 uint16 大端），VL53L0X 默认模式有效量程 30~1200 mm。
+> **距离**：0~65535 mm（2 字节 uint16 大端），为模块侧滑动平均滤波（窗口 8）后的结果，
+> VL53L0X 默认模式有效量程 30~1200 mm。
 > **SET_MODE 命令为发送即忘**，模块不回复 ACK。
 
 #### 测距错误码
 
 | 错误码 | 宏名 | 说明 |
 |--------|------|------|
-| `0x01` | `IR_ERR_NOT_INIT` | 传感器未初始化 |
-| `0x02` | `IR_ERR_TIMEOUT` | 测量超时 |
-| `0x03` | `IR_ERR_OUT_OF_RANGE` | 超出有效量程 |
+| `0x01` | `LR_ERR_NOT_INIT` | 传感器未初始化 |
+| `0x02` | `LR_ERR_TIMEOUT` | 测量超时 |
+| `0x03` | `LR_ERR_OUT_OF_RANGE` | 超出有效量程 |
+
+#### 双状态定时上报机制
+
+模块上电初始化成功后立即启动 VL53L0X 连续测距（无时自检流程），并进入
+**待机状态**。上报为模块侧定时主动发送（TIM2 1kHz 时基调度），不依赖
+GET_TYPE 轮询；GET_TYPE 仅回复固定 5 字节身份 ACK。
+
+| 状态 | 进入条件 | 上报周期 | 说明 |
+|------|---------|---------|------|
+| 待机（STANDBY） | 上电默认 / 收到 SUB=0x02 | **1000ms** | 每 1s 上报一次滑动平均距离 |
+| 测距（RANGING） | 收到 SUB=0x01 | **50ms** | 每 50ms 上报一次滑动平均距离 |
+
+- 传感器连续测距（约 33ms 时序预算），每次数据就绪即采样；
+  无效样本（DeviceError ≠ RANGECOMPLETE）不入滤波窗口。
+- 滤波为窗口 8 的滑动平均，上报值为窗口内有效样本均值。
+- 若上报时刻滤波窗口为空（持续无有效样本），上报 `0x45 SUB=0x02`
+  `LR_ERR_OUT_OF_RANGE`。
+- Core 收到结果帧后按 `Display_SendSubmodelEvent(SUBMODEL_TYPE_LASER, ...)`
+  转发给在线 Display（同 Health 转发路径）。
 
 #### 槽位学习与初始化流程
 
 ```
-① Core → IR: [AA][0x00][0x4x][02][0x01][][A5][5A][FC][FD]  (CMD_GET_TYPE)
-② IR 学习自身模块 ID = DST = 0x4x
-③ IR → Core: [AA][0x4x][0x00][03][0x04][0x05][0x06][A5][5A][FC][FD]  (ACK: 类型=0x05, 子类型=0x06)
+① Core → Laser: [AA][0x00][0x4x][02][0x01][][A5][5A][FC][FD]  (CMD_GET_TYPE)
+② Laser 学习自身模块 ID = DST = 0x4x
+③ Laser → Core: [AA][0x4x][0x00][03][0x04][0x05][0x06][A5][5A][FC][FD]  (ACK: 类型=0x05, 子类型=0x06)
 ```
 
-#### 开始测距流程
+#### 开始测距流程（切换到 50ms 上报）
 
 ```
-① Core → IR: [标准帧] CMD=0x41 SUB=0x01 开始测距
-② IR 启动 VL53L0X 连续测距模式
+① Core → Laser: [标准帧] CMD=0x41 SUB=0x01 开始测距
+② Laser 切换上报周期为 50ms（传感器本就在连续测距）
 ③ （发送即忘，不回复 ACK）
 ```
 
-#### GET_TYPE 轮询与测距数据上报流程
-
-**测距激活时：**
+#### 测距数据上报流程（模块主动）
 
 ```
-① Core → IR: CMD_GET_TYPE
-② IR → Core: CMD_ACK [0x05][0x06]  （模块类型响应）
-③ IR → Core: CMD=0x45 SUB=0x01 [距离mm:2]  （测距结果，紧跟 ACK 后发送）
-   或 IR → Core: CMD=0x45 SUB=0x02 [错误码:1]  （测距失败）
+Laser → Core: CMD=0x45 SUB=0x01 [距离mm:2]  （待机每 1s / 测距每 50ms）
+或 Laser → Core: CMD=0x45 SUB=0x02 [错误码:1]  （滤波窗口为空时）
 ```
 
-**测距未激活时：**
+#### 停止测距流程（回到 1s 待机上报）
 
 ```
-① Core → IR: CMD_GET_TYPE
-② IR → Core: CMD_ACK [0x05][0x06]  （仅模块类型响应，无测距数据）
-```
-
-#### 停止测距流程
-
-```
-① Core → IR: [标准帧] CMD=0x41 SUB=0x02 停止测距
-② IR 停止 VL53L0X 测距，传感器进入待机
+① Core → Laser: [标准帧] CMD=0x41 SUB=0x02 停止测距
+② Laser 上报周期切回 1000ms，传感器保持连续测距
 ③ （发送即忘，不回复 ACK）
-④ 此后 GET_TYPE 仅回复类型信息，不再附带测距数据
 ```
 
 ---
@@ -782,7 +790,7 @@ Submodel 响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | `0x03` | `MODULE_SUBTYPE_SUBMODEL_NFC` | NFC 读卡 | 被动接收卡号（不可配置） |
 | `0x04` | `MODULE_SUBTYPE_SUBMODEL_TOUCH_RING` | 触摸圆环 | TTP229 16 键触摸（2×2 方阵 + 12 位圆环） |
 | `0x05` | `MODULE_SUBTYPE_SUBMODEL_RGB` | RGB 灯效 | 灯效控制 |
-| `0x06` | `MODULE_SUBTYPE_SUBMODEL_INFRARED` | 红外测距 | 距离测量 |
+| `0x06` | `MODULE_SUBTYPE_SUBMODEL_LASER` | 激光测距 | 距离测量 |
 | `0x07` | `MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY` | 副屏 | 反射式黑白屏 |
 | `0x08~0xFF` | — | 预留 | 未来扩展 |
 
@@ -799,3 +807,4 @@ Submodel 响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | V1.4 | 2026-07-27 | 热插拔可靠性加固：身份 ACK 指纹约束（LEN 固定 6，废弃扩展字节）；查询 ACK 数据域长度禁止为 5 字节；Core 侧接收改双缓冲（保旧丢新）+ 100ms 帧间超时；新增非在线槽位 0x00 反卡死填充机制；OFFLINE 时 Core 清空槽位类型缓存 |
 | V1.5 | 2026-08-05 | RGB 子类型扩展：新增一次性动画事件——中心波纹（SUB=0x04）与边缘波浪（SUB=0x05，四方向），播放一次后自动回到原模式，颜色/亮度沿用模式 1 配置 |
 | V1.6 | 2026-08-06 | RGB 速度字段改为档位制（1~10）：8 档=10ms/步（原 speed=255 行为），每升一档 × 0.8；非法档位按 8 档处理；config 默认 rgb_speed 由 50 改为 8，旧越界值钳制为 8 |
+| V1.7 | 2026-08-06 | 激光测距子类型更名（Infrared/红外 → Laser/激光，宏 `MODULE_SUBTYPE_SUBMODEL_LASER`、`LR_*`）；测距上报机制重做：模块上电即连续测距，待机 1s / 测距 50ms 定时主动上报滑动平均（窗口 8）结果，GET_TYPE 不再附带测距数据 |

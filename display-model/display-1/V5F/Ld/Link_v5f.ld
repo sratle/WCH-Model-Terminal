@@ -57,7 +57,7 @@ SECTIONS
         *(.vector);
 		KEEP(*(SORT_NONE(.vector_handler)))
 		*(.text)
-		*(EXCLUDE_FILE (*/app_usb.o */app_power.o */app_bt.o */app_nfc.o */app_fingerprint.o */app_subdisplay.o */app_irrange.o) .text.*)
+		*(EXCLUDE_FILE (*/app_usb.o */app_power.o */app_bt.o */app_nfc.o */app_fingerprint.o */app_subdisplay.o */app_lrange.o) .text.*)
 		*(.glue_7)
 		*(.glue_7t)
 		*(.gnu.linkonce.t.*)
@@ -66,7 +66,7 @@ SECTIONS
     } >RAM_CODE AT>FLASH
 
 	/* 低热度代码直接在 FLASH 执行（XIP），不占用物理 ITCM 128K。
-	 * 无动画/低频交互的 APP（USB、Power、BT、NFC、指纹、副屏、红外）放这里；
+	 * 无动画/低频交互的 APP（USB、Power、BT、NFC、指纹、副屏、激光测距）放这里；
 	 * 游戏等帧率敏感模块必须留在 .highcode(ITCM)（Flash XIP 有等待周期，
 	 * 游戏动画会明显变慢，血泪教训）。
 	 * ISR、渲染、协议解析、驱动等热路径必须留在 .highcode(ITCM)。 */
@@ -79,7 +79,7 @@ SECTIONS
 		*/app_nfc.o(.text.*)
 		*/app_fingerprint.o(.text.*)
 		*/app_subdisplay.o(.text.*)
-		*/app_irrange.o(.text.*)
+		*/app_lrange.o(.text.*)
 		. = ALIGN(4);
 	} >FLASH AT>FLASH
 

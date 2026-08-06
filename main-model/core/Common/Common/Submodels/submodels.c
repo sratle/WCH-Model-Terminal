@@ -23,7 +23,7 @@ static uint8_t submodels_rgb_dispatch(submodels_t *submodel, const protocol_fram
                                       uint8_t *resp, uint16_t resp_size, uint8_t *resp_len);
 static uint8_t submodels_touch_dispatch(submodels_t *submodel, const protocol_frame_t *req,
                                         uint8_t *resp, uint16_t resp_size, uint8_t *resp_len);
-static uint8_t submodels_ir_dispatch(submodels_t *submodel, const protocol_frame_t *req,
+static uint8_t submodels_lr_dispatch(submodels_t *submodel, const protocol_frame_t *req,
                                      uint8_t *resp, uint16_t resp_size, uint8_t *resp_len);
 static uint8_t submodels_subdisp_dispatch(submodels_t *submodel, const protocol_frame_t *req,
                                           uint8_t *resp, uint16_t resp_size, uint8_t *resp_len);
@@ -349,8 +349,8 @@ void Submodels_Process(submodels_t *submodel)
             case MODULE_SUBTYPE_SUBMODEL_RGB:
                 handled = submodels_rgb_dispatch(submodel, req, resp, sizeof(resp), &resp_len);
                 break;
-            case MODULE_SUBTYPE_SUBMODEL_INFRARED:
-                handled = submodels_ir_dispatch(submodel, req, resp, sizeof(resp), &resp_len);
+            case MODULE_SUBTYPE_SUBMODEL_LASER:
+                handled = submodels_lr_dispatch(submodel, req, resp, sizeof(resp), &resp_len);
                 break;
             case MODULE_SUBTYPE_SUBMODEL_SUB_DISPLAY:
                 handled = submodels_subdisp_dispatch(submodel, req, resp, sizeof(resp), &resp_len);
@@ -1042,22 +1042,25 @@ static uint8_t submodels_rgb_dispatch(submodels_t *submodel, const protocol_fram
     return 1;
 }
 
-/* ---- 6. 红外测距 (type = 0x06) ----
+/* ---- 6. 激光测距 (type = 0x06) ----
  *
  * 协议见 Protocol_Submodels.md §4.6
  *
- * Core → IR:
- *   CMD_SUB_SET_MODE(0x41) SUB=0x01  开始测距（fire-and-forget）
- *   CMD_SUB_SET_MODE(0x41) SUB=0x02  停止测距（fire-and-forget）
+ * Core → Laser:
+ *   CMD_SUB_SET_MODE(0x41) SUB=0x01  开始测距（fire-and-forget，50ms 上报）
+ *   CMD_SUB_SET_MODE(0x41) SUB=0x02  停止测距（fire-and-forget，回到 1s 待机上报）
  *
- * IR → Core:
+ * Laser → Core:
  *   CMD_SUB_ACTION_RESULT(0x45) SUB=0x01  测距结果 [distance_mm:2(BE)]
  *   CMD_SUB_ACTION_RESULT(0x45) SUB=0x02  测距失败 [error_code:1]
  *
+ * 模块上电即进入待机状态，每 1s 主动上报一次滑动平均距离；
+ * 收到开始测距命令后切换为 50ms 周期上报。
+ *
  * Core 收到测距结果后转发给在线的 Display：
- *   Display_SendSubmodelEvent(SUBMODEL_TYPE_INFRARED, subcmd, data, len)
+ *   Display_SendSubmodelEvent(SUBMODEL_TYPE_LASER, subcmd, data, len)
  */
-static uint8_t submodels_ir_dispatch(submodels_t *submodel, const protocol_frame_t *req,
+static uint8_t submodels_lr_dispatch(submodels_t *submodel, const protocol_frame_t *req,
                                      uint8_t *resp, uint16_t resp_size, uint8_t *resp_len)
 {
     uint8_t cmd = req->cmd;
@@ -1069,11 +1072,11 @@ static uint8_t submodels_ir_dispatch(submodels_t *submodel, const protocol_frame
         case CMD_SUB_ACTION_RESULT:
             switch (subcmd)
             {
-                case IR_SUB_RESULT_OK: /* 测距结果 [distance_mm:2(BE)] */
+                case LR_SUB_RESULT_OK: /* 测距结果 [distance_mm:2(BE)] */
                     if (req->len >= 3)
                     {
                         uint16_t distance_mm = ((uint16_t)req->data[1] << 8) | req->data[2];
-                        printf("[IR] Distance: %d mm\r\n", distance_mm);
+                        printf("[LR] Distance: %d mm\r\n", distance_mm);
 
                         /* 转发给在线的 Display */
                         {
@@ -1087,8 +1090,8 @@ static uint8_t submodels_ir_dispatch(submodels_t *submodel, const protocol_frame
                                     evt[0] = (uint8_t)(distance_mm >> 8);
                                     evt[1] = (uint8_t)(distance_mm & 0xFF);
                                     Display_SendSubmodelEvent(&display_g,
-                                        MODULE_SUBTYPE_SUBMODEL_INFRARED,
-                                        IR_SUB_RESULT_OK,
+                                        MODULE_SUBTYPE_SUBMODEL_LASER,
+                                        LR_SUB_RESULT_OK,
                                         evt, 2);
                                     break;
                                 }
@@ -1098,11 +1101,11 @@ static uint8_t submodels_ir_dispatch(submodels_t *submodel, const protocol_frame
                     *resp_len = 0;
                     return 1;   /* 事件帧无需回复 */
 
-                case IR_SUB_RESULT_FAIL: /* 测距失败 [error_code:1] */
+                case LR_SUB_RESULT_FAIL: /* 测距失败 [error_code:1] */
                     if (req->len >= 2)
                     {
                         uint8_t err_code = req->data[1];
-                        printf("[IR] Ranging failed: err=%d\r\n", err_code);
+                        printf("[LR] Ranging failed: err=%d\r\n", err_code);
 
                         /* 转发给在线的 Display */
                         {
@@ -1113,8 +1116,8 @@ static uint8_t submodels_ir_dispatch(submodels_t *submodel, const protocol_frame
                                     hardware_g.hb_slots[i].status == HB_STATUS_ONLINE)
                                 {
                                     Display_SendSubmodelEvent(&display_g,
-                                        MODULE_SUBTYPE_SUBMODEL_INFRARED,
-                                        IR_SUB_RESULT_FAIL,
+                                        MODULE_SUBTYPE_SUBMODEL_LASER,
+                                        LR_SUB_RESULT_FAIL,
                                         &err_code, 1);
                                     break;
                                 }
@@ -1756,31 +1759,31 @@ uint8_t Submodels_Health_QueryData(submodels_t *submodel)
 }
 
 /* ============================================================================
- * Infrared/IR (激光测距, type=0x06) Control API Implementation
+ * Laser Ranging (激光测距, type=0x06) Control API Implementation
  * ============================================================================ */
 
-submodels_t *Submodels_FindIRSlot(void)
+submodels_t *Submodels_FindLaserSlot(void)
 {
     extern submodels_t submodels_g[3];
     uint8_t i;
 
     for (i = 0; i < 3; i++)
     {
-        if (submodels_g[i].type_id == MODULE_SUBTYPE_SUBMODEL_INFRARED)
+        if (submodels_g[i].type_id == MODULE_SUBTYPE_SUBMODEL_LASER)
             return &submodels_g[i];
     }
     return NULL;
 }
 
-uint8_t Submodels_IR_StartRanging(submodels_t *submodel)
+uint8_t Submodels_LR_StartRanging(submodels_t *submodel)
 {
-    uint8_t data[1] = { IR_SUB_START_RANGING };
+    uint8_t data[1] = { LR_SUB_START_RANGING };
     return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 1);
 }
 
-uint8_t Submodels_IR_StopRanging(submodels_t *submodel)
+uint8_t Submodels_LR_StopRanging(submodels_t *submodel)
 {
-    uint8_t data[1] = { IR_SUB_STOP_RANGING };
+    uint8_t data[1] = { LR_SUB_STOP_RANGING };
     return Submodels_SendCommand(submodel, CMD_SUB_SET_MODE, data, 1);
 }
 

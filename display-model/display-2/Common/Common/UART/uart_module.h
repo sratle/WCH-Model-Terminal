@@ -203,7 +203,7 @@ extern "C" {
 #define SUBMODEL_NFC            0x03
 #define SUBMODEL_TOUCH_RING     0x04
 #define SUBMODEL_RGB            0x05
-#define SUBMODEL_INFRARED       0x06
+#define SUBMODEL_LASER          0x06
 #define SUBMODEL_SUBDISPLAY     0x07
 
 /* Fingerprint sub-commands */

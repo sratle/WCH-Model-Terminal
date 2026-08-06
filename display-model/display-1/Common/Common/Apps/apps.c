@@ -18,7 +18,7 @@
 #include "app_health.h"
 #include "app_subdisplay.h"
 #include "app_rgb.h"
-#include "app_irrange.h"
+#include "app_lrange.h"
 #include "app_ebook.h"
 #include "app_emusic.h"
 #include "app_terminal.h"
@@ -37,7 +37,7 @@ void apps_init_all(void)
     app_health_init();
     app_subdisplay_init();
     app_rgb_init();
-    app_irrange_init();
+    app_lrange_init();
     app_ebook_init();
     app_emusic_init();
     app_terminal_init();

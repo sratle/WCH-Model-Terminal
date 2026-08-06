@@ -41,7 +41,7 @@ static const char *subtype_name(uint8_t type, uint8_t subtype)
         case SUBMODEL_NFC:         return "NFC";
         case SUBMODEL_TOUCH_RING:  return "Touch";
         case SUBMODEL_RGB:         return "RGB";
-        case SUBMODEL_INFRARED:    return "IR";
+        case SUBMODEL_LASER:      return "Laser";
         case SUBMODEL_SUBDISPLAY:  return "SubDisp";
         default:                   return "Unknown";
         }

@@ -51,7 +51,7 @@ static const app_entry_t s_apps[APPS_TOTAL] = {
     {"Health",      icon_charge_24_bitmap,      ICON_CHARGE_24_WIDTH,      ICON_CHARGE_24_HEIGHT,      app_health_get_page},
     {"SubDisp",     icon_bars_24_bitmap,        ICON_BARS_24_WIDTH,        ICON_BARS_24_HEIGHT,        app_subdisplay_get_page},
     {"RGB",         icon_tint_24_bitmap,        ICON_TINT_24_WIDTH,        ICON_TINT_24_HEIGHT,        app_rgb_get_page},
-    {"IRRange",     icon_gps_24_bitmap,         ICON_GPS_24_WIDTH,         ICON_GPS_24_HEIGHT,         app_irrange_get_page},
+    {"L-Range",     icon_gps_24_bitmap,         ICON_GPS_24_WIDTH,         ICON_GPS_24_HEIGHT,         app_lrange_get_page},
     {"EBook",       icon_list_24_bitmap,        ICON_LIST_24_WIDTH,        ICON_LIST_24_HEIGHT,        app_ebook_get_page},
     {"EMusic",      icon_volume_max_24_bitmap,  ICON_VOLUME_MAX_24_WIDTH,  ICON_VOLUME_MAX_24_HEIGHT,  app_emusic_get_page},
     {"Terminal",    icon_keyboard_24_bitmap,    ICON_KEYBOARD_24_WIDTH,    ICON_KEYBOARD_24_HEIGHT,    app_terminal_get_page},

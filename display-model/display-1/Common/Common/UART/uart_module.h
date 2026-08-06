@@ -219,7 +219,7 @@ extern "C" {
 #define SUBMODEL_NFC            0x03
 #define SUBMODEL_TOUCH_RING     0x04
 #define SUBMODEL_RGB            0x05
-#define SUBMODEL_INFRARED       0x06
+#define SUBMODEL_LASER        0x06
 #define SUBMODEL_SUBDISPLAY     0x07
 
 /*=============================================================================
@@ -240,6 +240,13 @@ extern "C" {
  *=============================================================================*/
 
 #define NFC_EVT_CARD_DETECT     0x01    /* [card_id:1][card_number:5] */
+
+/*=============================================================================
+ *  Laser Ranging Sub-commands (forwarded via DISP_EXT_SUBMODEL_EVENT)
+ *=============================================================================*/
+
+#define LR_EVT_RESULT_OK        0x01    /* [distance_mm:2(BE)] */
+#define LR_EVT_RESULT_FAIL      0x02    /* [error_code:1] */
 
 /*=============================================================================
  *  Power Event Types  (Protocol_Display.md §5.13)

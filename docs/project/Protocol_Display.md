@@ -827,7 +827,7 @@ DATA[1]: Submodel 子类型（1字节）
   - 0x03: NFC 读卡
   - 0x04: 触摸圆环/旋钮（Touch Ring）
   - 0x05: RGB 灯效
-  - 0x06: 红外测距（Infrared）
+  - 0x06: 激光测距（Laser）
   - 0x07: 副屏（Sub-Display）
 DATA[2]: 事件操作码（1字节，对应 Submodel 协议中的 CMD）
 DATA[3..N]: 事件数据（变长，格式与 Submodel 协议中对应操作码的 DATA 格式一致）
@@ -854,15 +854,13 @@ DATA[5] = 血氧
 DATA[6] = 体温
 ```
 
-**红外测距事件示例**：
+**激光测距事件示例**：
 ```
 DATA[0] = 0x0E
-DATA[1] = 0x06  (Infrared)
+DATA[1] = 0x06  (Laser)
 DATA[2] = 0x45  (CMD_SUB_ACTION_RESULT)
 DATA[3] = 0x01  (子命令: 测距结果)
-DATA[4..5] = 距离（uint16 大端）
-DATA[6] = 单位
-DATA[7] = 精度
+DATA[4..5] = 距离（uint16 大端，单位 mm，滑动平均后）
 ```
 
 > Display 收到 Submodel 事件后，根据子类型和事件操作码解析数据，更新 UI 显示。

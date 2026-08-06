@@ -9,6 +9,7 @@
 
 void Hardware_Init(void);
 void Hardware_ProcessCoreFrame(void);
+void Hardware_ProcessRanging(uint32_t now_ms);
 
 extern uint8_t g_my_module_id;
 

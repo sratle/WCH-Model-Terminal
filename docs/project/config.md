@@ -147,7 +147,7 @@ CH378 下挂存储介质根目录下的 `\CONFIG` 目录为持久化根路径：
 | `0503` | Submodel-NFC | NFC 读卡 |
 | `0504` | Submodel-TouchRing | 触摸圆环/旋钮 |
 | `0505` | Submodel-RGB | RGB 点阵 |
-| `0506` | Submodel-Infrared | 红外测距 |
+| `0506` | Submodel-Laser | 激光测距 |
 | `0507` | Submodel-SubDisplay | 副屏显示 |
 
 > 编码规则：高两位 = `MODULE_TYPE_xxx`，低两位 = `MODULE_SUBTYPE_xxx`，均以两位十六进制表示。

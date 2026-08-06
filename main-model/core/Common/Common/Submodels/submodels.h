@@ -286,23 +286,23 @@ uint8_t Submodels_Health_SetInterval(submodels_t *submodel, uint16_t seconds);
 uint8_t Submodels_Health_QueryData(submodels_t *submodel);
 
 /* ============================================================================
- * Infrared/IR (激光测距, type=0x06) Control API
- * Core → IR submodel-6 命令发送函数
+ * Laser Ranging (激光测距, type=0x06) Control API
+ * Core → Laser submodel-6 命令发送函数
  * ============================================================================ */
 
 /**
- * @brief  在 submodels_g[0..2] 中查找 Infrared 类型 submodel
- * @return Infrared submodel 指针, 未找到返回 NULL
+ * @brief  在 submodels_g[0..2] 中查找 Laser 类型 submodel
+ * @return Laser submodel 指针, 未找到返回 NULL
  */
-submodels_t *Submodels_FindIRSlot(void);
+submodels_t *Submodels_FindLaserSlot(void);
 
 /**
  * @brief  开始测距（fire-and-forget）
  *         发送 CMD_SUB_SET_MODE SUB=0x01
- * @param  submodel   目标 submodel 实例指针（需为 IR 类型）
+ * @param  submodel   目标 submodel 实例指针（需为 Laser 类型）
  * @return 1=发送成功, 0=失败
  */
-uint8_t Submodels_IR_StartRanging(submodels_t *submodel);
+uint8_t Submodels_LR_StartRanging(submodels_t *submodel);
 
 /**
  * @brief  停止测距（fire-and-forget）
@@ -310,7 +310,7 @@ uint8_t Submodels_IR_StartRanging(submodels_t *submodel);
  * @param  submodel   目标 submodel 实例指针
  * @return 1=发送成功, 0=失败
  */
-uint8_t Submodels_IR_StopRanging(submodels_t *submodel);
+uint8_t Submodels_LR_StopRanging(submodels_t *submodel);
 
 /**
  * @brief  开始注册新指纹
