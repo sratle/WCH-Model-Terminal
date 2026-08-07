@@ -315,6 +315,10 @@ typedef struct {
 void UART_SetSubmodelCallbacks(const uart_submodel_cb_t *cb);
 void UART_ClearSubmodelCallbacks(void);
 
+/* Suppress the global laser proximity warning dialog (used by the
+ * L-Range app while it is active — it has its own warning banner) */
+void UART_SetLaserWarnSuppress(bool suppress);
+
 /*=============================================================================
  *  User Status Callback (Core USER_STATUS push)
  *

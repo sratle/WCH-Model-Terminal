@@ -1502,7 +1502,7 @@ static void CLI_Cmd_Help(uint8_t argc, char **argv)
         printf("  private add <path> [user...]  Mark folder private (default: current user)\r\n");
         printf("  private rm <path>   Unmark private folder\r\n");
         printf("  private ls          List private folders and ACL\r\n");
-        printf("  lr start        Start laser ranging (submodel-6, 50ms report)\r\n");
+        printf("  lr start        Start laser ranging (submodel-6, 100ms report)\r\n");
         printf("  lr stop         Stop laser ranging (submodel-6, back to 1s report)\r\n");
         printf("  clear           Clear screen\r\n");
         printf("  help            Show command list\r\n");
@@ -2810,7 +2810,7 @@ static void CLI_Cmd_Config(uint8_t argc, char **argv)
 }
 
 /* ---- LR 激光测距命令 ----
- * lr start   开始测距（发送 CMD_SUB_SET_MODE SUB=0x01 到 submodel-6，50ms 上报）
+ * lr start   开始测距（发送 CMD_SUB_SET_MODE SUB=0x01 到 submodel-6，100ms 上报）
  * lr stop    停止测距（发送 CMD_SUB_SET_MODE SUB=0x02 到 submodel-6，回到 1s 待机上报）
  */
 static void CLI_Cmd_Lr(uint8_t argc, char **argv)

@@ -274,6 +274,22 @@ static void img_decode_bmp(void)
         return;
     }
 
+    /* Sanity caps: reject garbage headers from corrupted transfers.
+     * Without these, a huge width/height makes the render loop iterate
+     * billions of times and the UI (and Core link) hangs until reboot. */
+    if (s_bmp_width > 2048 || s_bmp_height > 2048) {
+        s_bmp_loaded = false;
+        img_set_bar("BMP dimensions too large");
+        img_invalidate_preview();
+        return;
+    }
+    if (s_bmp_data_offset < BMP_FILE_HEADER_TOTAL) {
+        s_bmp_loaded = false;
+        img_set_bar("Bad BMP data offset");
+        img_invalidate_preview();
+        return;
+    }
+
     if (s_bmp_bpp != 1 && s_bmp_bpp != 8 && s_bmp_bpp != 24) {
         s_bmp_loaded = false;
         char msg[40];
@@ -355,12 +371,21 @@ static void img_render_preview(ui_rect_t *dirty)
     int32_t vis_x1 = IMG_PREVIEW_X + IMG_PREVIEW_W;
     int32_t vis_y1 = IMG_PREVIEW_Y + IMG_PREVIEW_H;
 
-    for (int32_t img_y = 0; img_y < s_bmp_height; img_y++) {
+    /* Clamp row count to the data actually present in the buffer
+     * (corrupt/truncated data may claim more rows than we hold) */
+    int32_t max_rows = (row_stride > 0 && s_bmp_len > s_bmp_data_offset)
+                       ? (int32_t)((s_bmp_len - s_bmp_data_offset) / row_stride)
+                       : 0;
+    int32_t rows = (s_bmp_height < max_rows) ? s_bmp_height : max_rows;
+
+    for (int32_t img_y = 0; img_y < rows; img_y++) {
         int32_t sy0 = oy + img_y * scale;
         int32_t sy1 = sy0 + scale;
         if (sy1 <= vis_y0 || sy0 >= vis_y1) continue;
 
         int32_t data_row = s_bmp_top_down ? img_y : (s_bmp_height - 1 - img_y);
+        if (data_row >= max_rows)
+            continue;   /* row not present in buffer (truncated data) */
         uint32_t row_offset = s_bmp_data_offset + (uint32_t)data_row * row_stride;
 
         for (int32_t img_x = 0; img_x < s_bmp_width; img_x++) {

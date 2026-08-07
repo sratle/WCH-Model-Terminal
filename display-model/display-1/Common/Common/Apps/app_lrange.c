@@ -5,7 +5,7 @@
 * Date               : 2026/08/06
 * Description        : Laser ranging app (VL53L0X, submodel-6).
 *                      Real-time distance display with proximity warning
-*                      (user closer than 10cm) and a distance line chart.
+ *                      (user closer than 20cm) and a distance line chart.
 *                      Data received via DISP_EXT_SUBMODEL_EVENT from Core.
 *                      History stored only while app is active (saves RAM).
 ********************************************************************************/
@@ -39,23 +39,27 @@
 #define LR_CHART_X              8
 #define LR_CHART_W              (LR_SCREEN_W - 16)
 #define LR_CHART_Y              (LR_WARN_Y + LR_WARN_H + 8)
-#define LR_CHART_H              180
+#define LR_CHART_H              160
 #define LR_CHART_PAD_X          4
 #define LR_CHART_PAD_Y          4
 
 /* Stats area */
 #define LR_STATS_Y              (LR_CHART_Y + LR_CHART_H + 8)
-#define LR_STATS_H              60
+#define LR_STATS_H              56
 
-/* Bottom status bar */
+/* Bottom status bar (status text left, ranging button right) */
 #define LR_CTRL_Y               (LR_SCREEN_H - 44)
 #define LR_CTRL_H               40
+#define LR_BTN_W                200
+#define LR_BTN_H                30
+#define LR_BTN_X                (LR_SCREEN_W - LR_BTN_W - 12)
+#define LR_BTN_Y                (LR_CTRL_Y + (LR_CTRL_H - LR_BTN_H) / 2)
 
 /*=============================================================================
  *  Ranging Constants
  *=============================================================================*/
 
-#define LR_PROXIMITY_MM         100     /* 10cm: user too close to screen */
+#define LR_PROXIMITY_MM         200     /* 20cm: user too close to screen */
 #define LR_CHART_Y_MAX          1300    /* chart Y axis max (default mode 1200mm) */
 #define LR_HISTORY_LEN          60
 
@@ -137,6 +141,10 @@ static uint16_t lr_history_max(const lr_history_t *h)
 #define LR_WARN_BG              UI_HEX(0xFFEBEE)
 #define LR_CHART_FILL           UI_HEX(0xD0E8FC)
 #define LR_THRESHOLD_COLOR      UI_HEX(0xEF9A9A)
+#define LR_BTN_START_COLOR      UI_HEX(0x43A047)   /* Green */
+#define LR_BTN_START_PRESSED    UI_HEX(0x2E7D32)
+#define LR_BTN_STOP_COLOR       UI_HEX(0xE53935)   /* Red */
+#define LR_BTN_STOP_PRESSED     UI_HEX(0xC62828)
 
 /*=============================================================================
  *  State
@@ -151,9 +159,12 @@ static uint8_t     s_last_err;      /* Last failure error code */
 
 static lr_history_t s_dist_hist;
 
+/* Ranging state (standby 1s / ranging 100ms) */
+static bool        s_ranging_active;
+
 /* Widgets */
-static ui_widget_t s_touch_area;
-static ui_widget_t *s_lrange_widgets[3]; /* back + title + touch */
+static ui_button_t s_btn_ranging;
+static ui_widget_t *s_lrange_widgets[3]; /* back + title + button */
 
 /*=============================================================================
  *  Forward Declarations
@@ -180,6 +191,34 @@ static bool lr_is_too_close(void)
 {
     return s_data_valid && !s_out_of_range && s_distance_mm > 0 &&
            s_distance_mm < LR_PROXIMITY_MM;
+}
+
+/*=============================================================================
+ *  Ranging Start/Stop Button
+ *=============================================================================*/
+
+static void lr_btn_update_style(void)
+{
+    if (s_ranging_active) {
+        s_btn_ranging.text = "Stop Ranging";
+        ui_button_set_colors(&s_btn_ranging, LR_BTN_STOP_COLOR,
+                             LR_BTN_STOP_PRESSED, UI_HEX(0xFFFFFF));
+    } else {
+        s_btn_ranging.text = "Start Ranging";
+        ui_button_set_colors(&s_btn_ranging, LR_BTN_START_COLOR,
+                             LR_BTN_START_PRESSED, UI_HEX(0xFFFFFF));
+    }
+    ui_page_invalidate(&s_btn_ranging.base.rect);
+}
+
+static void lr_btn_ranging_click(ui_widget_t *w)
+{
+    (void)w;
+
+    /* Toggle ranging state: Core CLI passthrough lr start / lr stop */
+    s_ranging_active = !s_ranging_active;
+    UART_SendCLI(s_ranging_active ? "lr start" : "lr stop");
+    lr_btn_update_style();
 }
 
 /*=============================================================================
@@ -245,7 +284,7 @@ static void lr_draw_chart(const ui_rect_t *rect, const lr_history_t *hist,
         ui_draw_hline(x, gy, w, LR_CHART_GRID);
     }
 
-    /* 10cm proximity threshold line */
+    /* 20cm proximity threshold line */
     {
         uint16_t range = y_max - y_min;
         int16_t ty = y + h - (int16_t)((uint32_t)(LR_PROXIMITY_MM - y_min) * h / range);
@@ -317,18 +356,24 @@ static void lr_page_enter(ui_page_t *page)
 {
     (void)page;
     UART_SetSubmodelCallbacks(&s_lrange_submodel_cb);
+    UART_SetLaserWarnSuppress(true);   /* in-app banner replaces global popup */
 
     s_data_valid = false;
     s_out_of_range = false;
     s_distance_mm = 0;
     s_last_err = 0;
     memset(&s_dist_hist, 0, sizeof(s_dist_hist));
+
+    /* Module boots into standby (1s report); button starts in "start" state */
+    s_ranging_active = false;
+    lr_btn_update_style();
 }
 
 static void lr_page_exit(ui_page_t *page)
 {
     (void)page;
     UART_ClearSubmodelCallbacks();
+    UART_SetLaserWarnSuppress(false);
 }
 
 static void lr_page_draw(ui_page_t *page, ui_rect_t *dirty)
@@ -391,13 +436,13 @@ static void lr_page_draw(ui_page_t *page, ui_rect_t *dirty)
         if (too_close) {
             ui_draw_fill_round_rect(&warn, 6, LR_WARN_COLOR);
             ui_draw_text(LR_CARD_X + 12, LR_WARN_Y + LR_WARN_H / 2 - 6,
-                         "TOO CLOSE! Keep 10cm away from screen",
+                         "TOO CLOSE! Keep 20cm away from screen",
                          UI_FONT_BODY, UI_HEX(0xFFFFFF));
         } else {
             ui_draw_fill_round_rect(&warn, 6, LR_CARD_BG);
             ui_draw_round_rect_border(&warn, 6, LR_CARD_BORDER, 1);
             ui_draw_text(LR_CARD_X + 12, LR_WARN_Y + LR_WARN_H / 2 - 6,
-                         "Safe distance (>= 10cm)",
+                         "Safe distance (>= 20cm)",
                          UI_FONT_BODY, LR_TEXT_DIM);
         }
     }
@@ -420,7 +465,7 @@ static void lr_page_draw(ui_page_t *page, ui_rect_t *dirty)
         /* Threshold label */
         ui_draw_text(LR_CHART_X + LR_CHART_W - 70,
                      LR_CHART_Y + LR_CHART_PAD_Y + 12,
-                     "10cm limit", UI_FONT_BODY, LR_THRESHOLD_COLOR);
+                     "20cm limit", UI_FONT_BODY, LR_THRESHOLD_COLOR);
     }
 
     /* ---- Stats ---- */
@@ -492,14 +537,16 @@ void app_lrange_init(void)
     s_lrange_widgets[widx++] = (ui_widget_t *)&s_app_lrange.btn_back;
     s_lrange_widgets[widx++] = (ui_widget_t *)&s_app_lrange.lbl_title;
 
-    /* Touch area (for event capture) */
+    /* Start/Stop ranging button (bottom right of status bar) */
     {
-        ui_rect_t r = {0, APP_TITLE_BAR_H, LR_SCREEN_W,
-                       LR_SCREEN_H - APP_TITLE_BAR_H};
-        ui_widget_init(&s_touch_area, &r);
-        s_touch_area.bg_color = UI_COLOR_TRANSPARENT;
+        ui_rect_t r = {LR_BTN_X, LR_BTN_Y, LR_BTN_W, LR_BTN_H};
+        ui_button_init(&s_btn_ranging, &r, "Start Ranging", UI_FONT_BODY);
+        ui_button_set_callback(&s_btn_ranging, lr_btn_ranging_click);
+        ui_button_set_colors(&s_btn_ranging, LR_BTN_START_COLOR,
+                             LR_BTN_START_PRESSED, UI_HEX(0xFFFFFF));
+        ui_button_set_radius(&s_btn_ranging, 6);
     }
-    s_lrange_widgets[widx++] = &s_touch_area;
+    s_lrange_widgets[widx++] = (ui_widget_t *)&s_btn_ranging;
 
     ui_page_set_widgets(&s_app_lrange.page, s_lrange_widgets, (uint16_t)widx);
     ui_page_set_callbacks(&s_app_lrange.page, lr_page_enter, lr_page_exit,

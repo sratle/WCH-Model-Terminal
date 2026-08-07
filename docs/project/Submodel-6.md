@@ -56,7 +56,7 @@
 | 状态 | 进入条件 | 上报周期 | 说明 |
 |------|---------|---------|------|
 | 待机（STANDBY） | 上电默认 / SET_MODE SUB=0x02 | **1000ms** | 每 1s 上报一次平均距离 |
-| 测距（RANGING） | SET_MODE SUB=0x01 | **50ms** | 每 50ms 上报一次平均距离 |
+| 测距（RANGING） | SET_MODE SUB=0x01 | **100ms** | 每 100ms 上报一次平均距离 |
 
 - **GET_TYPE 响应**：仅回复固定 5 字节身份 ACK（类型 0x05，子类型 0x06），
   不附带测距数据（测距数据走定时上报通道）
@@ -115,12 +115,17 @@ submodel_6/
    启动前需恢复 DataInit 保存的 stop_variable（0x91）。
 4. **GPIO1 中断模式**：已配置 SYSTEM_INTERRUPT_CONFIG=0x04（新样本就绪），
    当前采用主循环轮询 RESULT_INTERRUPT_STATUS(0x13)，未接 PB13 EXTI。
-5. **上报节奏**：50ms 上报周期下模块→Core 方向每 50ms 一帧，注意 Core 侧
+5. **上报节奏**：100ms 上报周期下模块→Core 方向每 100ms 一帧，注意 Core 侧
    双缓冲"保旧丢新"，偶发丢帧可接受（事件周期重发）。
 6. **调试开关**：`vl53l0x.h` 中 `VL53L0X_DEBUG_EN` 置 1 可启用诊断输出
    （I2C 扫描/交换扫描/总线恢复/引脚翻转），需配合 main.c 的
    `USART_Printf_Init`；**生产固件必须保持 0**，printf 与 Core 协议共用 UART1。
 7. **与 Core/Display 的全链路**：模块定时上报 → Core `submodels_lr_dispatch`
    打印并 `Display_SendSubmodelEvent(SUBMODEL_TYPE_LASER, ...)` 转发 →
-   Display 的 L-Range 应用显示距离、10cm 过近警告与折线图。
-   Core CLI 用 `lr start` / `lr stop` 切换 50ms/1s 上报周期。
+   Display 的 L-Range 应用显示距离、20cm 过近警告与折线图。
+   Core CLI 用 `lr start` / `lr stop` 切换 100ms/1s 上报周期。
+8. **系统时钟可能是 HSI 8MHz 而非 72MHz**：`SetSysClockTo72_HSE()` 在 HSE
+   起振失败时**静默跳过**（不报错不死等），本模块板若晶振未起振则全片跑在
+   HSI 8MHz。UART/Delay 均按运行时实际时钟计算所以无感，但**任何定时器的
+   分频值必须用 `RCC_GetClocksFreq()` 动态推导，禁止按 72MHz 硬编码**
+   （TIM2 曾因硬编码 PSC=72 导致 1ms 节拍变 9ms，上报周期全部 ×9）。

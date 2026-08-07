@@ -22,13 +22,25 @@ void TIM2_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 static void TIM2_Init(void)
 {
     TIM_TimeBaseInitTypeDef tim;
+    RCC_ClocksTypeDef clocks;
+    uint32_t tim_clk;
 
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
 
-    /* 72MHz / 72 = 1MHz; /1000 = 1kHz = 1ms per tick */
+    /* Derive timer clock from actual runtime configuration.
+     * NOTE: this board may run on HSI 8MHz if HSE fails to start
+     * (SetSysClockTo72_HSE falls through silently), so PSC/ARR must
+     * NOT be hardcoded for 72MHz. APB1 prescaler != 1 -> timer clock
+     * is PCLK1 x 2. */
+    RCC_GetClocksFreq(&clocks);
+    tim_clk = clocks.PCLK1_Frequency;
+    if ((RCC->CFGR0 & RCC_PPRE1) != RCC_PPRE1_DIV1)
+        tim_clk *= 2;
+
+    /* tim_clk / (PSC+1) = 10kHz; /10 = 1kHz = 1ms per tick */
     TIM_DeInit(TIM2);
-    tim.TIM_Period = 1000 - 1;
-    tim.TIM_Prescaler = 72 - 1;
+    tim.TIM_Period = 10 - 1;
+    tim.TIM_Prescaler = (uint16_t)(tim_clk / 10000 - 1);
     tim.TIM_ClockDivision = TIM_CKD_DIV1;
     tim.TIM_CounterMode = TIM_CounterMode_Up;
     TIM_TimeBaseInit(TIM2, &tim);

@@ -99,6 +99,10 @@ static bool    s_cli_expect_get;      /* expecting bmp get */
 static uint8_t s_bmp_data[IMG_BMP_BUF_SIZE];
 static uint16_t s_bmp_data_len;
 
+/* Decode-time dimension cap: a preview of ~700x300 never needs more.
+ * Protects the render loop from garbage headers (corrupt transfers). */
+#define IMG_MAX_DIM         2048
+
 /* Parsed BMP info */
 static int32_t  s_bmp_width;
 static int32_t  s_bmp_height;
@@ -299,12 +303,33 @@ static void img_on_cli_stream(const char *chunk, uint16_t len, bool is_last)
         uint16_t hex_len = (uint16_t)(buf_end - hex_start);
         s_bmp_data_len = hex_to_binary(hex_start, hex_len,
                                         s_bmp_data, IMG_BMP_BUF_SIZE);
-        if (s_bmp_data_len >= BMP_FILE_HEADER_TOTAL) {
-            img_decode_bmp();
-        } else {
-            img_set_bar("BMP data too small or transfer incomplete");
-            s_bmp_loaded = false;
-            img_invalidate_preview();
+
+        /* Integrity check: declared file size from the status line
+         * ("BMP: xxx size=N bytes") must match the decoded length.
+         * A lost/truncated frame misaligns the hex parse and would
+         * decode garbage headers — the render loop can then hang the
+         * whole UI for minutes (observed as link death until reboot). */
+        {
+            uint32_t declared = 0;
+            const char *sz = strstr(s_cli_buf, "size=");
+            if (sz && sz < hex_start)
+                declared = (uint32_t)atol(sz + 5);
+
+            if (declared > IMG_BMP_BUF_SIZE) {
+                s_bmp_loaded = false;
+                img_set_bar("BMP too large (max 10KB)");
+                img_invalidate_preview();
+            } else if (declared == 0 || s_bmp_data_len < declared) {
+                s_bmp_loaded = false;
+                img_set_bar("Transfer incomplete, aborted");
+                img_invalidate_preview();
+            } else if (s_bmp_data_len >= BMP_FILE_HEADER_TOTAL) {
+                img_decode_bmp();
+            } else {
+                img_set_bar("BMP data too small or transfer incomplete");
+                s_bmp_loaded = false;
+                img_invalidate_preview();
+            }
         }
         s_cli_expect_get = false;
     } else {
@@ -422,6 +447,22 @@ static void img_decode_bmp(void)
         return;
     }
 
+    /* Sanity caps: reject garbage headers from corrupted transfers.
+     * Without these, a huge width/height makes the render loop iterate
+     * billions of times and the UI (and Core link) hangs until reboot. */
+    if (s_bmp_width > IMG_MAX_DIM || s_bmp_height > IMG_MAX_DIM) {
+        s_bmp_loaded = false;
+        img_set_bar("BMP dimensions too large");
+        img_invalidate_preview();
+        return;
+    }
+    if (s_bmp_data_offset < BMP_FILE_HEADER_TOTAL) {
+        s_bmp_loaded = false;
+        img_set_bar("Bad BMP data offset");
+        img_invalidate_preview();
+        return;
+    }
+
     if (s_bmp_bpp != 1 && s_bmp_bpp != 8 && s_bmp_bpp != 24) {
         s_bmp_loaded = false;
         char msg[40];
@@ -489,10 +530,19 @@ static void img_render_preview(ui_rect_t *dirty)
         palette = &s_bmp_data[54];
     }
 
+    /* Clamp row count to the data actually present in the buffer
+     * (corrupt/truncated data may claim more rows than we hold) */
+    int32_t max_rows = (row_stride > 0 && s_bmp_data_len > s_bmp_data_offset)
+                       ? (int32_t)((s_bmp_data_len - s_bmp_data_offset) / row_stride)
+                       : 0;
+    int32_t rows = (s_bmp_height < max_rows) ? s_bmp_height : max_rows;
+
     /* Render pixel rows */
-    for (int32_t img_y = 0; img_y < s_bmp_height; img_y++) {
+    for (int32_t img_y = 0; img_y < rows; img_y++) {
         /* BMP row index in data (bottom-up by default) */
         int32_t data_row = s_bmp_top_down ? img_y : (s_bmp_height - 1 - img_y);
+        if (data_row >= max_rows)
+            continue;   /* row not present in buffer (truncated data) */
         uint32_t row_offset = s_bmp_data_offset + (uint32_t)data_row * row_stride;
 
         /* Screen Y range for this image row */

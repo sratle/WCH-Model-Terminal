@@ -9,14 +9,14 @@ uint8_t g_my_module_id = 0x00;
 
 /* ---- Reporting states ----
  * STANDBY: sensor ranges continuously, report averaged distance every 1s.
- * RANGING: entered on Core SET_MODE SUB=0x01, report every 50ms. */
+ * RANGING: entered on Core SET_MODE SUB=0x01, report every 100ms. */
 typedef enum {
     LR_REPORT_STANDBY = 0,
     LR_REPORT_RANGING
 } lr_report_state_t;
 
 #define LR_REPORT_PERIOD_STANDBY_MS    1000
-#define LR_REPORT_PERIOD_RANGING_MS    50
+#define LR_REPORT_PERIOD_RANGING_MS    100
 
 static lr_report_state_t s_report_state = LR_REPORT_STANDBY;
 static uint32_t          s_last_report_ms = 0;

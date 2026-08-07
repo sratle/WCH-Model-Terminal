@@ -713,6 +713,51 @@ static void handle_ext_bt_event(const uint8_t *data, uint8_t len)
     }
 }
 
+/*=============================================================================
+ *  Laser Ranging Proximity Watch (global, app-independent)
+ *=============================================================================*/
+
+#define LR_WARN_THRESHOLD_MM  200   /* 20cm: user too close to screen */
+
+static ui_dialog_t s_lr_warn_dlg;
+static bool        s_lr_warn_dlg_inited = false;
+static bool        s_lr_warned = false;      /* one-shot latch, re-armed on recovery */
+static bool        s_lr_warn_suppress = false; /* set while L-Range app is active */
+
+void UART_SetLaserWarnSuppress(bool suppress)
+{
+    s_lr_warn_suppress = suppress;
+}
+
+static void lr_proximity_watch(uint8_t sub_cmd, const uint8_t *evt_data, uint8_t evt_len)
+{
+    if (sub_cmd == LR_EVT_RESULT_FAIL) {
+        s_lr_warned = false;   /* out of range = nothing close */
+        return;
+    }
+    if (sub_cmd != LR_EVT_RESULT_OK || evt_data == NULL || evt_len < 2)
+        return;
+
+    uint16_t dist = ((uint16_t)evt_data[0] << 8) | evt_data[1];
+
+    if (dist > 0 && dist < LR_WARN_THRESHOLD_MM) {
+        if (!s_lr_warned) {
+            s_lr_warned = true;
+            if (!s_lr_warn_suppress) {
+                if (!s_lr_warn_dlg_inited) {
+                    ui_dialog_init(&s_lr_warn_dlg);
+                    s_lr_warn_dlg_inited = true;
+                }
+                ui_dialog_show(&s_lr_warn_dlg, "L-Range",
+                               "Too close!\nKeep 20cm away from screen",
+                               NULL, NULL);
+            }
+        }
+    } else {
+        s_lr_warned = false;
+    }
+}
+
 static void handle_ext_submodel_event(const uint8_t *data, uint8_t len)
 {
     if (len < 3) return;  /* ext(1) + subtype(1) + sub_cmd(1) + ... */
@@ -722,6 +767,11 @@ static void handle_ext_submodel_event(const uint8_t *data, uint8_t len)
     uint8_t evt_len = (len > 3) ? (len - 3) : 0;
 
     printf("[SUB] type=%d cmd=%d len=%d\r\n", sub_type, sub_cmd, evt_len);
+
+    /* Global laser proximity watch: one-shot modal warning when distance
+     * drops below threshold, regardless of which app is active */
+    if (sub_type == SUBMODEL_LASER)
+        lr_proximity_watch(sub_cmd, evt_data, evt_len);
 
     if (s_submodel_cb_valid && s_submodel_cb.on_submodel_event) {
         s_submodel_cb.on_submodel_event(sub_type, sub_cmd, evt_data, evt_len);

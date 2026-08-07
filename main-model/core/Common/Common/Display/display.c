@@ -751,10 +751,14 @@ static uint8_t Display_HandleCLI(const protocol_frame_t *req,
             offset += chunk;
             chunk_idx++;
             /* Pace chunk frames: without a gap the display-side RX ring
-             * (2KB) overflows on >2KB responses and silently drops frames
+             * overflows on large responses and silently drops frames
              * (EOF lost → response never dispatches → apps hang).
-             * 2ms per chunk keeps the link robust for both displays. */
-            if (offset < cli_capture_len) Delay_Ms(2);
+             * Display-1 polls the ring once per UI frame (~40ms at 25fps,
+             * longer while rendering images), so keep well under the
+             * ~92B/ms line rate: 5ms per ≤250B chunk ≈ 50B/ms leaves
+             * ~2KB of inflow per 40ms poll window against the 8KB ring.
+             * Display-2 (1bpp, 8KB CLI buffer) benefits the same. */
+            if (offset < cli_capture_len) Delay_Ms(5);
         }
     } else {
         /* 无输出也发一个空响应（SOF+EOF），让 Display 知道命令已执行 */

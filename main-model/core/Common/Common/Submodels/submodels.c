@@ -1047,7 +1047,7 @@ static uint8_t submodels_rgb_dispatch(submodels_t *submodel, const protocol_fram
  * 协议见 Protocol_Submodels.md §4.6
  *
  * Core → Laser:
- *   CMD_SUB_SET_MODE(0x41) SUB=0x01  开始测距（fire-and-forget，50ms 上报）
+ *   CMD_SUB_SET_MODE(0x41) SUB=0x01  开始测距（fire-and-forget，100ms 上报）
  *   CMD_SUB_SET_MODE(0x41) SUB=0x02  停止测距（fire-and-forget，回到 1s 待机上报）
  *
  * Laser → Core:
