@@ -558,6 +558,9 @@ Display-1/Display-2 的游戏音效系统完全基于 CLI 直通实现，**无�
   会话仍活跃时校正 BGM 状态，退出 Games 区后到达的响应不会重启 BGM
 - SFX 按类型独立节流（GEACTION/SCACTION/HIT 各 ≥30ms 互不影响），
   防止连续输入灌满 UART/CLI 通道，同时避免转向后立刻吃食等场景被误抑制
+- **Display→Core 帧间隔下限 6ms**（`UART_SendFrame` 内置节流）：Core 主循环
+  每轮仅消费一帧，ISR 双缓冲保旧丢新，背靠背连发（如 BGM 的 stop+play、
+  RGB 帧+SFX CLI）会丢后帧；所有 Display→Core 帧统一遵守该下限
 
 ---
 

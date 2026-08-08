@@ -12,6 +12,7 @@
 #include "ch32h417_rcc.h"
 #include "debug.h"
 #include "CH378/CH378.h"
+#include "CLI/cli.h"
 #include <string.h>
 
 extern cs43131_t CS43131_g;
@@ -914,14 +915,18 @@ static void channel_file_close(audio_channel_t *ch)
     }
 }
 
-/* Helper: open CH378 file for a channel and seek to read_offset */
+/* Helper: open CH378 file for a channel and seek to read_offset.
+ * Must be LFN-aware: the initial CLI play opens long filenames via the LFN
+ * path, and this reopen path must match — otherwise LFN audio dies with
+ * 0x42 once the single CH378 handle is taken by the other channel or a
+ * CLI file command (short-name files like BGM/drums were unaffected). */
 static uint8_t channel_file_open(audio_channel_t *ch)
 {
     uint8_t status;
 
     if (ch->file_open) return ERR_SUCCESS; /* already open */
 
-    status = CH378FileOpen((uint8_t *)ch->path);
+    status = CLI_OpenFileByName(ch->path);
     if (status != ERR_SUCCESS) return status;
 
     status = CH378ByteLocate(ch->read_offset);

@@ -529,8 +529,21 @@ static inline void tx_byte(uint8_t b)
     USART_SendData(USART1, b);
 }
 
+/* Minimum gap between consecutive TX frames: Core consumes one frame per
+ * main-loop iteration (~1-3ms) and its ISR double-buffer silently drops
+ * extra frames (keep-old policy). Back-to-back sends (e.g. "stop"+"play"
+ * BGM pairs, RGB effect + SFX CLI) would otherwise lose the later frame. */
+#define UART_TX_MIN_GAP_MS    6
+static uint32_t s_tx_last_ms = 0;
+
 void UART_SendFrame(uint8_t dst, uint8_t cmd, const uint8_t *data, uint8_t len)
 {
+    uint32_t now = ui_get_real_ms();
+    uint32_t dt = (uint32_t)(now - s_tx_last_ms);
+    if (s_tx_last_ms != 0 && dt < UART_TX_MIN_GAP_MS) {
+        Delay_Ms(UART_TX_MIN_GAP_MS - dt);
+    }
+
     uint8_t frame_len = 1 + len;
     tx_byte(PROTO_FRAME_HEAD);
     tx_byte(MODULE_ID_DISPLAY);
@@ -543,6 +556,8 @@ void UART_SendFrame(uint8_t dst, uint8_t cmd, const uint8_t *data, uint8_t len)
     tx_byte(PROTO_FRAME_TAIL2);
     tx_byte(PROTO_FRAME_TAIL3);
     while (USART_GetFlagStatus(USART1, USART_FLAG_TC) == RESET);
+
+    s_tx_last_ms = ui_get_real_ms();
 }
 
 void UART_SendACK(uint8_t dst, const uint8_t *data, uint8_t data_len)

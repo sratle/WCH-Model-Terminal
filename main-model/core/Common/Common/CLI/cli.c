@@ -211,6 +211,18 @@ static uint8_t CLI_LFN_Operation(const char *full_path, uint8_t op)
     return status;
 }
 
+/* 按文件名形式自动选择 8.3 或 LFN 方式打开文件。
+ * 供 CLI 内部与音频引擎（cs43131 channel_file_open）共用：
+ * 音频引擎重开通道文件时必须走与 CLI play 相同的 LFN 路径，
+ * 否则长文件名音频在 CH378 单句柄被其他通道/CLI 抢占后无法重开 (0x42)。 */
+uint8_t CLI_OpenFileByName(const char *full_path)
+{
+    if (CLI_IsShortName(CLI_ExtractFilename(full_path))) {
+        return CH378FileOpen((uint8_t*)full_path);
+    }
+    return CLI_LFN_Operation(full_path, 0); /* 0 = open */
+}
+
 static void CLI_Cmd_Ls(void)
 {
     uint8_t i;

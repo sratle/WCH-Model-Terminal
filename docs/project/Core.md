@@ -364,6 +364,12 @@ CS43131_g.echo.mix = 40;
 3. 16KB 环形缓冲提供约 93ms 的安全窗口，即使 CH378 被 CLI 命令占用数毫秒也不会导致音频断流
 4. `Audio_CH378_Lock()` / `Audio_CH378_Unlock()` 提供显式锁机制，供需要连续 CH378 操作的场景使用
 
+> **LFN 重开修复（V2.1）**：通道重开路径 `channel_file_open()` 经
+> `CLI_OpenFileByName()` 与 CLI `play` 使用同一套 8.3/LFN 自动选择逻辑。
+> 此前重开仅支持 8.3 短名，长文件名音频在 CH378 单句柄被另一通道或 CLI
+> 文件命令抢占后重开失败（0x42）直接 EOF——双通道场景（如 BGM ch0 +
+> LFN 音效 ch1）必现，短名文件（BGM-01.WAV、PIANO/DRUM）不受影响。
+
 ### 编程接口速查
 
 | 函数 | 说明 |
