@@ -17,6 +17,7 @@ extern "C" {
 
 void ui_games_init(void);
 void ui_games_enter(ui_page_t *page);
+void ui_games_exit(ui_page_t *page);
 
 #ifdef __cplusplus
 }

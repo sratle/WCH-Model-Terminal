@@ -248,14 +248,20 @@ PON（若已 POF）→ PDTM1(0x14) 写区域 OLD → PDTM2(0x15) 写区域 NEW
 | EBook | ✅ 分页字节流 | \BOOK 列表、`read <file> <off> <len>` 按块（4KB）流式阅读，页偏移栈记录每页起始字节，RAM 占用与书长无关；txt/md/json 渲染、明/暗主题、3 档字号 |
 | USB/Power/BT/NFC/Finger/Health/SubDisp/RGB/L-Range/EMusic/Terminal | ⏳ Stub | 标题栏 + 提示页，保留入口 |
 
-RAM 纪律：CLI 应答缓冲 8KB（EBook/Images 零拷贝解析源）；Editor 4KB 编辑缓冲；Music 播放列表 32×64B；Files 条目 32 项；无应用持有 >10KB 私有缓冲。
+RAM 纪律：CLI 应答缓冲 8KB（EBook/Images 零拷贝解析源）；Editor 4KB 编辑缓冲；Music 播放列表 32×64B；Files 条目 32 项（`FILE_LIST_MAX_ENTRIES`；曾试 64 项致 .bss 溢出 .stack 链接失败，RAM 红线不允许放宽）；无应用持有 >10KB 私有缓冲。
 
-### 游戏现状（V2.0）
+### 游戏现状（V2.1）
 
 仅保留 2048 与 Minesweeper（回合制、对局刷友好）；Tetris/Snake/Breakout/Airplane/TouchBall/Contra 已删除（释放约 33KB FLASH）。
 
-- 2048：D-pad 按钮操作（触控板可玩）
-- Minesweeper：挖/旗工具切换按钮 + 单击操作（不依赖双击/长按）
+- 2048：D-pad 按钮操作（触控板可玩）；方向移动生效播放 GEACTION 音效
+- Minesweeper：挖/旗工具切换按钮 + 单击操作（不依赖双击/长按）；挖格播放 SOUND-HIT 音效
+- 音效系统（V2.1，`Common/Common/Sound/`）：与 Display-1 同构的纯 CLI 方案——
+  BGM `/BGM/BGM-01.WAV` 显式 ch0（进/出单个游戏起停、播完自动循环，网格页不触发）、
+  SFX 显式 ch1（GEACTION/SCACTION/SOUND-HIT，长文件名小写 `.wav`）；
+  MiniUI Button/Icon Button/Tab/Switch 及侧边栏页面切换触发 SCACTION 控件音；
+  `config.json` `0102` 段 `operationsound`/`gamebgm` 门控，
+  约定详见 Protocol_Display.md §4.9
 
 ## 项目目录结构
 
@@ -266,6 +272,7 @@ display_2/
 │       ├── Apps/                      # 应用（music/file/editor/images/ebook/stub/apps）
 │       ├── Eink/                      # 墨水屏驱动（epaper + epaper_hw）
 │       ├── Games/                     # 游戏（2048、minesweeper）
+│       ├── Sound/                     # 音效系统（BGM/SFX，纯 CLI 直通方案）
 │       ├── MiniUI/                    # MiniUI 框架（render/page/widget/input + font）
 │       │   └── ui_system.c            # 系统初始化与主循环
 │       ├── Touch/                     # TTP229 触摸矩阵 + 光标管理

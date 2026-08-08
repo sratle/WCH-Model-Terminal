@@ -837,6 +837,7 @@ static void tet_do_move_action(int dcol, int drow)
         if (dcol < 0)      games_rgb_wave_dir(GAMES_DIR_LEFT, GAMES_RGB_WAVE_SPEED);
         else if (dcol > 0) games_rgb_wave_dir(GAMES_DIR_RIGHT, GAMES_RGB_WAVE_SPEED);
         else if (drow > 0) games_rgb_wave_dir(GAMES_DIR_DOWN, GAMES_RGB_WAVE_SPEED);
+        games_sfx_dir();
     }
 
     /* Invalidate new position */
@@ -853,6 +854,7 @@ static void tet_do_rotate(void)
 
     tet_rotate();
     games_rgb_wave_dir(GAMES_DIR_UP, GAMES_RGB_WAVE_SPEED);
+    games_sfx_dir();
 
     tet_inv_cur_piece();
     tet_inv_ghost();
@@ -867,6 +869,7 @@ static void tet_do_hard_drop(void)
 
     tet_hard_drop();
     games_rgb_wave_dir(GAMES_DIR_UP, GAMES_RGB_WAVE_SPEED);
+    games_sfx_dir();
     tet_lock_piece();
 
     int cleared = tet_clear_lines();
@@ -1021,7 +1024,14 @@ static void tet_game_enter(ui_page_t *page)
     s_tet.state = TET_STATE_IDLE;
     tet_update_texts();
     tet_load_best();
+    games_bgm_start();
     ui_page_invalidate_all();
+}
+
+static void tet_game_exit(ui_page_t *page)
+{
+    (void)page;
+    games_bgm_leave();
 }
 
 /* Per-frame game logic update */
@@ -1111,7 +1121,7 @@ void game_tetris_init(void)
     s_tet_widgets[6] = (ui_widget_t *)&s_game_tetris.lbl_title;
     s_tet_widgets[7] = (ui_widget_t *)&s_game_tetris.btn_back;
 
-    ui_page_set_callbacks(&s_game_tetris.page, tet_game_enter, NULL,
+    ui_page_set_callbacks(&s_game_tetris.page, tet_game_enter, tet_game_exit,
                           tet_game_draw, NULL);
     ui_page_set_update_cb(&s_game_tetris.page, tet_game_update);
     ui_page_set_widgets(&s_game_tetris.page, s_tet_widgets, 8);

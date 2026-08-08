@@ -8,9 +8,30 @@
 #include "games.h"
 #include "game_2048.h"
 #include "game_minesweeper.h"
+#include "../Sound/sound.h"
 
 void games_init_all(void)
 {
     game_2048_init();
     game_minesweeper_init();
+}
+
+void games_sfx_dir(void)
+{
+    Sound_SFX_DirAction();
+}
+
+void games_sfx_hit(void)
+{
+    Sound_SFX_Hit();
+}
+
+void games_bgm_start(void)
+{
+    Sound_BGM_Start();
+}
+
+void games_bgm_leave(void)
+{
+    Sound_BGM_Leave();
 }

@@ -518,6 +518,47 @@ Core 在以下场景推送 CWD 通知：
 
 `ls` 命令输出的首行 `--- \PATH ---` 也携带路径信息。Display 侧 `uart_module.c` 在解析 `ls` 输出时，同时提取该头部并通过 `on_cwd_notify` 回调通知应用层，作为 CWD 同步的补充机制。
 
+### 4.9 游戏音效与 BGM 约定（V3.7 纯 CLI 方案）
+
+Display-1/Display-2 的游戏音效系统完全基于 CLI 直通实现，**无新增协议码**。
+所有音频文件以绝对路径寻址（`play` 支持 `\` 或 `/` 开头的绝对路径），
+显式指定通道以避免 `play` 默认的 stop-all 语义。
+
+**通道与文件约定**（BGM-01 为 FAT 8.3 短文件名，大写 `.WAV`；SOUND-* 为长文件名，LFN 区分大小写，按卡上实际小写 `.wav`）：
+
+| 用途 | 路径 | 通道 | CLI 命令 |
+|------|------|------|---------|
+| 游戏 BGM（全部游戏共用一首） | `/BGM/BGM-01.WAV` | ch0 | `play /BGM/BGM-01.WAV 0` |
+| 方向性动作音（GEACTION） | `/SOUND/SOUND-GEACTION.wav` | ch1 | `play /SOUND/SOUND-GEACTION.wav 1` |
+| 通用控件音（SCACTION） | `/SOUND/SOUND-SCACTION.wav` | ch1 | `play /SOUND/SOUND-SCACTION.wav 1` |
+| 击中/吃食/挖雷（HIT） | `/SOUND/SOUND-HIT.wav` | ch1 | `play /SOUND/SOUND-HIT.wav 1` |
+
+**触发约定**：
+
+| 触发点 | 音效 |
+|--------|------|
+| Tetris / 2048 / Snake 方向操作生效（与 RGB wave 联动同点） | GEACTION |
+| Snake 吃到食物 / Airplane 子弹击中敌机 / Minesweeper 挖格（与 RGB ripple 联动同点） | SOUND-HIT |
+| MiniUI Button / Icon Button（应用/游戏入口图标）/ TabView 标签切换 / Switch(Toggle) 翻转 / 侧边栏页面切换 | SCACTION |
+
+**配置门控**（`config.json` Display 段，Display 侧 `config get` 拉取并本地缓存）：
+
+- `operationsound`（1/0）：同时门控 GEACTION、SCACTION、SOUND-HIT 三种音效
+- `gamebgm`（1/0）：门控游戏 BGM 起播
+
+**BGM 生命周期（Display 侧实现）**：
+
+- 进入游戏（每个游戏页的 `on_enter`）：`stop` 清场后 `play ... 0` 起播；
+  幂等——BGM 已在 ch0 播放时仅重新加入会话，不重发
+- 退出游戏（游戏页 `on_exit`）：延迟停止（`stop 0`，不影响 ch1 音效残响），
+  返回游戏网格页后 BGM 不再播放；网格页本身不触发 BGM
+- 循环：Core 无 loop 模式，Display 主循环监听 `MUSIC_STATUS`，
+  ch0 转 IDLE/STOPPED 后重发 `play ... 0`（起播间隔 ≥3s 节流，文件缺失不会刷爆 CLI）；
+  BGM 起/停严格跟随 Games 区会话——`Sound_RefreshConfig` 的异步配置响应只在
+  会话仍活跃时校正 BGM 状态，退出 Games 区后到达的响应不会重启 BGM
+- SFX 按类型独立节流（GEACTION/SCACTION/HIT 各 ≥30ms 互不影响），
+  防止连续输入灌满 UART/CLI 通道，同时避免转向后立刻吃食等场景被误抑制
+
 ---
 
 ## 5. 数据格式详解
@@ -975,3 +1016,4 @@ Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | V3.4 | 2026-07-27 | 热插拔可靠性加固：身份 ACK 指纹约束（LEN 固定 6，废弃扩展字节）；Display OFFLINE 重连或换插不同子类型屏时 Core 自动重发 Config_Apply；Core/Display 侧 USART ISR 增加 ORE 清除 |
 | V3.5 | 2026-08-05 | 用户系统：新增扩展码 0x1D `CMD_DISP_EXT_USER_STATUS`（Core→Display 推送当前登录用户）；CLI 私密文件夹拦截标记 `AUTH_REQUIRED: <path>`；Display 文件管理器认证对话框（PIN/指纹/NFC） |
 | V3.6 | 2026-08-06 | RGB 游戏联动：新增扩展码 0x1E `CMD_DISP_EXT_RGB_EFFECT`（Display→Core 触发 RGB 一次性动画：中心波纹/边缘波浪，事件语义发送即忘）；Games（tetris/2048/snake 方向 wave 速度 8，airplane 击中 ripple 速度 10，minesweeper 挖雷 ripple 速度 6） |
+| V3.7 | 2026-08-08 | 游戏音效系统（纯 CLI 方案，无协议改动）：新增 §4.9——BGM `/BGM/BGM-01.wav` 显式 ch0、SFX 显式 ch1（GEACTION/SCACTION/SOUND-HIT 绝对路径）；`operationsound`/`gamebgm` 配置门控；`rotation` 配置项移除 |

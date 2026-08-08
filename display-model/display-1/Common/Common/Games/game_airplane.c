@@ -627,6 +627,7 @@ static void ap_update(void)
                 e->hp -= AP_BULLET_DAMAGE;
                 b->active = false;
                 games_rgb_ripple(GAMES_RGB_RIPPLE_SPEED_HIT);
+                games_sfx_hit();
                 if (e->hp <= 0) {
                     e->active = false;
                     s_ap.score += AP_SCORE_KILL;
@@ -1024,7 +1025,14 @@ static void ap_game_enter(ui_page_t *page)
     s_ap_touch_active = false;
     ap_reset();
     ap_load_best();
+    games_bgm_start();
     ui_page_invalidate_all();
+}
+
+static void ap_game_exit(ui_page_t *page)
+{
+    (void)page;
+    games_bgm_leave();
 }
 
 /* Per-frame game logic update */
@@ -1081,7 +1089,7 @@ void game_airplane_init(void)
     s_ap_widgets[2] = (ui_widget_t *)&s_game_airplane.btn_back;
 
     ui_page_set_widgets(&s_game_airplane.page, s_ap_widgets, 3);
-    ui_page_set_callbacks(&s_game_airplane.page, ap_game_enter, NULL,
+    ui_page_set_callbacks(&s_game_airplane.page, ap_game_enter, ap_game_exit,
                           ap_game_draw, NULL);
     ui_page_set_update_cb(&s_game_airplane.page, ap_game_update);
     ui_page_register(&s_game_airplane.page);

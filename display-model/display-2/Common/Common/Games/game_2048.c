@@ -8,6 +8,7 @@
 *                      One undo opportunity per game.
 ********************************************************************************/
 #include "game_2048.h"
+#include "games.h"
 #include "../UI/ui_app_common.h"
 #include "../MiniUI/font/ui_font.h"
 #include <string.h>
@@ -443,6 +444,7 @@ static void g4_dpad_event(ui_widget_t *w, ui_event_t *e)
     }
     if (s_g4.state == G4_STATE_PLAYING) {
         if (g4_do_move(dir)) {
+            games_sfx_dir();
             g4_inv_changed_tiles();
             g4_inv_score();
             g4_inv_moves();
@@ -554,7 +556,14 @@ static void g4_game_enter(ui_page_t *page)
 {
     (void)page;
     g4_reset();
+    games_bgm_start();
     ui_page_invalidate_all();
+}
+
+static void g4_game_exit(ui_page_t *page)
+{
+    (void)page;
+    games_bgm_leave();
 }
 
 static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
@@ -575,6 +584,7 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
             else if (e->type == UI_EVENT_KEY_UP_ARROW)     dir = G4_DIR_UP;
             else                                            dir = G4_DIR_DOWN;
             if (g4_do_move(dir)) {
+                games_sfx_dir();
                 g4_inv_changed_tiles();
                 g4_inv_score();
                 g4_inv_moves();
@@ -608,6 +618,7 @@ static void g4_touch_event(ui_widget_t *w, ui_event_t *e)
             else                                       dir = G4_DIR_DOWN;
 
             if (g4_do_move(dir)) {
+                games_sfx_dir();
                 g4_inv_changed_tiles();
                 g4_inv_score();
                 g4_inv_moves();
@@ -706,7 +717,7 @@ void game_2048_init(void)
     s_g4_widgets[6] = (ui_widget_t *)&s_game_2048.btn_back;
 
     ui_page_set_widgets(&s_game_2048.page, s_g4_widgets, 7);
-    ui_page_set_callbacks(&s_game_2048.page, g4_game_enter, NULL,
+    ui_page_set_callbacks(&s_game_2048.page, g4_game_enter, g4_game_exit,
                           g4_game_draw, NULL);
     ui_page_register(&s_game_2048.page);
 }

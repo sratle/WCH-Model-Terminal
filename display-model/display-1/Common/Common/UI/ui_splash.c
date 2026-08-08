@@ -37,12 +37,12 @@ static void splash_on_draw(ui_page_t *page, ui_rect_t *batch)
         bg_cleared = true;
     }
 
-    /* Logo: "ELAB" centered, large (use 16pt font, drawn at center) */
+    /* Logo: "WCH-Terminal" centered, large (use 16pt font, drawn at center) */
     {
-        int16_t logo_w = ui_text_width("ELAB", UI_FONT_TITLE);
+        int16_t logo_w = ui_text_width("WCH-Terminal", UI_FONT_TITLE);
         int16_t logo_x = (UI_SCREEN_WIDTH - logo_w) / 2;
         int16_t logo_y = UI_SCREEN_HEIGHT / 2 - 40;
-        ui_draw_text(logo_x, logo_y, "ELAB", UI_FONT_TITLE, UI_COLOR_PRIMARY);
+        ui_draw_text(logo_x, logo_y, "WCH-Terminal", UI_FONT_TITLE, UI_COLOR_PRIMARY);
     }
 
     /* Subtitle: "Modular Terminal" below logo */

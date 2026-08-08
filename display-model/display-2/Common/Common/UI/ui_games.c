@@ -11,6 +11,7 @@
 #include "ui_games.h"
 #include "ui_main.h"
 #include "../Games/games.h"
+#include "../Sound/sound.h"
 #include "../MiniUI/font/ui_font.h"
 #include "../MiniUI/font/ui_icons_24.h"
 
@@ -96,10 +97,18 @@ void ui_games_init(void)
     }
 
     ui_page_set_widgets(&page_games, s_games_widgets, 1 + GAME_TOTAL);
-    ui_page_set_callbacks(&page_games, ui_games_enter, NULL, NULL, NULL);
+    ui_page_set_callbacks(&page_games, ui_games_enter, ui_games_exit, NULL, NULL);
 }
 
 void ui_games_enter(ui_page_t *page)
+{
+    (void)page;
+    /* Sync operationsound/gamebgm from Core config (BGM starts per-game,
+     * not on this grid page) */
+    Sound_RefreshConfig();
+}
+
+void ui_games_exit(ui_page_t *page)
 {
     (void)page;
 }

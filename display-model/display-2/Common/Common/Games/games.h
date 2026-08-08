@@ -18,4 +18,11 @@ void games_init_all(void);
 ui_page_t *game_2048_get_page(void);
 ui_page_t *game_minesweeper_get_page(void);
 
+/* ---- 音效联动（经 CLI 直通在 Core 播放，ch0=BGM / ch1=SFX） ----
+ * 均受 config.json 0102 的 operationsound / gamebgm 开关门控 */
+void games_sfx_dir(void);    /* 方向性动作音 /SOUND/SOUND-GEACTION.wav */
+void games_sfx_hit(void);    /* 挖雷等命中反馈 /SOUND/SOUND-HIT.wav */
+void games_bgm_start(void);  /* 游戏页 on_enter 调用（幂等，会话式） */
+void games_bgm_leave(void);  /* 游戏页 on_exit 调用（延迟停止） */
+
 #endif

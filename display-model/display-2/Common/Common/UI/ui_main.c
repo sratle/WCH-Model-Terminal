@@ -16,6 +16,7 @@
 #include "ui_userdlg.h"
 #include "../MiniUI/font/ui_font.h"
 #include "../UART/uart_module.h"
+#include "../Sound/sound.h"
 #include <string.h>
 
 /*=============================================================================
@@ -58,7 +59,7 @@ void ui_main_draw_sidebar(ui_rect_t *dirty)
 
     /* Title block */
     ui_rect_t title_rect = {0, 20, SIDEBAR_WIDTH, 40};
-    ui_draw_text_in_rect(&title_rect, "ELAB", UI_FONT_TITLE, UI_COLOR_PRIMARY, 1);
+    ui_draw_text_in_rect(&title_rect, "WCH", UI_FONT_TITLE, UI_COLOR_PRIMARY, 1);
 
     /* Title underline */
     ui_draw_hline(0, 60, SIDEBAR_WIDTH, UI_COLOR_PRIMARY);
@@ -140,6 +141,7 @@ void ui_main_set_menu(menu_item_t item)
     if (item == s_active_menu) return;
 
     s_active_menu = item;
+    Sound_SFX_Click();
 
     switch (item) {
         case MENU_HOME:

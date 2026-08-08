@@ -110,6 +110,7 @@ display-model/display-1/
 │   ├── Common/                     # 自定义公共模块
 │   │   ├── MiniUI/                 # MiniUI V2.0 框架（页面、控件、渲染、输入、动画）
 │   │   ├── Games/                  # 本地小游戏（俄罗斯方块、2048、贪吃蛇、打砖块）
+│   │   ├── Sound/                  # 音效系统（BGM/SFX，纯 CLI 直通方案）
 │   │   ├── Apps/                   # 本地应用（文件管理、音乐、设置、USB 等）
 │   │   ├── FMC/                    # FMC Bank1 NORSRAM 8080 模式驱动
 │   │   ├── hardware.c              # 全局调度与双核初始化入口
@@ -195,6 +196,29 @@ Display 与 Core 指令交互时死机；删除 Game 后"恢复"，本质是把 
 
 **后续代码增长时**：优先把低热度 APP（非帧率驱动）追加到 `.flashcode` 段，
 不要扩大 `RAM_CODE`，也不要把游戏/MiniUI 渲染/协议解析移出 ITCM。
+
+## 音效系统（V4.3，纯 CLI 方案）
+
+音效系统位于 `Common/Common/Sound/sound.c/.h`，完全经 CLI 直通在 Core 播放，
+无新增协议码（约定详见 Protocol_Display.md §4.9）：
+
+- **通道**：BGM 显式 ch0（`/BGM/BGM-01.WAV`，全部游戏共用）；SFX 显式 ch1
+  （BGM-01 为 8.3 短名大写 `.WAV`；SOUND-* 为长文件名小写 `.wav`，LFN 区分大小写）
+- **游戏音效**（`Games/games.c` 封装 `games_sfx_dir()` / `games_sfx_hit()`，
+  与 RGB 联动同触发点）：tetris/2048/snake 方向操作 → `SOUND-GEACTION.wav`；
+  snake 吃食 / airplane 击中 / minesweeper 挖格 → `SOUND-HIT.wav`
+- **控件音**：MiniUI Button / Icon Button（应用/游戏图标）/ TabView 标签切换 /
+  Switch 翻转 / 侧边栏页面切换（`ui_main_set_menu`）→ `SOUND-SCACTION.wav`
+- **BGM 会话**：每个游戏页 `on_enter` → `games_bgm_start()`（幂等）、
+  `on_exit` → `games_bgm_leave()`（延迟停止 `stop 0`）；网格页不触发 BGM，
+  返回网格页即停止；主循环 `Sound_BGM_Poll()` 执行延迟停止并在曲目播完时
+  重发实现循环（≥3s 节流）；`Sound_RefreshConfig` 的异步响应仅在会话活跃时
+  校正 BGM，退出后到达不重启
+- **配置门控**：`config.json` `0101` 段 `operationsound`（同时管三种 SFX）与
+  `gamebgm`；进 Games 页时 `Sound_RefreshConfig()` 经 `config get 0101` 同步到
+  `g_settings.operation_sound` / `g_settings.game_bgm`，设置页修改即时生效
+- **节流**：SFX 按类型独立节流（各 ≥30ms 互不影响），BGM 起播间隔 ≥3s，
+  保护 UART/CLI 通道
 
 ## RGB 游戏联动（V4.2）
 

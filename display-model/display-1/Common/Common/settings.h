@@ -26,6 +26,10 @@ typedef struct {
     uint8_t auto_off_min;   /* Auto screen-off timeout in minutes */
     bool    auto_off_enable;/* Auto screen-off switch */
 
+    /* Sound switches (synced from Core config.json "0101" via CLI) */
+    bool    operation_sound;/* 操作音效开关：GEACTION/SCACTION/SOUND-HIT */
+    bool    game_bgm;       /* 游戏 BGM 开关 */
+
     /* 外接 HID 设备状态 */
     bool    ext_keyboard_connected;  /* 外接键盘是否连接 */
     bool    ext_mouse_connected;     /* 外接鼠标是否连接 */

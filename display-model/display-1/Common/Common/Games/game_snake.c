@@ -353,6 +353,7 @@ static void snk_set_direction(snk_dir_t new_dir)
             GAMES_DIR_UP, GAMES_DIR_DOWN, GAMES_DIR_LEFT, GAMES_DIR_RIGHT
         };
         games_rgb_wave_dir(dir_map[new_dir], GAMES_RGB_WAVE_SPEED);
+        games_sfx_dir();
     }
 }
 
@@ -420,6 +421,7 @@ static void snk_game_tick(void)
         }
     } else {
         /* Eating: grow snake, don't remove tail */
+        games_sfx_hit();
         /* Shift body segments back, length increases */
         for (int i = s_snk.length; i > 0; i--) {
             s_snk.body[i] = s_snk.body[i - 1];
@@ -785,7 +787,14 @@ static void snk_game_enter(ui_page_t *page)
     s_snk.state = SNK_STATE_IDLE;
     snk_update_texts();
     snk_load_best();
+    games_bgm_start();
     ui_page_invalidate_all();
+}
+
+static void snk_game_exit(ui_page_t *page)
+{
+    (void)page;
+    games_bgm_leave();
 }
 
 /* Per-frame game logic update */
@@ -872,7 +881,7 @@ void game_snake_init(void)
     s_snk_widgets[6] = (ui_widget_t *)&s_game_snake.btn_back;
 
     ui_page_set_widgets(&s_game_snake.page, s_snk_widgets, 7);
-    ui_page_set_callbacks(&s_game_snake.page, snk_game_enter, NULL,
+    ui_page_set_callbacks(&s_game_snake.page, snk_game_enter, snk_game_exit,
                           snk_game_draw, NULL);
     ui_page_set_update_cb(&s_game_snake.page, snk_game_update);
     ui_page_register(&s_game_snake.page);

@@ -26,6 +26,7 @@
 #include "debug.h"
 #include "hardware.h"
 #include "../Common/SSD1963/ssd1963.h"
+#include "../Common/Sound/sound.h"
 
 /*********************************************************************
  * @fn      main
@@ -66,6 +67,9 @@ int main(void)
 
 		/* Poll UART for Core input events (keyboard, mouse, core keys) */
 		UART_Module_Poll();
+
+		/* Game BGM loop guard (no-op unless games section is open) */
+		Sound_BGM_Poll();
 
 		/* Wait for VSYNC right before drawing to prevent tearing.
 		 * TE goes high at start of vertical blanking period.

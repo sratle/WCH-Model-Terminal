@@ -42,11 +42,13 @@ const config_default_entry_t config_defaults[] = {
 
     /* Display-LCD (0101) */
     { "0101", "brightness",      80  },
-    { "0101", "rotation",        0   },
+    { "0101", "operationsound",  1   },
+    { "0101", "gamebgm",         1   },
 
     /* Display-Eink (0102) */
     { "0102", "brightness",      50  },
-    { "0102", "rotation",        0   },
+    { "0102", "operationsound",  1   },
+    { "0102", "gamebgm",         1   },
 
     /* Wireless-BT (0201) */
     { "0201", "discoverable",    0   },
@@ -1147,7 +1149,7 @@ void Config_Apply(void)
         Audio_SetVolume((uint8_t)val);
     }
 
-    /* 2. Display: brightness, rotation, screen_timeout (仅当 Display 在线时) */
+    /* 2. Display: brightness, screen_timeout (仅当 Display 在线时) */
     for (i = 0; i < HB_MAX_SLOTS; i++) {
         if (hardware_g.hb_slots[i].module_id == MODULE_ID_DISPLAY &&
             hardware_g.hb_slots[i].status == HB_STATUS_ONLINE) {
@@ -1168,15 +1170,6 @@ void Config_Apply(void)
             if (Config_GetInt(disp_key, "brightness", &val) == 0) {
                 len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
                                          CMD_DISP_SET_BRIGHTNESS,
-                                         (uint8_t[]){(uint8_t)val}, 1,
-                                         buf, sizeof(buf));
-                if (len > 0) Display_Send_Data(&display_g, buf, len);
-            }
-
-            /* rotation */
-            if (Config_GetInt(disp_key, "rotation", &val) == 0) {
-                len = Protocol_PackFrame(MODULE_ID_CORE, MODULE_ID_DISPLAY,
-                                         CMD_DISP_SET_ROTATION,
                                          (uint8_t[]){(uint8_t)val}, 1,
                                          buf, sizeof(buf));
                 if (len > 0) Display_Send_Data(&display_g, buf, len);

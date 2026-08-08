@@ -12,6 +12,7 @@
 #include "../Common/Common/Games/games.h"
 #include "../Common/Common/Apps/apps.h"
 #include "../Common/Common/UART/uart_module.h"
+#include "../Common/Common/Sound/sound.h"
 #include "../Common/Common/debug_cli.h"
 
 /* ui_system functions */
@@ -59,6 +60,7 @@ int main(void)
     while (1)
     {
         UART_Module_Poll();   /* Process received UART frames from Core */
+        Sound_BGM_Poll();     /* Game BGM loop guard (no-op unless games open) */
         Debug_CLI_Poll();     /* Process debug console input (waveform tuning) */
         ui_system_tick();
         Delay_Ms(10);  /* ~100Hz for touch responsiveness; e-ink refresh throttled by dirty list */

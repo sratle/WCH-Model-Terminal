@@ -7,6 +7,7 @@
 ********************************************************************************/
 #include "miniui_widget.h"
 #include "miniui_page.h"
+#include "../Sound/sound.h"
 #include <string.h>
 
 /*=============================================================================
@@ -241,13 +242,17 @@ static void button_event_cb(ui_widget_t *w, ui_event_t *e)
             w->flags &= ~UI_WIDGET_FLAG_PRESSED;
             ui_widget_invalidate(w);
         }
-        if (btn->on_click) btn->on_click(w);
+        if (btn->on_click) {
+            Sound_SFX_Click();
+            btn->on_click(w);
+        }
         break;
     case UI_EVENT_KEY_OK:
         /* Only activate if this button holds keyboard focus (FOCUS flag set
          * by TAB traversal / grid navigation). Prevents KEY_OK broadcast
          * from activating all buttons simultaneously. */
         if ((w->flags & UI_WIDGET_FLAG_FOCUS) && btn->on_click) {
+            Sound_SFX_Click();
             btn->on_click(w);
         }
         break;
@@ -389,13 +394,17 @@ static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
             w->flags &= ~UI_WIDGET_FLAG_PRESSED;
             ui_widget_invalidate(w);
         }
-        if (btn->on_click) btn->on_click(w);
+        if (btn->on_click) {
+            Sound_SFX_Click();
+            btn->on_click(w);
+        }
         break;
     case UI_EVENT_KEY_OK:
         /* Only activate if this button holds keyboard focus (FOCUS flag set
          * by TAB traversal / grid navigation). Prevents KEY_OK broadcast
          * from activating all buttons simultaneously. */
         if ((w->flags & UI_WIDGET_FLAG_FOCUS) && btn->on_click) {
+            Sound_SFX_Click();
             btn->on_click(w);
         }
         break;
@@ -620,6 +629,7 @@ static void switch_event_cb(ui_widget_t *w, ui_event_t *e)
     case UI_EVENT_DOUBLE_CLICK:
         sw->state = !sw->state;
         ui_widget_invalidate(w);
+        Sound_SFX_Click();
         if (sw->on_toggle) sw->on_toggle(w, sw->state);
         break;
     case UI_EVENT_KEY_OK:
@@ -628,6 +638,7 @@ static void switch_event_cb(ui_widget_t *w, ui_event_t *e)
         if (w->flags & UI_WIDGET_FLAG_FOCUS) {
             sw->state = !sw->state;
             ui_widget_invalidate(w);
+            Sound_SFX_Click();
             if (sw->on_toggle) sw->on_toggle(w, sw->state);
         }
         break;
@@ -978,6 +989,7 @@ static void tabview_event_cb(ui_widget_t *w, ui_event_t *e)
             if (idx >= 0 && idx < tv->tab_count && idx != tv->active_tab) {
                 tv->active_tab = (uint8_t)idx;
                 ui_widget_invalidate(w);
+                Sound_SFX_Click();
                 if (tv->on_tab_change) tv->on_tab_change(w, tv->active_tab);
             }
         }

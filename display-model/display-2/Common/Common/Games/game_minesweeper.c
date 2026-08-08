@@ -10,6 +10,7 @@
 *                      Optimized dirty-rect partial refresh.
 ********************************************************************************/
 #include "game_minesweeper.h"
+#include "games.h"
 #include "../UI/ui_app_common.h"
 #include "../MiniUI/font/ui_font.h"
 #include <string.h>
@@ -363,6 +364,9 @@ static bool mine_reveal_cell(int row, int col)
         mine_place_mines(row, col);
         s_mine.frame_count = 0;
     }
+
+    /* Dig sound effect */
+    games_sfx_hit();
 
     /* Hit a mine */
     if (s_mine.flags[row][col] & CELL_MINE) {
@@ -851,7 +855,14 @@ static void mine_game_enter(ui_page_t *page)
     s_mine.state = MINE_STATE_IDLE;
     s_mine.tool = TOOL_DIG;
     mine_update_texts();
+    games_bgm_start();
     ui_page_invalidate_all();
+}
+
+static void mine_game_exit(ui_page_t *page)
+{
+    (void)page;
+    games_bgm_leave();
 }
 
 /* Per-frame game logic update (timer) */
@@ -953,7 +964,7 @@ void game_minesweeper_init(void)
     s_mine_widgets[6] = (ui_widget_t *)&s_game_mine.btn_back;
 
     ui_page_set_widgets(&s_game_mine.page, s_mine_widgets, 7);
-    ui_page_set_callbacks(&s_game_mine.page, mine_game_enter, NULL,
+    ui_page_set_callbacks(&s_game_mine.page, mine_game_enter, mine_game_exit,
                           mine_game_draw, NULL);
     ui_page_set_update_cb(&s_game_mine.page, mine_game_update);
     ui_page_register(&s_game_mine.page);

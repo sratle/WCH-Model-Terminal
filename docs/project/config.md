@@ -81,11 +81,13 @@ CH378 下挂存储介质根目录下的 `\CONFIG` 目录为持久化根路径：
   },
   "0101": {
     "brightness": 80,
-    "rotation": 0
+    "operationsound": 1,
+    "gamebgm": 1
   },
   "0102": {
     "brightness": 50,
-    "rotation": 0
+    "operationsound": 1,
+    "gamebgm": 1
   },
   "0201": {
     "discoverable": 0
@@ -452,7 +454,7 @@ uint8_t Config_DeleteFile(const char *filename);
 /**
  * @brief  将当前配置应用到各硬件模块
  *         - Audio_SetVolume(volume)
- *         - Display_Send brightness/rotation/screen_timeout
+ *         - Display_Send brightness/screen_timeout
  *         - Keyboard_Send backlight
  *         - Power_Send report_interval
  *         - Wireless_Send discoverable
@@ -539,7 +541,8 @@ Error: key not found
 ```
 > config get 0101
 brightness:80
-rotation:0
+operationsound:1
+gamebgm:1
 
 > config get 0505
 rgb_mode:1
@@ -693,7 +696,8 @@ screen_timeout
 ```
 > config getkey 0101
 brightness
-rotation
+operationsound
+gamebgm
 ```
 
 #### `config getkey <file.json>`
@@ -908,11 +912,13 @@ static const config_default_entry_t config_defaults[] = {
 
     /* Display-LCD (0101) */
     { "0101", "brightness",      80  },
-    { "0101", "rotation",        0   },
+    { "0101", "operationsound",  1   },
+    { "0101", "gamebgm",         1   },
 
     /* Display-Eink (0102) */
     { "0102", "brightness",      50  },
-    { "0102", "rotation",        0   },
+    { "0102", "operationsound",  1   },
+    { "0102", "gamebgm",         1   },
 
     /* Wireless-BT (0201) */
     { "0201", "discoverable",    0   },

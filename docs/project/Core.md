@@ -264,6 +264,10 @@ TF卡/USB
 | `play song.wav 0` | 仅停止 ch0，在 ch0 播放（不影响 ch1） |
 | `play bgm.wav 1` | 仅停止 ch1，在 ch1 播放（不影响 ch0） |
 
+> 支持绝对路径（以 `\` 或 `/` 开头，如 `play /BGM/BGM-01.wav 0`）与相对路径
+> （基于当前工作目录拼接）。Display 游戏音效系统利用此特性：BGM 显式 ch0、
+> SFX 显式 ch1 互不打断（约定见 Protocol_Display.md §4.9）。
+
 #### `pause [channel]` / `resume [channel]` — 暂停/恢复
 
 | 用法 | 行为 |

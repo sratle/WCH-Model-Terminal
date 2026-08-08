@@ -11,6 +11,7 @@
 #include "miniui_input.h"
 #include "miniui_page.h"
 #include "font/ui_font.h"
+#include "../Sound/sound.h"
 #include "debug.h"
 #include <string.h>
 
@@ -193,6 +194,7 @@ static void button_event_cb(ui_widget_t *w, ui_event_t *e)
         w->flags &= ~UI_WIDGET_FLAG_PRESSED;
         ui_widget_invalidate(w);
         if (btn->on_click && ui_widget_hit_test(w, e->touch.x, e->touch.y)) {
+            Sound_SFX_Click();
             btn->on_click(w);
         }
     } else if (e->type == UI_EVENT_TOUCH_CANCEL) {
@@ -201,6 +203,7 @@ static void button_event_cb(ui_widget_t *w, ui_event_t *e)
     } else if (e->type == UI_EVENT_KEY_OK) {
         /* Keyboard activation of the TAB-focused button (FOCUS flag). */
         if ((w->flags & UI_WIDGET_FLAG_FOCUS) && btn->on_click) {
+            Sound_SFX_Click();
             btn->on_click(w);
         }
     }
@@ -297,6 +300,7 @@ static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
         w->flags &= ~UI_WIDGET_FLAG_PRESSED;
         ui_widget_invalidate(w);
         if (btn->on_click && ui_widget_hit_test(w, e->touch.x, e->touch.y)) {
+            Sound_SFX_Click();
             btn->on_click(w);
         }
     } else if (e->type == UI_EVENT_TOUCH_CANCEL) {
@@ -305,6 +309,7 @@ static void icon_button_event_cb(ui_widget_t *w, ui_event_t *e)
     } else if (e->type == UI_EVENT_KEY_OK) {
         /* Keyboard activation of the TAB-focused icon button (FOCUS flag). */
         if ((w->flags & UI_WIDGET_FLAG_FOCUS) && btn->on_click) {
+            Sound_SFX_Click();
             btn->on_click(w);
         }
     }
@@ -489,12 +494,14 @@ static void switch_event_cb(ui_widget_t *w, ui_event_t *e)
         if (ui_widget_hit_test(w, e->touch.x, e->touch.y)) {
             sw->state = !sw->state;
             ui_widget_invalidate(w);
+            Sound_SFX_Click();
             if (sw->on_toggle) sw->on_toggle(w, sw->state);
         }
     } else if (e->type == UI_EVENT_KEY_OK && (w->flags & UI_WIDGET_FLAG_FOCUS)) {
         /* Keyboard toggle of the TAB-focused switch. */
         sw->state = !sw->state;
         ui_widget_invalidate(w);
+        Sound_SFX_Click();
         if (sw->on_toggle) sw->on_toggle(w, sw->state);
     }
 }
@@ -819,6 +826,7 @@ static void tabview_event_cb(ui_widget_t *w, ui_event_t *e)
             if (idx >= 0 && idx < tv->tab_count && idx != tv->active_tab) {
                 tv->active_tab = (uint8_t)idx;
                 ui_widget_invalidate(w);
+                Sound_SFX_Click();
                 if (tv->on_tab_change) tv->on_tab_change(w, tv->active_tab);
             }
         }

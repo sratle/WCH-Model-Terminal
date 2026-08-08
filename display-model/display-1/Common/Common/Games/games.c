@@ -5,6 +5,7 @@
 #include "game_airplane.h"
 #include "game_minesweeper.h"
 #include "../UART/uart_module.h"
+#include "../Sound/sound.h"
 
 void games_init_all(void)
 {
@@ -37,4 +38,29 @@ void games_rgb_wave_dir(games_dir_t dir, uint8_t speed)
     if (dir > GAMES_DIR_DOWN)
         return;
     UART_SendRgbWave(dir_map[dir], speed);
+}
+
+void games_sfx_dir(void)
+{
+    Sound_SFX_DirAction();
+}
+
+void games_sfx_hit(void)
+{
+    Sound_SFX_Hit();
+}
+
+void games_bgm_poll(void)
+{
+    Sound_BGM_Poll();
+}
+
+void games_bgm_start(void)
+{
+    Sound_BGM_Start();
+}
+
+void games_bgm_leave(void)
+{
+    Sound_BGM_Leave();
 }

@@ -9,6 +9,7 @@
 #include "ui_main.h"
 #include "ui_userdlg.h"
 #include "../UART/uart_module.h"
+#include "../Sound/sound.h"
 #include <string.h>
 
 /*=============================================================================
@@ -46,7 +47,7 @@ void ui_main_draw_sidebar(ui_rect_t *dirty)
     ui_draw_fill_rect(&sidebar, UI_COLOR_BG_SIDEBAR);
 
     ui_rect_t title_rect = {0, 20, SIDEBAR_WIDTH, 40};
-    ui_draw_text_in_rect(&title_rect, "ELAB", UI_FONT_TITLE, UI_COLOR_PRIMARY, 1);
+    ui_draw_text_in_rect(&title_rect, "WCH", UI_FONT_TITLE, UI_COLOR_PRIMARY, 1);
 
     for (int i = 0; i < SIDEBAR_ITEM_COUNT; i++) {
         ui_rect_t item_rect = {
@@ -107,6 +108,7 @@ void ui_main_set_menu(menu_item_t item)
     if (item == s_active_menu) return;
 
     s_active_menu = item;
+    Sound_SFX_Click();
 
     switch (item) {
         case MENU_HOME:

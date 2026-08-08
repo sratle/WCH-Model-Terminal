@@ -261,7 +261,7 @@ extern "C" {
  *=============================================================================*/
 
 #define FILE_NAME_MAX_LEN       64
-#define FILE_LIST_MAX_ENTRIES   32
+#define FILE_LIST_MAX_ENTRIES   64
 
 #define FILE_ATTR_IS_DIR        (1 << 0)
 #define FILE_ATTR_READONLY      (1 << 1)

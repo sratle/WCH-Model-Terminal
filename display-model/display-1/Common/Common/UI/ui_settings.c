@@ -61,7 +61,8 @@ static const cfg_item_def_t s_core_items[] = {
 
 static const cfg_item_def_t s_display_items[] = {
     { "0101", "brightness",     "Brightness",        0, 100, 80 },
-    { "0101", "rotation",       "Rotation",          0, 270, 0 },
+    { "0101", "operationsound", "Operation Sound",   0, 1,   1 },
+    { "0101", "gamebgm",        "Game BGM",          0, 1,   1 },
 };
 
 static const cfg_item_def_t s_keyboard_items[] = {
@@ -88,7 +89,7 @@ static const cfg_item_def_t s_system_items[] = {
 
 static const cfg_tab_def_t s_tabs[SETTINGS_TAB_COUNT] = {
     { "Core",      3, s_core_items      },
-    { "Display",   2, s_display_items   },
+    { "Display",   3, s_display_items   },
     { "Keyboard",  3, s_keyboard_items  },
     { "Submodels", 8, s_submodel_items  },
     { "System",    2, s_system_items    },
@@ -482,6 +483,15 @@ static void settings_on_cli_complete(const char *buf, uint16_t len, const char *
             const char *key = line;
             int val = atoi(colon + 1);
 
+            /* Keep the runtime sound-switch cache in sync with Core config */
+            if (strcmp(cur_mk, "0101") == 0) {
+                if (strcmp(key, "operationsound") == 0) {
+                    g_settings.operation_sound = (val != 0);
+                } else if (strcmp(key, "gamebgm") == 0) {
+                    g_settings.game_bgm = (val != 0);
+                }
+            }
+
             for (uint8_t t = 0; t < SETTINGS_TAB_COUNT; t++) {
                 for (uint8_t i = 0; i < s_tabs[t].item_count; i++) {
                     if (strcmp(s_tabs[t].items[i].module_key, cur_mk) == 0 &&
@@ -564,6 +574,13 @@ static void slider_change(ui_widget_t *w, int16_t value)
         g_settings.backlight = (uint8_t)((uint16_t)value * 255 / 100);
         SSD1963_SetBacklight(g_settings.backlight);
     }
+    /* Apply locally for sound switches (slider path, defensive) */
+    if (strcmp(item->module_key, "0101") == 0 && strcmp(item->key, "operationsound") == 0) {
+        g_settings.operation_sound = (value != 0);
+    }
+    if (strcmp(item->module_key, "0101") == 0 && strcmp(item->key, "gamebgm") == 0) {
+        g_settings.game_bgm = (value != 0);
+    }
 
     /* Update label with new value */
     snprintf(s_item_labels[idx], sizeof(s_item_labels[idx]),
@@ -579,6 +596,14 @@ static void switch_toggle(ui_widget_t *w, bool state)
 
     const cfg_item_def_t *item = &s_tabs[tab_idx].items[idx];
     s_tab_values[tab_idx][idx] = state ? 1 : 0;
+
+    /* Apply locally for sound switches (immediate effect, before config save) */
+    if (strcmp(item->module_key, "0101") == 0 && strcmp(item->key, "operationsound") == 0) {
+        g_settings.operation_sound = state;
+    }
+    if (strcmp(item->module_key, "0101") == 0 && strcmp(item->key, "gamebgm") == 0) {
+        g_settings.game_bgm = state;
+    }
 
     char cmd[64];
     snprintf(cmd, sizeof(cmd), "config set %s %s %d",
