@@ -68,12 +68,21 @@ extern "C" {
 #define FW_MINOR_VERSION        0x00
 
 /*=============================================================================
- *  Layout Constants
+ *  Layout Constants (122x250 screen, font_montserrat_12: height 15, baseline 12)
+ *
+ *  行高预算：文字行盒 = y .. y+15（glyph 顶 y+0、下伸 y+15），
+ *  图标最高 13px。标准行距 20px，保证行间 4~5px 间隙。
+ *  图标列 x=4（最宽图标 USB=16px，占 4..19），文字列统一 x=24。
  *=============================================================================*/
 
 #define LAYOUT_STATUS_BAR_H     20      /* Top status bar height */
 #define LAYOUT_CONTENT_Y        24      /* Content area start Y */
-#define LAYOUT_CONTENT_H        226     /* Content area height (250-24) */
+#define LAYOUT_CONTENT_H        210     /* Content area height (234-24), 不压页码条 */
+#define LAYOUT_PAGE_IND_H       16      /* Bottom page indicator bar height (234..249) */
+#define LAYOUT_ROW_H            20      /* Standard row pitch */
+#define LAYOUT_ICON_X           4       /* Icon column X */
+#define LAYOUT_TEXT_X           24      /* Text column X (icon 4..19 + gap) */
+#define LAYOUT_RIGHT_MARGIN     4       /* Right edge margin */
 
 /*=============================================================================
  *  Bulk Image Transfer State

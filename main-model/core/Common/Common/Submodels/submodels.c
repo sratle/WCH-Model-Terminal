@@ -2052,11 +2052,15 @@ uint8_t Submodels_SubDisp_SendSysStatus(submodels_t *submodel)
         status_buf[offset++] = (uint8_t)(play_time & 0xFF);
     }
 
-    /* 电量百分比（Power 模块暂无精确接口，默认 0xFF=未知） */
-    status_buf[offset++] = 0xFF;
-
-    /* 充电状态 */
-    status_buf[offset++] = 0x00;
+    /* 电量百分比与充电状态：Power 模块已上报过状态时用真实值，
+     * 否则 0xFF=未知 / 0=未充电 */
+    if (power_g.has_status) {
+        status_buf[offset++] = power_g.battery_pct;
+        status_buf[offset++] = (power_g.charge_flags & 0x01) ? 0x01 : 0x00;
+    } else {
+        status_buf[offset++] = 0xFF;
+        status_buf[offset++] = 0x00;
+    }
 
     /* 蓝牙连接数（CH585F 暂无接口，默认 0） */
     status_buf[offset++] = 0x00;

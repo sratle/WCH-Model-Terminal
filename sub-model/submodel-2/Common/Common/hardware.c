@@ -172,15 +172,24 @@ void Hardware_ReportHealthData(void)
     /* Format: [子命令:1][心跳:1][血氧:1][HRV:2(BE)] */
     uint8_t data[5];
     uint16_t hrv;
+    uint8_t hr, spo2;
 
     if (max30102_ctx.state != HEALTH_STATE_MONITORING)
+        return;
+
+    hr = Max30102_GetHeartRate();
+    spo2 = Max30102_GetSpO2();
+
+    /* 算法尚未产出有效值时（首次上报/信号未稳定）HR/SpO2 为 0，
+     * 0 值无生理意义且会污染 Core 侧统计，直接跳过本次上报 */
+    if (hr == 0 || spo2 == 0)
         return;
 
     hrv = Max30102_GetHRV();
 
     data[0] = HEALTH_SUB_DATA_REPORT;
-    data[1] = Max30102_GetHeartRate();
-    data[2] = Max30102_GetSpO2();
+    data[1] = hr;
+    data[2] = spo2;
     data[3] = (uint8_t)(hrv >> 8);
     data[4] = (uint8_t)(hrv & 0xFF);
 
