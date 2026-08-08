@@ -376,6 +376,14 @@ typedef struct {
 void UART_SetCLICallbacks(const uart_cli_cb_t *cb);
 void UART_ClearCLICallbacks(void);
 
+/* Register a non-exclusive system-level CLI response observer.
+ * Unlike UART_SetCLICallbacks (single exclusive slot consumed by apps),
+ * this observer is permanent and receives EVERY assembled CLI response
+ * (on_cli_complete semantics), independent of the app callback slot.
+ * Intended for firmware-internal services (e.g. Sound config sync) so
+ * they never contend with app/page callback registrations. */
+void UART_SetSystemCLIObserver(void (*cb)(const char *buf, uint16_t len, const char *tag));
+
 /*=============================================================================
  *  Music Control Types  (Protocol_Display.md §5.2)
  *=============================================================================*/

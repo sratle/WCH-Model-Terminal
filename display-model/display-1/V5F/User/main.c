@@ -50,6 +50,8 @@ int main(void)
 
 	Hardware_V5F_Init();
 
+	Sound_Init();  /* Register CLI system observer (sound config sync) */
+
 	/* Initialize TE (Tearing Effect) sync: PB8 connected to SSD1963 TE pin */
 	SSD1963_TE_Init();
 

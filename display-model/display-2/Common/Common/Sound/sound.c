@@ -148,10 +148,9 @@ void Sound_BGM_Poll(void)
 
 static void sound_on_cli_complete(const char *buf, uint16_t len, const char *tag)
 {
-    /* NOTE: do NOT filter by tag — UART_SendCLI updates the global tag on
-     * every send, so after back-to-back "config get"+"stop"+"play" the tag
-     * is already "play" when the config response arrives. The config
-     * response is identified by its "key:value" content instead. */
+    /* Called via UART_SetSystemCLIObserver: permanent and non-exclusive,
+     * receives EVERY CLI response — must only react to the config keys we
+     * care about and never touch the app callback slot. */
     (void)tag;
 
     if (buf) {
@@ -185,8 +184,8 @@ static void sound_on_cli_complete(const char *buf, uint16_t len, const char *tag
 
         /* Reconcile BGM with the freshly fetched switch, but ONLY while a
          * games session is active — the config response may arrive after the
-         * user already left the games section, and starting BGM here would
-         * then loop forever outside games (s_bgm_active stays true). */
+         * user already left the game, and starting BGM here would then loop
+         * forever outside games (s_bgm_active stays true). */
         if (s_bgm_active) {
             if (g_settings.game_bgm) {
                 Sound_BGM_Start();
@@ -195,17 +194,12 @@ static void sound_on_cli_complete(const char *buf, uint16_t len, const char *tag
             }
         }
     }
-    /* One-shot: release the CLI callback slot for apps */
-    UART_ClearCLICallbacks();
 }
 
 void Sound_RefreshConfig(void)
 {
-    uart_cli_cb_t cb;
-    memset(&cb, 0, sizeof(cb));
-    cb.on_cli_complete = sound_on_cli_complete;
-    UART_SetCLICallbacks(&cb);
-
+    /* Send only — the response reaches sound_on_cli_complete via the
+     * permanent system observer, no callback-slot registration needed. */
     char cmd[32];
     snprintf(cmd, sizeof(cmd), "config get %s", SOUND_CONFIG_KEY);
     UART_SendCLI(cmd);
@@ -213,5 +207,5 @@ void Sound_RefreshConfig(void)
 
 void Sound_Init(void)
 {
-    /* Defaults live in settings_load_defaults(); nothing else needed yet. */
+    UART_SetSystemCLIObserver(sound_on_cli_complete);
 }

@@ -545,6 +545,9 @@ Display-1/Display-2 的游戏音效系统完全基于 CLI 直通实现，**无�
 
 - `operationsound`（1/0）：同时门控 GEACTION、SCACTION、SOUND-HIT 三种音效
 - `gamebgm`（1/0）：门控游戏 BGM 起播
+- Display 侧经 `UART_SetSystemCLIObserver`（非独占系统级 CLI 响应观察槽，
+  V3.7 新增）接收 `config get` 响应，不与应用独占的 CLI 回调槽争抢；
+  Models 页 `lsdev` 等页面级拉取带 3s pending 超时兜底
 
 **BGM 生命周期（Display 侧实现）**：
 

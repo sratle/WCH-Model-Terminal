@@ -90,6 +90,12 @@ static ui_widget_t *s_models_widgets[6];
 
 static bool s_models_inited = false;
 static bool s_lsdev_pending = false;
+static uint32_t s_lsdev_sent_ms = 0;
+
+/* Re-send guard: if the lsdev response is lost or consumed by another
+ * consumer (CLI callback slot is exclusive and can be preempted), the
+ * pending flag must not wedge the page forever — retry after 3s. */
+#define LSDEV_PENDING_TIMEOUT_MS  3000
 
 /*=============================================================================
  *  Forward Declarations
@@ -412,8 +418,10 @@ void ui_models_enter(ui_page_t *page)
     }
 
     /* Send lsdev command to query current module status */
-    if (!s_lsdev_pending) {
+    if (!s_lsdev_pending ||
+        (uint32_t)(ui_get_real_ms() - s_lsdev_sent_ms) > LSDEV_PENDING_TIMEOUT_MS) {
         s_lsdev_pending = true;
+        s_lsdev_sent_ms = ui_get_real_ms();
         UART_SetCLICallbacks(&s_models_cb);
         UART_SendCLI("lsdev");
     }

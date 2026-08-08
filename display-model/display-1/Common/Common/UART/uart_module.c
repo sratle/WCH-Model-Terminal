@@ -87,7 +87,14 @@ void UART_ClearCLICallbacks(void)
 {
     memset(&s_cli_cb, 0, sizeof(uart_cli_cb_t));
     s_cli_cb_valid = false;
-    g_pending_req = PENDING_NONE;
+}
+
+/* Non-exclusive system-level CLI response observer (see header) */
+static void (*s_sys_cli_observer)(const char *buf, uint16_t len, const char *tag) = NULL;
+
+void UART_SetSystemCLIObserver(void (*cb)(const char *buf, uint16_t len, const char *tag))
+{
+    s_sys_cli_observer = cb;
 }
 
 const char *UART_GetCLIBuf(void) { return s_cli_resp_buf; }
@@ -1243,6 +1250,11 @@ static void cli_resp_dispatch(void)
     s_cli_resp_buf[s_cli_resp_len] = '\0';
     printf("[CLI] dispatch tag='%s' len=%d p_ls=%d\r\n",
            s_cli_cmd_tag, s_cli_resp_len, s_pending_ls_after_cd);
+
+    /* System observer first: permanent, non-exclusive, always notified */
+    if (s_sys_cli_observer) {
+        s_sys_cli_observer(s_cli_resp_buf, s_cli_resp_len, s_cli_cmd_tag);
+    }
 
     if (!s_cli_cb_valid) return;
 

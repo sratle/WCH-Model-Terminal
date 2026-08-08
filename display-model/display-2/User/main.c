@@ -43,6 +43,9 @@ int main(void)
     /* Initialize UART1 module for Core communication (USART1 PA9-TX/PA10-RX) */
     UART_Module_Init();
 
+    /* Register CLI system observer (sound config sync) */
+    Sound_Init();
+
     /* Initialize MiniUI system (includes e-paper init) */
     ui_system_init();
 

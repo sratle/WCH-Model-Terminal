@@ -80,6 +80,12 @@ static ui_widget_t *s_models_widgets[6];
 
 static bool s_models_inited = false;
 static bool s_lsdev_pending = false;
+static uint32_t s_lsdev_sent_ms = 0;
+
+/* Re-send guard: if the lsdev response is lost or consumed by another
+ * consumer (CLI callback slot is exclusive and can be preempted), the
+ * pending flag must not wedge the page forever — retry after 3s. */
+#define LSDEV_PENDING_TIMEOUT_MS  3000
 
 static char s_core_info_text[3][24];
 static char s_sub_info_text[3][24];
@@ -321,8 +327,10 @@ void ui_models_notify_module_change(void)
 {
     /* Re-fetch only when the Models page is visible and no fetch is running */
     if (ui_page_current() != &page_models) return;
-    if (s_lsdev_pending) return;
+    if (s_lsdev_pending &&
+        (uint32_t)(ui_get_real_ms() - s_lsdev_sent_ms) <= LSDEV_PENDING_TIMEOUT_MS) return;
     s_lsdev_pending = true;
+    s_lsdev_sent_ms = ui_get_real_ms();
     UART_SetCLICallbacks(&s_models_cb);
     UART_SendCLI("lsdev");
 }
@@ -354,8 +362,10 @@ void ui_models_enter(ui_page_t *page)
         s_models_inited = true;
     }
 
-    if (!s_lsdev_pending) {
+    if (!s_lsdev_pending ||
+        (uint32_t)(ui_get_real_ms() - s_lsdev_sent_ms) > LSDEV_PENDING_TIMEOUT_MS) {
         s_lsdev_pending = true;
+        s_lsdev_sent_ms = ui_get_real_ms();
         UART_SetCLICallbacks(&s_models_cb);
         UART_SendCLI("lsdev");
     }

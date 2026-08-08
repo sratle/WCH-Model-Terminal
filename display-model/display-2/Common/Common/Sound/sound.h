@@ -34,12 +34,14 @@ extern "C" {
 #define SOUND_PATH_CLICK      "/SOUND/SOUND-SCACTION.wav"
 #define SOUND_PATH_HIT        "/SOUND/SOUND-HIT.wav"
 
-/* One-time init (registers nothing permanently; safe to call at UI init) */
+/* One-time init: registers the permanent system CLI observer used to sync
+ * operationsound/gamebgm. Call once at startup (after UART_Module_Init). */
 void Sound_Init(void);
 
 /* Fetch operationsound/gamebgm from Core config ("config get <display key>")
- * and update the local g_settings cache. Registers a temporary CLI callback;
- * call only when no app holds CLI callbacks (e.g. games page enter). */
+ * and update the local g_settings cache. Send-only; the response arrives at
+ * the permanent system observer (non-exclusive, never contends with the
+ * app CLI callback slot). Safe to call on every games page enter. */
 void Sound_RefreshConfig(void);
 
 /* Game BGM (ch0) — session semantics:
