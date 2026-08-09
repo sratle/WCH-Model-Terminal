@@ -1,14 +1,15 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : bsp_buzzer.c
 * Author             : WCH-DevBoard Team
-* Version            : V1.0.0
+* Version            : V1.1.0
 * Date               : 2026/08/08
-* Description        : Passive buzzer driver - TIM2 update interrupt toggles
-*                      PB15 at twice the requested tone frequency.
+* Description        : Passive buzzer driver - TIM1_CH3N hardware PWM on PB15.
 *
-*                      Timebase: TIM2 clock = 144 MHz on this board.
-*                      Prescaler 143 -> 1 MHz counter (1 us resolution).
-*                      ARR = 1 MHz / (2 * freq) - 1.
+*                      Tone frequency = TIM1_CLK / ((PSC+1) * (ARR+1)),
+*                      TIM1 clock = 144 MHz (APB2). The prescaler is chosen
+*                      at runtime so ARR always fits in 16 bits.
+*                      Duty is fixed at 50%; when stopped, PB15 falls back
+*                      to a plain GPIO output driven high (PNP cut off).
 ********************************************************************************/
 #include "bsp_buzzer.h"
 #include "ch32v30x.h"
@@ -19,40 +20,51 @@
  *=============================================================================*/
 
 #define BUZZER_PORT     GPIOB
-#define BUZZER_PIN      GPIO_Pin_15     /* PB15 - PNP base, low = sound  */
+#define BUZZER_PIN      GPIO_Pin_15     /* PB15 = TIM1_CH3N              */
 
-#define BUZZER_IDLE()   GPIO_SetBits(BUZZER_PORT, BUZZER_PIN)   /* off   */
-#define BUZZER_TOGGLE() (BUZZER_PORT->OUTDR ^= BUZZER_PIN)
-
-/* TIM2 counter frequency after the fixed prescaler */
-#define BUZZER_TIMER_HZ 1000000UL
+#define BUZZER_DUTY_PCT 50              /* Fixed duty cycle (%)          */
 
 /*=============================================================================
  *  Module State
  *=============================================================================*/
 
-static volatile uint8_t s_sounding = 0;
+static uint8_t s_sounding = 0;
 
 /*=============================================================================
- *  Interrupt Handler
+ *  Private Helpers
  *=============================================================================*/
 
 /*********************************************************************
- * @fn      TIM2_IRQHandler
+ * @fn      BUZZER_PinGpio
  *
- * @brief   Toggle the buzzer pin on every update event while sounding.
+ * @brief   PB15 as plain push-pull output, driven high (buzzer off).
  *
  * @return  none
  */
-void TIM2_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
-void TIM2_IRQHandler(void)
+static void BUZZER_PinGpio(void)
 {
-    if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET) {
-        TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
-        if (s_sounding) {
-            BUZZER_TOGGLE();
-        }
-    }
+    GPIO_InitTypeDef gpio;
+    gpio.GPIO_Pin   = BUZZER_PIN;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    gpio.GPIO_Mode  = GPIO_Mode_Out_PP;
+    GPIO_Init(BUZZER_PORT, &gpio);
+    GPIO_SetBits(BUZZER_PORT, BUZZER_PIN);
+}
+
+/*********************************************************************
+ * @fn      BUZZER_PinPwm
+ *
+ * @brief   PB15 as TIM1_CH3N alternate function output.
+ *
+ * @return  none
+ */
+static void BUZZER_PinPwm(void)
+{
+    GPIO_InitTypeDef gpio;
+    gpio.GPIO_Pin   = BUZZER_PIN;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    gpio.GPIO_Mode  = GPIO_Mode_AF_PP;
+    GPIO_Init(BUZZER_PORT, &gpio);
 }
 
 /*=============================================================================
@@ -61,64 +73,65 @@ void TIM2_IRQHandler(void)
 
 void BUZZER_Init(void)
 {
-    GPIO_InitTypeDef gpio;
-    TIM_TimeBaseInitTypeDef tim;
-    NVIC_InitTypeDef nvic;
-
-    /* PB15: push-pull output, idle high (PNP off) */
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
-    gpio.GPIO_Pin   = BUZZER_PIN;
-    gpio.GPIO_Speed = GPIO_Speed_50MHz;
-    gpio.GPIO_Mode  = GPIO_Mode_Out_PP;
-    GPIO_Init(BUZZER_PORT, &gpio);
-    BUZZER_IDLE();
-
-    /* TIM2: 1 MHz up-counter, update interrupt, stopped for now */
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
-    tim.TIM_Prescaler     = (uint16_t)((SystemCoreClock / BUZZER_TIMER_HZ) - 1);
-    tim.TIM_CounterMode   = TIM_CounterMode_Up;
-    tim.TIM_Period        = 100 - 1;            /* Placeholder 5 kHz     */
-    tim.TIM_ClockDivision = TIM_CKD_DIV1;
-    tim.TIM_RepetitionCounter = 0;
-    TIM_TimeBaseInit(TIM2, &tim);
-    TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
-    TIM_ITConfig(TIM2, TIM_IT_Update, ENABLE);
-
-    nvic.NVIC_IRQChannel                   = TIM2_IRQn;
-    nvic.NVIC_IRQChannelPreemptionPriority = 1;
-    nvic.NVIC_IRQChannelSubPriority        = 1;
-    nvic.NVIC_IRQChannelCmd                = ENABLE;
-    NVIC_Init(&nvic);
+    BUZZER_PinGpio();
+    s_sounding = 0;
 }
 
 void BUZZER_On(uint32_t freq_hz)
 {
-    uint32_t arr;
+    TIM_TimeBaseInitTypeDef tim;
+    TIM_OCInitTypeDef       oc;
+    uint32_t psc, arr;
+    uint32_t timer_clk = SystemCoreClock;   /* TIM1 on APB2 = 144 MHz   */
 
     if (freq_hz == 0) {
         BUZZER_Off();
         return;
     }
 
-    /* Toggle twice per period -> interrupt rate = 2 * freq */
-    arr = BUZZER_TIMER_HZ / (2 * freq_hz);
+    /* Pick the smallest prescaler that keeps ARR within 16 bits:
+     *     (PSC+1)*(ARR+1) = timer_clk / freq,  ARR+1 <= 65536  */
+    psc = timer_clk / (freq_hz * 65536UL);
+    arr = timer_clk / ((psc + 1) * freq_hz);
     if (arr == 0) arr = 1;
-    if (arr > 65536) arr = 65536;
+    if (arr > 65536UL) arr = 65536UL;
 
-    BUZZER_IDLE();
-    TIM_Cmd(TIM2, DISABLE);
-    TIM_SetAutoreload(TIM2, (uint16_t)(arr - 1));
-    TIM_SetCounter(TIM2, 0);
-    TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_TIM1, ENABLE);
+
+    tim.TIM_Prescaler         = (uint16_t)psc;
+    tim.TIM_CounterMode       = TIM_CounterMode_Up;
+    tim.TIM_Period            = (uint16_t)(arr - 1);
+    tim.TIM_ClockDivision     = TIM_CKD_DIV1;
+    tim.TIM_RepetitionCounter = 0;
+    TIM_TimeBaseInit(TIM1, &tim);
+
+    /* Channel 3 complementary output (CH3N = PB15), PWM1, 50% duty */
+    oc.TIM_OCMode       = TIM_OCMode_PWM1;
+    oc.TIM_OutputState  = TIM_OutputState_Disable;
+    oc.TIM_OutputNState = TIM_OutputNState_Enable;
+    oc.TIM_Pulse        = (uint16_t)(arr * BUZZER_DUTY_PCT / 100);
+    oc.TIM_OCPolarity   = TIM_OCPolarity_High;
+    oc.TIM_OCNPolarity  = TIM_OCNPolarity_High;
+    oc.TIM_OCIdleState  = TIM_OCIdleState_Set;
+    oc.TIM_OCNIdleState = TIM_OCNIdleState_Reset;
+    TIM_OC3Init(TIM1, &oc);
+    TIM_OC3PreloadConfig(TIM1, TIM_OCPreload_Enable);
+    TIM_ARRPreloadConfig(TIM1, ENABLE);
+
+    TIM_CtrlPWMOutputs(TIM1, ENABLE);       /* Advanced timer: MOE bit  */
+    BUZZER_PinPwm();
+    TIM_Cmd(TIM1, ENABLE);
+
     s_sounding = 1;
-    TIM_Cmd(TIM2, ENABLE);
 }
 
 void BUZZER_Off(void)
 {
+    TIM_Cmd(TIM1, DISABLE);
+    TIM_CtrlPWMOutputs(TIM1, DISABLE);
+    BUZZER_PinGpio();                       /* Back to GPIO high = off  */
     s_sounding = 0;
-    TIM_Cmd(TIM2, DISABLE);
-    BUZZER_IDLE();
 }
 
 void BUZZER_Beep(uint32_t freq_hz, uint32_t duration_ms)

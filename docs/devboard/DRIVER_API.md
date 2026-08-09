@@ -12,9 +12,11 @@ User/
    ├─ bsp_lcd.h / .c      # ST7789P3 屏幕驱动 + 绘图 + 文字渲染
    ├─ bsp_font.h          # 位图字体类型定义（兼容 display-2 MiniUI 字库格式）
    ├─ font_montserrat_16.h/.c   # Montserrat 16 号字体（ASCII 32~126 + ° •）
-   ├─ bsp_key.h / .c      # 74HC165×2 级联，16 键读取（消抖）
-   ├─ bsp_rgb.h / .c      # WS2812×9 灯带（PD0，GRB，800kHz 模拟时序）
-   ├─ bsp_buzzer.h / .c   # 无源蜂鸣器（PB15，TIM2 中断翻转，定频发声）
+   ├─ bsp_key.h / .c      # 74HC165×2 级联，16 键读取（消抖；DATA=PD8 飞线）
+   ├─ bsp_rgb.h / .c      # WS2812×9 灯带（PD9，GRB，800kHz 模拟时序）
+   ├─ bsp_buzzer.h / .c   # 无源蜂鸣器（PB15=TIM1_CH3N 硬件 PWM，定频发声）
+   ├─ bsp_led.h / .c      # 板载用户 LED（PC0，低电平点亮）
+   ├─ bsp_hcsr04.h / .c   # HC-SR04 超声波测距（Trig=PC14，Echo=PC13，TIM3 计时）
    └─ bsp_uart.h / .c     # USART1 全双工（PA9/PA10→CH340N），RX 环形缓冲
 ```
 
@@ -69,7 +71,7 @@ int main(void)
 | 函数 | 说明 |
 |---|---|
 | `LCD_DrawText(x,y,text,color)` | 字符串，**透明背景** |
-| `LCD_DrawTextBG(x,y,text,fg,bg)` | 字符串，**不透明背景**（整框流式写入，更快） |
+| `LCD_DrawTextBG(x,y,text,fg,bg)` | 字符串，**不透明背景**：按整字符单元格（advance×行高）填充背景，字形间隙无残留。注意只清理本次字符串自身宽度，覆盖更宽的旧文本时先 `LCD_FillRect` 清场 |
 | `LCD_DrawTextCenter(y,text,color)` | 整行水平居中（透明背景） |
 | `LCD_DrawChar(x,y,ch,color)` / `LCD_DrawCharBG(...)` | 单字符（返回步进宽度，便于排版光标自增） |
 | `LCD_SetFont(font)` | 切换字体，传 NULL 恢复默认 16 号 |
@@ -100,7 +102,7 @@ MAGENTA/ORANGE/GRAY/NAVY/...`，或用 `LCD_RGB565(r,g,b)` 自定义。
 | `LCD_WIDTH / LCD_HEIGHT` | 320 / 240 | 横屏逻辑分辨率 |
 | `LCD_XSTART / LCD_YSTART` | 0 / 0 | GRAM 偏移 |
 | `LCD_ROTATION` | 1 | 0~3，0/2 为竖屏（需交换宽高） |
-| `LCD_MADCTL_BGR` | 1 | 红蓝显示颠倒时改为 0 |
+| `LCD_MADCTL_BGR` | 0 | 本板实测为 RGB 序；红蓝颠倒时改为 1 |
 | `LCD_SPI_PRESCALER` | /4 (36MHz) | 点亮验证后可改 /2 (72MHz) 提速 |
 
 ## 按键 API（bsp_key.h）
@@ -108,12 +110,12 @@ MAGENTA/ORANGE/GRAY/NAVY/...`，或用 `LCD_RGB565(r,g,b)` 自定义。
 | 函数 | 说明 |
 |---|---|
 | `KEY_Init()` | 初始化 PL/CE/CP/DATA 引脚 |
-| `KEY_ReadRaw()` | 立即读取 16 键状态，返回 16bit 掩码（bit0=S1…bit15=S16，置位=按下） |
+| `KEY_ReadRaw()` | 立即读取 16 键状态，返回 16bit 掩码（bit0=物理键1…bit15=键16，置位=按下） |
 | `KEY_Scan()` | 消抖读取（两次采样间隔 5ms，返回稳定位） |
 | `KEY_IsPressed(state, n)` | 判断掩码中第 n 键（1~16）是否按下 |
 
-键位掩码宏：`KEY_1` ~ `KEY_16`、`KEY_ALL`。按键接地，驱动内部已取反，
-**读出 1 = 按下**。级联移位顺序（S8…S1, S16…S9）已在驱动内重映射，无需关心。
+键位掩码宏：`KEY_1` ~ `KEY_16`、`KEY_ALL`。**键号按 PCB 物理位置编号**
+（从左到右、从上到下 1~16），丝印/级联顺序的差异已在驱动内部处理。
 
 ```c
 KEY_Init();
@@ -125,8 +127,8 @@ if (st & KEY_5) { /* S5 按下 */ }
 
 | 函数 | 说明 |
 |---|---|
-| `RGB_Init()` | 初始化 PD0 并清空灯带 |
-| `RGB_SetPixel(i, r, g, b)` | 设置第 i 颗（0~8）颜色（只改影子缓冲） |
+| `RGB_Init()` | 初始化 PD9 并清空灯带 |
+| `RGB_SetPixel(i, r, g, b)` | 设置第 i 颗颜色（只改影子缓冲；**i 按物理位置 0~8**，从左到右、从上到下） |
 | `RGB_SetPixelColor(i, 0xRRGGBB)` | 打包颜色版本 |
 | `RGB_SetAll(r, g, b)` / `RGB_Clear()` | 全部同色 / 全灭 |
 | `RGB_SetBrightness(0~255)` | 全局亮度（刷新时缩放） |
@@ -144,19 +146,49 @@ RGB_Refresh();
 
 | 函数 | 说明 |
 |---|---|
-| `BUZZER_Init()` | 初始化 PB15 + TIM2 时基 |
-| `BUZZER_On(freq_hz)` | 按指定频率连续发声（非阻塞，约 8Hz~50kHz，4kHz 最响） |
+| `BUZZER_Init()` | 初始化 PB15（TIM1_CH3N） |
+| `BUZZER_On(freq_hz)` | 按指定频率连续发声（非阻塞硬件 PWM，约 35Hz~100kHz，4kHz 最响） |
 | `BUZZER_Off()` | 停止 |
 | `BUZZER_Beep(freq_hz, ms)` | 阻塞式鸣叫 |
 | `BUZZER_IsOn()` | 查询是否正在发声 |
 
-实现说明：PB15 不是定时器通道，驱动用 **TIM2 更新中断**以 2 倍频率翻转
-PB15 产生方波；PNP 管低电平导通，空闲时引脚保持高电平。
+实现说明：PB15 即 **TIM1_CH3N**，驱动直接输出硬件 PWM（50% 占空比，
+发声期间零 CPU 占用）；停止时引脚切回普通 GPIO 并拉高，确保 PNP 关断。
 
 ```c
 BUZZER_Init();
 BUZZER_Beep(4000, 100);   // 4kHz 鸣叫 100ms
 ```
+
+## 超声波测距 API（bsp_hcsr04.h）
+
+HC-SR04：Trig=PC14（输出），Echo=PC13（输入）。TIM3 作 1MHz 自由运行
+计数器测回波脉宽，`mm ≈ us × 17 / 100`。注意 Echo 为 5V 电平，长期
+使用建议在 Echo 线上串电阻分压。
+
+| 函数 | 说明 |
+|---|---|
+| `HCSR04_Init()` | 初始化引脚与 TIM3 时基 |
+| `HCSR04_ReadMm()` | 触发一次测距，返回毫米数；超时/超量程返回 `HCSR04_INVALID`(-1)。阻塞，最多约 40ms |
+| `HCSR04_ReadRawUs()` | 返回原始回波脉宽（us），失败返回 -1 |
+
+```c
+HCSR04_Init();
+int32_t mm = HCSR04_ReadMm();
+if (mm >= 0) printf("dist %ld mm\r\n", (long)mm);
+```
+
+## 用户 LED API（bsp_led.h）
+
+板载 LED11 接法为 3V3→LED→R9→PC0，**PC0 低电平点亮**
+（驱动内由 `LED_ACTIVE_LOW` 宏处理，API 无需关心极性）。
+
+| 函数 | 说明 |
+|---|---|
+| `LED_Init()` | 初始化 PC0，默认熄灭 |
+| `LED_On()` / `LED_Off()` / `LED_Toggle()` | 亮 / 灭 / 翻转 |
+| `LED_Set(on)` | 显式设置状态 |
+| `LED_Get()` | 查询当前状态（软件记录） |
 
 ## 串口 API（bsp_uart.h）
 
@@ -201,11 +233,15 @@ typedef struct {
 新增字体只需仿照 `font_montserrat_16.c` 提供 `lcd_font_t` 描述符，
 然后 `LCD_SetFont(&your_font)`。
 
+| 函数 | 说明 |
+|---|---|
+| `LCD_FontGetGlyph(font, unicode)` | 二分查找字形（字库按 unicode 升序排列），未收录返回 NULL |
+
 ## 设计说明
 
 - **无帧缓冲**：所有绘图直接开窗流式写入 ST7789 GRAM，SRAM 占用几乎为零
   （仅 64 字节突发缓冲），64KB SRAM 全部留给应用
 - **解耦**：各 BSP 模块只依赖 CH32 标准库与 debug 延时，互不包含；
   bsp_font 纯数据结构，不依赖任何硬件
-- **中断分配**：TIM2 = 蜂鸣器翻转，USART1 = 串口接收，均在各自模块内注册，
-  不与屏幕/按键冲突
+- **中断/定时器分配**：TIM1_CH3N = 蜂鸣器 PWM，TIM3 = 超声波计时，
+  USART1 = 串口接收，均在各自模块内注册，不与屏幕/按键冲突

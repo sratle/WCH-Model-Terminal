@@ -78,7 +78,7 @@ static const lcd_font_t *s_font = &font_montserrat_16;
 
 /* Forward declaration (defined in the text rendering section) */
 static void LCD_DrawGlyph(int16_t x, int16_t y, const lcd_glyph_t *glyph,
-                          uint16_t fg, uint16_t bg, uint8_t opaque);
+                          uint16_t fg);
 
 /*=============================================================================
  *  Low-level SPI Helpers
@@ -821,8 +821,7 @@ uint16_t LCD_DrawChar(uint16_t x, uint16_t y, char ch, uint16_t color)
     if (!s_font) return 0;
     glyph = LCD_FontGetGlyph(s_font, (uint8_t)ch);
     if (!glyph) return 0;
-    LCD_DrawGlyph((int16_t)x, (int16_t)(y + s_font->baseline),
-                  glyph, color, 0, 0);
+    LCD_DrawGlyph((int16_t)x, (int16_t)(y + s_font->baseline), glyph, color);
     return glyph->advance;
 }
 
@@ -833,65 +832,41 @@ uint16_t LCD_DrawCharBG(uint16_t x, uint16_t y, char ch,
     if (!s_font) return 0;
     glyph = LCD_FontGetGlyph(s_font, (uint8_t)ch);
     if (!glyph) return 0;
-    LCD_DrawGlyph((int16_t)x, (int16_t)(y + s_font->baseline),
-                  glyph, fg, bg, 1);
+    /* Fill the whole character cell so narrow glyphs leave no ghost */
+    LCD_FillRect(x, y, glyph->advance, s_font->height, bg);
+    LCD_DrawGlyph((int16_t)x, (int16_t)(y + s_font->baseline), glyph, fg);
     return glyph->advance;
 }
 
 /*********************************************************************
  * @fn      LCD_DrawGlyph
  *
- * @brief   Render one glyph. When opaque is non-zero, the whole glyph
- *          box is streamed (background + foreground) in a single
- *          address window; otherwise only foreground pixels are set.
+ * @brief   Render one glyph, foreground pixels only (transparent
+ *          background). The caller is responsible for the background.
  *
- * @param   x,y    - cursor position of the BASELINE start
- * @param   glyph  - glyph descriptor
- * @param   fg     - foreground color
- * @param   bg     - background color (used when opaque != 0)
- * @param   opaque - 0: transparent background, 1: solid background
+ * @param   x,y   - cursor position of the BASELINE start
+ * @param   glyph - glyph descriptor
+ * @param   fg    - foreground color
  *
  * @return  none
  */
 static void LCD_DrawGlyph(int16_t x, int16_t y, const lcd_glyph_t *glyph,
-                          uint16_t fg, uint16_t bg, uint8_t opaque)
+                          uint16_t fg)
 {
     int16_t gx = (int16_t)(x + glyph->x_offset);
     int16_t gy = (int16_t)(y + glyph->y_offset);
     uint8_t row, col;
-    uint32_t bit;
+    uint32_t bit = 0;
 
     if (glyph->width == 0 || glyph->height == 0) return;
 
-    if (opaque) {
-        /* Stream the full glyph box: bg where the bitmap bit is clear */
-        if (gx < 0 || gy < 0 ||
-            gx + glyph->width > LCD_WIDTH || gy + glyph->height > LCD_HEIGHT) {
-            opaque = 0;     /* Partially off-screen: fall back to pixels */
-        } else {
-            LCD_SetWindow((uint16_t)gx, (uint16_t)gy,
-                          (uint16_t)(gx + glyph->width  - 1),
-                          (uint16_t)(gy + glyph->height - 1));
-            bit = 0;
-            for (row = 0; row < glyph->height; row++) {
-                for (col = 0; col < glyph->width; col++, bit++) {
-                    uint8_t set = glyph->bitmap[bit >> 3] & (0x80 >> (bit & 7));
-                    LCD_WriteColor(set ? fg : bg);
-                }
-            }
-            LCD_EndWrite();
-            return;
-        }
-    }
-
-    /* Transparent background: only foreground pixels */
-    bit = 0;
     for (row = 0; row < glyph->height; row++) {
         int16_t py = (int16_t)(gy + row);
+        if (py < 0 || py >= LCD_HEIGHT) { bit += glyph->width; continue; }
         for (col = 0; col < glyph->width; col++, bit++) {
             if (glyph->bitmap[bit >> 3] & (0x80 >> (bit & 7))) {
                 int16_t px = (int16_t)(gx + col);
-                if (px >= 0 && py >= 0 && px < LCD_WIDTH && py < LCD_HEIGHT) {
+                if (px >= 0 && px < LCD_WIDTH) {
                     LCD_DrawPixel((uint16_t)px, (uint16_t)py, fg);
                 }
             }
@@ -902,7 +877,11 @@ static void LCD_DrawGlyph(int16_t x, int16_t y, const lcd_glyph_t *glyph,
 /*********************************************************************
  * @fn      LCD_DrawTextInternal
  *
- * @brief   Shared text renderer for the transparent / opaque variants.
+ * @brief   Shared text renderer. When opaque is set, each character
+ *          CELL (advance width x font height) is filled with bg before
+ *          the glyph is drawn - this also clears the inter-glyph gaps
+ *          and the padding of narrow glyphs, so no ghosting is left
+ *          when overwriting older text.
  *
  * @return  none
  */
@@ -919,13 +898,16 @@ static void LCD_DrawTextInternal(uint16_t x, uint16_t y, const char *text,
     while (*text) {
         uint8_t ch = (uint8_t)*text++;
         const lcd_glyph_t *glyph = LCD_FontGetGlyph(s_font, ch);
-        if (!glyph) {
-            /* Unknown character: advance half a line height as a blank */
-            cursor_x = (int16_t)(cursor_x + s_font->height / 2);
-            continue;
+        uint8_t advance = glyph ? glyph->advance
+                                : (uint8_t)(s_font->height / 2);
+        if (opaque) {
+            LCD_FillRect((uint16_t)cursor_x, y, advance,
+                         s_font->height, bg);
         }
-        LCD_DrawGlyph(cursor_x, base_y, glyph, fg, bg, opaque);
-        cursor_x = (int16_t)(cursor_x + glyph->advance);
+        if (glyph) {
+            LCD_DrawGlyph(cursor_x, base_y, glyph, fg);
+        }
+        cursor_x = (int16_t)(cursor_x + advance);
     }
 }
 

@@ -17,11 +17,14 @@
 *******************************************************************************/
 
 #include "debug.h"
+#include <stdio.h>
 #include "BSP/bsp_lcd.h"
 #include "BSP/bsp_key.h"
 #include "BSP/bsp_rgb.h"
 #include "BSP/bsp_buzzer.h"
 #include "BSP/bsp_uart.h"
+#include "BSP/bsp_led.h"
+#include "BSP/bsp_hcsr04.h"
 
 /*=============================================================================
  *  Demo Helpers
@@ -95,11 +98,25 @@ static void Demo_DrawKeyGrid(uint16_t keys)
     }
 }
 
+/* Per-LED colors for S1-S9 (physical order, 0xRRGGBB) */
+static const uint32_t s_led_colors[RGB_LED_COUNT] = {
+    0xFF0000,   /* 1 red    */
+    0xFF8000,   /* 2 orange */
+    0xFFFF00,   /* 3 yellow */
+    0x00FF00,   /* 4 green  */
+    0x00FFFF,   /* 5 cyan   */
+    0x0000FF,   /* 6 blue   */
+    0x8000FF,   /* 7 purple */
+    0xFF00FF,   /* 8 magenta*/
+    0xFFFFFF,   /* 9 white  */
+};
+
 /*********************************************************************
  * @fn      Demo_HandleKeys
  *
- * @brief   React to newly pressed keys: S1-S9 toggle the RGB LEDs,
- *          every key press beeps and prints over UART.
+ * @brief   React to newly pressed keys: S1-S9 toggle the RGB LEDs
+ *          (each with its own color), every key press beeps and
+ *          prints over UART.
  *
  * @param   keys - current debounced mask
  * @param   prev - previous mask (for edge detection)
@@ -115,13 +132,14 @@ static void Demo_HandleKeys(uint16_t keys, uint16_t prev)
         if (pressed & (1U << i)) {
             printf("key S%d pressed\r\n", i + 1);
             BUZZER_Beep((uint32_t)(1000 + i * 200), 30);
+            LED_Toggle();                   /* Visual key-press feedback */
 
-            if (i < RGB_LED_COUNT) {    /* S1..S9 toggle LED i (blue) */
+            if (i < RGB_LED_COUNT) {    /* S1..S9 toggle LED i       */
                 rgb_color_t *leds = RGB_GetBuffer();
                 if (leds[i].r || leds[i].g || leds[i].b) {
                     RGB_SetPixel(i, 0, 0, 0);
                 } else {
-                    RGB_SetPixel(i, 0, 30, 80);
+                    RGB_SetPixelColor(i, s_led_colors[i]);
                 }
                 RGB_Refresh();
             }
@@ -148,6 +166,29 @@ static void Demo_HandleUart(void)
 }
 
 /*********************************************************************
+ * @fn      Demo_ShowDistance
+ *
+ * @brief   Read the HC-SR04 and refresh the distance line on screen.
+ *
+ * @return  none
+ */
+static void Demo_ShowDistance(void)
+{
+    char    buf[24];
+    int32_t mm = HCSR04_ReadMm();
+
+    if (mm >= 0) {
+        snprintf(buf, sizeof(buf), "Distance: %4ld mm", (long)mm);
+    } else {
+        snprintf(buf, sizeof(buf), "Distance: ---- mm");
+    }
+    /* Clear the field first: the font is proportional, so a shorter
+     * reading would otherwise leave old pixels at the right edge */
+    LCD_FillRect(60, 30, 200, LCD_FontHeight(), LCD_BLACK);
+    LCD_DrawTextBG(60, 30, buf, LCD_YELLOW, LCD_BLACK);
+}
+
+/*********************************************************************
  * @fn      main
  *
  * @brief   Main program.
@@ -157,6 +198,7 @@ static void Demo_HandleUart(void)
 int main(void)
 {
     uint16_t keys = 0, prev = 0;
+    uint8_t  dist_div = 0;              /* Measure every N loop passes */
 
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     SystemCoreClockUpdate();
@@ -165,8 +207,11 @@ int main(void)
     UART_Init(115200);          /* Full duplex; printf keeps working   */
     KEY_Init();
     RGB_Init();
+    RGB_SetBrightness(40);      /* Keep the 255-level palette eye-safe */
     BUZZER_Init();
+    LED_Init();
     LCD_Init();
+    HCSR04_Init();
 
     printf("WCH-DevBoard peripheral test\r\n");
 
@@ -174,7 +219,6 @@ int main(void)
 
     LCD_Fill(LCD_BLACK);
     LCD_DrawTextCenter(8, "WCH-DevBoard", LCD_WHITE);
-    LCD_DrawTextCenter(30, "Press keys S1-S16", LCD_GRAY);
     Demo_DrawKeyGrid(0);
 
     while (1)
@@ -186,5 +230,11 @@ int main(void)
             prev = keys;
         }
         Demo_HandleUart();
+
+        /* Distance refresh every ~5 loop passes (KEY_Scan blocks 5 ms) */
+        if (++dist_div >= 5) {
+            dist_div = 0;
+            Demo_ShowDistance();
+        }
     }
 }

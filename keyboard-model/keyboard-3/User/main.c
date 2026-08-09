@@ -32,6 +32,12 @@ static uint8_t  prev_key_bitmap[TTP_BITS_BYTES];
 static uint8_t  prev_btn_bitmap[BUTTON_BITS_BYTES];
 static uint16_t prev_fader_values[FADER_COUNT];
 
+/* 变化帧冗余重发计数：键位/按钮位图变化后在接下来的 2 个扫描周期补发同一
+ * 位图。Core 侧边沿检测对相同位图幂等（不会重复触发），而丢帧（Core 接收
+ * 队列在忙窗口溢出）可在 ~20ms 内自愈——丢"按下"帧不再丢音、丢"释放"帧
+ * 不再导致该键一轮按放内无法触发。 */
+static uint8_t  event_retransmit = 0;
+
 /* ======================== Protocol Handlers ======================== */
 
 static void SendGetTypeResponse(const protocol_frame_t *req)
@@ -310,10 +316,23 @@ int main(void)
             Button_GetBitmap(btn_bitmap);
 
             /* Event-driven reporting: only send when state changes */
-            if (event_reporting && HasStateChanged())
+            if (event_reporting)
             {
-                ReportChangedEvents();
-                SavePrevState();
+                if (HasStateChanged())
+                {
+                    ReportChangedEvents();
+                    SavePrevState();
+                    /* 键位/按钮变化帧补发 2 次（见 event_retransmit 注释） */
+                    event_retransmit = 2;
+                }
+                else if (event_retransmit > 0)
+                {
+                    event_retransmit--;
+                    UartCore_PackAndSend(MODULE_ID_CORE, CMD_KBD_MUSIC_KEYS,
+                                         key_bitmap, TTP_BITS_BYTES);
+                    UartCore_PackAndSend(MODULE_ID_CORE, CMD_KBD_MUSIC_BUTTONS,
+                                         btn_bitmap, BUTTON_BITS_BYTES);
+                }
             }
         }
     }

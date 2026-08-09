@@ -20,18 +20,33 @@
  *  Pin / Register Map
  *=============================================================================*/
 
-#define RGB_PIN         GPIO_Pin_0      /* PD0 - WS2812 DIN              */
+#define RGB_PIN         GPIO_Pin_9      /* PD9 - WS2812 DIN              */
 
 /* GPIOD atomic set/clear registers (address baked into the asm below) */
 #define GPIOD_BSHR_ADDR 0x40011410      /* GPIOD base 0x40011400 + 0x10  */
 #define GPIOD_BCR_ADDR  0x40011414      /* GPIOD base 0x40011400 + 0x14  */
+#define RGB_PIN_MASK    0x200           /* Pin 9 bit mask                */
 
 /*=============================================================================
  *  Module State
  *=============================================================================*/
 
+/* Shadow buffer in API (physical row-major) order */
 static rgb_color_t s_leds[RGB_LED_COUNT];
 static uint8_t     s_brightness = 255;
+
+/* Physical -> daisy-chain remap.
+ * The strip is wired as a snake on the PCB: scanning the LEDs row by row
+ * (left to right, top to bottom) the chain order is 3,2,1,6,5,4,9,8,7.
+ * This table converts an API index (0 = physical top-left, row-major)
+ * to the daisy-chain position, so API numbering matches the physical
+ * layout 1..9. (The mapping is self-inverse, so RGB_Refresh() can use
+ * the same table in the chain -> API direction.) */
+static const uint8_t s_chain_map[RGB_LED_COUNT] = {
+    2, 1, 0,      /* physical 1,2,3 -> chain 3,2,1 */
+    5, 4, 3,      /* physical 4,5,6 -> chain 6,5,4 */
+    8, 7, 6,      /* physical 7,8,9 -> chain 9,8,7 */
+};
 
 /*=============================================================================
  *  Low-level Bit Bang
@@ -44,7 +59,7 @@ static uint8_t     s_brightness = 255;
 /*********************************************************************
  * @fn      RGB_SendBit
  *
- * @brief   Emit one WS2812 bit on PD0. All timing is inside a single
+ * @brief   Emit one WS2812 bit on PD9. All timing is inside a single
  *          volatile asm block so the compiler cannot reorder it.
  *
  * @param   bit - 0 or 1
@@ -54,15 +69,15 @@ static uint8_t     s_brightness = 255;
 static inline __attribute__((always_inline)) void RGB_SendBit(uint8_t bit)
 {
     __asm__ volatile (
-        "li   a4, %[bshr]          \n"  /* PD0 = HIGH (T0H/T1H start)  */
-        "li   a5, 0x1              \n"
+        "li   a4, %[bshr]          \n"  /* PD9 = HIGH (T0H/T1H start)  */
+        "li   a5, %[mask]          \n"
         "sw   a5, 0(a4)            \n"
         "bnez %[b], 1f             \n"
 
         /* ---- bit 0: T0H ~ 0.36us ---- */
         "nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\n"
         "nop\nnop\nnop\nnop\nnop\nnop\nnop\n"
-        "li   a4, %[bcr]           \n"  /* PD0 = LOW                   */
+        "li   a4, %[bcr]           \n"  /* PD9 = LOW                   */
         "sw   a5, 0(a4)            \n"
         /* T0L ~ 0.83us (112 NOP) */
         ".rept 112\n nop\n .endr   \n"
@@ -71,14 +86,15 @@ static inline __attribute__((always_inline)) void RGB_SendBit(uint8_t bit)
         /* ---- bit 1: T1H ~ 0.74us ---- */
         "1:                        \n"
         ".rept 88\n nop\n .endr    \n"
-        "li   a4, %[bcr]           \n"  /* PD0 = LOW                   */
+        "li   a4, %[bcr]           \n"  /* PD9 = LOW                   */
         "sw   a5, 0(a4)            \n"
         /* T1L ~ 0.45us (58 NOP) */
         ".rept 58\n nop\n .endr    \n"
 
         "2:                        \n"
         :
-        : [b] "r" (bit), [bshr] "i" (GPIOD_BSHR_ADDR), [bcr] "i" (GPIOD_BCR_ADDR)
+        : [b] "r" (bit), [bshr] "i" (GPIOD_BSHR_ADDR),
+          [bcr] "i" (GPIOD_BCR_ADDR), [mask] "i" (RGB_PIN_MASK)
         : "a4", "a5", "memory"
     );
 }
@@ -177,8 +193,10 @@ rgb_color_t *RGB_GetBuffer(void)
 void RGB_Refresh(void)
 {
     uint8_t i;
+    /* Walk the physical chain, fetching pixels through the remap table */
     for (i = 0; i < RGB_LED_COUNT; i++) {
-        RGB_SendLed(s_leds[i].r, s_leds[i].g, s_leds[i].b);
+        const rgb_color_t *px = &s_leds[s_chain_map[i]];
+        RGB_SendLed(px->r, px->g, px->b);
     }
     /* Latch: DIN low > 280 us */
     GPIO_ResetBits(GPIOD, RGB_PIN);

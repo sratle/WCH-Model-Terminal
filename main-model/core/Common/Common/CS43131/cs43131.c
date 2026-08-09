@@ -927,6 +927,12 @@ static uint8_t audio_ch378_buf[AUDIO_CH_READ_BLOCK];
  * no seek is needed for this channel. */
 #define AUDIO_CH_HIGH_WATERMARK (AUDIO_CH_RB_SIZE * 3 / 4)
 
+/* 单次服务补流上限：原为一次填满至高水位（48KB ≈ 6×8KB CH378 突发，
+ * 阻塞主循环 20-40ms），快速滑奏时与琴键事件处理叠加导致主循环周期
+ * 过长、键盘帧排队丢失。限制单次 16KB（~90ms 音频）削平延迟尖峰，
+ * 64KB 缓冲 + 32KB 低水位提供充足补给窗口。 */
+#define AUDIO_CH_FILL_MAX     (16 * 1024)
+
 /* Helper: close CH378 file for a channel if open */
 static void channel_file_close(audio_channel_t *ch)
 {
@@ -1047,6 +1053,7 @@ void Audio_Process(void)
         /* How much to read: fill up to high watermark */
         target = AUDIO_CH_HIGH_WATERMARK - used;
         if (target < AUDIO_CH_READ_BLOCK) target = AUDIO_CH_READ_BLOCK;
+        if (target > AUDIO_CH_FILL_MAX) target = AUDIO_CH_FILL_MAX;
 
         /* Cap to available free space (keep 1 byte for ring buffer sentinel) */
         if (target > ch_rb_free(ch) - 1) target = ch_rb_free(ch) - 1;

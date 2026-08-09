@@ -315,7 +315,7 @@ TF卡/USB
 └──────────────────┘
 ```
 
-- **CH378 时分复用**：`Audio_Process()` 在主循环中轮转为每个活跃通道执行 open → seek → read 4KB → close，读完即释放 CH378 文件句柄，其他模块（CLI、Config 等）可自由使用 CH378
+- **CH378 时分复用**：`Audio_Process()` 在主循环中轮转为每个活跃通道执行 open → seek → read → close，读完即释放 CH378 文件句柄，其他模块（CLI、Config 等）可自由使用 CH378；单次服务补流上限 16KB（`AUDIO_CH_FILL_MAX`），防止一次 48KB 填满阻塞主循环数十 ms 导致键盘/琴键事件排队丢失
 - **16KB Ring Buffer**：每通道独立 16KB 环形缓冲，44.1kHz 立体声 16bit（176KB/s）下提供约 93ms 缓冲，足以覆盖 CH378 被其他模块短暂占用的情况
 - **DMA 双缓冲**：DMA1_Channel1 以 Circular 模式传输 `dma_buf[2048]`，半传输/传输完成中断中各填充 1024 样本
 

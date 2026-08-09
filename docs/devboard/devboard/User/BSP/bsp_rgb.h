@@ -4,7 +4,7 @@
 * Version            : V1.0.0
 * Date               : 2026/08/08
 * Description        : WS2812 (XL-5050RGBC) addressable RGB LED strip driver.
-*                      9 LEDs daisy-chained on PD0, GRB order, 800 kHz
+*                      9 LEDs daisy-chained on PD9, GRB order, 800 kHz
 *                      bit-banged protocol (interrupt-safe per LED).
 *
 *                      Typical use:
@@ -59,8 +59,11 @@ void RGB_Init(void);
  *
  * @brief   Set one LED's color in the shadow buffer.
  *          Call RGB_Refresh() to make it visible.
+ *          The index follows the PHYSICAL layout (row-major, left to
+ *          right, top to bottom): 0 = LED at position 1 ... 8 = pos 9.
+ *          The internal snake-wiring remap is handled by the driver.
  *
- * @param   index - LED index, 0 .. RGB_LED_COUNT-1
+ * @param   index - LED index, 0 .. RGB_LED_COUNT-1 (physical order)
  * @param   r,g,b - color channels, 0-255
  *
  * @return  none

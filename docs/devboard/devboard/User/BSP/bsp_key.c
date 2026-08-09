@@ -8,13 +8,17 @@
 *                      (74HC165.c) - "sample first, then clock".
 *
 *                      Shift-out order on this board (see schematic):
-*                          sample 0      = U3.D7 = S8
+*                          sample 0      = U3.D7 = silk S8
 *                          ...           ...
-*                          sample 7      = U3.D0 = S1
-*                          sample 8      = U4.D7 = S16
+*                          sample 7      = U3.D0 = silk S1
+*                          sample 8      = U4.D7 = silk S16
 *                          ...           ...
-*                          sample 15     = U4.D0 = S9
-*                      The API remaps this to bit0 = S1 ... bit15 = S16.
+*                          sample 15     = U4.D0 = silk S9
+*                      On the PCB the keys sit in exactly that order
+*                      (top row left->right = silk S8..S1), so the sample
+*                      index already IS the physical row-major position:
+*                      API bit i = sample i = physical key i+1 (top-left
+*                      = key 1). No further remapping is needed.
 ********************************************************************************/
 #include "bsp_key.h"
 #include "ch32v30x.h"
@@ -31,7 +35,8 @@
 #define KEY_CP_PORT     GPIOB
 #define KEY_CP_PIN      GPIO_Pin_12     /* PB12 - shift clock, rising    */
 #define KEY_DATA_PORT   GPIOD
-#define KEY_DATA_PIN    GPIO_Pin_9      /* PD9  - serial data from U3.Q7 */
+#define KEY_DATA_PIN    GPIO_Pin_8      /* PD8  - serial data from U3.Q7
+                                          * (flying wire, not on PCB)    */
 
 #define KEY_PL_LOW()    GPIO_ResetBits(KEY_PL_PORT, KEY_PL_PIN)
 #define KEY_PL_HIGH()   GPIO_SetBits(KEY_PL_PORT, KEY_PL_PIN)
@@ -90,11 +95,10 @@ uint16_t KEY_ReadRaw(void)
     /* Step 3: clock out 16 bits.
      * After PL, Q7 already carries the first bit, so SAMPLE FIRST,
      * then pulse CP to bring the next bit out (see keyboard-1 notes).
-     * sample i -> key bit: i < 8 ? (7 - i) : (23 - i)  */
+     * Sample i is physical key (i+1) in row-major order -> bit i. */
     for (i = 0; i < KEY_COUNT; i++) {
-        uint8_t bitpos = (i < 8) ? (uint8_t)(7 - i) : (uint8_t)(23 - i);
         if (KEY_READ_DATA() == Bit_RESET) {     /* Low = pressed */
-            state |= (uint16_t)(1U << bitpos);
+            state |= (uint16_t)(1U << i);
         }
         KEY_CP_HIGH();
         Delay_Us(1);

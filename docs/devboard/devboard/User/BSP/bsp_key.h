@@ -5,7 +5,8 @@
 * Date               : 2026/08/08
 * Description        : 16-key driver using two cascaded 74HC165 shift
 *                      registers (U3/U4). GPIO bit-banged read.
-*                      Wiring: PL=PB14  CE=PB13  CP=PB12  DATA=PD9
+*                      Wiring: PL=PB14  CE=PB13  CP=PB12  DATA=PD8
+*                      (DATA is a flying wire - not routed on the PCB)
 *                      Keys S1-S16, pressed = contact to GND (active low).
 *
 *                      Typical use:
@@ -23,7 +24,9 @@ extern "C" {
 #include <stdint.h>
 
 /*=============================================================================
- *  Key Bit Masks (bit0 = S1 ... bit15 = S16)
+ *  Key Bit Masks
+ *  bit0 = physical key 1 (top row, leftmost) ... bit15 = key 16,
+ *  numbered row-major (left to right, top to bottom) across the PCB.
  *=============================================================================*/
 
 #define KEY_NONE    0x0000
@@ -64,8 +67,9 @@ void KEY_Init(void);
  *
  * @brief   Read the instantaneous state of all 16 keys.
  *
- * @return  16-bit mask, bit0 = S1 ... bit15 = S16;
- *          bit SET = key is pressed (active-low inputs are inverted).
+ * @return  16-bit mask, bit0 = key 1 ... bit15 = key 16 (physical
+ *          row-major order); bit SET = key is pressed (active-low
+ *          inputs are inverted).
  */
 uint16_t KEY_ReadRaw(void);
 

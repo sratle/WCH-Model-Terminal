@@ -238,13 +238,21 @@ static uint8_t keyboard_dispatch_req(const protocol_frame_t *req,
 void Keyboard_Process(keyboard_t *keyboard)
 {
     uint8_t resp[PROTO_MAX_FRAME_LEN];
-    uint8_t resp_len = 0;
-    uint8_t handled = 0;
+    uint8_t resp_len;
+    uint8_t handled;
     protocol_frame_t *req;
+    /* 单次调用排干接收队列（上限 8 帧防饿死其他模块）：琴键事件处理含
+     * CH378 操作（~15ms/帧），若每轮主循环只处理一帧，快速滑奏时帧到达
+     * 速率超过服务速率，队列饱和丢帧 = 丢音（"一段时间无法触发"根因） */
+    uint8_t budget = 8;
 
-    if (keyboard == NULL || !keyboard->rx_ctx.frame_ready)
+    if (keyboard == NULL)
         return;
 
+    while (budget-- > 0 && keyboard->rx_ctx.frame_ready)
+    {
+    resp_len = 0;
+    handled = 0;
     req = &keyboard->rx_ctx.read_frame;
 
     /* 0. 处理 Keyboard 返回的 ACK 响应（心跳 GET_TYPE 的回复）。
@@ -335,7 +343,9 @@ void Keyboard_Process(keyboard_t *keyboard)
     if (handled && resp_len > 0)
         Keyboard_Send_Data(keyboard, resp, resp_len);
 
+    /* 释放当前帧并自动递补队列中的下一帧，下一轮循环继续处理 */
     Protocol_ResetRxCtx(&keyboard->rx_ctx);
+    }
 }
 
 /* ============================================================================

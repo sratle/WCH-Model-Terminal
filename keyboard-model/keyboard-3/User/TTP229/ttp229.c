@@ -68,19 +68,29 @@ static uint16_t baseline_raw2 = 0xFFFF;
  */
 static uint16_t TTP229_ReadRaw(GPIO_TypeDef *sdo_port, uint16_t sdo_pin,
                                 GPIO_TypeDef *scl_port, uint16_t scl_pin,
-                                uint16_t cached)
+                                uint16_t cached, uint8_t *to_streak)
 {
     uint32_t raw32 = 0;  /* 32-bit to hold 17 bits during shifting */
     uint32_t timeout;
     uint8_t i;
 
-    /* Wait for DV (SDO goes LOW = data valid) */
+    /* SDO 空闲为高电平，此等待绝大多数情况立即通过（等价于直接读最新
+     * 完成扫描的结果寄存器，32ms 扫描周期间数据稳定）。
+     * 注意：不要用数据手册的"等 DV=LOW"写法——10ms 轮询下会每次超时
+     * 返回缓存，导致位图冻结（实测教训）。
+     * 若 SDO 异常保持低电平（接口失步），等待超时返回缓存，
+     * 由 TTP229_Read 的超时风暴恢复逻辑冲刷接口。 */
     timeout = TTP229_DV_TIMEOUT;
     while (!(sdo_port->INDR & sdo_pin))
     {
         if (--timeout == 0)
-            return cached;  /* DV not ready, use cached data */
+        {
+            if (to_streak) (*to_streak)++;
+            return cached;  /* SDO stuck low / not ready, use cached data */
+        }
     }
+
+    if (to_streak) *to_streak = 0;
 
     /* Clock 17 bits (Tw >= 10us per half-period).
      * D0 (padding) is read first, then D1~D16 (TP0~TP15).
@@ -96,6 +106,20 @@ static uint16_t TTP229_ReadRaw(GPIO_TypeDef *sdo_port, uint16_t sdo_pin,
     }
 
     return (uint16_t)(raw32 & 0xFFFF);
+}
+
+/* 接口失步恢复：DV 等待连续超时时，补 20 个 SCL 时钟冲刷移位寄存器，
+ * 强制串行接口走完当前帧回到待机（配合 SCL 2ms 空闲自动复位）。 */
+static void TTP229_FlushClocks(GPIO_TypeDef *scl_port, uint16_t scl_pin)
+{
+    uint8_t i;
+    for (i = 0; i < 20; i++)
+    {
+        SCL_High(scl_port, scl_pin);
+        Delay_Us(TTP229_SCL_DELAY_US);
+        SCL_Low(scl_port, scl_pin);
+        Delay_Us(TTP229_SCL_DELAY_US);
+    }
 }
 
 /* ======================== TP→Key Mapping ======================== */
@@ -195,18 +219,18 @@ void TTP229_Calibrate(void)
     for (attempt = 0; attempt < 4; attempt++)
     {
         TTP229_ReadRaw(TTP1_SDO_PORT, TTP1_SDO_PIN,
-                        TTP1_SCL_PORT, TTP1_SCL_PIN, 0xFFFF);
+                        TTP1_SCL_PORT, TTP1_SCL_PIN, 0xFFFF, NULL);
         TTP229_ReadRaw(TTP2_SDO_PORT, TTP2_SDO_PIN,
-                        TTP2_SCL_PORT, TTP2_SCL_PIN, 0xFFFF);
+                        TTP2_SCL_PORT, TTP2_SCL_PIN, 0xFFFF, NULL);
         Delay_Ms(40);  /* wait for TTP229 scan cycle (~32ms) */
     }
 
     /* Capture baseline from final read */
     r1 = TTP229_ReadRaw(TTP1_SDO_PORT, TTP1_SDO_PIN,
-                          TTP1_SCL_PORT, TTP1_SCL_PIN, 0xFFFF);
+                          TTP1_SCL_PORT, TTP1_SCL_PIN, 0xFFFF, NULL);
     Delay_Ms(40);
     r2 = TTP229_ReadRaw(TTP2_SDO_PORT, TTP2_SDO_PIN,
-                          TTP2_SCL_PORT, TTP2_SCL_PIN, 0xFFFF);
+                          TTP2_SCL_PORT, TTP2_SCL_PIN, 0xFFFF, NULL);
 
     baseline_raw1 = r1;
     baseline_raw2 = r2;
@@ -218,6 +242,7 @@ void TTP229_Read(uint8_t key_bitmap[TTP_BITS_BYTES])
 {
     uint16_t raw1, raw2;
     uint8_t i, bmp_bit;
+    static uint8_t to_streak1 = 0, to_streak2 = 0;
 
     key_bitmap[0] = 0;
     key_bitmap[1] = 0;
@@ -225,12 +250,27 @@ void TTP229_Read(uint8_t key_bitmap[TTP_BITS_BYTES])
 
     /* Read raw 16-bit data from both chips (non-blocking with cache) */
     raw1 = TTP229_ReadRaw(TTP1_SDO_PORT, TTP1_SDO_PIN,
-                           TTP1_SCL_PORT, TTP1_SCL_PIN, cached_raw1);
+                           TTP1_SCL_PORT, TTP1_SCL_PIN, cached_raw1,
+                           &to_streak1);
     cached_raw1 = raw1;  /* Update cache */
 
     raw2 = TTP229_ReadRaw(TTP2_SDO_PORT, TTP2_SDO_PIN,
-                           TTP2_SCL_PORT, TTP2_SCL_PIN, cached_raw2);
+                           TTP2_SCL_PORT, TTP2_SCL_PIN, cached_raw2,
+                           &to_streak2);
     cached_raw2 = raw2;  /* Update cache */
+
+    /* 超时风暴自愈：连续 10 次（~100ms）DV 超时说明接口失步
+     * （SDO 卡低），补时钟冲刷强制回到待机 */
+    if (to_streak1 >= 10)
+    {
+        TTP229_FlushClocks(TTP1_SCL_PORT, TTP1_SCL_PIN);
+        to_streak1 = 0;
+    }
+    if (to_streak2 >= 10)
+    {
+        TTP229_FlushClocks(TTP2_SCL_PORT, TTP2_SCL_PIN);
+        to_streak2 = 0;
+    }
 
     /* Calibrate: cancel parasitic bits using startup baseline.
      * In active-low mode, untouched=1, touched=0.

@@ -58,19 +58,19 @@
 | PL | **PB14** | SH/LD (Pin1) | 低电平装载并行数据 |
 | CE | **PB13** | CLK INH (Pin15) | 时钟使能，低有效 |
 | CP | **PB12** | CLK (Pin2) | 移位时钟，上升沿 |
-| DATA | **PD9** | Q7 (U3 Pin9) | 串行数据输入到 MCU |
+| DATA | **PD8** | Q7 (U3 Pin9) | 串行数据输入到 MCU（**飞线，PCB 未布线**） |
 
 ## 5. 蜂鸣器
 
-- **PB15 → R17(1K) → Q1(SS8550, PNP)** 驱动 4kHz 无源蜂鸣器，R3 10K 上拉
-- PB15 输出**低电平**时蜂鸣器发声；用定时器 PWM 输出 ~4kHz 方波获得最大响度
+- **PB15 (TIM1_CH3N) → R17(1K) → Q1(SS8550, PNP)** 驱动 4kHz 无源蜂鸣器，R3 10K 上拉
+- PB15 输出**低电平**时蜂鸣器发声；用 **TIM1_CH3N 硬件 PWM** 输出方波（50% 占空比），~4kHz 时最响
 
 ## 6. 板载 LED 与 RGB 灯带
 
 | 项目 | 连接 | 说明 |
 |---|---|---|
-| 用户 LED | **PC0** → R9(1K) → LED11 | 高电平点亮 |
-| RGB 灯带 | **PD0** → LED1~LED9 (XL-5050RGBC, WS2812 协议) 级联 | 9 颗，单线归零码，5V 供电 |
+| 用户 LED | **PC0** ← R9(1K) ← LED11 ← +3.3V | **低电平点亮** |
+| RGB 灯带 | **PD9** → LED1~LED9 (XL-5050RGBC, WS2812 协议) 级联 | 9 颗，单线归零码，5V 供电 |
 
 ## 7. 串口与 USB
 
@@ -86,21 +86,22 @@ CH340N 用于 printf 调试（115200 8N1）。
 
 | 引脚 | 功能 | 引脚 | 功能 |
 |---|---|---|---|
+| PA8 | LCD RES | PD8 | 74HC165 DATA（飞线） |
+| PA9 | UART0_TX (CH340) | PD9 | RGB 灯带 (WS2812) |
+| PA10 | UART0_RX (CH340) | PA11/PA12 | USBDM/USBDP |
 | PA3 | LCD D/C | PB12 | 74HC165 CP |
 | PA4 | LCD CS | PB13 | 74HC165 CE |
 | PA5 | LCD SCL (SPI1_SCK) | PB14 | 74HC165 PL |
-| PA6 | SPI1_MISO（未用） | PB15 | 蜂鸣器 |
-| PA7 | LCD SDA (SPI1_MOSI) | PC0 | 用户 LED |
-| PA8 | LCD RES | PD0 | RGB 灯带 |
-| PA9 | UART0_TX (CH340) | PD9 | 74HC165 DATA |
-| PA10 | UART0_RX (CH340) | PA11/PA12 | USBDM/USBDP |
+| PA6 | SPI1_MISO（未用） | PB15 | 蜂鸣器 (TIM1_CH3N) |
+| PA7 | LCD SDA (SPI1_MOSI) | PC0 | 用户 LED（低电平点亮） |
+| PC14 | HC-SR04 Trig（飞线） | PC13 | HC-SR04 Echo（飞线，5V 电平注意） |
 
 ## 9. 关键电气参数
 
 | 项目 | 参数 |
 |---|---|
 | MCU 主频 | 144MHz（PLL × 8MHz HSE） |
-| SPI1 速率 | 默认 72MHz（sysclk/2），长线不稳定时降为 36MHz |
+| SPI1 速率 | 默认 36MHz（sysclk/4），验证稳定后可升 72MHz |
 | 屏幕像素格式 | RGB565，SPI Mode 0（CPOL=0, CPHA=0），MSB 先行 |
 | 屏幕供电 | VCC 2.5~3.3V，IOVCC 1.65~3.3V |
 | 74HC165 电平 | 3.3V CMOS，时钟可用普通 GPIO 速度模拟 |

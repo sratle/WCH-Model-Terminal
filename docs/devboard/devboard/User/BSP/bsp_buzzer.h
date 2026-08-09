@@ -1,13 +1,12 @@
 /********************************** (C) COPYRIGHT *******************************
 * File Name          : bsp_buzzer.h
 * Author             : WCH-DevBoard Team
-* Version            : V1.0.0
+* Version            : V1.1.0
 * Date               : 2026/08/08
 * Description        : Passive buzzer driver (4 kHz resonant, Q1 SS8550 PNP,
 *                      active low on PB15).
-*                      PB15 is NOT a timer channel on CH32V307, so the
-*                      square wave is produced by toggling the pin inside
-*                      the TIM2 update interrupt (rate = 2 x frequency).
+*                      PB15 = TIM1_CH3N on CH32V307, so the tone is a real
+*                      hardware PWM (50% duty) - zero CPU load while playing.
 *
 *                      Typical use:
 *                          BUZZER_Init();
@@ -31,8 +30,7 @@ extern "C" {
 /*********************************************************************
  * @fn      BUZZER_Init
  *
- * @brief   Configure PB15 high (buzzer off) and set up TIM2 as the
- *          toggle timebase (stopped until the first tone).
+ * @brief   Configure PB15 idle high (buzzer off).
  *
  * @return  none
  */
@@ -41,9 +39,9 @@ void BUZZER_Init(void);
 /*********************************************************************
  * @fn      BUZZER_On
  *
- * @brief   Start a continuous tone (non-blocking).
+ * @brief   Start a continuous tone (non-blocking, hardware PWM).
  *
- * @param   freq_hz - tone frequency in Hz, valid ~8 .. 50000
+ * @param   freq_hz - tone frequency in Hz, valid ~35 .. 100000
  *                    (the buzzer resonates at ~4 kHz = loudest)
  *
  * @return  none
@@ -53,7 +51,8 @@ void BUZZER_On(uint32_t freq_hz);
 /*********************************************************************
  * @fn      BUZZER_Off
  *
- * @brief   Stop the tone immediately (pin back to idle high).
+ * @brief   Stop the tone immediately (pin switched back to GPIO high,
+ *          so the PNP transistor is reliably cut off).
  *
  * @return  none
  */
@@ -64,7 +63,7 @@ void BUZZER_Off(void);
  *
  * @brief   Blocking beep: tone on, wait, tone off.
  *
- * @param   freq_hz    - tone frequency in Hz
+ * @param   freq_hz     - tone frequency in Hz
  * @param   duration_ms - beep duration in milliseconds
  *
  * @return  none
