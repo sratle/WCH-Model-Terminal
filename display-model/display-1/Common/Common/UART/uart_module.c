@@ -38,6 +38,17 @@ volatile pending_req_t g_pending_req = PENDING_NONE;
 static bool s_cli_resp_accumulating = false;
 static uint32_t s_cli_accum_start_ms = 0;
 
+/* Internal fire-and-forget CLI: response swallowed marker (see header) */
+static volatile uint8_t s_cli_internal_pending = 0;
+static uint32_t s_cli_internal_since = 0;
+
+void UART_SendCLIInternal(const char *cmd)
+{
+    UART_SendCLI(cmd);
+    s_cli_internal_pending = 1;
+    s_cli_internal_since = ui_get_real_ms();
+}
+
 /* Query whether a multi-frame CLI response is MID-TRANSFER (SOF received,
  * EOF pending). SFX sends must be suppressed only in this window: sending
  * resets the assembly buffer and would destroy the in-flight response
@@ -223,6 +234,9 @@ static volatile uint16_t s_stream_idx;
 static volatile uint8_t s_ring[UART_RX_BUF_SIZE];
 static volatile uint16_t s_ring_head = 0;
 static volatile uint16_t s_ring_tail = 0;
+static volatile uint16_t s_ring_drops = 0;    /* 环形满丢帧计数（遥测） */
+static uint16_t s_drain_stall = 0;            /* 排水无进展轮数（自愈用） */
+static volatile uint32_t s_rx_last_byte_ms = 0; /* 最后收到字节时刻（解析器超时用） */
 
 /* Helper: push a completed frame into the ring buffer */
 static void ring_push_frame(uint8_t src, uint8_t dst, uint8_t cmd,
@@ -231,7 +245,10 @@ static void ring_push_frame(uint8_t src, uint8_t dst, uint8_t cmd,
     uint16_t total = 4 + dlen;
     /* Overflow check: if not enough space, drop the frame.
      * Use subtraction to avoid uint16_t overflow in addition. */
-    if ((uint16_t)(s_ring_head - s_ring_tail) + total > UART_RX_BUF_SIZE) return;
+    if ((uint16_t)(s_ring_head - s_ring_tail) + total > UART_RX_BUF_SIZE) {
+        s_ring_drops++;
+        return;
+    }
 
     uint16_t h = s_ring_head;
     s_ring[h++ % UART_RX_BUF_SIZE] = src;
@@ -316,6 +333,7 @@ void USART1_IRQHandler(void)
         return;
     }
     uint8_t b = (uint8_t)USART_ReceiveData(USART1);
+    s_rx_last_byte_ms = ui_get_real_ms();
 
     switch (s_rx_state) {
     /* ---- Standard frame states ---- */
@@ -925,6 +943,24 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
         /* CLI response from Core (text output).
          * Format: data[1] = flags (CLI_FLAG_SOF | CLI_FLAG_EOF), data[2..N] = text
          * Legacy (len < 3): data[1..N] = text, dispatch immediately. */
+        /* Internal fire-and-forget command (SFX play etc.): swallow the whole
+         * response — never dispatch to app callbacks or the assembly buffer.
+         * Stale after 3s (command frame lost at Core → no response ever). */
+        if (s_cli_internal_pending) {
+            if ((uint32_t)(ui_get_real_ms() - s_cli_internal_since) > 3000) {
+                s_cli_internal_pending = 0;   /* fall through to normal path */
+            } else {
+                uint8_t done = 1;
+                if (len >= 3) done = (data[1] & 0x02) != 0;  /* EOF flag */
+                if (done) {
+                    s_cli_internal_pending = 0;
+                    s_cli_resp_accumulating = false;
+                    s_cli_resp_len = 0;
+                    g_pending_req = PENDING_NONE;
+                }
+                break;
+            }
+        }
         if (len >= 3) {
             uint8_t flags = data[1];
             bool has_sof = (flags & 0x01) != 0;
@@ -1125,18 +1161,83 @@ static void process_frame(uint8_t src, uint8_t dst, uint8_t cmd,
 
 void UART_Module_Poll(void)
 {
+    /* 解析器帧间超时（对齐 Core 的 Protocol_RxCheckTimeout）：任何半帧/
+     * 流式状态 100ms 无新字节即强制回 WAIT_HEAD，保证解析器从任何异常
+     * 状态自愈。曾出现 Display RX 永久卡死（只能断电恢复）的未决问题，
+     * 此超时保证解析器层面不可能再永久卡死；超时事件打印遥测便于定位。 */
+    if (s_rx_state != RX_WAIT_HEAD &&
+        (uint32_t)(ui_get_real_ms() - s_rx_last_byte_ms) > 100) {
+        printf("[UART] RX parser timeout, state=%d stream_idx=%d drops=%d\r\n",
+               (int)s_rx_state, (int)s_stream_idx, (int)s_ring_drops);
+        s_rx_state = RX_WAIT_HEAD;
+        s_stream_idx = 0;
+    }
+
+    /* RX 遥测：解析器非空闲或发生过环形丢帧时每 2s 打印一次。
+     * 卡死复现时：若调试口持续打印本行 → 解析器/环形层异常；
+     * 若完全没有打印 → 主循环本身已死（渲染/处理器死循环或硬件异常）。 */
+    {
+        static uint32_t s_telem_ms = 0;
+        uint32_t telem_now = ui_get_real_ms();
+        if ((uint32_t)(telem_now - s_telem_ms) > 2000) {
+            s_telem_ms = telem_now;
+            if (s_rx_state != RX_WAIT_HEAD || s_ring_drops != 0) {
+                printf("[UART] telem state=%d ring=%d drops=%d\r\n",
+                       (int)s_rx_state,
+                       (int)(uint16_t)(s_ring_head - s_ring_tail),
+                       (int)s_ring_drops);
+            }
+        }
+    }
+
     while (s_ring_tail != s_ring_head) {
         uint16_t available = s_ring_head - s_ring_tail;
-        if (available < 4) break;
+        if (available < 4) {
+            /* DEBUG: 环非空但立即退出 —— 复现卡死时需要此处的实际值 */
+            {
+                static uint32_t s_stall_print_ms = 0;
+                uint32_t sp_now = ui_get_real_ms();
+                if ((uint32_t)(sp_now - s_stall_print_ms) > 2000) {
+                    s_stall_print_ms = sp_now;
+                    printf("[UART] drain stall: avail=%d head=%u tail=%u\r\n",
+                           (int)available, (unsigned)s_ring_head, (unsigned)s_ring_tail);
+                }
+            }
+            break;
+        }
 
         uint8_t src  = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
         uint8_t dst  = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
         uint8_t cmd  = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
         uint8_t dlen = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
 
-        if (s_ring_head - s_ring_tail < dlen) {
+        /* 回绕安全比较：必须先截断为 uint16_t（mod 65536 差值），
+         * 直接 int 相减在 head 回绕（>65536）后得到负值，会导致此处
+         * 恒真回退、排水永久停摆（满环→心跳帧全丢→永久 OFFLINE 的根因） */
+        if ((uint16_t)(s_ring_head - s_ring_tail) < dlen) {
+            /* DEBUG: 回退退出 —— 打印帧头四字节实际值 */
+            {
+                static uint32_t s_rewind_print_ms = 0;
+                uint32_t rp_now = ui_get_real_ms();
+                if ((uint32_t)(rp_now - s_rewind_print_ms) > 2000) {
+                    s_rewind_print_ms = rp_now;
+                    printf("[UART] drain rewind: hdr=%02X %02X %02X %02X rem=%d head=%u tail=%u\r\n",
+                           src, dst, cmd, dlen,
+                           (int)(uint16_t)(s_ring_head - s_ring_tail),
+                           (unsigned)s_ring_head, (unsigned)s_ring_tail);
+                }
+            }
             /* Rewind 4 bytes: uint16_t subtraction wraps naturally */
             s_ring_tail -= 4;
+            /* 自愈：连续 3 轮 poll 无进展说明环内容已无法按帧解析（实测曾
+             * 钉死在满环状态导致心跳永久不响应），强丢 1 字节尝试重新对齐，
+             * 保证排水循环必然前进、心跳帧最终被消费 */
+            if (++s_drain_stall >= 3) {
+                s_drain_stall = 0;
+                s_ring_tail++;   /* skip 1 byte, resync next poll */
+                printf("[UART] drain eject: tail=%u drops=%d\r\n",
+                       (unsigned)s_ring_tail, (int)s_ring_drops);
+            }
             break;
         }
 
@@ -1144,6 +1245,7 @@ void UART_Module_Poll(void)
             s_poll_data[i] = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
         }
 
+        s_drain_stall = 0;
         process_frame(src, dst, cmd, s_poll_data, dlen);
     }
 

@@ -412,7 +412,7 @@ Core 对 6 个槽位（Display / Keyboard / Power / Submodel1~3）以 `CMD_GET_T
 | 机制         | 参数/行为                                                                                                                                                    |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 心跳周期       | 每 500ms 向全部槽位发送 GET_TYPE；连续 8 次无应答（约 4s）判定 OFFLINE                                                                                                       |
-| 接收双缓冲+队列 | `protocol_rx_ctx_t` 为 ISR 写 `frame` + 主循环读 `read_frame` 的双缓冲结构，外加 `PROTO_RX_QUEUE_LEN=2` 级溢出队列（总排队深度 3）：`read_frame` 未消费时新帧入队而非丢弃，`Protocol_ResetRxCtx` 自动从队列递补（队列满才保旧丢新）。**注意**：各模块 Process 函数应在处理前拷贝 `read_frame` 并立即 `Protocol_ResetRxCtx` 释放（参照 `Display_Process`），让队列尽早承接后续帧 |
+| 接收双缓冲+队列 | `protocol_rx_ctx_t` 为 ISR 写 `frame` + 主循环读 `read_frame` 的双缓冲结构，外加 `PROTO_RX_QUEUE_LEN=2` 级溢出队列（总排队深度 3）：`read_frame` 未消费时新帧入队而非丢弃，`Protocol_ResetRxCtx` 自动从队列递补；队列满时**身份 ACK（LEN==6 心跳指纹）优先**挤占最老排队帧保活链路，其余帧保旧丢新。**注意**：各模块 Process 函数应在处理前拷贝 `read_frame` 并立即 `Protocol_ResetRxCtx` 释放（参照 `Display_Process`），让队列尽早承接后续帧 |
 | 帧间超时       | 解析器处于半帧状态且 100ms 无新字节时强制回到 WAIT_HEAD（`Protocol_RxCheckTimeout`），防止插拔噪声伪造 LEN 后长时间吞字节                                                                     |
 | 反卡死填充      | 对非 ONLINE 槽位每轮心跳轮转发送 **258 字节 `0x00`** 填充（覆盖 LEN=255 的最坏半帧），保证模块侧解析器无论被上电噪声卡在何种状态都会回到 WAIT_HEAD；`0x00` 不是帧头也不匹配帧尾，模块解析器天然忽略                              |
 | ISR 错误清理   | 所有 UART 接收中断必须在 RXNE 处理后检查并清除 ORE（读 STATR+DATAR），否则热插拔噪声导致的溢出错误会引发中断风暴/RX 永久卡死                                                                           |

@@ -51,7 +51,7 @@ static void sfx_play(const char *path, uint32_t *last_ms)
 
     char cmd[80];
     snprintf(cmd, sizeof(cmd), "play %s 1", path);
-    UART_SendCLI(cmd);
+    UART_SendCLIInternal(cmd);   /* 响应不进应用回调，见 UART_SendCLIInternal */
 }
 
 void Sound_SFX_DirAction(void)

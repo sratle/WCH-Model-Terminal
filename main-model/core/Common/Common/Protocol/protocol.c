@@ -142,6 +142,17 @@ static void commit_frame(protocol_rx_ctx_t *ctx)
         ctx->q_head = (uint8_t)((ctx->q_head + 1) % PROTO_RX_QUEUE_LEN);
         ctx->q_count++;
     }
+    else if (ctx->frame.cmd == CMD_ACK && ctx->frame.len == 6)
+    {
+        /* 队列满：身份 ACK（心跳，LEN==6 指纹）优先保活——挤掉最老的排队帧。
+         * 被挤掉的命令由发送方超时/看门狗兜底，链路活性优先于命令完整性。 */
+        ctx->q_tail = (uint8_t)((ctx->q_tail + 1) % PROTO_RX_QUEUE_LEN);
+        ctx->q_count--;
+        memcpy(&ctx->queue[ctx->q_head], &ctx->frame, sizeof(protocol_frame_t));
+        ctx->q_head = (uint8_t)((ctx->q_head + 1) % PROTO_RX_QUEUE_LEN);
+        ctx->q_count++;
+        ctx->err_frame_ready++;
+    }
     else
     {
         ctx->err_frame_ready++;

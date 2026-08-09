@@ -62,6 +62,17 @@ volatile pending_req_t g_pending_req = PENDING_NONE;
 static volatile bool s_cli_resp_accumulating = false;
 static volatile uint32_t s_cli_accum_start_ms = 0;
 
+/* Internal fire-and-forget CLI: response swallowed marker (see header) */
+static volatile uint8_t s_cli_internal_pending = 0;
+static volatile uint32_t s_cli_internal_since = 0;
+
+void UART_SendCLIInternal(const char *cmd)
+{
+    UART_SendCLI(cmd);
+    s_cli_internal_pending = 1;
+    s_cli_internal_since = ui_get_real_ms();
+}
+
 /* Query whether a multi-frame CLI response is MID-TRANSFER (SOF received,
  * EOF pending). SFX sends must be suppressed only in this window: sending
  * resets the assembly buffer and would destroy the in-flight response
@@ -248,6 +259,8 @@ typedef enum {
 } rx_state_t;
 
 static volatile rx_state_t s_rx_state = RX_WAIT_HEAD;
+static volatile uint32_t s_rx_last_byte_ms = 0; /* 最后收到字节时刻（解析器超时用） */
+static uint16_t s_drain_stall = 0;              /* 排水无进展轮数（自愈用） */
 static uint8_t s_rx_src, s_rx_dst, s_rx_len, s_rx_cmd;
 static uint8_t s_rx_data[PROTO_MAX_DATA_LEN];
 static volatile uint8_t s_rx_idx;
@@ -290,6 +303,25 @@ static volatile uint16_t s_ring_tail = 0;
 
 static void cli_chunk_isr(const uint8_t *data, uint8_t len)
 {
+    /* Internal fire-and-forget command (SFX play etc.): swallow the whole
+     * response — never dispatch to app callbacks or the assembly buffer.
+     * Stale after 3s (command frame lost at Core → no response ever). */
+    if (s_cli_internal_pending) {
+        if ((uint32_t)(ui_get_real_ms() - s_cli_internal_since) > 3000) {
+            s_cli_internal_pending = 0;   /* fall through to normal path */
+        } else {
+            uint8_t done = 1;
+            if (len >= 3) done = (data[1] & 0x02) != 0;  /* EOF flag */
+            if (done) {
+                s_cli_internal_pending = 0;
+                s_cli_resp_accumulating = false;
+                s_cli_resp_len = 0;
+                g_pending_req = PENDING_NONE;
+            }
+            return;
+        }
+    }
+
     if (len >= 3) {
         uint8_t flags = data[1];
         bool has_sof = (flags & 0x01) != 0;
@@ -437,6 +469,7 @@ void USART1_IRQHandler(void)
         return;
     }
     uint8_t b = (uint8_t)USART_ReceiveData(USART1);
+    s_rx_last_byte_ms = ui_get_real_ms();
 
     switch (s_rx_state) {
     case RX_WAIT_HEAD:
@@ -1193,6 +1226,15 @@ static void process_frame(uint8_t src, uint8_t dst, uint8_t cmd,
 
 void UART_Module_Poll(void)
 {
+    /* 解析器帧间超时（对齐 Core 的 Protocol_RxCheckTimeout）：任何半帧/
+     * 流式状态 100ms 无新字节即强制回 WAIT_HEAD，保证解析器从任何异常
+     * 状态自愈（Display RX 永久卡死问题的兜底）。 */
+    if (s_rx_state != RX_WAIT_HEAD &&
+        (uint32_t)(ui_get_real_ms() - s_rx_last_byte_ms) > 100) {
+        printf("[UART] RX parser timeout, state=%d\r\n", (int)s_rx_state);
+        s_rx_state = RX_WAIT_HEAD;
+    }
+
     /* Deferred CLI dispatch (the chunks themselves are consumed in the ISR
      * into the 8 KB assembly buffer; only the final parse/callback runs here
      * in the main loop, off the ISR). */
@@ -1210,11 +1252,20 @@ void UART_Module_Poll(void)
         uint8_t cmd  = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
         uint8_t dlen = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
 
-        if (s_ring_head - s_ring_tail < dlen) {
+        /* 回绕安全比较：必须先截断为 uint16_t（mod 65536 差值），
+         * 直接 int 相减在 head 回绕（>65536）后得到负值，会导致此处
+         * 恒真回退、排水永久停摆（满环→心跳帧全丢→永久 OFFLINE 的根因） */
+        if ((uint16_t)(s_ring_head - s_ring_tail) < dlen) {
             /* Rewind 4 bytes: uint16_t subtraction wraps naturally.
              * (Do NOT branch on tail>=4 — that breaks the free-running
              * head/tail counter semantics and reads out of bounds.) */
             s_ring_tail -= 4;
+            /* 自愈：连续 3 轮无进展则强丢 1 字节重新对齐，保证排水必然前进 */
+            if (++s_drain_stall >= 3) {
+                s_drain_stall = 0;
+                s_ring_tail++;
+                printf("[UART] drain eject: tail=%u\r\n", (unsigned)s_ring_tail);
+            }
             break;
         }
 
@@ -1222,6 +1273,7 @@ void UART_Module_Poll(void)
             s_poll_data[i] = s_ring[s_ring_tail++ % UART_RX_BUF_SIZE];
         }
 
+        s_drain_stall = 0;
         process_frame(src, dst, cmd, s_poll_data, dlen);
     }
 

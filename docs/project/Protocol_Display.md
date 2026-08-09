@@ -566,9 +566,17 @@ Display-1/Display-2 的游戏音效系统完全基于 CLI 直通实现，**无�
 - **Core 接收侧处理前释放 read_frame + 3 级排队**（V3.8）：`Display_Process`
   先将帧拷贝到静态缓冲并立即 `Protocol_ResetRxCtx`，再执行处理器；
   `protocol_rx_ctx_t` 增加 2 级溢出队列（处理中 1 + 排队 2 = 深度 3，
-  `Protocol_ResetRxCtx` 自动递补，队列满才丢帧）——此前 `read_frame`
-  在整个处理期间被占用，CLI 处理耗时几十 ms（LFN ls ~1.5s），期间到达的
-  帧全部被保旧丢新（SFX play 后 pause/ls 丢失的根因）
+  `Protocol_ResetRxCtx` 自动递补；队列满时身份 ACK（LEN==6 心跳指纹）
+  优先挤占最老排队帧保活链路）——此前 `read_frame` 在整个处理期间被占用，
+  CLI 处理耗时几十 ms（LFN ls ~1.5s），期间到达的帧全部被保旧丢新
+  （SFX play 后 pause/ls 丢失的根因）
+- **Core 单条 CLI 按需延时**（V3.8）：`Display_HandleCLI` 的 CH378 稳定
+  延时按命令类型区分——文件类 20ms，音频控制类（play/pause/vol/stop 等）2ms，
+  降低 SFX 高峰期的命令积压
+- **SFX 走内部 CLI 通道**（V3.8）：Display 侧 `UART_SendCLIInternal()`，
+  其响应被 UART 层吞掉、不分发给应用回调——SFX play 在进页时先于应用
+  命令发出，Core 按序先回其响应，曾吞掉应用的一次性期望标志
+  （Images 应用 ls 解析丢失、原始文本误进信息栏的根因）；3s 无响应自动失效
 
 ---
 

@@ -193,6 +193,12 @@ display-model/display-1/
    CLI 直通全部中断、只能重启。现行防御：EOF 时校验 `size=N` 与解码长度一致、
    解码时限宽/高 ≤2048 且 data_offset ≥54、渲染时按缓冲实际行数裁剪循环。
    任何解析 Core 下行数据的路径都必须假设数据可能损坏。
+8. **自由运行计数器比较必须截断为 uint16_t（血泪教训）**：UART 环形缓冲
+   `s_ring_head/tail` 为 mod-65536 自由运行计数器，排水循环曾写
+   `if (s_ring_head - s_ring_tail < dlen)`——int 提升后 head 回绕（累计 RX 64KB）
+   时结果为负、恒真回退，排水永久停摆 → 环满丢心跳帧 → Core 判 Display 永久
+   OFFLINE，只能断电恢复。正确写法 `(uint16_t)(head - tail) < dlen`。
+   另有保底：解析器 100ms 帧间超时 + 排水 3 轮无进展强丢 1 字节重对齐。
 
 ## ITCM 128K 物理上限与 .flashcode（重要，血泪教训）
 
@@ -256,6 +262,9 @@ Display 与 Core 指令交互时死机；删除 Game 后"恢复"，本质是把 
   中途插播 SFX 会毁掉响应；命令已发但响应未开始组装时缓冲为空、不打断。
   （教训：曾按"命令在飞"门控，SFX 帧被 Core 丢后无响应，每次丢帧锁定 3s，
   表现为约 2s 才能触发一次）EOF 丢失 3s 自动判陈旧恢复
+- **SFX 走内部 CLI 通道**：`sfx_play` 使用 `UART_SendCLIInternal()`，响应被
+  UART 层吞掉不分发给应用——否则进页时 SFX 响应先于应用响应到达，会吞掉
+  应用的一次性期望标志（Images 应用 ls 解析丢失即此根因）
 - **File app loading 看门狗**：ls 响应 EOF 丢失时 loading 态 5s 自动复位，
   不会永久卡在 Loading...（`file_page_update`）
 

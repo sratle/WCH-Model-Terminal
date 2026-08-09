@@ -516,6 +516,14 @@ void UART_SendNACK(uint8_t dst, uint8_t error_code);
  * The response will arrive via on_cli_stream or on_cli_complete callback. */
 void UART_SendCLI(const char *cmd);
 
+/* Fire-and-forget CLI command: its response is swallowed by the UART layer
+ * and NEVER dispatched to app callbacks. Used by the sound system — SFX
+ * "play" responses must not consume an app's expected response (the SFX
+ * command is sent right before the app's command at page enter, and Core
+ * answers in order, so the SFX response arrives first and would otherwise
+ * eat the app's one-shot expectation flag). */
+void UART_SendCLIInternal(const char *cmd);
+
 /* Query whether a CLI command is currently in flight (response still
  * assembling). SFX paths must skip their CLI sends while this is true —
  * sending would reset the assembly buffer and corrupt the in-flight

@@ -3718,6 +3718,11 @@ void CLI_Init(void)
  * reopen + seek 恢复播放。
  * 优化：不需要CH378文件操作的命令跳过Lock/PreFill，避免不必要地中断音频。
  * 需要CH378的命令在Lock前先PreFill音频缓冲区到高水位，最大化缓冲时间。 */
+/* 记录上一条命令是否触碰 CH378（供 Display_HandleCLI 决定延时长度） */
+static uint8_t s_last_cmd_needs_ch378 = 1;
+
+uint8_t CLI_LastCmdNeededCH378(void) { return s_last_cmd_needs_ch378; }
+
 void CLI_Process(uint8_t *cmd, uint8_t len)
 {
     char buf[CLI_BUF_SIZE];
@@ -3879,4 +3884,6 @@ void CLI_Process(uint8_t *cmd, uint8_t len)
     if (needs_ch378) {
         Audio_CH378_Unlock();
     }
+
+    s_last_cmd_needs_ch378 = (uint8_t)needs_ch378;
 }

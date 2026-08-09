@@ -736,9 +736,10 @@ static uint8_t Display_HandleCLI(const protocol_frame_t *req,
     /* 停止捕获 */
     cli_capture_flag = 0;
 
-    /* CH378 状态稳定延时：CLI 命令执行后文件句柄需要时间释放，
-     * 特别是 cd→ls 连续执行时，CH378 FAT32 目录状态需要稳定 */
-    Delay_Ms(20);
+    /* CH378 状态稳定延时：仅文件类命令需要（cd/ls 等连续执行时 CH378 FAT32
+     * 目录状态需要稳定）；音频控制类命令（play/pause/vol/stop 等）跳过此
+     * 延时，显著降低每条 CLI 的占用时间，缓解命令积压时心跳 ACK 被丢弃。 */
+    Delay_Ms(CLI_LastCmdNeededCH378() ? 20 : 2);
 
     /* 将捕获到的输出发回 Display，使用 SOF/EOF 标记多帧传输 */
     if (cli_capture_len > 0) {
