@@ -41,19 +41,28 @@
   - 软件滤波（如移动平均、带通滤波）去除基线漂移与运动伪影
   - 通过峰值检测计算心率（BPM）与血氧饱和度（SpO2）
   - 通过相邻 RR 间期标准差计算 HRV（心率变异性，单位 ms）
+- **手指自动检测（IDLE/MONITORING 双状态）**：
+  - 上电默认 IDLE 状态，仅监测 PROX_INT / IR 电平；手指放上（IR ≥ `MAX30102_FINGER_OFF_IR_MIN`=5000）
+    自动进入 MONITORING 开始测量，无需 Core 下发开始命令
+  - 连续 50 个低 IR 样本判定手指离开，自动回到 IDLE 并停止上报
+  - Core 也可通过 `CMD_SUB_SET_CONFIG`（0x44）SUB=0x02/0x03 强制开始/停止监测
 - **数据上报**：
-  - 定时主动上报：`CMD_SUB_DATA_REPORT`（0x43 SUB=0x01）
-  - 响应 Core 查询：`CMD_SUB_GET_STATUS`（0x42 SUB=0x00）
+  - 定时主动上报：`CMD_SUB_DATA_REPORT`（0x43 SUB=0x01），上报间隔默认 **5 秒**，
+    可由 `CMD_SUB_SET_CONFIG` SUB=0x01 设置（uint16 大端秒数）
+  - 响应 Core 查询：`CMD_SUB_GET_STATUS`（0x42 SUB=0x00），ACK 携带 `[心率:1][血氧:1][HRV:2]`
   - **零值过滤**：心率或血氧为 0 时跳过本次主动上报（算法未产出有效值的
     首次/未稳定阶段不产生 0 值数据，避免污染 Core 侧统计）
 - **异常检测**：心率 / 血氧超出预设阈值时，立即上报告警事件
 
 ### 中断与事件
 
-- I2C 中断：传感器数据采集完成
-- MAX30102 中断（PB13 INT 引脚）：FIFO 几乎满，触发批量读取
-- 定时器中断：周期性采样与上报节拍（如每 1 秒采样，每 5 秒上报一次完整数据包）
+- MAX30102 中断（PB13 INT 引脚，EXTI 下降沿）：FIFO 几乎满，触发批量读取
+- 主循环 10ms 轮询 `Max30102_PollFIFO()` 作为中断后备（双保险）
+- TIM2 更新中断：1kHz 毫秒时基，驱动采样轮询与上报节拍
 - UART1 中断：接收 Core 的查询或配置指令
+
+> **注意**：USART1 同时承担 Core 协议通信，禁止 `USART_Printf_Init()` 类 printf 调试输出，
+> 否则会污染协议帧（main.c 中已刻意不初始化 printf）。
 
 ## 项目目录结构
 
@@ -93,4 +102,7 @@ submodel_2/
 3. **接触式测量要求**：MAX30102 需要手指紧贴传感器窗口，模块外壳设计应预留测量窗口并做遮光处理，环境光干扰会严重影响 PPG 信号质量。
 4. **功耗管理**：MAX30102 可在空闲时进入低功耗模式，仅在测量周期唤醒；若模块由电池供电（通过核心板 5V），降低功耗尤为重要。
 5. **数据平滑**：心率和血氧值波动较大，建议在上报前做滑动窗口平均（如前 5 个有效值的均值），避免 UI 上数字乱跳。
-6. **与 Core 的协同**：健康数据通常由 Display 模块以图表或数字形式展示，Submodel-2 只需按协议定时上报原始/处理后数据，UI 渲染完全由 Display / Core 负责。
+6. **与 Core/Display 的协同**：健康数据上报到达 Core 后经 `Display_SendSubmodelEvent(SUBMODEL_TYPE_HEALTH, ...)`
+   转发给在线 Display，由 Display 的 Health 应用以数字/图表形式展示；Submodel-2 只负责采集与上报，
+   UI 渲染完全由 Display / Core 负责。
+7. **软件 I2C**：PB14/PB15 为软件模拟 I2C（非硬件外设），时序由驱动内延时保证。

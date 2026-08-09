@@ -1759,6 +1759,23 @@ static void file_page_update(ui_page_t *page)
     /* Keyboard events are now handled by file_page_event (on_page_event callback),
      * which is called during UI_Tick's event dispatch phase.
      * No need to poll ui_input_poll() here — that was the old broken approach. */
+
+    /* Loading watchdog: if the ls response EOF is lost (dropped frame, or the
+     * assembly was wiped by another CLI command), the app must not stay in
+     * Loading... forever — auto-recover after 5s. */
+    static uint32_t s_loading_since = 0;
+    if (s_fs.loading) {
+        uint32_t now = ui_get_real_ms();
+        if (s_loading_since == 0) s_loading_since = now;
+        if ((uint32_t)(now - s_loading_since) > 5000) {
+            s_fs.loading = false;
+            s_loading_since = 0;
+            file_update_status();
+            file_invalidate_content();
+        }
+    } else {
+        s_loading_since = 0;
+    }
 }
 
 /*=============================================================================

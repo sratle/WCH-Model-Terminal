@@ -213,6 +213,81 @@ core/
 
 ---
 
+## 功能子系统
+
+Core（V5F）除模块驱动外，还实现以下功能子系统：
+
+### CLI 命令行接口
+
+交互式 CLI（USART2，115200）提供完整的文件管理与系统控制命令（`ls`/`cd`/`cat`/`read`/
+`play`/`vol`/`config`/`user`/`login` 等），支持 FAT 长文件名。CLI 是系统的**总线枢纽**：
+Display 的 CLI 直通（`0x10/0x1A`）、手机 APP 的 BLE CLI（`0x50/0x07`）与本地串口终端
+三个客户端最终都汇入同一个 `CLI_Process()`，行为完全一致。详细命令表见 `PROJECT.md` CLI 章节。
+
+### Auth 用户系统（`Auth/`）
+
+- 数据源 `\CONFIG\user.json`：用户（name + PIN 哈希）、指纹/NFC 凭据绑定、私密文件夹 ACL
+- 登录途径：CLI `login <name> <pin>`（PIN）；指纹/NFC 识别命中凭据时**自动登录**（快速切换用户）
+- 私密文件夹软门禁：CLI 文件类命令统一拦截，无权访问时输出 `AUTH_REQUIRED: <path>`，
+  Display 文件管理器据此弹认证界面（PIN/指纹/NFC 三选一）
+- 登录态变化经 `USER_STATUS`(0x1D) 主动推送 Display
+- 上限：8 用户、每用户 8 指纹 + 4 NFC 卡、8 个私密文件夹
+
+### Config 配置系统（`Config/`）
+
+- `config.json` 按"模块类型-子类型"（TTSS 编码）组织，启动加载、`Config_Apply()` 下发各模块
+- 亮度/音量/息屏超时/RGB 灯效/音效开关等全部持久化于 TF 卡，支持备份/回滚/恢复默认
+- 详见 `config.md`
+
+### 键盘模块处理（`Keyboard/`）
+
+- **Keyboard-1/2**：HID 报告/游戏输入 → 转换为标准 HID 键盘/鼠标报告经
+  `CMD_DISP_INPUT_EVENT`(0x15) 转发 Display（ROC1 方向键带迟滞、ROC2 鼠标移动等）
+- **Keyboard-3（电子琴）**：琴键位图 → 播放 `\SOUND\PIANO-xx.WAV` 音色，
+  12 按钮 → `\SOUND\DRUM-01~12.WAV` 鼓点（上升沿触发）；
+  琴键与鼓点共用 ch0/ch1 **严格交替轮转**，延音不被打断；
+  **3 路推子实时映射效果器**——左推子 → Bass EQ（-12~+12dB）、
+  中推子 → Echo 混合比（0~40%，自动启用）、右推子 → 压缩器（阈值/比率）；
+  音乐事件同时透传 Display 的 EMusic 应用做可视化；键盘离线自动停止上报
+
+### Submodels 管理与事件转发（`Submodels/`）
+
+- 三槽位配件管理：类型识别、命令分发、事件接收
+- 事件统一经 `CMD_DISP_EXT_SUBMODEL_EVENT`(0x0E) 转发 Display（指纹/健康/NFC/测距等）
+- **触摸圆环映射**：圆环旋转 → 半步质心跟踪的标准鼠标滚轮报告；
+  中心 2×2 方阵 → 上升沿注入导航键（Esc/Enter/Left/Right），使触摸圆环成为
+  整机"圆盘导航器"（详见 `Submodel-4.md`）
+- **RGB 联动**：Display 游戏经 `RGB_EFFECT`(0x1E) 请求，Core 查找 RGB 槽位转发
+  波纹/波浪一次性动画；`rgb.json` 自定义帧动画的加载与逐帧下发
+- **副屏管理**：系统状态（20 字段 + 模块列表）、设备列表、BMP 图片的多帧下发，
+  响应副屏的状态/图片请求
+
+### CH9350 外接 HID（`CH9350/`）
+
+- USB-A Host 口接入标准 USB 键盘/鼠标（CH9350 状态 2，相对坐标）
+- 首帧识别设备类型并经 `HID_STATUS`(0x18) 同步 Display；输入报告经 0x15 转发
+- 同一时刻一个 HID 设备，切换时先发旧设备断开
+
+### CH585F 无线桥（`CH585F/`）
+
+- SPI4 Master 轮询收发（NSS 通知 + 10ms 保活），协议帧解析
+- APP CLI 闭环：组装 APP 命令 → `CLI_Process()` → 捕获输出分帧回传
+- 最近 10 次 BT 流量统计、APP 连接状态，经 `BT_EVENT`(0x0C) 推送 Display
+
+### Display 状态同步（`Display/`）
+
+- 音乐播放状态（`MUSIC_STATUS` 0x1C）：播放/暂停/进度/音量/外放/曲目名，变化即推
+- 电量/充电（`POWER_EVENT` 0x0F）、模块插拔（`MODULE_STATUS` 0x04）、
+  当前用户（`USER_STATUS` 0x1D）、CWD 变更（`CWD_NOTIFY` 0x1B）等状态推送
+- Display 进页可经 `GET_SYS_STATUS`(0x1C) 一次性拉取全量状态
+
+### 核心按键（`Key/`）
+
+板载三键（PF8/PF9/PF10）本地处理：`+`/`-` 按 `volume_step` 步进调节音量
+（短按/长按均生效），`Enter` 按下沿切换功放外放；不再转发 Display。
+
+---
+
 ## 命名规范
 
 - **文件**：统一采用下划线加小写字母，例如 `hardware.c`、`i2c_soft.h`。

@@ -117,8 +117,9 @@ HID 输入（CH9350 USB 键鼠 / Keyboard 模块 / BLE HID），并经 `CMD_DISP
 - **键盘**：HID 全字符映射（含 Shift 与标点）、方向键/翻页键/回车/Esc/Menu 键；
   按键做按下集合 diff（不再因报告重发而重复触发），并支持按住自动重复
   （500ms 后每 100ms 一次，Esc 除外）。键盘事件页面处理器未消费时广播到所有控件。
-- **Core 按键**：修正按键 ID 映射（协议为 0x01/0x02/0x03）；`+`/`-` 映射为
-  SWIPE_UP/DOWN，Enter 在当前光标位置产生 CLICK。
+- **Core 按键**（保留路径）：按键 ID 映射（协议为 0x01/0x02/0x03）；`+`/`-` 映射为
+  SWIPE_UP/DOWN，Enter 在当前光标位置产生 CLICK。当前 Core 三键为本地音量/外放控制
+  不再转发，本路径作为兼容处理保留。
 - 外接鼠标断开时释放卡住的左键并清空滚轮累计；共享光标保持显示（本地触摸板仍需要）。
 
 ### TTP229 数据读取
@@ -261,7 +262,9 @@ RAM 纪律：CLI 应答缓冲 8KB（EBook/Images 零拷贝解析源）；Editor 
   SFX 显式 ch1（GEACTION/SCACTION/SOUND-HIT，长文件名小写 `.wav`）；
   MiniUI Button/Icon Button/Tab/Switch 及侧边栏页面切换触发 SCACTION 控件音；
   `config.json` `0102` 段 `operationsound`/`gamebgm` 门控，
-  约定详见 Protocol_Display.md §4.9
+  约定详见 Protocol_Display.md §4.9；SFX 受 `UART_CLI_InFlight()` 门控
+  （ls/cat 传输中不插播，防止重置响应组装缓冲卡死消费者），
+  File app loading 5s 看门狗自动复位
 
 ## 项目目录结构
 

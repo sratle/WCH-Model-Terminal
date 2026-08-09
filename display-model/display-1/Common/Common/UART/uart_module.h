@@ -516,6 +516,12 @@ void UART_SendNACK(uint8_t dst, uint8_t error_code);
  * The response will arrive via on_cli_stream or on_cli_complete callback. */
 void UART_SendCLI(const char *cmd);
 
+/* Query whether a CLI command is currently in flight (response still
+ * assembling). SFX paths must skip their CLI sends while this is true —
+ * sending would reset the assembly buffer and corrupt the in-flight
+ * response. Auto-recovers 3s after a lost EOF. */
+bool UART_CLI_InFlight(void);
+
 /* Convenience wrappers that build CLI commands internally: */
 
 /* List directory: if dir_or_null is non-NULL and non-empty, sends "cd <dir>"

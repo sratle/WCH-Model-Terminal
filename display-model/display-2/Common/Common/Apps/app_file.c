@@ -170,6 +170,7 @@ static uint32_t s_last_click_ms = 0;
  *=============================================================================*/
 
 static void file_request_list(void);
+static void file_page_update(ui_page_t *page, uint32_t dt_ms);
 static void file_sort_entries(void);
 static void file_update_status(void);
 static void file_draw_list(void);
@@ -612,6 +613,28 @@ static void file_update_status(void)
 
     btn_device.text = s_fs.current_device ? "USB" : "SD";
     btn_device.base.flags |= UI_WIDGET_FLAG_DIRTY;
+}
+
+/* Page update: loading watchdog. If the ls response EOF is lost (dropped
+ * frame, or the assembly was wiped by another CLI command), the app must not
+ * stay in Loading... forever — auto-recover after 5s. */
+static void file_page_update(ui_page_t *page, uint32_t dt_ms)
+{
+    (void)page;
+    (void)dt_ms;
+    static uint32_t s_loading_since = 0;
+    if (s_fs.loading) {
+        uint32_t now = ui_get_real_ms();
+        if (s_loading_since == 0) s_loading_since = now;
+        if ((uint32_t)(now - s_loading_since) > 5000) {
+            s_fs.loading = false;
+            s_loading_since = 0;
+            file_update_status();
+            file_invalidate_content();
+        }
+    } else {
+        s_loading_since = 0;
+    }
 }
 
 /*=============================================================================
@@ -1771,6 +1794,7 @@ void app_file_init(void)
 
     ui_page_set_widgets(&s_app_file.page, s_file_widgets, 11);
     ui_page_set_callbacks(&s_app_file.page, file_page_enter, NULL, file_page_draw, NULL);
+    ui_page_set_update_cb(&s_app_file.page, file_page_update);
     ui_page_set_event_cb(&s_app_file.page, file_page_event);
     ui_page_register(&s_app_file.page);
 }

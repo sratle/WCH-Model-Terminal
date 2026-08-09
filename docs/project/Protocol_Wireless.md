@@ -4,25 +4,25 @@
 
 - **模块类型编号**：`0x02`
 - **模块 ID**：`0x01`
-- **物理接口**：SPI0（Core 侧 V5F 为 Master，CH585F 为 Slave）
+- **物理接口**：SPI（CH585F 侧 = SPI0 Slave，Core 侧 V5F = SPI4 Master，同一物理链路两侧外设编号不同）
 
-CH585F 为独立 RISC-V MCU，内置 **BLE 协议栈**，与 Core 通过 SPI0 进行全双工通信。应用层载荷严格遵循统一紧凑二进制协议格式。
+CH585F 为独立 RISC-V MCU，内置 **BLE 协议栈**，与 Core 通过 SPI 进行全双工通信。应用层载荷严格遵循统一紧凑二进制协议格式。
 
-> **注意**：CH585F 仅支持 **BLE（低功耗蓝牙）**，不支持 Bluetooth Classic，因此不支持 A2DP、SPP 等 Classic 协议。蓝牙键鼠走 **HID over GATT**，APP 数据通道走 BLE 自定义 Profile / L2CAP。
+> **注意**：CH585F 仅支持 **BLE（低功耗蓝牙）**，不支持 Bluetooth Classic，因此不支持 A2DP、SPP 等 Classic 协议。当前固件仅实现 **Peripheral 角色**（APP CLI 数据通道）；Central 角色（BLE 键鼠 HID over GATT）在协议层预留、固件未实现。
 
 ### 1.1 帧格式速查
 
-SPI0 物理层参数：
+SPI 物理层参数：
 
 | 参数 | 值 |
 |------|-----|
-| 接口 | SPI0 |
+| 接口 | CH585F 侧 SPI0 Slave / Core 侧 SPI4 Master |
 | 角色 | V5F = Master，CH585F = Slave |
 | 数据位 | 8 |
-| 时钟极性 | CPOL Low |
+| 时钟极性 | CPOL Low（Mode 0） |
 | 时钟相位 | CPHA 1Edge |
-| NSS | 软件控制 |
-| 波特率 | 由 Core 侧决定 |
+| NSS | 软件控制；CH585F 复用 NSS 线产生上行通知脉冲 |
+| 收发缓冲 | CH585F 侧 RX/TX 各 20KB 环形缓冲 |
 
 **标准帧结构**（总长度最大 264 字节，DATA ≤ 255 字节）：
 
@@ -95,19 +95,25 @@ TENTATIVE_TAIL3:
 
 ### 1.3 SPI 通信特殊说明
 
-CH585F 作为 **SPI Slave**，无法主动发起数据传输。所有上行数据（CH585F → Core）均需依赖以下机制之一：
+CH585F 作为 **SPI Slave**，无法主动发起数据传输。当前实现采用**通知 + 轮询双保险**：
 
-1. **中断线通知（推荐）**：CH585F 通过独立 GPIO 中断线（如 `INT`）通知 V5F"有数据待读取"，V5F 收到中断后发起 SPI 读取事务。
-2. **轮询（备用）**：V5F 主循环中定期发送查询帧（如 `CMD_BT_GET_STATUS` 或空操作），CH585F 在响应中夹带上行数据。
-3. **SPI 全双工复用**：V5F 每次发送下行帧时，同步接收 MISO 上的数据；CH585F 利用此窗口将上行数据填入发送缓冲区。
-
-> **建议**：硬件上预留中断线（如 PA10 或其他空闲 GPIO），否则高频 HID 事件场景下轮询开销较大。
+1. **NSS 通知脉冲（主路径）**：CH585F 有上行数据入 TX 缓冲时，在 NSS 线上产生通知脉冲
+   （`SPI_Slave_NotifyMaster()`），Core 侧 EXTI 置位标志后发起 SPI 读取事务。
+2. **周期保活轮询（兜底）**：Core 主循环每 10ms 至少发起一次全双工事务
+   （`CH585F_BT_Poll()`，每次交换固定长度字节，无数据补 `0x00` dummy），
+   防止通知丢失造成死锁；Core 有下行数据待发时也立即发起事务。
+3. **全双工复用**：每次事务同时完成下行发送与上行接收。
 
 ---
 
 ## 2. 操作码定义
 
 Wireless 模块专用操作码范围为 `0x50 ~ 0x5F`（特例，不参与模块 ID 高 4 位映射）。当基础操作码空间不足时，使用扩展操作码机制。
+
+> **实现状态（2026-08）**：当前 CH585F 固件仅实现 `CMD_GET_TYPE`(0x01)、
+> `CMD_BT_GET_STATUS`(0x51)、`CMD_BT_RESET`(0x59) 与扩展码 `CMD_BT_EXT_CLI_DATA`(0x50/0x07)；
+> 其余操作码为协议预留（Central 角色功能），收发两侧固件均未实现，
+> CH585F 收到未实现的命令会回复 `NACK(PROTO_ERR_UNSUPPORTED_CMD)`。
 
 ### 2.1 基础操作码（0x51 ~ 0x5F）
 
@@ -482,10 +488,13 @@ CH585F 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 |------|------|---------|
 | DATA[0] | 模块类型编号 | `0x02` |
 | DATA[1] | 模块子类型编号 | `0x01`（`MODULE_SUBTYPE_WIRELESS_BT`，标准 BLE 模块） |
-| DATA[2] | 硬件版本号 | CH585F 硬件版本 |
-| DATA[3] | 固件主版本号 | BLE 协议栈或固件主版本 |
-| DATA[4] | 固件次版本号 | BLE 协议栈或固件次版本 |
-| DATA[5..N] | 扩展信息 | BLE 版本、支持协议（HID over GATT / 自定义 Profile）等能力位（可选） |
+| DATA[2] | 硬件版本号 | CH585F 硬件版本（当前 `0x01`） |
+| DATA[3] | 固件主版本号 | 固件主版本（当前 `0x01`） |
+| DATA[4] | 固件次版本号 | 固件次版本（当前 `0x00`） |
+| DATA[5] | 保留 | `0x00` |
+
+> **注意**：Wireless 的 GET_TYPE ACK 数据域为 **6 字节**（LEN=7），与其他 UART 模块的
+> 5 字节身份指纹规则不同；Wireless 不在 6 个 UART 心跳槽位内，不受该约束。
 
 **Wireless 子类型定义**
 
@@ -507,3 +516,4 @@ CH585F 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | V2.0 | 2026-05-04 | 扩展并引入扩展操作码机制（基码 0x50），新增 HID 上报、扫描/连接/配对管理、APP CLI 等协议（**基于错误假设，误认为支持 Classic/A2DP**） |
 | V2.1 | 2026-05-04 | 修正：根据 CH585F 数据手册，确认芯片仅支持 BLE（不支持 Classic/A2DP）。移除音频流、音频控制、OTA 相关操作码及数据格式；修正 HID 为 HID over GATT；修正工作模式描述。 |
 | V2.2 | 2026-05-12 | 修正 CLI_DATA 格式：去除 DATA 中冗余的基码 0x50（CMD 字段已含 0x50）；新增流式帧机制（LEN=0xFF），支持单帧最大 20KB 数据传输，以帧尾为结束标志；新增帧尾回退解析机制说明。 |
+| V2.3 | 2026-08-08 | 对齐实际固件：物理接口澄清为 CH585F 侧 SPI0 Slave / Core 侧 SPI4 Master；§1.3 改写为已实现的 NSS 通知脉冲 + 10ms 保活轮询机制；标注当前仅实现 GET_TYPE/GET_STATUS/RESET/CLI_DATA，Central 相关操作码为预留；GET_TYPE ACK 数据域修正为固定 6 字节（含保留字节） |

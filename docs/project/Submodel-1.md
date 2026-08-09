@@ -32,19 +32,30 @@
 
 - **自动验证模式（默认）**：
   - PA4 中断触发或轮询检测到手指按下后，发送 `PS_AutoIdentify`（`0x32`）启动自动验证
-  - 验证成功：向 Core 发送 `CMD_SUB_EVT_NOTIFY SUB=0x01`，携带指纹 ID 和名字
+  - 验证成功：向 Core 发送 `CMD_SUB_EVT_NOTIFY SUB=0x01`，携带指纹 ID（名字字段 16 字节补零，
+    用户名解析由 Core 的 Auth 模块按 user.json 凭据绑定完成）
   - 验证失败：向 Core 发送 `CMD_SUB_EVT_NOTIFY SUB=0x02`，携带错误码
   - 验证完成后传感器自动进入低功耗待机
 - **注册流程**（由 Core 发起）：
-  - 收到 `CMD_SUB_SET_MODE SUB=0x01` 后，发送 `PS_AutoEnroll`（`0x31`）启动自动注册
-  - 注册成功：向 Core 发送 `CMD_SUB_ACTION_RESULT SUB=0x01`，携带新指纹 ID 和名字
+  - 收到 `CMD_SUB_SET_MODE SUB=0x01` 后，发送 `PS_AutoEnroll`（`0x31`）启动自动注册；
+    命令可携带 1 字节可选 ID（DATA[1]），缺省时以当前模板数量作为下一个空闲位置
+  - 注册过程中每个传感器应答都会向 Core 发送**注册进度事件**
+    `CMD_SUB_EVT_NOTIFY SUB=0x03`，携带 `[步骤类型:1][子步骤/ID:1][确认码:1]`，
+    供 Core/Display 实时更新录入引导 UI（提示抬手、再次按压等）
+  - 注册成功：向 Core 发送 `CMD_SUB_ACTION_RESULT SUB=0x01`，携带新指纹 ID（名字字段 16 字节补零）
   - 注册失败：向 Core 发送 `CMD_SUB_ACTION_RESULT SUB=0x02`，携带错误码
   - 收到 `CMD_SUB_SET_MODE SUB=0x02` 后，发送 `PS_Cancel`（`0x30`）取消注册
+  - 验证流程（`PS_AutoIdentify`）同样上报进度事件（SUB=0x03），供 UI 显示"正在识别"
 - **指令响应**：
   - 响应删除指纹指令：发送 `PS_DeletChar`（`0x0C`）
   - 响应清空指纹指令：发送 `PS_Empty`（`0x0D`）
-  - 响应查询指令：发送 `PS_ReadIndexTable`（`0x1F`）读取索引表
-  - 响应灯效控制指令：发送 `PS_ControlBLN`（`0x3C`）控制呼吸灯
+  - 响应查询指纹列表：发送 `PS_ReadIndexTable`（`0x1F`）读取索引表，
+    回复 ACK `[数量:1][ID0][ID1]...`（仅 ID 列表，不含名字）
+  - 响应查询指纹数量：发送 `PS_ValidTempleteNum`（`0x1D`），回复 ACK `[数量:1]`
+  - 响应灯效控制指令：发送 `PS_ControlBLN`（`0x3C`）控制呼吸灯；
+    若传感器处于休眠中，灯效命令会被缓存，待传感器应答休眠/唤醒后补发
+- **心跳**：响应 `CMD_GET_TYPE`（固定 5 字节身份：类型 `0x05`、子类型 `0x01`、HW `0x01`、FW `1.0`）
+  与 `CMD_NOP`（空 ACK）；模块 ID 从首帧 DST 字段学习（槽位自适应）
 - **安全策略**：连续识别失败多次后，暂时锁定并上报 Core
 
 ### 中断与事件
@@ -137,4 +148,5 @@ submodel_1/
 5. **灯效控制**：传感器支持 `PS_ControlBLN`（`0x3C`）控制板载 LED，可用于注册/验证过程中的视觉反馈。若传感器处于休眠状态，需先唤醒再发送灯效指令，或缓存命令待唤醒后发送。
 6. **模板管理**：传感器自带 Flash 存储（通常支持 100~300 枚指纹），通过 `PS_ReadIndexTable`（`0x1F`）可读取索引表，用于构建指纹列表回复 Core。
 7. **隐私安全**：指纹模板数据不应以明文形式通过 UART 传输；若 Core 请求读取原始模板（如备份），建议做简单异或或加密处理。
-8. **与 Core 的协同**：指纹注册流程通常需要 UI 引导（提示用户按多次手指），因此注册指令一般由 Core 发起，模块执行采集与存储，完成后上报结果。注册过程中 Core 可通过灯效命令控制 LED 给用户视觉反馈。
+8. **与 Core 的协同**：指纹注册流程通常需要 UI 引导（提示用户按多次手指），因此注册指令一般由 Core 发起，模块执行采集与存储，完成后上报结果；过程中的进度事件（SUB=0x03）驱动 Display 的录入引导界面。注册过程中 Core 可通过灯效命令控制 LED 给用户视觉反馈。
+9. **与 Auth 用户系统的联动**：识别成功事件（SUB=0x01）到达 Core 后，Auth 模块按 user.json 中的指纹凭据绑定查找用户并自动登录（`Auth_LoginByFp`），随后 Core 向 Display 推送 `USER_STATUS` 扩展帧刷新登录态；这也是 Display 文件管理器访问私密文件夹时的指纹认证路径。

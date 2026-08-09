@@ -39,6 +39,11 @@ static void sfx_play(const char *path, uint32_t *last_ms)
 {
     if (!g_settings.operation_sound) return;
 
+    /* Never send SFX while another CLI command's response is assembling:
+     * UART_SendCLI resets the assembly buffer — a SFX "play" would wipe an
+     * in-flight ls/cat response and wedge its consumer. */
+    if (UART_CLI_InFlight()) return;
+
     uint32_t now = ui_get_real_ms();
     if ((uint32_t)(now - *last_ms) < SOUND_SFX_MIN_INTERVAL_MS) return;
     *last_ms = now;

@@ -135,8 +135,8 @@ Display 模块操作码分为两类：
 | `0x12` | `CMD_DISP_EXT_CONFIG_RESULT` | Core -> Display | 配置保存/加载结果 | `[结果:1][错误码:1][配置数据:变长]` |
 | `0x13` | `CMD_DISP_EXT_SET_RGB_MODE` | Display -> Core | 设置 RGB 灯效模式 | `[灯效ID][颜色R][颜色G][颜色B][亮度][速度]` |
 | `0x14` | — | — | **已废弃**（V3.0 CLI 直通替代） | — |
-| `0x15` | `CMD_DISP_EXT_SUBDISP_CONTENT` | Core -> Display | 副屏显示内容设置 | `[内容类型:1][内容数据:变长]` |
-| `0x16` | `CMD_DISP_EXT_SUBDISP_CONFIG` | Core -> Display | 副屏配置 | `[分辨率][方向][开关]` |
+| `0x15` | `CMD_DISP_EXT_SUBDISP_CONTENT` | Core -> Display | 副屏显示内容设置（**预留未使用**：副屏由 Core 经 Submodel 通道直管，见 `Protocol_Submodels.md` §4.7） | `[内容类型:1][内容数据:变长]` |
+| `0x16` | `CMD_DISP_EXT_SUBDISP_CONFIG` | Core -> Display | 副屏配置（**预留未使用**，同上） | `[分辨率][方向][开关]` |
 | `0x17` | `CMD_DISP_EXT_ERROR_REPORT` | Display -> Core | Display 错误/异常上报 | `[错误码:1][错误信息:变长]` |
 | `0x18` | `CMD_DISP_EXT_HID_STATUS` | Core -> Display | 外接 HID 设备连接/断开状态同步 | `[事件:1][设备类型:1]` |
 | `0x19` | — | — | **已废弃**（V3.0 CLI 直通 `cd` 替代） | — |
@@ -561,9 +561,10 @@ Display-1/Display-2 的游戏音效系统完全基于 CLI 直通实现，**无�
   会话仍活跃时校正 BGM 状态，退出 Games 区后到达的响应不会重启 BGM
 - SFX 按类型独立节流（GEACTION/SCACTION/HIT 各 ≥30ms 互不影响），
   防止连续输入灌满 UART/CLI 通道，同时避免转向后立刻吃食等场景被误抑制
-- **Display→Core 帧间隔下限 6ms**（`UART_SendFrame` 内置节流）：Core 主循环
-  每轮仅消费一帧，ISR 双缓冲保旧丢新，背靠背连发（如 BGM 的 stop+play、
-  RGB 帧+SFX CLI）会丢后帧；所有 Display→Core 帧统一遵守该下限
+- **Display→Core 帧间隔下限**：普通帧 6ms（`UART_SendFrame` 内置节流）；
+  **CLI 命令两两 ≥50ms**（`UART_SendCLI` 内置节流）——Core 主循环单轮
+  在音频流/CH378 操作下可达数十 ms，接收双缓冲保旧丢新，
+  CLI 背靠背（如 SFX play 紧跟 file app 的 ls）会丢后帧
 
 ---
 
@@ -577,11 +578,12 @@ Core 将所有输入源的事件统一打包后发送给 Display。输入源包�
 |------|------|------|
 | CH9350 键盘 | USB-A 口外接 HID 键盘 | 通过 UART1 接收，V5F 解析后转发 |
 | CH9350 鼠标 | USB-A 口外接 HID 鼠标 | 通过 UART1 接收，V5F 解析后转发 |
-| BLE HID 键盘 | CH585F 连接的 BLE 键盘 | CH585F 通过 SPI 上报 `CMD_BT_HID_REPORT`，V5F 转发 |
-| BLE HID 鼠标 | CH585F 连接的 BLE 鼠标 | CH585F 通过 SPI 上报 `CMD_BT_HID_REPORT`，V5F 转发 |
-| Core 按键 | 板载 `+`/`-`/`Enter` 三键 | V5F GPIO 扫描，V5F 转发 |
+| BLE HID 键盘 | CH585F 连接的 BLE 键盘 | CH585F 通过 SPI 上报 `CMD_BT_HID_REPORT`，V5F 转发（**Central 未实现，预留**） |
+| BLE HID 鼠标 | CH585F 连接的 BLE 鼠标 | 同上（预留） |
+| Core 按键 | 板载 `+`/`-`/`Enter` 三键 | **当前本地处理**（± 调音量、Enter 切换外放），不再转发 Display；0x03 设备类型保留 |
 | 触摸屏 | Display 模块触摸控制器 | Display 自行处理，不经过此通道 |
 | Keyboard 模块 | Keyboard-1/2/3 | 通过 UART3 接收，V5F 转发 |
+| 触摸圆环 | Submodel-4 | V5F 将圆环旋转映射为滚轮报告、方阵映射为导航键后转发 |
 
 > **说明**：BLE HID 事件由 CH585F 通过 `CMD_BT_HID_REPORT`（0x56）上报给 Core，Core 统一转换为 `CMD_DISP_INPUT_EVENT`（0x15）格式后转发给 Display。Display 无需感知蓝牙层。
 
@@ -640,7 +642,11 @@ DATA[4]: 滚轮偏移（int8，正值为远离用户/向上滚动）
 
 ---
 
-**Core 按键报告（设备类型 = 0x03，报告长度 = 2 字节）**：
+**Core 按键报告（设备类型 = 0x03，报告长度 = 2 字节，当前保留未使用）**：
+
+> **现状**：Core 板载三键在 Core 侧本地处理——`+`/`-` 按 `volume_step` 步进调节音量
+> （短按/长按均生效），`Enter` 按下沿切换功放外放开关——**不再向 Display 转发**。
+> 以下格式保留供未来扩展；Display 侧对该事件的处理逻辑仍保留。
 
 Core 板载三个物理按键 `+`/`-`/`Enter` 的状态上报。
 
@@ -655,7 +661,9 @@ DATA[2]: 按键标识（1字节）
   - 0x03: `Enter` 键（短按=确认/进入，长按=系统唤醒）
 ```
 
-> Core 按键由 V5F 通过 GPIO 扫描获取（`Key_Scan()`），V5F 将按键事件打包为输入事件发送给 Display。长按检测由 Core 固件实现，Display 只需响应按下/长按/释放事件。
+> Core 按键由 V5F 通过 GPIO 扫描获取（`Key_PollAndProcess()`），当前在 Core 本地处理
+> （音量调节/外放切换）。若未来恢复转发，长按检测由 Core 固件实现，Display 只需响应
+> 按下/长按/释放事件。
 
 ---
 
@@ -896,9 +904,9 @@ DATA[0] = 0x0E
 DATA[1] = 0x02  (Health)
 DATA[2] = 0x43  (CMD_SUB_DATA_REPORT)
 DATA[3] = 0x01  (子命令: 健康数据上报)
-DATA[4] = 心跳
-DATA[5] = 血氧
-DATA[6] = 体温
+DATA[4] = 心率（BPM）
+DATA[5] = 血氧（%）
+DATA[6..7] = HRV（uint16 大端，ms）
 ```
 
 **激光测距事件示例**：
@@ -914,55 +922,25 @@ DATA[4..5] = 距离（uint16 大端，单位 mm，滑动平均后）
 
 ### 5.10 电源事件格式（扩展码 0x0F）
 
-Core 将 Power 模块的事件转发给 Display，数据格式与 `Protocol_Power.md` 对齐。
+Core 将 Power 模块的电量/充电状态转发给 Display。受 Power 模块硬件能力限制
+（仅可上报电量 + 充电状态，见 `Protocol_Power.md`），当前仅使用状态变化事件：
 
 ```
 DATA[0]: 扩展码 = 0x0F
-DATA[1]: 事件类型（1字节）
-  - 0x00: 状态变化（DATA[2..10] = 电源状态，格式同 Power 协议 0x36）
-  - 0x01: 充电事件（DATA[2..4] = 充电事件，格式同 Power 协议 0x37）
-  - 0x02: 告警事件（DATA[2..4] = 告警事件，格式同 Power 协议 0x38）
+DATA[1]: 事件类型 = 0x00（POWER_EVT_STATUS_CHANGE，状态变化）
+DATA[2]: 电量百分比（0~100）
+DATA[3]: 状态位图（bit0: 充电中）
 ```
 
-**状态变化数据（事件类型 = 0x00）**：
-```
-DATA[2]: 状态位图（1字节）
-  - bit0: 是否充电中
-  - bit1: 是否已充满
-  - bit2: 是否充电宝输出中
-DATA[3]: 电量百分比（0~100）
-DATA[4..5]: 电池电压（uint16 大端，mV）
-DATA[6..7]: 电池电流（int16 大端，mA）
-DATA[8]: 电池温度（int8，°C）
-DATA[9..10]: 功率（uint16 大端，mW）
-```
+> Core 侧 `Power_ReportStatusToDisplay()` 在电量/充电状态**变化时**推送，
+> Display 进 Power 页时也可经 `GET_SYS_STATUS`(0x1C) 拉取一次。
+> 充电/告警等更细事件类型（0x01/0x02）预留未使用。
 
-**充电事件数据（事件类型 = 0x01）**：
-```
-DATA[2]: 充电事件类型（0x00=插入, 0x01=拔出, 0x02=开始充电, 0x03=充满, ...）
-DATA[3..4]: 当前充电功率（uint16 大端，mW）
-```
+### 5.11 副屏内容格式（扩展码 0x15，预留未使用）
 
-**告警事件数据（事件类型 = 0x02）**：
-```
-DATA[2]: 告警类型（0x00=低电量, 0x01=电量危急, 0x02=过温, 0x03=过流）
-DATA[3..4]: 当前值（uint16 大端）
-```
-
-### 5.11 副屏内容格式（扩展码 0x15）
-
-Core 向 Display 发送副屏（Submodel-7）显示内容，Display 负责转发给副屏模块。
-
-```
-DATA[0]: 扩展码 = 0x15
-DATA[1]: 内容类型（1字节）
-  - 0x00: 模块状态数据
-  - 0x01: 自定义内容
-  - 0x02: 清屏
-DATA[2..N]: 内容数据（变长，格式同 Submodel 协议中副屏的对应格式）
-```
-
-> Display 作为副屏数据的中转站，收到后通过 UART 转发给 Submodel-7。
+> **当前实现说明**：副屏（Submodel-7）挂在 Core 的 Submodel UART（6/7/8）上，
+> 由 Core 直接管理（BMP 下发、系统状态、设备列表等，见 `Protocol_Submodels.md` §4.7），
+> 不经 Display 中转。本扩展码与 0x16 为早期"Display 中转"设计的残留，当前未使用。
 
 ### 5.12 通知弹窗格式（CMD 0x1A）
 
@@ -1023,3 +1001,4 @@ Display 模块响应 `CMD_GET_TYPE` 时，`CMD_ACK` 的 DATA 格式如下：
 | V3.5 | 2026-08-05 | 用户系统：新增扩展码 0x1D `CMD_DISP_EXT_USER_STATUS`（Core→Display 推送当前登录用户）；CLI 私密文件夹拦截标记 `AUTH_REQUIRED: <path>`；Display 文件管理器认证对话框（PIN/指纹/NFC） |
 | V3.6 | 2026-08-06 | RGB 游戏联动：新增扩展码 0x1E `CMD_DISP_EXT_RGB_EFFECT`（Display→Core 触发 RGB 一次性动画：中心波纹/边缘波浪，事件语义发送即忘）；Games（tetris/2048/snake 方向 wave 速度 8，airplane 击中 ripple 速度 10，minesweeper 挖雷 ripple 速度 6） |
 | V3.7 | 2026-08-08 | 游戏音效系统（纯 CLI 方案，无协议改动）：新增 §4.9——BGM `/BGM/BGM-01.wav` 显式 ch0、SFX 显式 ch1（GEACTION/SCACTION/SOUND-HIT 绝对路径）；`operationsound`/`gamebgm` 配置门控；`rotation` 配置项移除 |
+| V3.8 | 2026-08-08 | 文档对齐实际固件：§5.9 健康事件数据修正为心率/血氧/HRV（无体温）；§5.10 电源事件精简为实际格式（电量 + 充电位图 2 字节，与 Power 简化协议对齐，电压/电流/温度/功率字段随 Power V2.0 废弃）；§5.11/0x15/0x16 副屏中转命令标注为预留未使用（副屏由 Core 直管） |

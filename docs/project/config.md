@@ -112,8 +112,11 @@ CH378 下挂存储介质根目录下的 `\CONFIG` 目录为持久化根路径：
   },
   "0505": {
     "rgb_mode": 1,
+    "rgb_color_r": 255,
+    "rgb_color_g": 255,
+    "rgb_color_b": 0,
     "rgb_brightness": 80,
-    "rgb_speed": 50
+    "rgb_speed": 8
   },
   "0506": {
     "detect_threshold": 50
@@ -820,10 +823,16 @@ Hardware_V5F_Init()
 `Config_Apply()` 按以下顺序将配置下发到各模块：
 
 1. **Audio**：`Config_GetInt("0000", "volume", &val); Audio_SetVolume(val);`
-2. **Display**：发送 `CMD_DISP_SET_BRIGHTNESS`、`CMD_DISP_SET_ROTATION`
-3. **Keyboard**：发送 `CMD_KBD_SET_BACKLIGHT`
-4. **Power**：发送 `CMD_PWR_SET_CHARGE_POLICY`、`CMD_PWR_SET_OUTPUT_POLICY`、`CMD_PWR_SET_ALARM_THRESHOLD`
-5. **Wireless**：发送 `CMD_BT_SET_DISCOVERABLE`
+2. **Display**：发送 `CMD_DISP_SET_BRIGHTNESS`（按在线屏子类型选 `0101`/`0102` 段）与
+   `CMD_DISP_SCREEN_CONTROL`（`screen_timeout` 自动息屏超时）
+3. **Keyboard**：发送 `CMD_KBD_SET_BACKLIGHT`（按子类型选 `0401`/`0402`/`0403` 段）
+4. **Power**：发送 `CMD_PWR_SET_REPORT_INTERVAL`（`0301.report_interval`；
+   当前 Power 简化固件不处理该命令，静默丢弃，属兼容保留）
+5. **Wireless**：发送 `CMD_BT_SET_DISCOVERABLE`（`0201.discoverable`；
+   当前 CH585F 固件未实现，回复 NACK，属协议预留）
+6. **Submodel-RGB**：`0505` 段的 mode/color_r/g/b/brightness/speed 写入
+   `hardware_g.rgb_config` 并置 pending，待 RGB 模块上线时下发
+   （speed 为档位 1~10，越界值钳制为 8）
 
 > 配置应用仅在对应模块在线时执行（检查 `hardware_g.hb_slots` 状态）。
 
@@ -907,7 +916,7 @@ typedef struct {
 static const config_default_entry_t config_defaults[] = {
     /* Core (0000) */
     { "0000", "volume",          50  },
-    { "0000", "audio_mode",      0   },
+    { "0000", "volume_step",     5   },
     { "0000", "screen_timeout",  30  },
 
     /* Display-LCD (0101) */
@@ -924,21 +933,33 @@ static const config_default_entry_t config_defaults[] = {
     { "0201", "discoverable",    0   },
 
     /* Power (0301) */
-    { "0301", "charge_policy",   0   },
-    { "0301", "output_policy",   0   },
-    { "0301", "alarm_threshold", 15  },
+    { "0301", "report_interval", 10  },
 
-    /* Keyboard-Main (0401) */
+    /* Keyboard-Main/Game/Music (0401~0403) */
     { "0401", "backlight",       50  },
-
-    /* Keyboard-Game (0402) */
     { "0402", "backlight",       50  },
-
-    /* Keyboard-Music (0403) */
     { "0403", "backlight",       50  },
 
-    /* Submodel-RGB (0505) */
-    { "0505", "rgb_mode",        0   },
+    /* Submodel-Health (0502) */
+    { "0502", "monitor_interval", 10 },
+
+    /* Submodel-TouchRing (0504) */
+    { "0504", "sensitivity",     50  },
+
+    /* Submodel-RGB (0505)：speed 为档位 1~10（8=基准 10ms/步） */
+    { "0505", "rgb_mode",        1   },
+    { "0505", "rgb_color_r",     255 },
+    { "0505", "rgb_color_g",     255 },
+    { "0505", "rgb_color_b",     0   },
+    { "0505", "rgb_brightness",  80  },
+    { "0505", "rgb_speed",       8   },
+
+    /* Submodel-Laser (0506) */
+    { "0506", "detect_threshold", 50  },
+
+    /* Submodel-SubDisplay (0507) */
+    { "0507", "brightness",      80  },
+    { "0507", "content_mode",    0   },
 };
 
 #define CONFIG_DEFAULT_COUNT  (sizeof(config_defaults) / sizeof(config_defaults[0]))

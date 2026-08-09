@@ -2,11 +2,7 @@
 
 ## 作品简介
 
-本作品采用青稞RISC-V架构的CH32H417芯片作为核心芯片，旨在设计一台模块化的个人移动终端，
-满足用户对移动设备的多样化需求。该移动终端主要分成核心底板、供电模块、显示模块、配件模块、
-键盘模块五个部分，支持各个部分的独立更换和定制，提供灵活的硬件扩展能力和定制化体验。
-模块可在核心底板上自由组合，终端自动识别其组成，最终实现文本编辑器、电子书、播放器、
-电子琴、游戏机等多样功能，替代多种单一功能终端。
+本作品采用青稞RISC-V架构的CH32H417芯片作为核心芯片，旨在设计一台模块化的个人移动终端，满足用户对移动设备的多样化需求。该移动终端主要分成核心底板、供电模块、显示模块、配件模块、键盘模块五个部分，支持各个部分的独立更换和定制，提供灵活的硬件扩展能力和定制化体验。模块可在核心底板上自由组合，终端自动识别其组成，最终实现文本编辑器、电子书、播放器、电子琴、游戏机等多样功能，替代多种单一功能终端。
 
 ## 分模块硬件和功能描述
 
@@ -15,7 +11,7 @@
 核心模块是一整块PCB，上面有CH378、CH9350L、CS43131、CH32H417QEU6、CH585F这些主要的芯片。
 供电来自于Power模块，然后在这块PCB上将供电再传输给核心板上连接的其他模块。
 核心板上可以连接的模块包括Power模块一个、Keyboard模块一个、Display模块一个，
-Submodel模块三个
+Submodel模块三个。
 核心模块还支持串口连接CLI控制设备。
 
 - CH378是一个文件管理芯片，通过SPI1和CH32H417通信，CH378下接一个USB-A和一个TF卡座，
@@ -31,11 +27,12 @@ Submodel模块三个
   （这部分通过HPOAB后面的功放芯片实现，功放芯片有SHUTDOWN和Core连接，
   因此HPOAB是需要一直输出的）。
 - CH585F是一个独立主控wireless-model，作为BLE芯片使用，
-  通过SPI4和CH32H417连接，其UART1作为DEBUG。
-  BLE工作在Central + Peripheral双角色模式：Central角色支持扫描并连接BLE键盘、BLE鼠标（HID over GATT），
-  HID事件通过SPI上报给Core，由Core转发给Display模块；Peripheral角色支持移动端APP作为Central连接CH585F，
-  输入命令控制设备，相当于蓝牙SSH CLI，同时支持小文件传输。
-  有配对记忆功能，可以配对BLE设备后记住配对过哪些。
+  通过SPI4和CH32H417连接（CH585F侧为SPI0 Slave），其UART1作为DEBUG。
+  当前固件工作在 **Peripheral 角色**：广播 `WCH-Terminal`，手机 APP（WCH Terminal App）
+  作为 Central 连接后，经自定义 GATT 数据通道（Service 0xFFE0）与 Core 透传 CLI 命令/输出，
+  相当于蓝牙 SSH 终端；CH585F 有上行数据时通过 NSS 脉冲通知 Core，辅以 10ms 保活轮询。
+  Core 侧统计最近 10 次 BT 流量并推送 Display。
+  Central 角色（扫描连接 BLE 键鼠、HID over GATT、配对记忆）协议已预留，固件待开发。
 - CH32H417作为核心为core-model，内部集成V5F（400MHz）和V3F（100MHz）两个RISC-V核心。
   V5F为唯一执行核心，负责所有模块的初始化、中断处理与业务逻辑；
   V3F仅负责上电初始化时钟、唤醒V5F，然后进入STOP低功耗模式。
@@ -48,22 +45,28 @@ Submodel模块三个
 
 键盘模块有三种，主控均为CH32V103C8T6，UART1作为和核心模块的接口，波特率230400。
 
-- 主键盘Keyboard-1，大致为40配列，主控通过UART2和CH9329进行连接，
-  CH9329是一款串口转HID芯片，转换为HID之后输出到USB-A口，是Device口，可以单独作为标准USB HID设备给其他设备使用。
-- 游戏键盘Keyboard-2,大致为上下左右方向键、一个摇杆、四个自定义按键，
-  也有UART2连接CH9329并输出到USB-A。
+- 主键盘Keyboard-1，39 键小配列（4 行），通过 5 片 74HC165 级联移位寄存器读取按键，
+  主控合成标准 HID Boot Report 后经两路输出：UART1 上报 Core、UART2 经 CH9329
+  （串口转HID芯片）输出到 USB-A 口，可单独作为标准 USB HID 键盘给电脑使用。
+- 游戏键盘Keyboard-2，包含 2 个摇杆（ADC）、6 个按钮、3 个钮子开关、2 个旋转编码器，
+  也有UART2连接CH9329并输出到USB-A（键盘+鼠标混合 HID 映射）。
 - 音乐键盘Keyboard-3，主要包括24个触摸琴键（由两片TTP229-BSF驱动）、3个调音推子（ADC电位器）、12个控制按钮（GPIO直连），没有CH9329。
+  Core 侧将琴键映射为 PIANO-xx.WAV 音色、按钮映射为 DRUM-xx.WAV 鼓点、
+  推子实时映射 Bass EQ / Echo / 压缩器效果器，构成完整电子琴。
 
 ### 供电模块
 
 供电模块只有一种，主控为CH32V103C8T6, UART1作为和核心模块的接口，波特率230400。
 
-- 供电模块Power连接了一个3500mAh的电池，并且可以读取电量，可以单独拿出来作为充电宝使用，
-  支持PD快充也支持无线充电还支持输出慢充，可以读取当前的供电/充电功率。通过接口给核心模块和其他所有模块供5V电。
+- 供电模块Power连接了一个3500mAh的电池，电源路径（PD 快充、无线充电、充放电管理、
+  5V 稳压输出、数码管电量指示）由 IP5568 电源管理芯片独立完成，可单独拿出作为充电宝使用。
+  CH32V103 不参与电源路径控制，仅旁路解析 IP5568 驱动的 188 型数码管（查理复用）信号，
+  换算出 0~100 电量百分比与充电状态（由整屏闪烁频率推断），随心跳 ACK 扩展字段上报 Core。
+  受硬件原理限制，模块不提供电压/电流/功率读数。通过接口给核心模块和其他所有模块供5V电。
 
 ### 显示模块
 
-显示模块有两种，一种为RGB888的800\*480LCD屏幕，一种为黑白墨水屏。
+显示模块有两种，一种为RGB888的800\*480LCD屏幕（带 GT911 电容触摸），一种为黑白墨水屏。
 均采用UART1作为与核心模块的接口，波特率921600。屏幕上运行MiniUI（自建UI架构）。
 
 - LCD显示模块Display-1, 主控为CH32H417QEU6, 通过FMC 8080并口连接SSD1963, 
@@ -74,20 +77,31 @@ Submodel模块三个
 
 ### 扩展模块
 
-扩展模块sub-model一共有七种，均采用CH32V103C8T6作为主控，波特率230400
+扩展模块sub-model一共有七种（Submodel-5 主控为 CH585F，其余均为 CH32V103C8T6），波特率230400
 
-- submodel-1, 指纹识别finger，主要功能是存储指纹数据并上报识别ID成功/失败，也会上报指纹数据。
-- submodel-2, 健康监测health, 主要功能是检测血氧、心跳、温湿度数据并上报。
-- submodel-3, NFC读卡nfc, 主要功能是通过NFC模块被动接收卡片数据并上报卡号。
-- submodel-4, 触摸圆环 touch, 主要功能是通过 TTP229-BSF 驱动 16 个触摸焊盘（2×2 中心方阵 + 12 位环绕圆环），支持多点触摸，上报触摸状态。
-- submodel-5, RGB点阵rgb, 主要功能是控制WS2812亮灯，接受指令以不同模式炫彩。
-- submodel-6, 激光测距dis, 主要功能是通过激光模块测距。
-- submodel-7, 副屏显示subdisplay, 主要功能是接受一些数据，
-  在2.13寸122*250全反屏上显示简单的LOGO和当前状态。
+- submodel-1, 指纹识别finger，存储指纹模板并上报识别结果（ID + 进度事件），
+  与 Core Auth 用户系统联动实现指纹登录/私密文件夹认证。
+- submodel-2, 健康监测health, 检测心率、血氧、HRV 并上报，手指放上自动开始测量。
+- submodel-3, NFC读卡nfc, 通过NFC模块被动接收卡片数据并上报卡号，联动 Auth 刷卡登录。
+- submodel-4, 触摸圆环 touch, 通过 TTP229-BSF 驱动 16 个触摸焊盘（2×2 中心方阵 + 12 位环绕圆环），支持多点触摸，上报触摸状态；
+  Core 将圆环旋转映射为鼠标滚轮、方阵映射为导航键，构成"圆盘导航器"。
+- submodel-5, RGB点阵rgb, 7×7 WS2812 点阵（主控 CH585F），4 种灯效模式 + 自定义帧动画 +
+  波纹/波浪一次性动画（与 Display 游戏联动）。
+- submodel-6, 激光测距dis, 通过 VL53L0X 激光模块测距，待机 1s / 测距 100ms 双速主动上报。
+- submodel-7, 副屏显示subdisplay, 2.13 寸 122×250 全反屏（ST7305），三页轮显整机状态
+  （音频/系统/模块列表）+ BMP 图片模式，极端低功耗常显。
 
-## 分程序项目描述（TODO）
+## 分程序项目描述
+
+各模块固件均为 MounRiver Studio 工程，详细文档见对应模块文档（Core.md / Wireless.md /
+Display-1.md / Display-2.md / Keyboard-1~3.md / Power-1.md / Submodel-1~7.md）。
 
 ## Core
+
+核心固件（`main-model/core/`），V5F 单核统一管理全部外设与模块。功能子系统包括：
+音频引擎（CS43131 双通道混音 + EQ/压缩器/Echo 效果器）、CLI 命令行、Auth 用户系统、
+Config 配置持久化、键盘/配件/供电/显示模块管理、CH9350 外接 HID、CH585F 无线桥、
+心跳热插拔管理。详见 Core.md。
 
 ### CLI 命令行接口模块
 
@@ -103,50 +117,70 @@ CLI 是一个**独立模块**，源码位于 `Common/Common/CLI/`，与 CH378 �
 
 #### 通信流程
 
-1. **输入**：用户通过串口助手发送命令（如 `ls`），末尾回车触发 `
-   `
+1. **输入**：用户通过串口助手发送命令（如 `ls`），末尾回车触发 `\r`
 2. **中断接收**：`Debug_UART_IRQ_Handler()` 逐字节接收、回显、存入 `cli_rx_buf[]`
-3. **命令就绪**：收到 `
-   ` 后设置 `cli_cmd_ready = 1`
+3. **命令就绪**：收到 `\r` 后设置 `cli_cmd_ready = 1`
 4. **轮询执行**：主循环 `while(1)` 中 `Debug_CLI_Process()` 检测到就绪标志，复制缓冲区并调用 `CLI_Process(buf, len)`
 5. **输出**：`CLI_Process()` 解析命令词，调用对应 `CLI_Cmd_*()` 函数，通过 `printf()` 返回结果
 
 #### 支持的命令
 
-| 命令                      | 说明                       | 示例                     |
-| ----------------------- | ------------------------ | ---------------------- |
-| `ls`                    | 列出当前目录（支持显示长文件名）         | `ls`                   |
-| `cd <dir>`              | 进入目录，`..` 返回上级，`/` 返回根目录 | `cd DOC`               |
-| `pwd`                   | 打印当前路径                   | `pwd`                  |
-| `mkdir <dir>`           | 创建目录（支持长文件名）             | `mkdir "New Folder"`   |
-| `touch <file>`          | 创建空文件（支持长文件名）            | `touch config.json`    |
-| `cat <file>`            | 读取并打印文件内容（支持长文件名）        | `cat readme.md`        |
-| `echo <text>`           | 打印文本                     | `echo hello world`     |
-| `echo <text> > <file>`  | 将文本覆盖写入文件                | `echo data > log.txt`  |
-| `echo <text> >> <file>` | 将文本追加写入文件                | `echo data >> log.txt` |
-| `rm <file>`             | 删除文件（支持长文件名）             | `rm old.txt`           |
-| `rm -rf <dir>`          | 递归清空目录内所有文件              | `rm -rf temp`          |
-| `cp <src> <dst>`        | 复制文件（支持长文件名）             | `cp a.txt b.txt`       |
-| `mv <old> <new>`        | 重命名文件（仅短文件名）             | `mv OLD.TXT NEW.TXT`   |
-| `hexdump <file>`        | 十六进制显示文件（支持长文件名）         | `hexdump test.bin`     |
-| `head <file> [n]`       | 显示文件前 n 字节（默认 256）       | `head log.txt 64`      |
-| `tail <file> [n]`       | 显示文件后 n 字节（默认 256）       | `tail log.txt 64`      |
-| `read <file> <off> [len]` | 按字节范围读取文件：返回 [off, off+len) 原始内容，无头部无尾换行，len 上限 8192，超出 EOF 返回空响应（电子书分页流式读取专用） | `read book.txt 4096 2048` |
-| `tree [dir]`            | 树形列出目录结构                 | `tree`                 |
-| `du <dir>`              | 显示目录总大小                  | `du DOC`               |
-| `find <pattern>`        | 递归搜索文件名匹配 pattern        | `find .TXT`            |
-| `df`                    | 显示磁盘总容量                  | `df`                   |
-| `free`                  | 显示磁盘剩余空间                 | `free`                 |
-| `device [usb            | sd]`                     | 显示或切换设备模式              |
-| `stat <file>`           | 显示文件详细信息（支持长文件名）         | `stat file.txt`        |
-| `chmod <file> <attr>`   | 修改文件属性（支持长文件名）           | `chmod file.txt 01`    |
-| `ver`                   | 显示 CH378 固件版本            | `ver`                  |
-| `user add/del/ls/passwd/bind/unbind` | 用户与凭据管理（user.json） | `user bind fp Alice 3` |
-| `login <name> <pin>`    | 用户登录（仅 PIN）             | `login Alice 1234`     |
-| `logout` / `whoami`     | 登出 / 查看当前用户            | `logout`               |
-| `private add/rm/ls`     | 私密文件夹与 ACL 管理          | `private add \PRIVATE\DIARY Alice` |
-| `clear`                 | 清屏                       | `clear`                |
-| `help`                  | 显示帮助信息                   | `help`                 |
+| 命令                                    | 说明                                                                             | 示例                                 |
+| ------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------- |
+| `ls`                                  | 列出当前目录（支持显示长文件名）                                                               | `ls`                               |
+| `cd <dir>`                            | 进入目录，`..` 返回上级，`/` 返回根目录                                                       | `cd DOC`                           |
+| `pwd`                                 | 打印当前路径                                                                         | `pwd`                              |
+| `mkdir <dir>`                         | 创建目录（支持长文件名）                                                                   | `mkdir "New Folder"`               |
+| `touch <file>`                        | 创建空文件（支持长文件名）                                                                  | `touch config.json`                |
+| `cat <file>`                          | 读取并打印文件内容（支持长文件名）                                                              | `cat readme.md`                    |
+| `write "path" <data>`                 | 向文件写入数据（支持多分帧续写 `-s/-a/-e`）                                                    | `write "a.txt" -s hello`           |
+| `echo <text>`                         | 打印文本                                                                           | `echo hello world`                 |
+| `echo <text> > <file>`                | 将文本覆盖写入文件                                                                      | `echo data > log.txt`              |
+| `echo <text> >> <file>`               | 将文本追加写入文件                                                                      | `echo data >> log.txt`             |
+| `rm <file>`                           | 删除文件（支持长文件名）                                                                   | `rm old.txt`                       |
+| `rm -rf <dir>`                        | 递归清空目录内所有文件                                                                    | `rm -rf temp`                      |
+| `cp <src> <dst>`                      | 复制文件（支持长文件名）                                                                   | `cp a.txt b.txt`                   |
+| `mv <old> <new>`                      | 重命名文件（仅短文件名）                                                                   | `mv OLD.TXT NEW.TXT`               |
+| `hexdump <file>`                      | 十六进制显示文件（支持长文件名）                                                               | `hexdump test.bin`                 |
+| `head <file> [n]`                     | 显示文件前 n 字节（默认 256）                                                             | `head log.txt 64`                  |
+| `tail <file> [n]`                     | 显示文件后 n 字节（默认 256）                                                             | `tail log.txt 64`                  |
+| `read <file> <off> [len]`             | 按字节范围读取文件：返回 [off, off+len) 原始内容，无头部无尾换行，len 上限 8192，超出 EOF 返回空响应（电子书分页流式读取专用） | `read book.txt 4096 2048`          |
+| `tree [dir]`                          | 树形列出目录结构                                                                       | `tree`                             |
+| `du <dir>`                            | 显示目录总大小                                                                        | `du DOC`                           |
+| `find <pattern>`                      | 递归搜索文件名匹配 pattern                                                              | `find .TXT`                        |
+| `df`                                  | 显示磁盘总容量                                                                        | `df`                               |
+| `free`                                | 显示磁盘剩余空间                                                                       | `free`                             |
+| `device [usb\|sd]`                    | 显示或切换存储设备（U盘/TF卡）                                                              | `device sd`                        |
+| `stat <file>`                         | 显示文件详细信息（支持长文件名）                                                               | `stat file.txt`                    |
+| `chmod <file> <attr>`                 | 修改文件属性（支持长文件名）                                                                 | `chmod file.txt 01`                |
+| `ver`                                 | 显示 CH378 固件版本                                                                  | `ver`                              |
+| `user add/del/ls/passwd/bind/unbind`  | 用户与凭据管理（user.json）                                                             | `user bind fp Alice 3`             |
+| `login <name> <pin>`                  | 用户登录（仅 PIN）                                                                    | `login Alice 1234`                 |
+| `logout` / `whoami`                   | 登出 / 查看当前用户                                                                    | `logout`                           |
+| `private add/rm/ls`                   | 私密文件夹与 ACL 管理                                                                  | `private add \PRIVATE\DIARY Alice` |
+| `play <file> [ch]`                    | 播放 WAV（双通道，默认 ch0 停全部）                                                         | `play song.wav 1`                  |
+| `pause/resume/stop [ch]`              | 暂停/恢复/停止（不带通道=全部）                                                              | `pause 0`                          |
+| `playloc <ms> [ch]`                   | 拖动播放进度                                                                         | `playloc 30000`                    |
+| `playst`                              | 查看播放状态                                                                         | `playst`                           |
+| `vol <0-100>`                         | 设置/查询音量                                                                        | `vol 80`                           |
+| `speaker <on                          | off> [left                                                                     | right]`                            |
+| `powerst`                             | 查看电量与充电状态                                                                      | `powerst`                          |
+| `lsdev`                               | 列出各模块在线状态/类型                                                                   | `lsdev`                            |
+| `lsstatus`                            | 查看系统状态（音频/电量/蓝牙/模块）                                                            | `lsstatus`                         |
+| `bmp get <file> [sub]`                | 读取 BMP（hex），`sub` 下发副屏                                                         | `bmp get LOGO sub`                 |
+| `subdisp mode/refresh`                | 副屏模式切换 / 状态刷新                                                                  | `subdisp mode 1`                   |
+| `light <0-255>`                       | 设置屏幕亮度                                                                         | `light 200`                        |
+| `note <text>`                         | 向 Display 发通知弹窗                                                                | `note hello`                       |
+| `mouse/roll/keyboard`                 | 注入模拟鼠标/滚轮/键盘事件                                                                 | `keyboard ENTER`                   |
+| `music <start                         | stop                                                                           | status>`                           |
+| `rgb mode/ripple/wave/refresh/status` | RGB 灯效与一次性动画                                                                   | `rgb wave 0 8`                     |
+| `fp register/del/ls/count/config`     | 指纹注册、删除、查询、灯效/安全等级                                                             | `fp register`                      |
+| `nfc st`                              | 查询 NFC 当前卡片                                                                    | `nfc st`                           |
+| `lr start/stop`                       | 激光测距 100ms/1s 上报切换                                                             | `lr start`                         |
+| `config get/set/...`                  | 配置管理（见 config.md）                                                              | `config set 0101 brightness 90`    |
+| `appcfg get/set/list`                 | 应用数据文件键值读写                                                                     | `appcfg get ebook position`        |
+| `clear`                               | 清屏                                                                             | `clear`                            |
+| `help`                                | 显示帮助信息（`help d` 详细）                                                            | `help`                             |
 
 #### 长文件名支持 (LFN)
 
@@ -168,39 +202,80 @@ CLI 已实现完整的长文件名支持：
   Display 文件管理器据此弹认证界面（PIN/指纹/NFC）。详见 `config.md` 用户系统章节。
 - **CH378 目录删除限制**：CH378 固件的 `CMD0H_FILE_ERASE` 命令官方注释明确为"对目录则等待"，即不支持删除目录。`rm -rf` 会递归清空目录树内所有文件，但空目录会保留。
 - **mv 限制**：`mv` 命令目前仅支持短文件名重命名，且不能跨目录移动。长文件名重命名建议用 `cp` + `rm` 替代。
-- **终端换行**：MCU 中断仅在收到 `
-  ` 时回显 `
-  `，忽略单独的 `
-  `，以避免终端发送 `
-  ` 时产生重复换行。
+- **终端换行**：MCU 中断仅在收到 `\r` 时回显 `\n`，忽略单独的 `\n`，以避免终端发送 `\r\n` 时产生重复换行。
 
 ## Wireless
 
+无线固件（`main-model/wireless/`，CH585F 独立工程）：BLE Peripheral + SPI 桥，
+将手机 APP 的 CLI 命令透传给 Core 执行并回传输出。当前实现 APP CLI 数据通道、
+心跳应答、状态查询/复位；Central 角色（BLE 键鼠）待开发。详见 Wireless.md 与
+protocol_app.md（APP 侧协议）。配套手机 APP 为 Flutter 工程 `main-model/wch_terminal_app/`。
+
 ## Display-1
+
+LCD 显示固件（`display-model/display-1/`，CH32H417）：MiniUI V2.0 + 16 个本地应用
+（文件/音乐/编辑器/电子书/图片/终端/各配件页等）+ 5 个本地游戏（带 RGB 灯效与音效联动），
+GT911 电容触摸，SSD1963 显存驱动，CLI 直通 Core。详见 Display-1.md。
 
 ## Display-2
 
+墨水屏显示固件（`display-model/display-2/`，CH32V307）：1bpp MiniUI 移植，
+5 个完整应用（音乐/文件/编辑器/图片/电子书）+ 2048/扫雷，4×8 触摸矩阵模拟触控板，
+过渡 LUT 双波形刷新。详见 Display-2.md。
+
 ## Keyboard-1
+
+主键盘固件（`keyboard-model/keyboard-1/`）：74HC165 级联读取 39 键，2ms 扫描 + 10ms 消抖，
+合成 HID Boot Report 双通道输出（Core + CH9329 USB）。详见 Keyboard-1.md。
 
 ## Keyboard-2
 
+游戏键盘固件（`keyboard-model/keyboard-2/`）：摇杆/按钮/钮子开关/编码器全量采集，
+变化触发上报 Core，CH9329 键盘+鼠标混合 HID 输出。详见 Keyboard-2.md。
+
 ## Keyboard-3
+
+音乐键盘固件（`keyboard-model/keyboard-3/`）：双 TTP229 读 24 触摸琴键 + 12 按钮 + 3 推子，
+待机/事件上报双模式，变化触发。详见 Keyboard-3.md。
 
 ## Power-1
 
+供电固件（`power-model/power-1/`）：中断内即时应答心跳（身份 + 电量/充电单帧），
+主循环查理复用双配置法解码数码管电量、闪烁频率判定充电。详见 Power-1.md。
+
 ## Submodels-1
+
+指纹固件（`sub-model/submodel-1/`）：Syno 协议封装，自动注册/验证 + 进度事件上报，
+TOUCHOUT 中断唤醒。详见 Submodel-1.md。
 
 ## Submodels-2
 
+健康监测固件（`sub-model/submodel-2/`）：MAX30102 PPG 采集，手指自动检测起停，
+心率/血氧/HRV 计算与定时上报。详见 Submodel-2.md。
+
 ## Submodels-3
+
+NFC 固件（`sub-model/submodel-3/`）：被动读卡帧解析 + 10 次去抖上报。详见 Submodel-3.md。
 
 ## Submodels-4
 
+触摸圆环固件（`sub-model/submodel-4/`）：TTP229 16 键读取 + 基线校准，
+10ms 扫描，位图变化触发上报。详见 Submodel-4.md。
+
 ## Submodels-5
+
+RGB 点阵固件（`sub-model/submodel-5/`，CH585F）：SPI 模拟 WS2812 时序，100fps 帧节拍，
+4 模式 + 自定义帧动画 + 波纹/波浪一次性动画。详见 Submodel-5.md。
 
 ## Submodels-6
 
+激光测距固件（`sub-model/submodel-6/`）：VL53L0X 连续测距 + 窗口 8 滑动平均，
+待机 1s / 测距 100ms 双速上报。详见 Submodel-6.md。
+
 ## Submodels-7
+
+副屏固件（`sub-model/submodel-7/`）：ST7305 全反屏驱动，三页轮显 + BMP 图片模式，
+心跳计数计时，刷新后进低功耗。详见 Submodel-7.md。
 
 ## 通信协议规范（V1.0）
 
@@ -240,19 +315,19 @@ CLI 已实现完整的长文件名支持：
 
 模块 ID 与硬件编号一一对应，全系统统一：
 
-| ID     | 模块               | 物理接口  | 主要交互核心 | 说明                            |
-| ------ | ---------------- | ----- | -------- | ----------------------------- |
-| `0x00` | Core（核心）         | —     | V5F      | V5F 为唯一执行核心，V3F 仅负责启动 V5F    |
-| `0x01` | Wireless（无线/蓝牙）  | SPI4  | V5F      | 独立 MCU，V5F 通过 SPI 通信          |
-| `0x10` | Display（屏幕模块）    | UART4 | V5F      | V5F 直接管理                      |
-| `0x20` | Keyboard（键盘模块）   | UART3 | V5F      | V5F 直接管理                      |
-| `0x30` | Power（供电模块）      | UART5 | V5F      | V5F 直接管理                      |
-| `0x40` | Submodel-1（配件槽1） | UART6 | V5F      | V5F 直接管理                      |
-| `0x41` | Submodel-2（配件槽2） | UART7 | V5F      | V5F 直接管理                      |
-| `0x42` | Submodel-3（配件槽3） | UART8 | V5F      | V5F 直接管理                      |
+| ID     | 模块               | 物理接口  | 主要交互核心 | 说明                        |
+| ------ | ---------------- | ----- | ------ | ------------------------- |
+| `0x00` | Core（核心）         | —     | V5F    | V5F 为唯一执行核心，V3F 仅负责启动 V5F |
+| `0x01` | Wireless（无线/蓝牙）  | SPI4  | V5F    | 独立 MCU，V5F 通过 SPI 通信      |
+| `0x10` | Display（屏幕模块）    | UART4 | V5F    | V5F 直接管理                  |
+| `0x20` | Keyboard（键盘模块）   | UART3 | V5F    | V5F 直接管理                  |
+| `0x30` | Power（供电模块）      | UART5 | V5F    | V5F 直接管理                  |
+| `0x40` | Submodel-1（配件槽1） | UART6 | V5F    | V5F 直接管理                  |
+| `0x41` | Submodel-2（配件槽2） | UART7 | V5F    | V5F 直接管理                  |
+| `0x42` | Submodel-3（配件槽3） | UART8 | V5F    | V5F 直接管理                  |
 
 > 预留范围：Display `0x10-0x12`、Keyboard `0x20-0x22`、Power `0x30-0x31`、Submodels `0x40-0x49`。
->
+> 
 > **架构说明**：所有模块的 UART 均由 V5F 统一管理，不存在核间通信。
 > 系统全局状态 `hardware_g` 为 V5F 普通全局变量（非共享内存），所有模块可直接访问，无需跨核同步。
 
@@ -292,18 +367,19 @@ CLI 已实现完整的长文件名支持：
 
 Module 收到 `CMD_GET_TYPE` 后，应以 `CMD_ACK` 回复，DATA 字段格式如下：
 
-| 字节         | 字段         | 说明                     |
-| ---------- | ---------- | ---------------------- |
-| DATA[0]    | 模块类型编号     | 标识模块大类，详见下表。           |
-| DATA[1]    | 模块子类型编号    | 标识该大类下的具体实现/变种。        |
-| DATA[2]    | 硬件版本号      | 模块硬件版本（可选，无则填 `0x00`）。 |
-| DATA[3]    | 固件版本号（主版本） | 固件主版本号（可选，无则填 `0x00`）。 |
-| DATA[4]    | 固件版本号（次版本） | 固件次版本号（可选，无则填 `0x00`）。 |
+| 字节         | 字段         | 说明                                                    |
+| ---------- | ---------- | ----------------------------------------------------- |
+| DATA[0]    | 模块类型编号     | 标识模块大类，详见下表。                                          |
+| DATA[1]    | 模块子类型编号    | 标识该大类下的具体实现/变种。                                       |
+| DATA[2]    | 硬件版本号      | 模块硬件版本（可选，无则填 `0x00`）。                                |
+| DATA[3]    | 固件版本号（主版本） | 固件主版本号（可选，无则填 `0x00`）。                                |
+| DATA[4]    | 固件版本号（次版本） | 固件次版本号（可选，无则填 `0x00`）。                                |
 | DATA[5..N] | 扩展信息       | **仅 Power 模块使用**（电量/充电，LEN=8），其余模块必须固定 5 字节身份（LEN=6）。 |
 
 > **模块身份模型**：一个模块的**完整身份**由 **模块类型（DATA[0]）+ 模块子类型（DATA[1]）** 共同决定。模块类型决定物理大类与协议族，子类型决定该大类下的具体硬件实现。Core 侧在识别模块时，必须同时读取这两个字段才能确定模块能力。
->
+> 
 > **身份 ACK 指纹约定（重要）**：协议的 `CMD_ACK` 不回带原命令码，Core 无法从帧本身区分"GET_TYPE 身份应答"与"其他查询应答"。因此 Core 统一按**指纹**识别身份 ACK：`LEN == 6 且 DATA[0] == 本链路预期的模块类型编号`（Power 额外允许 `LEN == 8` 携带电量扩展）。由此产生两条硬性约束：
+> 
 > 1. 各模块 GET_TYPE 应答的数据域**固定 5 字节**（Power 为 5 或 7 字节），不得增删；
 > 2. 模块新增查询类命令时，其 ACK 数据域长度**不得等于 5 字节**（Power 链路还不得等于 7 字节），否则会被 Core 误认为身份帧、污染槽位类型。
 
@@ -333,15 +409,15 @@ Module 收到 `CMD_GET_TYPE` 后，应以 `CMD_ACK` 回复，DATA 字段格式�
 
 Core 对 6 个槽位（Display / Keyboard / Power / Submodel1~3）以 `CMD_GET_TYPE` 作为心跳，并内建以下可靠性机制（实现见 `hardware.c` / `protocol.c`）：
 
-| 机制 | 参数/行为 |
-| ---- | -------- |
-| 心跳周期 | 每 500ms 向全部槽位发送 GET_TYPE；连续 8 次无应答（约 4s）判定 OFFLINE |
-| 接收双缓冲 | `protocol_rx_ctx_t` 为 ISR 写 `frame` + 主循环读 `read_frame` 的双缓冲结构；背靠背双帧时**保旧帧、丢新帧**（保证先到的心跳 ACK 不被顶掉）。模块→Core 方向仍应避免背靠背连发多帧，后帧可能被丢弃 |
-| 帧间超时 | 解析器处于半帧状态且 100ms 无新字节时强制回到 WAIT_HEAD（`Protocol_RxCheckTimeout`），防止插拔噪声伪造 LEN 后长时间吞字节 |
-| 反卡死填充 | 对非 ONLINE 槽位每轮心跳轮转发送 **258 字节 `0x00`** 填充（覆盖 LEN=255 的最坏半帧），保证模块侧解析器无论被上电噪声卡在何种状态都会回到 WAIT_HEAD；`0x00` 不是帧头也不匹配帧尾，模块解析器天然忽略 |
-| ISR 错误清理 | 所有 UART 接收中断必须在 RXNE 处理后检查并清除 ORE（读 STATR+DATAR），否则热插拔噪声导致的溢出错误会引发中断风暴/RX 永久卡死 |
+| 机制         | 参数/行为                                                                                                                                                    |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 心跳周期       | 每 500ms 向全部槽位发送 GET_TYPE；连续 8 次无应答（约 4s）判定 OFFLINE                                                                                                       |
+| 接收双缓冲      | `protocol_rx_ctx_t` 为 ISR 写 `frame` + 主循环读 `read_frame` 的双缓冲结构；背靠背双帧时**保旧帧、丢新帧**（保证先到的心跳 ACK 不被顶掉）。模块→Core 方向仍应避免背靠背连发多帧，后帧可能被丢弃                         |
+| 帧间超时       | 解析器处于半帧状态且 100ms 无新字节时强制回到 WAIT_HEAD（`Protocol_RxCheckTimeout`），防止插拔噪声伪造 LEN 后长时间吞字节                                                                     |
+| 反卡死填充      | 对非 ONLINE 槽位每轮心跳轮转发送 **258 字节 `0x00`** 填充（覆盖 LEN=255 的最坏半帧），保证模块侧解析器无论被上电噪声卡在何种状态都会回到 WAIT_HEAD；`0x00` 不是帧头也不匹配帧尾，模块解析器天然忽略                              |
+| ISR 错误清理   | 所有 UART 接收中断必须在 RXNE 处理后检查并清除 ORE（读 STATR+DATAR），否则热插拔噪声导致的溢出错误会引发中断风暴/RX 永久卡死                                                                           |
 | OFFLINE 清理 | 槽位判定离线时：`hb_slots` 的 type/subtype 清零（槽位标记为空）；Submodel 槽复位 `type_id`；Display 槽复位 `type_received`（重新上线后 Core 自动重发 `Config_Apply`）；Keyboard/Power 复位类型与状态缓存 |
-| 热插拔换型 | 同槽位换插不同类型模块时，GET_TYPE ACK 会强制刷新缓存的 type/subtype；Display 子类型变化会触发重新下发配置 |
+| 热插拔换型      | 同槽位换插不同类型模块时，GET_TYPE ACK 会强制刷新缓存的 type/subtype；Display 子类型变化会触发重新下发配置                                                                                   |
 
 ### 5. 模块专用操作码
 

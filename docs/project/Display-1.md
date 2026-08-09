@@ -23,7 +23,7 @@
   - 接收 RGB565 数据，转换为 RGB888 存入 GRAM，以 DE 模式驱动 LCD
 - **LCD 面板**：800×480 RGB888 液晶屏
 - **背光电路**：SSD1963 PWM 输出控制背光亮度
-- **触摸屏（如有）**：电阻或电容触摸芯片，触摸事件通过 UART 上报 Core
+- **触摸屏**：GT911 电容触摸（I2C，地址 `0x5D`），触摸坐标本地注入 MiniUI
 
 ## 软件职责
 
@@ -61,12 +61,38 @@
   CLI 直通响应组装、输入事件注入、模块事件转发等
 - **UI 主循环**：`UI_Tick()` 驱动 MiniUI 页面渲染、动画更新、输入事件分发
 - **页面管理**：维护页面栈（深度 16），支持 push/pop/switch，脏区域跟踪实现局部刷新
-- **应用管理**：运行本地应用（文件管理、音乐、设置等）与本地小游戏（俄罗斯方块、2048、贪吃蛇、打砖块），不通过 UART 与 Core 交互
+- **应用管理**：运行 16 个本地应用与 5 个本地小游戏（见下文「本地应用一览」），
+  通过 CLI 直通与 Core 交互（文件/音乐/配置），或经扩展码接收模块事件
+
+## 本地应用一览（V4.x）
+
+| 应用 | 功能 | 联动 |
+|------|------|------|
+| Files | 文件管理器：目录浏览/面包屑/右键菜单/新建/删除/属性/USB↔TF 设备切换 | CLI 直通（`cd`/`ls`/`mkdir`/`rm`）；命中私密文件夹弹认证对话框（PIN/指纹/NFC） |
+| Music | 音乐播放器：播放/暂停/上下曲/播放列表/音量/扬声器开关/进度拖放 | CLI 直通（`play`/`pause`/`vol`）+ `MUSIC_STATUS`(0x1C) 状态推送 |
+| Editor | 文本编辑器：4KB 缓冲、32 级 undo、行号、分帧保存 | CLI 直通（`cat`/`write`） |
+| EBook | 电子书：`read` 分页字节流阅读，RAM 占用与书长无关；明/暗主题、3 档字号 | CLI 直通（`read`） |
+| Images | 图片浏览器：`\BMP` 列表、1/8/24bpp BMP 解码、缩放平移 | CLI 直通（`ls`/`hexdump` 流） |
+| Terminal | 屏上终端：交互式 CLI shell，输入命令显示输出 | CLI 直通全命令 |
+| Power | 电量/充电状态显示 | `POWER_EVENT`(0x0F) 推送 |
+| BT | 无线芯片在线状态、APP 连接状态、最近 10 次 BT 流量图 | `BT_EVENT`(0x0C) 推送 + 进页拉取 |
+| Fingerprint | 指纹管理：列表（含 user.json 绑定用户名）、注册引导（进度事件驱动）、删除 | `SUBMODEL_EVENT`(0x0E) + CLI `user bind` |
+| NFC | NFC 卡管理：已绑定卡列表与用户 | `SUBMODEL_EVENT`(0x0E) |
+| Health | 健康监测：心率/血氧/HRV 实时显示 | `SUBMODEL_EVENT`(0x0E) 健康上报 |
+| L-Range | 激光测距：距离显示、20cm 过近警告、折线图 | `SUBMODEL_EVENT`(0x0E) 测距上报 + CLI `lr start/stop` |
+| RGB | 灯效控制：模式/颜色/亮度/速度设置 | CLI `config set 0505 ...` + `SET_RGB_MODE`(0x13) |
+| SubDisp | 副屏控制：BMP 图片下发、显示模式切换 | CLI `bmp get <file> sub` / `subdisp mode` |
+| EMusic | 电子琴：配合 Keyboard-3 演奏，琴键/鼓点状态可视化 | Keyboard-3 音乐事件透传 |
+| USB | 外接 HID 设备（CH9350）连接状态显示 | `HID_STATUS`(0x18) 推送 |
+
+**本地小游戏**（Games/）：俄罗斯方块、2048、贪吃蛇、飞机大战、扫雷；
+方向操作触发 RGB 边缘波浪、击中/挖雷触发中心波纹（经 Core 转发），
+并配有 BGM/音效（纯 CLI 直通方案，见 Protocol_Display.md §4.9）。
 
 ### 中断与事件
 
 - **V5F UART1 中断**：协议帧逐字节接收状态机（`WAIT_HEAD` → 完成推入环形缓冲）
-- **V5F 触摸中断/轮询**：坐标采集与去抖，本地注入 MiniUI，并打包 `CMD_DISP_TOUCH_EVT` 上报 Core
+- **V5F 触摸轮询**：GT911 坐标采集与去抖，直接本地注入 MiniUI（不经 Core）
 - **V5F FMC / DMA 中断**：显存批量传输完成回调
 - **V5F 背光 PWM 定时器**：根据自动息屏策略调节亮度
 
@@ -109,10 +135,16 @@ display-model/display-1/
 ├── Common/                         # 公共代码与系统文件
 │   ├── Common/                     # 自定义公共模块
 │   │   ├── MiniUI/                 # MiniUI V2.0 框架（页面、控件、渲染、输入、动画）
-│   │   ├── Games/                  # 本地小游戏（俄罗斯方块、2048、贪吃蛇、打砖块）
+│   │   ├── Games/                  # 本地小游戏（俄罗斯方块、2048、贪吃蛇、飞机大战、扫雷）
 │   │   ├── Sound/                  # 音效系统（BGM/SFX，纯 CLI 直通方案）
-│   │   ├── Apps/                   # 本地应用（文件管理、音乐、设置、USB 等）
+│   │   ├── Apps/                   # 16 个本地应用（见「本地应用一览」）
+│   │   ├── UI/                     # 主页面（main/home/apps/games/models/settings/splash/userdlg）
+│   │   ├── SSD1963/                # SSD1963 驱动（GRAM、DE 模式、PWM 背光）
+│   │   ├── Touch/                  # GT911 电容触摸驱动
+│   │   ├── UART/                   # UART1 协议栈（uart_module：CLI 直通、输入注入、事件转发）
 │   │   ├── FMC/                    # FMC Bank1 NORSRAM 8080 模式驱动
+│   │   ├── I2c_soft/               # 软件 I2C（GT911）
+│   │   ├── utils/                  # 工具函数
 │   │   ├── hardware.c              # 全局调度与双核初始化入口
 │   │   └── hardware.h              # 全局调度头文件
 │   ├── Core/                       # RISC-V 内核相关文件
@@ -217,8 +249,14 @@ Display 与 Core 指令交互时死机；删除 Game 后"恢复"，本质是把 
 - **配置门控**：`config.json` `0101` 段 `operationsound`（同时管三种 SFX）与
   `gamebgm`；进 Games 页时 `Sound_RefreshConfig()` 经 `config get 0101` 同步到
   `g_settings.operation_sound` / `g_settings.game_bgm`，设置页修改即时生效
-- **节流**：SFX 按类型独立节流（各 ≥30ms 互不影响），BGM 起播间隔 ≥3s，
-  保护 UART/CLI 通道
+- **节流**：SFX 按类型独立节流（各 ≥30ms 互不影响），BGM 起播间隔 ≥3s；
+  所有 CLI 命令两两 ≥50ms（Core 忙时单轮主循环数十 ms，过密会被
+  其接收双缓冲保旧丢新——SFX play 紧跟 ls 时曾致 ls 丢失）
+- **CLI 在飞门控**：`UART_CLI_InFlight()` 为真（上一命令响应组装中）时 SFX
+  一律跳过——`UART_SendCLI` 会重置组装缓冲，ls/cat 传输中途插播 SFX 会
+  毁掉响应 EOF 让消费者卡死；3s 无 EOF 自动判陈旧恢复
+- **File app loading 看门狗**：ls 响应 EOF 丢失时 loading 态 5s 自动复位，
+  不会永久卡在 Loading...（`file_page_update`）
 
 ## RGB 游戏联动（V4.2）
 
