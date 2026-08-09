@@ -459,6 +459,15 @@ CS43131_g.echo.mix = 40;
 | `Audio_Pause()` / `Audio_Resume()` | 全局暂停/恢复 |
 | `Audio_Process()` | 主循环中调用，从 CH378 补充通道缓冲区 |
 
+> **全局状态聚合 + 状态上报按通道（V2.2）**：`Audio_GetState()` 按各通道实时聚合
+> （任一 PLAYING→PLAYING；否则任一 PAUSED→PAUSED；否则有活动通道→STOPPED；
+> 否则 IDLE），不再使用单一全局变量——单变量会被短音效通道的生命周期覆盖
+> （ch0 暂停时 ch1 音效起播置 PLAYING、结束置 IDLE，吞掉 ch0 的 PAUSED，
+> 曾致音乐 app 暂停后误重新 play 而非 resume）。
+> 对外状态上报统一走 **ch0 通道状态**（`Audio_ChannelGetState(0)`）：
+> `MUSIC_STATUS` 帧、`playst` 输出、副屏 SYS_STATUS 的音频状态字段——
+> 三者本就只携带 ch0 的曲目/进度，音乐 UI 完全不受 ch1 SFX 影响。
+
 ---
 
 ## 架构演进说明

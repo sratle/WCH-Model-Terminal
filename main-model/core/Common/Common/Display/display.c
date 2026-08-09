@@ -238,12 +238,21 @@ void Display_Process(display_t *display)
     uint8_t resp[PROTO_MAX_FRAME_LEN];
     uint8_t resp_len = 0;
     uint8_t handled = 0;
+    /* 帧拷贝（static 避免占用栈，主循环单线程安全） */
+    static protocol_frame_t s_req_copy;
     protocol_frame_t *req;
 
     if (display == NULL || !display->rx_ctx.frame_ready)
         return;
 
-    req = &display->rx_ctx.read_frame;
+    /* 先拷贝并立即释放 read_frame：处理（尤其 CLI 直通，含 PreFill/
+     * Delay_Ms(20)/分帧发送，耗时几十 ms，LFN ls 可达 ~1.5s）期间 ISR
+     * 才能接收并停放下一帧。此前 read_frame 在整个处理期间被占，
+     * commit_frame 的保旧丢新策略会把处理期间到达的所有帧静默丢弃
+     * （SFX play 之后的 pause/ls 丢失的根因）。 */
+    memcpy(&s_req_copy, &display->rx_ctx.read_frame, sizeof(protocol_frame_t));
+    Protocol_ResetRxCtx(&display->rx_ctx);
+    req = &s_req_copy;
 
     /* 0. 处理 Display 返回的 ACK 响应（Core 发送请求后 Display 的回复）。
      * 仅 GET_TYPE 身份 ACK（len==6 且 type 匹配）参与心跳/类型管理，
@@ -475,8 +484,6 @@ void Display_Process(display_t *display)
     /* 发送响应（如果有） */
     if (handled && resp_len > 0)
         Display_Send_Data(display, resp, resp_len);
-
-    Protocol_ResetRxCtx(&display->rx_ctx);
 
     /* 状态变化推送：也在主循环里独立调用 Display_SyncStatus()，
      * 因此即使 Display 长时间不发帧，Core 侧的状态变化也能及时同步。 */
@@ -907,7 +914,9 @@ void Display_SendMusicStatus(display_t *display)
     if (display == NULL)
         return;
 
-    state = Audio_GetState();
+    /* MUSIC_STATUS 帧携带的是 ch0 的曲目/进度，状态同样报 ch0 通道状态，
+     * 使音乐 UI 完全不受 ch1 短音效（SFX）状态迁移影响 */
+    state = Audio_ChannelGetState(0);
     play_time = Audio_GetPlayTime_ms();
     track_name = Audio_GetCurrentTrackName();
     vol = Audio_GetVolume();

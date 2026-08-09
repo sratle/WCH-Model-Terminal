@@ -249,12 +249,13 @@ Display 与 Core 指令交互时死机；删除 Game 后"恢复"，本质是把 
 - **配置门控**：`config.json` `0101` 段 `operationsound`（同时管三种 SFX）与
   `gamebgm`；进 Games 页时 `Sound_RefreshConfig()` 经 `config get 0101` 同步到
   `g_settings.operation_sound` / `g_settings.game_bgm`，设置页修改即时生效
-- **节流**：SFX 按类型独立节流（各 ≥30ms 互不影响），BGM 起播间隔 ≥3s；
-  所有 CLI 命令两两 ≥50ms（Core 忙时单轮主循环数十 ms，过密会被
-  其接收双缓冲保旧丢新——SFX play 紧跟 ls 时曾致 ls 丢失）
-- **CLI 在飞门控**：`UART_CLI_InFlight()` 为真（上一命令响应组装中）时 SFX
-  一律跳过——`UART_SendCLI` 会重置组装缓冲，ls/cat 传输中途插播 SFX 会
-  毁掉响应 EOF 让消费者卡死；3s 无 EOF 自动判陈旧恢复
+- **节流**：SFX 按类型独立节流（各 ≥30ms 互不影响），BGM 起播间隔 ≥3s，
+  保护 UART/CLI 通道
+- **CLI 传输中门控**：`UART_CLI_InFlight()` 仅在多帧响应**组装中**（SOF 已到、
+  EOF 未到）为真时 SFX 才跳过——`UART_SendCLI` 会重置组装缓冲，ls/cat 传输
+  中途插播 SFX 会毁掉响应；命令已发但响应未开始组装时缓冲为空、不打断。
+  （教训：曾按"命令在飞"门控，SFX 帧被 Core 丢后无响应，每次丢帧锁定 3s，
+  表现为约 2s 才能触发一次）EOF 丢失 3s 自动判陈旧恢复
 - **File app loading 看门狗**：ls 响应 EOF 丢失时 loading 态 5s 自动复位，
   不会永久卡在 Loading...（`file_page_update`）
 

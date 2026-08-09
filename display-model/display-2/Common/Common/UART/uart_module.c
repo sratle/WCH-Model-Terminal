@@ -57,20 +57,25 @@ static uart_cli_cb_t s_cli_cb;
 static bool s_cli_cb_valid = false;
 volatile pending_req_t g_pending_req = PENDING_NONE;
 
-/* Timestamp of the last CLI command sent, for stale in-flight detection */
-static uint32_t s_cli_last_send_ms = 0;
+/* Multi-frame response accumulation state (full definitions in the assembly
+ * engine section below; declared here for UART_CLI_InFlight) */
+static volatile bool s_cli_resp_accumulating = false;
+static volatile uint32_t s_cli_accum_start_ms = 0;
 
-/* Query whether a CLI command is currently in flight (request sent, response
- * still assembling). SFX sends must check this before issuing their own CLI
- * command: UART_SendCLI resets the response assembly buffer, so a SFX "play"
- * issued mid-transfer would wipe a partially-assembled ls/cat response and
- * wedge the consumer (file app stuck in Loading...).
- * Stale guard: if the response EOF was lost, auto-recover after 3s. */
+/* Query whether a multi-frame CLI response is MID-TRANSFER (SOF received,
+ * EOF pending). SFX sends must be suppressed only in this window: sending
+ * resets the assembly buffer and would destroy the in-flight response
+ * (ls/cat). A command that was sent but whose response has not started
+ * assembling yet is safe to interrupt — the buffer holds nothing new.
+ * Note: g_pending_req is intentionally NOT used here — a dropped command
+ * frame leaves no response at all, and pending-based gating locked SFX out
+ * for seconds after every such drop (observed as "must wait ~2s per SFX").
+ * Stale guard: EOF lost → auto-recover after 3s. */
 bool UART_CLI_InFlight(void)
 {
-    if (g_pending_req != PENDING_CLI) return false;
-    if ((uint32_t)(ui_get_real_ms() - s_cli_last_send_ms) > 3000) {
-        g_pending_req = PENDING_NONE;
+    if (!s_cli_resp_accumulating) return false;
+    if ((uint32_t)(ui_get_real_ms() - s_cli_accum_start_ms) > 3000) {
+        s_cli_resp_accumulating = false;
         return false;
     }
     return true;
@@ -101,7 +106,6 @@ static char s_cli_resp_buf[CLI_RESP_BUF_SIZE];
  * (UART_SendCLI resets, cli_resp_dispatch reads): must be volatile. The tag
  * array is protected by a brief RX-IRQ critical section in UART_SendCLI. */
 static volatile uint16_t s_cli_resp_len = 0;
-static volatile bool s_cli_resp_accumulating = false;
 
 #define CLI_CMD_TAG_SIZE   32
 static char s_cli_cmd_tag[CLI_CMD_TAG_SIZE];
@@ -294,6 +298,7 @@ static void cli_chunk_isr(const uint8_t *data, uint8_t len)
         if (has_sof) {
             s_cli_resp_len = 0;
             s_cli_resp_accumulating = true;
+            s_cli_accum_start_ms = ui_get_real_ms();
         }
 
         if (s_cli_resp_accumulating || has_sof) {
@@ -1001,6 +1006,7 @@ static void process_extended_cmd(uint8_t sub_cmd, const uint8_t *data, uint8_t l
             if (has_sof) {
                 s_cli_resp_len = 0;
                 s_cli_resp_accumulating = true;
+                s_cli_accum_start_ms = ui_get_real_ms();
             }
 
             if (s_cli_resp_accumulating || has_sof) {
@@ -1428,23 +1434,8 @@ const char *UART_GetLastCLITag(void)
     return s_cli_cmd_tag;
 }
 
-/* Minimum gap between consecutive CLI commands: Core consumes one frame per
- * main-loop iteration, and an iteration can take tens of ms while audio
- * streaming / CH378 work is in progress. Its RX double-buffer keeps only
- * one pending frame (keep-old), so a command sent too soon after the
- * previous one is silently dropped — e.g. a SFX "play" immediately
- * followed by the file app's "ls" (ls lost, play arrives). 50ms covers
- * Core's worst-case iteration while staying imperceptible to the user. */
-#define UART_CLI_MIN_GAP_MS   50
-
 void UART_SendCLI(const char *cmd)
 {
-    /* CLI-to-CLI pacing (see UART_CLI_MIN_GAP_MS) */
-    if (s_cli_last_send_ms != 0) {
-        uint32_t dt_gap = (uint32_t)(ui_get_real_ms() - s_cli_last_send_ms);
-        if (dt_gap < UART_CLI_MIN_GAP_MS) Delay_Ms(UART_CLI_MIN_GAP_MS - dt_gap);
-    }
-
     /* Reset the CLI-assembly state atomically w.r.t. the RX ISR: a late frame
      * from a previous command must not tear the new command's tag/len/flags.
      * The window is a few memsets (<2 us) and no CLI frame is in flight yet
@@ -1467,7 +1458,6 @@ void UART_SendCLI(const char *cmd)
     cli_resp_reset();
     s_cli_dispatch_pending = 0;
     g_pending_req = PENDING_CLI;
-    s_cli_last_send_ms = ui_get_real_ms();
     NVIC_EnableIRQ(USART1_IRQn);
 
     uint8_t buf[PROTO_MAX_DATA_LEN];

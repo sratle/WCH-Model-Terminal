@@ -482,20 +482,30 @@ typedef struct {
     uint8_t fw_minor;   /* DATA[4]: 固件次版本号 */
 } module_identity_t;
 
-/* 接收上下文（双缓冲：ISR 写 frame，完帧后拷贝到 read_frame 供主循环读取，
- * 主循环消费期间 ISR 可继续解析下一帧，避免背靠背帧顶掉未消费的前帧） */
+/* 接收溢出队列深度（除 read_frame 外额外排队的帧数）。
+ * 总排队能力 = 1（处理中 read_frame）+ PROTO_RX_QUEUE_LEN。
+ * 每级约 264B RAM，6 条链路共 ~3.2KB。 */
+#define PROTO_RX_QUEUE_LEN  2
+
+/* 接收上下文（双缓冲 + 溢出队列：ISR 写 frame，完帧后提交到 read_frame 供
+ * 主循环读取；read_frame 未消费时新帧进入溢出队列而非丢弃，主循环
+ * ResetRxCtx 时自动从队列递补，处理慢命令期间到达的帧不再保旧丢新） */
 typedef struct {
     protocol_state_t state;             /* 当前解析状态 */
     protocol_frame_t frame;             /* ISR 解析中的帧 */
     protocol_frame_t read_frame;        /* 主循环读取缓冲区（双缓冲） */
+    protocol_frame_t queue[PROTO_RX_QUEUE_LEN]; /* 溢出队列（SPSC：ISR 生产，主循环消费） */
     uint16_t data_idx;                  /* 当前数据域接收索引（支持流式帧 >255） */
     volatile uint8_t frame_ready;       /* 帧就绪标志 (1=read_frame 有效) */
     volatile uint8_t frame_consumed;    /* 主循环已消费 read_frame，ISR 可覆盖 */
+    volatile uint8_t q_head;            /* 队列写入位置（ISR 侧） */
+    volatile uint8_t q_tail;            /* 队列读出位置（主循环侧） */
+    volatile uint8_t q_count;           /* 队列中帧数 0..PROTO_RX_QUEUE_LEN */
     volatile uint32_t last_rx_tick;     /* 最后收到字节时的协议 tick（帧间超时用） */
     /* 错误统计（调试用，Init 时清零，Reset 不清零） */
     uint16_t err_len_zero;              /* LEN=0 非法帧计数 */
     uint16_t err_overflow;              /* DATA 域溢出计数 */
-    uint16_t err_frame_ready;           /* 前帧未消费导致新帧被丢弃计数 */
+    uint16_t err_frame_ready;           /* 队列已满导致新帧被丢弃计数 */
     uint16_t err_timeout;               /* 帧间超时强制复位计数 */
 } protocol_rx_ctx_t;
 

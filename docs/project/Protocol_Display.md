@@ -561,10 +561,14 @@ Display-1/Display-2 的游戏音效系统完全基于 CLI 直通实现，**无�
   会话仍活跃时校正 BGM 状态，退出 Games 区后到达的响应不会重启 BGM
 - SFX 按类型独立节流（GEACTION/SCACTION/HIT 各 ≥30ms 互不影响），
   防止连续输入灌满 UART/CLI 通道，同时避免转向后立刻吃食等场景被误抑制
-- **Display→Core 帧间隔下限**：普通帧 6ms（`UART_SendFrame` 内置节流）；
-  **CLI 命令两两 ≥50ms**（`UART_SendCLI` 内置节流）——Core 主循环单轮
-  在音频流/CH378 操作下可达数十 ms，接收双缓冲保旧丢新，
-  CLI 背靠背（如 SFX play 紧跟 file app 的 ls）会丢后帧
+- **Display→Core 帧间隔下限 6ms**（`UART_SendFrame` 内置节流）：Core 主循环
+  每轮仅消费一帧，ISR 双缓冲保旧丢新，背靠背连发会丢后帧
+- **Core 接收侧处理前释放 read_frame + 3 级排队**（V3.8）：`Display_Process`
+  先将帧拷贝到静态缓冲并立即 `Protocol_ResetRxCtx`，再执行处理器；
+  `protocol_rx_ctx_t` 增加 2 级溢出队列（处理中 1 + 排队 2 = 深度 3，
+  `Protocol_ResetRxCtx` 自动递补，队列满才丢帧）——此前 `read_frame`
+  在整个处理期间被占用，CLI 处理耗时几十 ms（LFN ls ~1.5s），期间到达的
+  帧全部被保旧丢新（SFX play 后 pause/ls 丢失的根因）
 
 ---
 

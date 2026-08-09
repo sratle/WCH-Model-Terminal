@@ -52,8 +52,20 @@ void Protocol_ResetRxCtx(protocol_rx_ctx_t *ctx)
     if (ctx == NULL)
         return;
 
-    ctx->frame_ready = 0;
-    ctx->frame_consumed = 1;
+    /* 溢出队列递补：若队列中有帧，立即递补到 read_frame（保持 frame_ready），
+     * 否则标记 read_frame 可覆盖。q_count 与 ISR 的 commit_frame 共享，
+     * 简短关中断保证读-改-写原子性（拷贝 ~264B，亚微秒级）。 */
+    __disable_irq();
+    if (ctx->q_count > 0) {
+        memcpy(&ctx->read_frame, &ctx->queue[ctx->q_tail], sizeof(protocol_frame_t));
+        ctx->q_tail = (uint8_t)((ctx->q_tail + 1) % PROTO_RX_QUEUE_LEN);
+        ctx->q_count--;
+        /* frame_ready 保持 1，frame_consumed 保持 0：主循环应继续处理 */
+    } else {
+        ctx->frame_ready = 0;
+        ctx->frame_consumed = 1;
+    }
+    __enable_irq();
 }
 
 /*********************************************************************
@@ -108,8 +120,9 @@ void Protocol_RxCheckTimeout(protocol_rx_ctx_t *ctx, uint32_t timeout_ms)
  * @fn      commit_frame
  *
  * @brief   Frame complete: publish to read_frame if the consumer has
- *          finished with the previous one, otherwise drop the new
- *          frame (keep-oldest policy, heartbeat ACK arrives first).
+ *          finished with the previous one; otherwise push into the
+ *          overflow queue (depth PROTO_RX_QUEUE_LEN). Only when the
+ *          queue is also full is the new frame dropped.
  *
  * @param   ctx - pointer to receive context.
  *
@@ -122,6 +135,12 @@ static void commit_frame(protocol_rx_ctx_t *ctx)
         memcpy(&ctx->read_frame, &ctx->frame, sizeof(protocol_frame_t));
         ctx->frame_consumed = 0;
         ctx->frame_ready = 1;
+    }
+    else if (ctx->q_count < PROTO_RX_QUEUE_LEN)
+    {
+        memcpy(&ctx->queue[ctx->q_head], &ctx->frame, sizeof(protocol_frame_t));
+        ctx->q_head = (uint8_t)((ctx->q_head + 1) % PROTO_RX_QUEUE_LEN);
+        ctx->q_count++;
     }
     else
     {

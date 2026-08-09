@@ -720,11 +720,32 @@ void Audio_Resume(void)
     CS43131_g.status_dirty = 1;
 }
 
-audio_state_t Audio_GetState(void) { return CS43131_g.audio_state; }
+/* 全局状态按各通道实时聚合，不再信任 CS43131_g.audio_state 的赋值：
+ * 单全局变量会被其他通道的生命周期覆盖——例如 ch0 暂停时 ch1 播放短音效，
+ * ChannelStart 把全局置 PLAYING，音效结束又把全局置 IDLE，
+ * ch0 的 PAUSED 状态被吞掉（音乐 app 暂停后误判为 IDLE 重新 play 而非 resume）。 */
+audio_state_t Audio_GetState(void)
+{
+    uint8_t i;
+    uint8_t any_active = 0, any_playing = 0, any_paused = 0;
+
+    for (i = 0; i < AUDIO_MAX_CHANNELS; i++) {
+        const audio_channel_t *ch = &CS43131_g.channels[i];
+        if (!ch->active) continue;
+        any_active = 1;
+        if (ch->state == AUDIO_STATE_PLAYING) any_playing = 1;
+        else if (ch->state == AUDIO_STATE_PAUSED) any_paused = 1;
+    }
+
+    if (any_playing) return AUDIO_STATE_PLAYING;
+    if (any_paused)  return AUDIO_STATE_PAUSED;
+    if (any_active)  return AUDIO_STATE_STOPPED;
+    return AUDIO_STATE_IDLE;
+}
 
 uint8_t Audio_IsPlaying(void)
 {
-    return (CS43131_g.audio_state == AUDIO_STATE_PLAYING);
+    return (Audio_GetState() == AUDIO_STATE_PLAYING);
 }
 
 uint8_t Audio_IsStatusDirty(void) { return CS43131_g.status_dirty; }

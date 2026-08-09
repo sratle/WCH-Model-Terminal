@@ -39,9 +39,10 @@ static void sfx_play(const char *path, uint32_t *last_ms)
 {
     if (!g_settings.operation_sound) return;
 
-    /* Never send SFX while another CLI command's response is assembling:
-     * UART_SendCLI resets the assembly buffer — a SFX "play" would wipe an
-     * in-flight ls/cat response and wedge its consumer. */
+    /* Suppress SFX only while a multi-frame CLI response is mid-transfer
+     * (SOF received, EOF pending): sending resets the assembly buffer and
+     * would destroy that response. A sent-but-unanswered command has an
+     * empty assembly buffer and is always safe to interrupt. */
     if (UART_CLI_InFlight()) return;
 
     uint32_t now = ui_get_real_ms();

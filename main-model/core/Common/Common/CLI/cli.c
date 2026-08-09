@@ -1622,7 +1622,7 @@ static void CLI_Cmd_Playst(void)
     uint32_t sec = time_ms / 1000;
     uint32_t min = sec / 60;
     sec = sec % 60;
-    audio_state_t st = Audio_GetState();
+    audio_state_t st = Audio_ChannelGetState(0);  /* playst 面向 ch0 音乐状态 */
     speaker_channel_t spk = Speaker_GetState();
 
     const char *state_str;

@@ -2039,8 +2039,8 @@ uint8_t Submodels_SubDisp_SendSysStatus(submodels_t *submodel)
     /* 版本 */
     status_buf[offset++] = 0x02;
 
-    /* ---- 音频状态：从 CS43131_g 直接读取 ---- */
-    status_buf[offset++] = (uint8_t)CS43131_g.audio_state;
+    /* ---- 音频状态：ch0 通道状态（与 MUSIC_STATUS 一致，不受 ch1 SFX 影响） ---- */
+    status_buf[offset++] = (uint8_t)Audio_ChannelGetState(0);
     status_buf[offset++] = CS43131_g.volume;
 
     /* 播放时长 (uint32 大端) */
