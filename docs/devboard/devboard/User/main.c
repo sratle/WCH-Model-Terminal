@@ -18,6 +18,8 @@
 
 #include "debug.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "BSP/bsp_lcd.h"
 #include "BSP/bsp_key.h"
 #include "BSP/bsp_rgb.h"
@@ -25,6 +27,7 @@
 #include "BSP/bsp_uart.h"
 #include "BSP/bsp_led.h"
 #include "BSP/bsp_hcsr04.h"
+#include "BSP/bsp_cmd.h"
 
 /*=============================================================================
  *  Demo Helpers
@@ -147,22 +150,114 @@ static void Demo_HandleKeys(uint16_t keys, uint16_t prev)
     }
 }
 
+/*=============================================================================
+ *  Console Commands
+ *=============================================================================*/
+
+static int Cmd_Help(int argc, char *argv[])
+{
+    (void)argc; (void)argv;
+    CMD_PrintHelp();
+    return CMD_OK;
+}
+
+/* rgb <id 1-9> <rrggbb hex>  e.g. "rgb 3 ff8000" */
+static int Cmd_Rgb(int argc, char *argv[])
+{
+    long id;
+    unsigned long color;
+    if (argc < 3) return CMD_ERR_USAGE;
+    id    = strtol(argv[1], NULL, 0);
+    color = strtoul(argv[2], NULL, 16);
+    if (id < 1 || id > RGB_LED_COUNT) return CMD_ERR_VALUE;
+    RGB_SetPixelColor((uint8_t)(id - 1), color);
+    RGB_Refresh();
+    printf("rgb %ld <- %06lX\r\n", id, color);
+    return CMD_OK;
+}
+
+static int Cmd_RgbOff(int argc, char *argv[])
+{
+    (void)argc; (void)argv;
+    RGB_Clear();
+    RGB_Refresh();
+    printf("rgb off\r\n");
+    return CMD_OK;
+}
+
+/* led on|off|toggle */
+static int Cmd_Led(int argc, char *argv[])
+{
+    if (argc < 2) return CMD_ERR_USAGE;
+    if      (!strcmp(argv[1], "on"))     LED_On();
+    else if (!strcmp(argv[1], "off"))    LED_Off();
+    else if (!strcmp(argv[1], "toggle")) LED_Toggle();
+    else return CMD_ERR_USAGE;
+    printf("led %s\r\n", LED_Get() ? "on" : "off");
+    return CMD_OK;
+}
+
+/* beep <freq_hz> <ms> */
+static int Cmd_Beep(int argc, char *argv[])
+{
+    long freq, ms;
+    if (argc < 3) return CMD_ERR_USAGE;
+    freq = strtol(argv[1], NULL, 0);
+    ms   = strtol(argv[2], NULL, 0);
+    if (freq <= 0 || ms <= 0 || ms > 5000) return CMD_ERR_VALUE;
+    BUZZER_Beep((uint32_t)freq, (uint32_t)ms);
+    return CMD_OK;
+}
+
+static int Cmd_Dist(int argc, char *argv[])
+{
+    int32_t mm;
+    (void)argc; (void)argv;
+    mm = HCSR04_ReadMm();
+    if (mm >= 0) printf("distance %ld mm\r\n", (long)mm);
+    else         printf("distance out of range\r\n");
+    return CMD_OK;
+}
+
+static int Cmd_Keys(int argc, char *argv[])
+{
+    (void)argc; (void)argv;
+    printf("keys 0x%04X\r\n", KEY_ReadRaw());
+    return CMD_OK;
+}
+
+/* text <x> <y> <string...> - draws on the LCD, transparent background */
+static int Cmd_Text(int argc, char *argv[])
+{
+    long x, y;
+    int  i;
+    if (argc < 4) return CMD_ERR_USAGE;
+    x = strtol(argv[1], NULL, 0);
+    y = strtol(argv[2], NULL, 0);
+    for (i = 3; i < argc; i++) {
+        LCD_DrawText((uint16_t)x, (uint16_t)y, argv[i], LCD_WHITE);
+        x += LCD_TextWidth(argv[i]) + 8;    /* Word + space gap */
+    }
+    return CMD_OK;
+}
+
 /*********************************************************************
- * @fn      Demo_HandleUart
+ * @fn      Demo_RegisterCommands
  *
- * @brief   Drain the RX ring buffer: echo every byte back and show the
- *          received count on the screen.
+ * @brief   Fill the console command table.
  *
  * @return  none
  */
-static void Demo_HandleUart(void)
+static void Demo_RegisterCommands(void)
 {
-    int16_t ch;
-    while ((ch = UART_ReadByte()) >= 0) {
-        UART_SendByte((uint8_t)ch);             /* Echo back */
-        printf("uart rx: 0x%02X '%c'\r\n", (uint8_t)ch,
-               (ch >= 32 && ch < 127) ? ch : '.');
-    }
+    CMD_Register("help",   Cmd_Help,   "help                     - list commands");
+    CMD_Register("rgb",    Cmd_Rgb,    "rgb <id1-9> <rrggbb>     - set one RGB LED");
+    CMD_Register("rgboff", Cmd_RgbOff, "rgboff                   - all RGB LEDs off");
+    CMD_Register("led",    Cmd_Led,    "led on|off|toggle        - user LED");
+    CMD_Register("beep",   Cmd_Beep,   "beep <freq_hz> <ms>      - buzzer beep");
+    CMD_Register("dist",   Cmd_Dist,   "dist                     - read HC-SR04 (mm)");
+    CMD_Register("keys",   Cmd_Keys,   "keys                     - key state mask");
+    CMD_Register("text",   Cmd_Text,   "text <x> <y> <string...> - draw text on LCD");
 }
 
 /*********************************************************************
@@ -205,6 +300,8 @@ int main(void)
     Delay_Init();
 
     UART_Init(115200);          /* Full duplex; printf keeps working   */
+    CMD_Init();                 /* Console line editor + prompt        */
+    Demo_RegisterCommands();
     KEY_Init();
     RGB_Init();
     RGB_SetBrightness(40);      /* Keep the 255-level palette eye-safe */
@@ -229,7 +326,7 @@ int main(void)
             Demo_HandleKeys(keys, prev);
             prev = keys;
         }
-        Demo_HandleUart();
+        CMD_Task();             /* Console: assemble + run commands    */
 
         /* Distance refresh every ~5 loop passes (KEY_Scan blocks 5 ms) */
         if (++dist_div >= 5) {

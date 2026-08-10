@@ -17,6 +17,7 @@ User/
    ├─ bsp_buzzer.h / .c   # 无源蜂鸣器（PB15=TIM1_CH3N 硬件 PWM，定频发声）
    ├─ bsp_led.h / .c      # 板载用户 LED（PC0，低电平点亮）
    ├─ bsp_hcsr04.h / .c   # HC-SR04 超声波测距（Trig=PC14，Echo=PC13，TIM3 计时）
+   ├─ bsp_cmd.h / .c      # 串口命令行框架（注册-解析-执行，非阻塞）
    └─ bsp_uart.h / .c     # USART1 全双工（PA9/PA10→CH340N），RX 环形缓冲
 ```
 
@@ -189,6 +190,78 @@ if (mm >= 0) printf("dist %ld mm\r\n", (long)mm);
 | `LED_On()` / `LED_Off()` / `LED_Toggle()` | 亮 / 灭 / 翻转 |
 | `LED_Set(on)` | 显式设置状态 |
 | `LED_Get()` | 查询当前状态（软件记录） |
+
+## 命令行框架 API（bsp_cmd.h）
+
+在 bsp_uart 的环形缓冲之上提供**命令注册-解析-执行**框架：
+字节流按行装配（支持回显、退格、CR/LF），按空格分词成 argc/argv
+后查表分发。`CMD_Task()` 完全非阻塞，放主循环即可。
+
+| 函数 | 说明 |
+|---|---|
+| `CMD_Init()` | 复位行编辑器并打印提示符（需先 `UART_Init`） |
+| `CMD_Register(name, handler, help)` | 注册命令；handler 原型 `int fn(int argc, char *argv[])` |
+| `CMD_Task()` | 非阻塞轮询：收满一行即执行 |
+| `CMD_ExecuteString(line)` | 不经串口直接执行一条命令（自测/脚本用） |
+| `CMD_PrintHelp()` | 打印命令表 |
+
+handler 返回 `CMD_OK`(0) 静默，`CMD_ERR_USAGE` 自动打印 help 文本，
+`CMD_ERR_VALUE` 打印 invalid value。容量：16 条命令 / 96 字符行长 /
+8 个参数（`bsp_cmd.h` 顶部可改）。
+
+### 接线与使用
+
+串口助手接 USB1（CH340N），**115200 8N1**，行尾任意（CR/LF 均可）。
+上电后出现 `> ` 提示符，直接输入命令回车执行；支持退格修改。
+
+### 内置示例命令（main.c）
+
+```
+help                     - 列出所有命令
+rgb <id 1-9> <rrggbb>    - 设置指定 RGB 灯颜色，如 rgb 3 ff8000
+rgboff                   - 全灭
+led on|off|toggle        - 板载 LED
+beep <freq_hz> <ms>      - 蜂鸣器鸣叫
+dist                     - 打印一次测距结果 (mm)
+keys                     - 打印 16 键状态掩码
+text <x> <y> <string...> - 在屏幕上画文字
+```
+
+### 如何新增一条命令（三步）
+
+以新增 `fill <rrggbb>`（全屏填充颜色）为例：
+
+**第 1 步**：在 main.c 写处理函数。`argv[0]` 是命令名本身，参数从
+`argv[1]` 开始；参数不足时返回 `CMD_ERR_USAGE`，框架会自动打印你在
+注册时写的用法文本：
+
+```c
+static int Cmd_Fill(int argc, char *argv[])
+{
+    unsigned long color;
+    if (argc < 2) return CMD_ERR_USAGE;          /* 参数不够 → 打印用法 */
+    color = strtoul(argv[1], NULL, 16);          /* 16 进制解析颜色     */
+    LCD_Fill((uint16_t)color);
+    printf("fill %06lX\r\n", color);             /* 串口回执（可省略）  */
+    return CMD_OK;
+}
+```
+
+**第 2 步**：在 `Demo_RegisterCommands()` 里注册一行：
+
+```c
+CMD_Register("fill", Cmd_Fill, "fill <rrggbb> - fill screen with color");
+```
+
+**第 3 步**：烧录后串口输入 `fill f800` 即全屏变红。
+
+要点：
+- 数值解析用 `strtol/strtoul`，第二个参数填 `NULL`，base 填 0 可
+  自动识别 `0x` 前缀和十进制，填 16 强制十六进制
+- handler 里**不要用长阻塞操作**（如长延时），否则串口收流会堆积；
+  非要阻塞时确保小于 RX 缓冲消化能力（256 字节）
+- 想做"立即执行单字符"类交互（如方向键控制），不走本框架，直接在
+  主循环用 `UART_ReadByte()` 取字节即可，二者互不干扰
 
 ## 串口 API（bsp_uart.h）
 
