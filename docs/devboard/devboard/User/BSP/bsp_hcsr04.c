@@ -85,7 +85,7 @@ void HCSR04_Init(void)
     GPIO_Init(HCSR04_ECHO_PORT, &gpio);
 
     /* TIM3: 1 MHz free-running up counter, full 16-bit period */
-    tim.TIM_Prescaler     = (uint16_t)((SystemCoreClock / HCSR04_TIMER_HZ) - 1);
+    tim.TIM_Prescaler     = (uint16_t)((SystemCoreClock / 1000) - 1);
     tim.TIM_CounterMode   = TIM_CounterMode_Up;
     tim.TIM_Period        = 0xFFFF;
     tim.TIM_ClockDivision = TIM_CKD_DIV1;
